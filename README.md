@@ -33,6 +33,7 @@ ROCK adopts a client-server architecture, supports different levels of isolation
 [Installation](https://alibaba.github.io/ROCK/docs/installation)  
 [Quick Start](https://alibaba.github.io/ROCK/docs/quickstart)  
 [Configuration](https://alibaba.github.io/ROCK/docs/configuration)  
+[API References](https://alibaba.github.io/ROCK/docs/api)
 
 ---
 Intall ROCK with `pip` or source:
