@@ -28,7 +28,7 @@
 4. [Quick Start](#-quick-start)
    - [Project Management](#project-management)
      - [Important Notes](#important-notes)
-   - [Using GEM Protocol Environment](#using-gem-protocol-environment)
+   - [Using Env Protocol](#using-env-protocol)
    - [Sandbox SDK Usage](#sandbox-sdk-usage)
 5. [System Architecture](#-system-architecture)
    - [Technical Components](#technical-components)
@@ -57,14 +57,12 @@ ROCK adopts a client-server architecture, uses Docker for containerization, and 
 
 ## 🚀 Core Features
 
-* **Sandbox Management**: Create and manage isolated development environments with resource limits
-* **SDK Interface**: Clean Python SDK interface supporting all core operations
-* **GEM Protocol Compatible**: Compatible with GEM environment interface, providing unified access to reinforcement learning environments
-* **Remote Execution**: Execute commands in remote sandbox environments via HTTP API
-* **Auto Cleanup**: Automatically clean up idle sandboxes after configurable time
-* **File Operations**: Upload and download files between sandbox environments
-* **Concurrent Testing**: Supports launching multiple independent sandbox environments simultaneously for concurrent testing
-* **Optional Read-Write Separation Architecture**: Supports optional read-write separation configuration to improve system performance and scalability
+* **GEM Environment Support**: Compatible with GEM Env protocols environment interactions
+* **Sandbox Runtime**: Stateful runtime environments with multiple isolation mechanisms to ensure consistency and security
+* **Flexible Deployment**: Supports different deployment methods for diverse environment requirements and Operating System
+* **Unified SDK Interface**: Clean Python SDK for Env and Sandbox interaction
+* **Layered Service Architecture**: Distributed Admin, Worker, and Rocklet architecture for scalable resource management
+* **Efficient Resource Management**: Automatic sandbox lifecycle management with configurable resource allocation
 
 ---
 
@@ -111,7 +109,7 @@ If you don't want to use uv to manage the environment, you can refer to [install
 
 4. **OS Support**: ROCK recommends managing environments on the same operating system, such as managing Linux image environments on a Linux system. However, it also supports cross-operating system level image management, for example, launching Ubuntu images on MacOS. For specific details, please refer to the MacOS Launch section in [quickstart.md](docs/docs/rock/quickstart.md)
 
-### Using GEM Protocol Environment
+### Using Env Protocol
 ROCK is fully compatible with the GEM protocol, providing standardized environment interfaces:
 
 ```python
@@ -163,43 +161,23 @@ if __name__ == "__main__":
 
 ## 🛠️ System Architecture
 
-### Technical Components
+### ROCK Service Architecture
+The service layer implements a distributed architecture with three core node roles:
 
-#### SDK Components
-- **Sandbox Client**: Python SDK for interacting with remote sandbox environments
-- **Environment Management**: Tools for building and managing development environments
-
-#### Admin Management Server
-Backend service for sandbox orchestration, supporting optional read-write separation architecture to improve performance and scalability:
-- **Write Cluster**: Handles sandbox creation/destruction and other write operations
-- **Read Cluster**: (Optional) Handles execution requests for existing sandboxes
-- **API Endpoints**: RESTful API for sandbox management
-
-#### Support Read-Write Separation Architecture
-ROCK supports optional read-write separation architecture, routing different types of operations to dedicated server clusters to improve performance:
-
-**Write Cluster Responsibilities**:
-- Sandbox environment creation and destruction
-- Other operations that modify system state
-
-**Read Cluster Responsibilities** (Optional):
-- Sandbox status queries
-- Command execution
-- File upload/download
-- Session management operations
-
-The read cluster is designed to reduce Ray pressure by directly managing sandboxes without going through an actor again, thereby improving overall system performance and response speed.
-
-By default, ROCK uses a single cluster to handle all operations. When read-write separation is configured, the system routes read operations and write operations to different clusters to improve performance and scalability.
+- **Admin**: The scheduling node responsible for deploying Environments as Sandboxes and managing Sandbox resource scheduling and allocation
+- **Worker**: The working node that allocates machine physical resources to Sandboxes and executes the specific Sandbox runtime
+- **Rocklet**: A lightweight proxy service component that handles SDK-to-Sandbox Action communication and supports external internet service access
 
 ### Core Technologies
-- **Container Management**: Container orchestration using Docker SDK
-- **Web Framework**: Management services provided using FastAPI and uvicorn
-- **Distributed Computing**: Distributed task processing using Ray
-- **Concurrent Support**: Supports launching multiple independent sandbox environments simultaneously for concurrent testing, fully utilizing system resources
+- **Distributed Architecture**: Multi-node design with Admin, Worker, and Rocklet components for scalability
+- **Runtime Isolation**: Stateful sandbox runtimes with multiple isolation mechanisms
+- **Flexible Deployment**: Support for different deployment methods for diverse environment requirements and Operating System
+- **Protocol Compatibility**: Support for multiple interaction protocols 
+- **Container Orchestration**: Docker-based container management with resource allocation
 
-### GEM Protocol Support
-ROCK is compatible with the GEM protocol, providing the following standard interfaces:
+
+#### GEM Protocol Support
+ROCK maintains compatibility with GEM interfaces for reinforcement learning environments:
 - `make(env_id)`: Create environment instance
 - `reset(seed)`: Reset environment state
 - `step(action)`: Execute action and return results
@@ -278,7 +256,7 @@ Special thanks to:
 ---
 
 ## 🤝 About [ROCK & ROLL Team]
-ROCK is a project jointly developed by Taotian Future Living Lab and Alibaba AI Engine Team, with a strong emphasis on pioneering the future of Reinforcement Learning (RL). Our mission is to explore and shape innovative forms of future living powered by advanced RL technologies. If you are passionate about the future of RL and want to be part of its evolution, we warmly welcome you to join us! 
+ROCK is a project jointly developed by Taotian Future Life Lab and Alibaba AI Engine Team, with a strong emphasis on pioneering the future of Reinforcement Learning (RL). Our mission is to explore and shape innovative forms of future living powered by advanced RL technologies. If you are passionate about the future of RL and want to be part of its evolution, we warmly welcome you to join us! 
 
 For more information about **ROLL**, please visit:
 - [Official Documentation](https://alibaba.github.io/ROLL/)
