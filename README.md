@@ -53,7 +53,7 @@ uv sync --all-extras
 source .venv/bin/activate
 
 # Start admin server
-uv run admin --env local
+rock admin start
 ```
 
 **Notes**: ROCK depends on Docker and uv tools for environment management.

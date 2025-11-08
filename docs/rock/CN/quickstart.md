@@ -91,7 +91,7 @@ python -c "import rock; print("Hello ROCK")
 source .venv/bin/activate
 
 # 启动 ROCK Admin 服务（本地环境）
-admin --env local
+rock admin start
 ```
 
 服务启动后，您将看到类似以下的输出：

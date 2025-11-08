@@ -88,7 +88,7 @@ After activating the virtual environment, start the ROCK Admin service on projec
 source .venv/bin/activate
 
 # Start ROCK Admin service (local environment)
-admin --env local
+rock admin start
 ```
 
 After the service starts, you will see output similar to the following:
