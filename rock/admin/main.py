@@ -25,7 +25,7 @@ from rock.utils import sandbox_id_ctx_var
 from rock.utils.providers import RedisProvider
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--env", type=str, default="dev")
+parser.add_argument("--env", type=str, default="local")
 parser.add_argument("--role", type=str, default="write", choices=["write", "read"])
 parser.add_argument("--port", type=int, default=8080)
 
@@ -45,7 +45,6 @@ async def lifespan(app: FastAPI):
     # init redis provider
     if args.env == "local":
         redis_provider = None
-
     else:
         redis_provider = RedisProvider(
             host=rock_config.redis.host,
