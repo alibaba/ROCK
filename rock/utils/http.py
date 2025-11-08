@@ -22,7 +22,7 @@ class HttpUtils:
                 return response.json()
             except Exception as e:
                 logging.exception(f"Failed to post to {url}: {e}")
-                raise Exception(f"Post request error for {url}: {e}") from e
+                raise e
 
     @staticmethod
     async def get(url: str, headers: dict) -> dict:
@@ -34,7 +34,7 @@ class HttpUtils:
                 return response.json()
             except Exception as e:
                 logging.exception(f"Failed to get from {url}: {e}")
-                raise Exception(f"Post request error for {url}: {e}") from e
+                raise e
 
     @staticmethod
     async def post_multipart(
@@ -87,7 +87,7 @@ class HttpUtils:
 
             except Exception as e:
                 logging.exception(f"Failed to post multipart to {url}: {e}")
-                raise Exception(f"Post request error for {url}: {e}") from e
+                raise e
             
     @staticmethod
     def _process_file_data(file_data: BinaryIO | bytes | tuple) -> tuple:
