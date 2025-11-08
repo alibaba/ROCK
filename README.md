@@ -278,7 +278,7 @@ Special thanks to:
 ---
 
 ## 🤝 About [ROCK & ROLL Team]
-ROCK is a project jointly developed by Taotian Future Life Lab and Alibaba AI Engine Team, with a strong emphasis on pioneering the future of Reinforcement Learning (RL). Our mission is to explore and shape innovative forms of future living powered by advanced RL technologies. If you are passionate about the future of RL and want to be part of its evolution, we warmly welcome you to join us! 
+ROCK is a project jointly developed by Taotian Future Living Lab and Alibaba AI Engine Team, with a strong emphasis on pioneering the future of Reinforcement Learning (RL). Our mission is to explore and shape innovative forms of future living powered by advanced RL technologies. If you are passionate about the future of RL and want to be part of its evolution, we warmly welcome you to join us! 
 
 For more information about **ROLL**, please visit:
 - [Official Documentation](https://alibaba.github.io/ROLL/)
