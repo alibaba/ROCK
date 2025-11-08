@@ -2,6 +2,8 @@ import argparse
 import subprocess
 import signal
 import psutil
+import time
+import asyncio
 
 from rock.cli.command.command import Command as CliCommand
 from rock.logger import init_logger
@@ -54,22 +56,49 @@ class AdminCommand(CliCommand):
                 print("No admin processes found running")
                 return
 
-            # Stop the processes
+            # Stop the processes gracefully
             stopped_count = 0
             for pid in admin_processes:
                 try:
                     proc = psutil.Process(pid)
+                    
+                    # First try graceful termination
                     proc.terminate()
-                    stopped_count += 1
-                    logger.info(f"Terminated admin process with PID: {pid}")
+                    logger.info(f"Sent SIGTERM to admin process with PID: {pid}")
+                    
+                    # Wait for process to terminate gracefully
+                    try:
+                        proc.wait(timeout=5)  # Wait up to 5 seconds
+                        stopped_count += 1
+                        logger.info(f"Admin process {pid} terminated gracefully")
+                    except psutil.TimeoutExpired:
+                        # If graceful termination fails, force kill
+                        logger.warning(f"Process {pid} did not terminate gracefully, forcing kill")
+                        try:
+                            proc.kill()
+                            proc.wait(timeout=2)
+                            stopped_count += 1
+                            logger.info(f"Admin process {pid} killed forcefully")
+                        except (psutil.NoSuchProcess, psutil.TimeoutExpired):
+                            logger.warning(f"Could not kill process {pid}")
+                            
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    logger.warning(f"Could not terminate process with PID: {pid}")
+                    logger.warning(f"Could not access process with PID: {pid}")
+                except Exception as proc_error:
+                    logger.error(f"Error handling process {pid}: {proc_error}")
 
             if stopped_count > 0:
                 print(f"Successfully stopped {stopped_count} admin process(es)")
+                
+                # Give a moment for cleanup
+                await asyncio.sleep(0.5)
             else:
                 print("No admin processes could be stopped")
 
+        except asyncio.CancelledError:
+            # Handle the case where the asyncio task is cancelled due to Ray's signal handling
+            logger.info("Admin stop operation was cancelled, but processes should be terminated")
+            print("Admin stop operation completed (process termination signal sent)")
         except Exception as e:
             logger.error(f"Error stopping admin service: {e}")
             print(f"Error stopping admin service: {e}")
