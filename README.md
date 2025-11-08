@@ -26,11 +26,13 @@ ROCK (Reinforcement Open Construction Kit) is a easy-to-use, and scalable sandbo
 ROCK adopts a client-server architecture, supports different levels of isolation mechanisms to ensure stable environment operation, and supports integration with various reinforcement learning training frameworks through SDK. ROCK not only supports traditional sandbox management functions but also is compatible with GEM-like protocols, providing standardized interfaces for reinforcement learning environments.
 
 ## 🚀 Get Started
-[Documents](https://alibaba.github.io/ROLL/)
+[Documents](https://alibaba.github.io/ROCK/)
+
 ### Quick Start
-[Installation.md](docs/rock/installation.md)
-[Quick Start](docs/rock/quickstart.md)
-[Configuration](docs/rock/configuration.md)
+
+[Installation](https://alibaba.github.io/ROCK/docs/installation)  
+[Quick Start](https://alibaba.github.io/ROCK/docs/quickstart)  
+[Configuration](https://alibaba.github.io/ROCK/docs/configuration)  
 
 ---
 Intall ROCK with `pip` or source:
@@ -53,13 +55,12 @@ source .venv/bin/activate
 **Notes**: ROCK depends on Docker and uv tools for environment management.
 
 1. **Python Environment Configuration**: To ensure ROCK can correctly mount the project and virtual environment along with its base Python interpreter, it is strongly recommended to use uv-managed Python environments to create virtual environments rather than system Python. This can be achieved through the `--python-preference only-managed` parameter.
-If you don't want to use uv to manage the environment, you can refer to [Installation](docs/rock/installation.md) for installation and refer to [Configuration](docs/rock/configuration.md) for UV runtime environment startup.
 
 2. **Distributed Environment Consistency**: In distributed multi-machine environments, please ensure that all machines use the same root Python interpreter for ROCK and uv Python configurations to avoid environment inconsistencies.
 
 3. **Dependency Management**: Use the `uv` command to install all dependency groups, ensuring consistency between development, testing, and production environments.
 
-4. **OS Support**: ROCK recommends managing environments on the same operating system, such as managing Linux image environments on a Linux system. However, it also supports cross-operating system level image management, for example, launching Ubuntu images on MacOS. For specific details, please refer to the MacOS Launch section in [Quick Start](docs/rock/quickstart.md)
+4. **OS Support**: ROCK recommends managing environments on the same operating system, such as managing Linux image environments on a Linux system. However, it also supports cross-operating system level image management, for example, launching Ubuntu images on MacOS. 
 
 ### Using Env Protocol
 ROCK is fully compatible with the GEM protocol, providing standardized environment interfaces:
