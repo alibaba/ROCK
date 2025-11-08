@@ -70,8 +70,8 @@ Examples:
   # Run sandbox interactively
   rock sandbox run --image python:3.11 --interactive
 
-  # Run gateway service
-  rock service run
+  # Start admin service
+  rock admin start
         """,
     )
 
