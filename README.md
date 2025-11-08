@@ -59,7 +59,7 @@ If you don't want to use uv to manage the environment, you can refer to [Install
 
 3. **Dependency Management**: Use the `uv` command to install all dependency groups, ensuring consistency between development, testing, and production environments.
 
-4. **OS Support**: ROCK recommends managing environments on the same operating system, such as managing Linux image environments on a Linux system. However, it also supports cross-operating system level image management, for example, launching Ubuntu images on MacOS. For specific details, please refer to the MacOS Launch section in [quickstart.md](docs/docs/rock/quickstart.md)
+4. **OS Support**: ROCK recommends managing environments on the same operating system, such as managing Linux image environments on a Linux system. However, it also supports cross-operating system level image management, for example, launching Ubuntu images on MacOS. For specific details, please refer to the MacOS Launch section in [Quick Start](docs/rock/quickstart.md)
 
 ### Using Env Protocol
 ROCK is fully compatible with the GEM protocol, providing standardized environment interfaces:
