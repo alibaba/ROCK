@@ -25,50 +25,13 @@ ROCK (Reinforcement Open Construction Kit) is a easy-to-use, and scalable sandbo
 
 ROCK adopts a client-server architecture, supports different levels of isolation mechanisms to ensure stable environment operation, and supports integration with various reinforcement learning training frameworks through SDK. ROCK not only supports traditional sandbox management functions but also is compatible with GEM-like protocols, providing standardized interfaces for reinforcement learning environments.
 
-## Table of Contents
-
-* [Quick Start](#-quick-start)
-   - [Project Management](#project-management)
-   - [Using Env Protocol](#using-env-protocol)
-   - [Sandbox SDK Usage](#sandbox-sdk-usage)
-* [Core Features](#-core-features)
-* [Latest Updates](#-latest-updates)
-*  [System Architecture](#-system-architecture)
-   - [Technical Components](#technical-components)
-   - [Core Technologies](#core-technologies)
-   - [GEM Protocol Support](#gem-protocol-support)
-* [Configuration](#-configuration)
-   - [Server Configuration](#server-configuration)
-   - [Development Environment Configuration](#development-environment-configuration)
-* [Contribution](#-contribution)
-   - [Development Setup](#development-setup)
-   - [Reporting Issues](#reporting-issues)
-   - [Code Style](#code-style)
+## 🚀 Get Started
+[Documents](https://alibaba.github.io/ROLL/)
+### Quick Start
+[Quick Start](docs/docs/rock/quickstart.md)
 
 ---
 
-## 🚀 Core Features
-
-* **Multi-Protocol Action Support**: Supports multiple action protocols including GEM, Bash, and Chat.
-* **Sandbox Runtime**: Stateful runtime environments with multiple isolation mechanisms to ensure consistency and security
-* **Flexible Deployment**: Supports different deployment methods for diverse environment requirements and Operating System
-* **Unified SDK Interface**: Clean Python SDK for Env and Sandbox interaction
-* **Layered Service Architecture**: Distributed Admin, Worker, and Rocklet architecture for scalable resource management
-* **Efficient Resource Management**: Automatic sandbox lifecycle management with configurable resource allocation
-
----
-
-## 📢 Latest Updates
-
-| 📣 Update Content |
-|:-----------|
-| **[Latest]** 🎉 ROCK v0.2.0 Released |
-
----
-
-## 🚀 Quick Start
-
-### Project Management
 ROCK uses `uv` for dependency management and virtual environment management, ensuring fast and consistent environment configuration:
 
 ```bash
@@ -85,10 +48,6 @@ uv sync --all-extras
 # Activate virtual environment
 source .venv/bin/activate
 ```
-
-You can find more details in [quickstart.md](docs/docs/rock/quickstart.md)
-
-#### Important Notes
 
 **Important**: ROCK depends on Docker and uv tools for environment management.
 
@@ -148,6 +107,25 @@ async def run_sandbox():
 if __name__ == "__main__":
     asyncio.run(run_sandbox())
 ```
+
+---
+
+## 🚀 Core Features
+
+* **Multi-Protocol Action Support**: Supports multiple action protocols including GEM, Bash, and Chat.
+* **Sandbox Runtime**: Stateful runtime environments with multiple isolation mechanisms to ensure consistency and security
+* **Flexible Deployment**: Supports different deployment methods for diverse environment requirements and Operating System
+* **Unified SDK Interface**: Clean Python SDK for Env and Sandbox interaction
+* **Layered Service Architecture**: Distributed Admin, Worker, and Rocklet architecture for scalable resource management
+* **Efficient Resource Management**: Automatic sandbox lifecycle management with configurable resource allocation
+
+---
+
+## 📢 Latest Updates
+
+| 📣 Update Content |
+|:-----------|
+| **[Latest]** 🎉 ROCK v0.2.0 Released |
 
 ---
 
