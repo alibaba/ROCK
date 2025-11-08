@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 authors = [{ name = "chatos@alibaba" }]
 requires-python = "<4.0,>=3.10"
-name = "rock-rl"
+name = "rl-rock"
 version = "0.2.0"
 description = "ROCK-Reinforcement Open Construction Kit"
 readme = "README.md"
