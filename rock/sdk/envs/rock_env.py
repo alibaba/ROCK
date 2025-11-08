@@ -4,7 +4,9 @@ import httpx
 
 from rock import env_vars
 from rock.actions import Env
+from rock.logger import init_logger
 
+logger = init_logger(__name__)
 
 class RockEnv(Env):
     def __init__(self, env_id: str) -> None:
@@ -133,6 +135,8 @@ class RockEnv(Env):
         # Unified timeout configuration
         timeout = httpx.Timeout(timeout=300.0, connect=300.0, read=300.0)
         try:
+            logger.debug(f"Calling Admin API {url} with params: {params}")
+            
             with httpx.Client(timeout=timeout) as client:
                 response = client.post(url, headers=headers, json=params)
                 response.raise_for_status()
@@ -140,8 +144,8 @@ class RockEnv(Env):
         except httpx.HTTPStatusError as e:
             raise Exception(f"HTTP error {e.response.status_code} for {endpoint}: {e.response.text}") from e
         except httpx.RequestError as e:
-            raise Exception(f"Request error for {endpoint}: {e}") from e
+            raise Exception(f"Request error for {url}: {e}") from e
         except ValueError as e:
-            raise Exception(f"JSON decode error for {endpoint}: {e}") from e
+            raise Exception(f"JSON decode error for {url}: {e}") from e
         except Exception as e:
-            raise Exception(f"Unexpected error calling {endpoint}: {e}") from e
+            raise Exception(f"Unexpected error calling {url}: {e}") from e

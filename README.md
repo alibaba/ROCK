@@ -70,7 +70,7 @@ ROCK adopts a client-server architecture, uses Docker for containerization, and 
 
 | 📣 Update Content |
 |:-----------|
-| **[Latest]** 🎉 ROCK Released |
+| **[Latest]** 🎉 ROCK v0.2.0 Released |
 
 ---
 
