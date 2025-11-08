@@ -28,11 +28,12 @@ ROCK adopts a client-server architecture, supports different levels of isolation
 ## 🚀 Get Started
 [Documents](https://alibaba.github.io/ROLL/)
 ### Quick Start
-[Quick Start](docs/docs/rock/quickstart.md)
+[Installation.md](docs/rock/installation.md)
+[Quick Start](docs/rock/quickstart.md)
+[Configuration](docs/rock/configuration.md)
 
 ---
-
-ROCK uses `uv` for dependency management and virtual environment management, ensuring fast and consistent environment configuration:
+Intall ROCK with `pip` or source:
 
 ```bash
 # Clone repository
@@ -49,10 +50,10 @@ uv sync --all-extras
 source .venv/bin/activate
 ```
 
-**Important**: ROCK depends on Docker and uv tools for environment management.
+**Notes**: ROCK depends on Docker and uv tools for environment management.
 
 1. **Python Environment Configuration**: To ensure ROCK can correctly mount the project and virtual environment along with its base Python interpreter, it is strongly recommended to use uv-managed Python environments to create virtual environments rather than system Python. This can be achieved through the `--python-preference only-managed` parameter.
-If you don't want to use uv to manage the environment, you can refer to [installation.md](docs/docs/rock/installation.md) for installation and refer to [configuration.md](docs/docs/rock/configuration.md) for UV runtime environment startup.
+If you don't want to use uv to manage the environment, you can refer to [Installation](docs/rock/installation.md) for installation and refer to [Configuration](docs/rock/configuration.md) for UV runtime environment startup.
 
 2. **Distributed Environment Consistency**: In distributed multi-machine environments, please ensure that all machines use the same root Python interpreter for ROCK and uv Python configurations to avoid environment inconsistencies.
 
@@ -227,7 +228,7 @@ Special thanks to:
 
 ---
 
-## 🤝 About [ROCK & ROLL Team]
+## 🤝 About [ROCK n ROLL Team]
 ROCK is a project jointly developed by Taotian Future Living Lab and Alibaba AI Engine Team, with a strong emphasis on pioneering the future of Reinforcement Learning (RL). Our mission is to explore and shape innovative forms of future living powered by advanced RL technologies. If you are passionate about the future of RL and want to be part of its evolution, we warmly welcome you to join us! 
 
 For more information about **ROLL**, please visit:
