@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 authors = [{ name = "chatos@alibaba" }]
 requires-python = "<4.0,>=3.10"
-name = "rock-rl"
+name = "rl-rock"
 version = "0.2.0"
 description = "ROCK-Reinforcement Open Construction Kit"
 readme = "README.md"
@@ -30,7 +30,7 @@ dependencies = [
 [project.optional-dependencies]
 admin = [
     # Include SDK and Rocklet dependencies
-    "rock-rl[rocklet]",
+    "rl-rock[rocklet]",
     # Admin specific dependencies
     "ray[default]==2.43.0",
     "nacos-sdk-python>=0.1.14",
@@ -65,9 +65,9 @@ builder = [
 ]
 
 all = [
-    "rock-rl[admin]",
-    "rock-rl[rocklet]",
-    "rock-rl[builder]",
+    "rl-rock[admin]",
+    "rl-rock[rocklet]",
+    "rl-rock[builder]",
 ]
 
 [project.scripts]
