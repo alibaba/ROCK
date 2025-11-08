@@ -117,6 +117,10 @@ async def base_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content=exc_content)
 
 
+@app.get("/")
+async def root():
+    return {"message": "hello, ROCK!"}
+
 @app.middleware("http")
 async def log_requests_and_responses(request: Request, call_next):
     req_logger = init_logger("accessLog")
