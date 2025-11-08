@@ -36,7 +36,7 @@ ROCK adopts a client-server architecture, supports different levels of isolation
 [API References](https://alibaba.github.io/ROCK/docs/api)
 
 ---
-Intall ROCK with `pip` or source:
+Intall ROCK with `pip` or source, and start the local admin server:
 
 ```bash
 # Clone repository
@@ -51,6 +51,9 @@ uv sync --all-extras
 
 # Activate virtual environment
 source .venv/bin/activate
+
+# Start admin server
+uv run admin --env local
 ```
 
 **Notes**: ROCK depends on Docker and uv tools for environment management.
@@ -180,7 +183,7 @@ admin --env local
 ```
 
 > **Service Information**: The ROCK Local Admin service runs by default on `http://127.0.0.1:8080`. You can access this address through your browser to view the management interface.
-For additional configuration information such as logs and Rocklet service startup methods, please refer to [configuration.md](docs/docs/rock/configuration.md)
+For additional configuration information such as logs and Rocklet service startup methods, please refer to [Configuration](docs/rock/configuration.md)
 
 ### Development Environment Configuration
 ```bash

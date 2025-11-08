@@ -3994,7 +3994,7 @@ wheels = [
 ]
 
 [[package]]
-name = "rock-rl"
+name = "rl-rock"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [
@@ -4118,10 +4118,10 @@ requires-dist = [
     { name = "redis", marker = "extra == 'admin'" },
     { name = "requests" },
     { name = "rich" },
-    { name = "rock-rl", extras = ["admin"], marker = "extra == 'all'" },
-    { name = "rock-rl", extras = ["builder"], marker = "extra == 'all'" },
-    { name = "rock-rl", extras = ["rocklet"], marker = "extra == 'admin'" },
-    { name = "rock-rl", extras = ["rocklet"], marker = "extra == 'all'" },
+    { name = "rl-rock", extras = ["admin"], marker = "extra == 'all'" },
+    { name = "rl-rock", extras = ["builder"], marker = "extra == 'all'" },
+    { name = "rl-rock", extras = ["rocklet"], marker = "extra == 'admin'" },
+    { name = "rl-rock", extras = ["rocklet"], marker = "extra == 'all'" },
     { name = "sqlmodel", marker = "extra == 'admin'" },
     { name = "swebench", marker = "extra == 'builder'" },
     { name = "twisted", marker = "extra == 'rocklet'" },
