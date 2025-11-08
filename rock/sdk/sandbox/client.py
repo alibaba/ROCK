@@ -108,7 +108,11 @@ class Sandbox:
             "memory": self.config.memory,
             "cpus": self.config.cpus,
         }
-        response = await HttpUtils.post(url, headers, data)
+        try:
+            response = await HttpUtils.post(url, headers, data)
+        except Exception as e:
+            raise Exception(f"Failed to start standbox: {str(e)}, post url {url}")
+        
         logging.debug(f"Start container response: {response}")
         if "Success" != response.get("status"):
             raise Exception(f"Failed to start container: {response}")
@@ -155,7 +159,11 @@ class Sandbox:
             "container_name": self._sandbox_id,
             "sandbox_id": self._sandbox_id,
         }
-        response = await HttpUtils.post(url, headers, data)
+        try:
+            response = await HttpUtils.post(url, headers, data)
+        except Exception as e:
+            raise Exception(f"Failed to execute command {data}: {str(e)}, post url {url}")
+        
         logging.debug(f"Execute command response: {response}")
         if "Success" != response.get("status"):
             logging.info(f"Failed to execute command {data}, response: {response}")
@@ -206,7 +214,11 @@ class Sandbox:
             "sandbox_id": self._sandbox_id,
             **create_session_request.model_dump(),
         }
-        response = await HttpUtils.post(url, headers, data)
+        try:    
+            response = await HttpUtils.post(url, headers, data)
+        except Exception as e:
+            raise Exception(f"Failed to create session: {str(e)}, post url {url}")
+        
         logging.debug(f"Create session response: {response}")
         if "Success" != response.get("status"):
             raise Exception(f"Failed to execute command: {response}")
@@ -228,7 +240,11 @@ class Sandbox:
             "sandbox_id": self._sandbox_id,
             "check": action.check,
         }
-        response = await HttpUtils.post(url, headers, data)
+        try:
+            response = await HttpUtils.post(url, headers, data)
+        except Exception as e:
+            raise Exception(f"Failed to run in session: {str(e)}, post url {url}")
+        
         logging.debug(f"Run in session response: {response}")
         if "Success" != response.get("status"):
             raise Exception(f"Failed to execute command: {response}")
