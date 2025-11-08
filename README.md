@@ -57,7 +57,7 @@ ROCK adopts a client-server architecture, uses Docker for containerization, and 
 
 ## 🚀 Core Features
 
-* **GEM Environment Support**: Compatible with GEM Env protocols environment interactions
+* **Multi-Protocol Action Support**: Supports multiple action protocols including GEM, Bash, and Chat.
 * **Sandbox Runtime**: Stateful runtime environments with multiple isolation mechanisms to ensure consistency and security
 * **Flexible Deployment**: Supports different deployment methods for diverse environment requirements and Operating System
 * **Unified SDK Interface**: Clean Python SDK for Env and Sandbox interaction
@@ -163,10 +163,12 @@ if __name__ == "__main__":
 
 ### ROCK Service Architecture
 The service layer implements a distributed architecture with three core node roles:
-
-- **Admin**: The scheduling node responsible for deploying Environments as Sandboxes and managing Sandbox resource scheduling and allocation
-- **Worker**: The working node that allocates machine physical resources to Sandboxes and executes the specific Sandbox runtime
-- **Rocklet**: A lightweight proxy service component that handles SDK-to-Sandbox Action communication and supports external internet service access
+- **ROCK SDK**: Environment development toolkit that provides development tools to assist developers in building, registering, deploying, and accessing Environments.
+- **ROCK CLI**: Command-line interface tool that helps users manage and operate Environments and Services.
+- **ROCK Admin**: The scheduling node responsible for deploying Environments as Sandboxes and managing Sandbox resource scheduling and allocation
+- **ROCK Worker**: The working node that allocates machine physical resources to Sandboxes and executes the specific Sandbox runtime
+- **ROCK Rocklet**: A lightweight proxy service component that handles SDK-to-Sandbox Action communication and supports external internet service access
+- **ROCK Envhub**: Environment repository that provides registration and storage for Environment data.
 
 ### Core Technologies
 - **Distributed Architecture**: Multi-node design with Admin, Worker, and Rocklet components for scalability
