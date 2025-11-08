@@ -140,9 +140,9 @@ env.close()
 ```python
 import asyncio
 
+from rock.actions import CreateBashSessionRequest
 from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.sandbox.config import SandboxConfig
-from rock.sdk.sandbox.request import CreateBashSessionRequest
 
 
 async def run_sandbox():

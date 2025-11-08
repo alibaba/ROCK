@@ -27,9 +27,10 @@ ROCK SDK provides developers with convenient Python interfaces to use ROCK platf
 
 ```python
 import asyncio
+
+from rock.actions import CreateBashSessionRequest
 from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.sandbox.config import SandboxConfig
-from rock.sdk.sandbox.request import CreateBashSessionRequest
 
 async def run_sandbox():
     """Run sandbox demo with admin server requirement.
