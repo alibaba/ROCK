@@ -4,7 +4,8 @@
 
 # ROCK: Reinforcement Open Construction Kit
 
-<h4>🚀 Reinforcement Learning Environment Toolkit 🚀</h4>
+<h4>🚀 An easy-to-use, massively scalable environment management framework for agentic reinforcement learning
+ 🚀</h4>
 
 <p>
   <a href="https://github.com/alibaba/ROCK/blob/main/LICENSE">
@@ -20,38 +21,29 @@
 
 </div>
 
+ROCK (Reinforcement Open Construction Kit) is a easy-to-use, and scalable sandbox environment management framework, primarily for agentic reinforcement learning environments. It provides tools for building, managing, and scheduling reinforcement learning environments, suitable for development, testing, and research scenarios.
+
+ROCK adopts a client-server architecture, supports different levels of isolation mechanisms to ensure stable environment operation, and supports integration with various reinforcement learning training frameworks through SDK. ROCK not only supports traditional sandbox management functions but also is compatible with GEM-like protocols, providing standardized interfaces for reinforcement learning environments.
+
 ## Table of Contents
 
-1. [Introduction](#introduction)
-2. [Core Features](#-core-features)
-3. [Latest Updates](#-latest-updates)
-4. [Quick Start](#-quick-start)
+* [Quick Start](#-quick-start)
    - [Project Management](#project-management)
-     - [Important Notes](#important-notes)
    - [Using Env Protocol](#using-env-protocol)
    - [Sandbox SDK Usage](#sandbox-sdk-usage)
-5. [System Architecture](#-system-architecture)
+* [Core Features](#-core-features)
+* [Latest Updates](#-latest-updates)
+*  [System Architecture](#-system-architecture)
    - [Technical Components](#technical-components)
-     - [SDK Components](#sdk-components)
-     - [Admin Management Server](#admin-management-server)
-     - [Support Read-Write Separation Architecture](#support-read-write-separation-architecture)
    - [Core Technologies](#core-technologies)
    - [GEM Protocol Support](#gem-protocol-support)
-6. [Configuration](#-configuration)
+* [Configuration](#-configuration)
    - [Server Configuration](#server-configuration)
    - [Development Environment Configuration](#development-environment-configuration)
-7. [Contribution](#-contribution)
+* [Contribution](#-contribution)
    - [Development Setup](#development-setup)
    - [Reporting Issues](#reporting-issues)
    - [Code Style](#code-style)
-8. [License](#-license)
-9. [Acknowledgements](#-acknowledgements)
-
-## Introduction
-
-ROCK (Reinforcement Open Construction Kit) is a comprehensive sandbox environment management framework, primarily for reinforcement learning and AI development environments. It provides tools for building, running, and managing isolated containerized environments, suitable for development, testing, and research scenarios.
-
-ROCK adopts a client-server architecture, uses Docker for containerization, and seamlessly integrates with modern development workflows. ROCK not only supports traditional sandbox management functions but also complies with the GEM protocol, providing standardized interfaces for reinforcement learning environments.
 
 ---
 
