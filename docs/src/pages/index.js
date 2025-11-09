@@ -31,11 +31,14 @@ function HomepageHeader() {
 }
 
 export default function Home() {
-  const { siteConfig } = useDocusaurusContext();
+  const { siteConfig, i18n } = useDocusaurusContext();
   const history = useHistory();
+  const { currentLocale } = i18n;
+
+  const isChinese = currentLocale === 'zh-Hans';
 
   useLayoutEffect(() => {
-    history.push('/ROCK/docs/overview');
+    history.push(isChinese ? '/ROCK/zh-Hans/docs/overview' : '/ROCK/docs/overview');
   }, []);
 
   return (

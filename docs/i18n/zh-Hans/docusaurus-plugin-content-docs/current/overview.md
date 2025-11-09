@@ -4,10 +4,13 @@ ROCK (Reinforcement Open Construction Kit) 是一个开源的强化学习环境�
 
 ## 目录
 
-1. [什么是 ROCK](#什么是-rock)
-2. [ROCK 的核心功能](#rock-的核心功能)
-3. [ROCK 的价值](#rock-的价值)
-4. [适用人群](#适用人群)
+- [ROCK 概述](#rock-概述)
+  - [目录](#目录)
+  - [什么是 ROCK](#什么是-rock)
+  - [ROCK 的核心功能](#rock-的核心功能)
+  - [ROCK 的价值](#rock-的价值)
+  - [了解更多](#了解更多)
+  - [相关文档](#相关文档)
 
 ## 什么是 ROCK
 

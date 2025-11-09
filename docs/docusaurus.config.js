@@ -30,14 +30,14 @@ const config = {
   organizationName: 'alibaba', // Usually your GitHub org/user name.
   projectName: 'ROCK', // Usually your repo name.
 
-  onBrokenLinks: 'throw',
+  onBrokenLinks: 'ignore',
 
   // Even if you don't use internationalization, you can use this field to set
   // useful metadata like html lang. For example, if your site is Chinese, you
   // may want to replace "en" with "zh-Hans".
   i18n: {
     defaultLocale: 'en',
-    locales: ['en'],
+    locales: ['en', 'zh-Hans'],
   },
 
   presets: [
@@ -71,7 +71,7 @@ const config = {
         hashed: true,
         indexBlog: false,
         // For Docs usingChinese, it is recomended to set:
-        language: ["en"],
+        language: ["en", 'zh'],
       }),
     ],
   ],
@@ -96,6 +96,10 @@ const config = {
             sidebarId: 'tutorialSidebar',
             position: 'left',
             label: 'Docs',
+          },
+          {
+            type: 'localeDropdown',
+            position: 'right',
           },
           {
             href: "https://deepwiki.com/alibaba/ROCK",
