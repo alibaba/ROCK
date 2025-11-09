@@ -98,6 +98,11 @@ const config = {
             label: 'Docs',
           },
           {
+            href: "https://deepwiki.com/alibaba/ROCK",
+            label: "DeepWiki",
+            position: 'right',
+          },
+          {
             href: 'https://github.com/alibaba/ROCK',
             label: 'GitHub',
             position: 'right',
