@@ -37,7 +37,11 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    config_file_path = Path(__file__).resolve().parents[2] / env_vars.ROCK_CONFIG_DIR_NAME / f"rock-{args.env}.yml"
+    config_file_path = (
+        Path(__file__).resolve().parents[2] / env_vars.ROCK_CONFIG_DIR_NAME / f"rock-{args.env}.yml"
+        if not env_vars.ROCK_CONFIG
+        else env_vars.ROCK_CONFIG
+    )
     rock_config = RockConfig.from_env(config_file_path)
     env_vars.ROCK_ADMIN_ENV = args.env
     env_vars.ROCK_ADMIN_ROLE = args.role
@@ -119,6 +123,7 @@ async def base_exception_handler(request: Request, exc: Exception):
 @app.get("/")
 async def root():
     return {"message": "hello, ROCK!"}
+
 
 @app.middleware("http")
 async def log_requests_and_responses(request: Request, call_next):
