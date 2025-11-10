@@ -1,0 +1,9 @@
+# MANIFEST.in - Exclude unnecessary files/directories from source distribution
+
+recursive-exclude tests *
+recursive-exclude examples *
+recursive-exclude docs *
+global-exclude *.md *.txt
+prune tests
+prune examples
+prune docs

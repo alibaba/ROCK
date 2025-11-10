@@ -96,6 +96,9 @@ test = [
 [tool.setuptools.packages.find]
 where = ["."]
 
+[tool.setuptools.package-data]
+rock = ["rocklet/local_files/*"]
+
 [[tool.uv.index]]
 url = "https://mirrors.aliyun.com/pypi/simple/"
 default = true
