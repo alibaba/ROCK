@@ -112,7 +112,7 @@ class Sandbox:
             response = await HttpUtils.post(url, headers, data)
         except Exception as e:
             raise Exception(f"Failed to start standbox: {str(e)}, post url {url}")
-        
+
         logging.debug(f"Start container response: {response}")
         if "Success" != response.get("status"):
             raise Exception(f"Failed to start container: {response}")
@@ -163,7 +163,7 @@ class Sandbox:
             response = await HttpUtils.post(url, headers, data)
         except Exception as e:
             raise Exception(f"Failed to execute command {data}: {str(e)}, post url {url}")
-        
+
         logging.debug(f"Execute command response: {response}")
         if "Success" != response.get("status"):
             logging.info(f"Failed to execute command {data}, response: {response}")
@@ -214,11 +214,11 @@ class Sandbox:
             "sandbox_id": self._sandbox_id,
             **create_session_request.model_dump(),
         }
-        try:    
+        try:
             response = await HttpUtils.post(url, headers, data)
         except Exception as e:
             raise Exception(f"Failed to create session: {str(e)}, post url {url}")
-        
+
         logging.debug(f"Create session response: {response}")
         if "Success" != response.get("status"):
             raise Exception(f"Failed to execute command: {response}")
@@ -244,7 +244,7 @@ class Sandbox:
             response = await HttpUtils.post(url, headers, data)
         except Exception as e:
             raise Exception(f"Failed to run in session: {str(e)}, post url {url}")
-        
+
         logging.debug(f"Run in session response: {response}")
         if "Success" != response.get("status"):
             raise Exception(f"Failed to execute command: {response}")
@@ -344,7 +344,7 @@ class Sandbox:
             return WriteFileResponse(success=False, message=f"Failed to write file {path}: upload response: {response}")
         return WriteFileResponse(success=True, message=f"Successfully write content to file {path}")
 
-    async def write_file_directly(self, content: str, path: str) -> WriteFileResponse:
+    async def write_file_by_path(self, content: str, path: str) -> WriteFileResponse:
         url = f"{self._url}/write_file"
         headers = self._build_headers()
         data = {
@@ -409,13 +409,9 @@ class Sandbox:
         return False, timeout_msg
 
     async def upload(self, request: UploadRequest) -> UploadResponse:
-        return await self.aupload(file_path=request.source_path, target_path=request.target_path)
+        return await self.upload_by_path(file_path=request.source_path, target_path=request.target_path)
 
-    @deprecated("Use aupload instead")
     async def upload_by_path(self, file_path: str | Path, target_path: str) -> UploadResponse:
-        return await self.aupload(file_path=file_path, target_path=target_path)
-
-    async def aupload(self, file_path: str | Path, target_path: str) -> UploadResponse:
         path_str = file_path
         file_path = Path(file_path)
         if not file_path.exists():
@@ -461,7 +457,7 @@ class Sandbox:
         result: dict = response.get("result")
         return ReadFileResponse(content=result["content"])
 
-    async def read_file_with_line_range(
+    async def read_file_by_path(
         self, file_path: str, start_line: int, end_line: int, session: str | None = None
     ) -> ReadFileResponse:
         # Pre check
