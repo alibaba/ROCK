@@ -18,7 +18,7 @@ from rock.deployments.abstract import AbstractDeployment
 from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Port, Status
 from rock.deployments.hooks.abstract import CombinedDeploymentHook, DeploymentHook
-from rock.deployments.runtime_env import DockerRuntimeEnv, LocalRuntimeEnv, UvRuntimeEnv
+from rock.deployments.runtime_env import DockerRuntimeEnv, LocalRuntimeEnv, PipRuntimeEnv, UvRuntimeEnv
 from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
 from rock.rocklet import PACKAGE_NAME, REMOTE_EXECUTABLE_NAME
@@ -70,6 +70,8 @@ class DockerDeployment(AbstractDeployment):
             self._runtime_env = LocalRuntimeEnv(self._config.runtime_config)
         elif env_vars.ROCK_WORKER_ENV_TYPE == "uv":
             self._runtime_env = UvRuntimeEnv(self._config.runtime_config)
+        elif env_vars.ROCK_WORKER_ENV_TYPE == "pip":
+            self._runtime_env = PipRuntimeEnv(self._config.runtime_config)
         else:
             raise Exception(f"Invalid ROCK_WORKER_ENV_TYPE: {env_vars.ROCK_WORKER_ENV_TYPE}")
 

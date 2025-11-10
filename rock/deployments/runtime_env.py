@@ -169,3 +169,24 @@ class UvRuntimeEnv(RuntimeEnv):
             f"/tmp/local_files/docker_run_with_uv.sh '{container_project_root}'"
         )
         return cmd
+
+
+class PipRuntimeEnv(RuntimeEnv):
+    def __init__(self, runtime_config: RuntimeConfig):
+        super().__init__()
+        self._runtime_config = runtime_config
+
+    def get_volume_mounts(self):
+        project_root = self._runtime_config.project_root
+        mount_configs = [
+            {
+                "local": f"{project_root}/rock/rocklet/local_files",
+                "container": "/tmp/local_files",
+            },
+        ]
+
+        return mount_configs
+
+    def get_rocklet_start_cmd(self):
+        cmd = "chmod +x /tmp/local_files/docker_run_with_pip.sh && /tmp/local_files/docker_run_with_pip.sh"
+        return cmd
