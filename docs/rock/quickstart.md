@@ -15,6 +15,7 @@ This guide will demonstrate how to use ROCK to create and manage reinforcement l
    - [Example Descriptions](#51-example-descriptions)
 6. [Distributed Environment Configuration (Optional)](#6-distributed-environment-configuration-optional)
 7. [MacOS Startup](#7-macos-startup)
+8. [Starting from Pip Source](#8-starting-from-pip-source)
 
 ## 1. Environment Preparation
 
@@ -144,6 +145,16 @@ export ROCK_WORKER_ENV_TYPE=uv
 During container startup, the corresponding uv environment will be installed. For details, please refer to the `rock/rocklet/docker_run_with_uv.sh` script.
 
 > **Note**: Compared to Linux systems, the startup speed on macOS will be slower and more dependent on network conditions. You can adjust the script according to actual conditions.You can find detatils for ROCK_WORKER_ENV_TYPE in [Configuration Guide](configuration.md).
+
+## 8. Starting from Pip Source
+
+If starting the Admin Server from Pip source, after completing the ROCK installation by referring to [installation.md](installation.md), you need to set an additional environment variable:
+
+```bash
+export ROCK_WORKER_ENV_TYPE=pip
+```
+
+(This startup method will pull and install the latest rocklet from the PyPI source when starting the container environment. The startup speed is relatively slow, so it is only recommended for testing purposes. For production environments, other startup methods are still recommended.)
 
 ## Summary
 

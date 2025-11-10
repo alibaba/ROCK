@@ -58,7 +58,7 @@ if __name__ == "__main__":
     print(
         "\n"
         + "=" * 80
-        + "\nIMPORTANT: Make sure the admin server is running before executing this demo!\nStart the admin server with: uv run admin --env local\n"
+        + "\nIMPORTANT: Make sure the admin server is running before executing this demo!\nStart the admin server with: rock admin start\n"
         + "=" * 80
         + "\n"
     )

@@ -15,6 +15,7 @@
    - [示例说明](#51-示例说明)
 6. [分布式环境配置（可选）](#6-分布式环境配置可选)
 7. [MacOS 启动](#7-macos启动)
+8. [从Pip源启动](#8-从pip源启动)
 
 ## 1. 环境准备
 
@@ -148,6 +149,17 @@ export ROCK_WORKER_ENV_TYPE=uv
 在容器启动时，会安装对应的 uv 环境，细节可以参考 `rock/rocklet/docker_run_with_uv.sh` 脚本。
 
 > **注意**: 相比 Linux 系统，macOS 上的启动速度会较慢，且比较依赖网络环境，可以根据实际情况调整脚本。ROCK_WORKER_ENV_TYPE的细节可以参考 [Configuration Guide](configuration.md).
+
+
+## 8. 从Pip源启动
+
+如果从Pip源启动Admin Server，在参照[installation.md](installation.md)安装完成ROCK后, 需要设置额外环境变量: 
+
+```bash
+export ROCK_WORKER_ENV_TYPE=pip
+```
+
+(这一启动方式在容器环境启动时会从Pypi源上拉取最新的rocklet并安装, 相对启动速度比较慢, 仅推荐测试使用, 生产上依旧推荐其他的启动方式)
 
 
 ## 总结

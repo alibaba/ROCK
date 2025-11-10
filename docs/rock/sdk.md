@@ -18,7 +18,7 @@ ROCK SDK provides developers with convenient Python interfaces to use ROCK platf
 
 > **Important Note**: Before using the SDK, ensure that the ROCK Admin service is running. You can start it with the following command:
 > ```bash
-> uv run admin --env local
+> rock admin start
 > ```
 
 ## 2. Sandbox SDK
@@ -61,7 +61,7 @@ async def run_sandbox():
 if __name__ == "__main__":
     # Ensure admin server is running before executing
     print("IMPORTANT: Make sure the admin server is running before executing this demo!")
-    print("Start the admin server with: uv run admin --env local")
+    print("Start the admin server with: rock admin start")
     asyncio.run(run_sandbox())
 ```
 
@@ -168,7 +168,7 @@ if __name__ == "__main__":
     print(
         "\n"
         + "=" * 80
-        + "\nIMPORTANT: Make sure the admin server is running before executing this demo!\nStart the admin server with: uv run admin --env local\n"
+        + "\nIMPORTANT: Make sure the admin server is running before executing this demo!\nStart the admin server with: rock admin start\n"
         + "=" * 80
         + "\n"
     )

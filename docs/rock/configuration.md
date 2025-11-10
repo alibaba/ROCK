@@ -19,14 +19,14 @@ export ROCK_LOG_LEVEL=INFO  # Log level
 export ROCK_LOGGING_PATH=/path/to/logs  # Log file path, default None (output to console)
 export ROCK_LOGGING_FILE_NAME=rocklet.log  # Log file name, default "rocklet.log"
 export ROCK_LOGGING_LEVEL=INFO  # Log output level, default "INFO"
-export ROCK_WORKER_ENV_TYPE=local  # Runtime environment type, options: local, docker, uv
+export ROCK_WORKER_ENV_TYPE=local  # Runtime environment type, options: local, docker, uv, pip
 ```
 
 More environment variables can be found in `rock/env_vars.py`.
 
 ### 1.1 Runtime Environments
 
-ROCK provides three different runtime environments to meet the needs of different scenarios, configured through the `ROCK_WORKER_ENV_TYPE` environment variable. Each environment has different deployment requirements, performance characteristics and applicable scenarios. Each environment has its own unique advantages and limitations, and developers can choose the most suitable runtime according to their deployment needs.
+ROCK provides multiple different runtime environments to meet the needs of different scenarios, configured through the `ROCK_WORKER_ENV_TYPE` environment variable. Each environment has different deployment requirements, performance characteristics and applicable scenarios. Each environment has its own unique advantages and limitations, and developers can choose the most suitable runtime environment according to their deployment needs.
 
 #### 1.1.1 Docker Runtime Environment
 
@@ -104,7 +104,31 @@ chmod +x /tmp/local_files/docker_run_with_uv.sh && /tmp/local_files/docker_run_w
 - Higher network requirements
 - Longer startup time
 
-#### 1.1.4 Configuration Guide
+#### 1.1.4 PIP Runtime Environment
+
+The PIP runtime environment uses pip to install required dependencies in the container. This environment is suitable for quick setup and scenarios where dependencies can be installed in the container. It is the default runtime environment. It does not require pre-built images containing dependencies, and manages Python packages directly through pip.
+
+**Mount Configuration:**
+- `local_files` - Contains local files required for execution
+
+**Start Command:**
+```bash
+chmod +x /tmp/local_files/docker_run_with_pip.sh && /tmp/local_files/docker_run_with_pip.sh
+```
+
+**Use Cases:**
+- ROCK installation from PIP source
+- Fast testing of ROCK
+
+**Advantages:**
+- Simple deployment setup
+
+**Limitations:**
+- Long dependency installation time
+- Requires network access to install dependency packages
+- Dependencies need to be installed each time on startup
+
+#### 1.1.5 Configuration Guide
 
 Refer to the following selection guide for different use cases:
 
@@ -115,8 +139,9 @@ Refer to the following selection guide for different use cases:
 | Mac development | UV Runtime | Best cross-platform compatibility support |
 | Cross-platform development | UV Runtime | Avoids environment compatibility issues |
 | Fast testing | UV Runtime | Requires no pre-configuration |
+| PIP source installation | PIP Runtime | Install dependencies directly with pip |
 
-These runtime environments are configured through the `ROCK_WORKER_ENV_TYPE` environment variable, which can be set to "local", "docker" or "uv".
+These runtime environments are configured through the `ROCK_WORKER_ENV_TYPE` environment variable, which can be set to "local", "docker", "uv" or "pip".
 
 ### 1.2 Logging Configuration
 

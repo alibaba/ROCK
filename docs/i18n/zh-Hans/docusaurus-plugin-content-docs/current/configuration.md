@@ -19,14 +19,14 @@ export ROCK_LOG_LEVEL=INFO  # 日志级别
 export ROCK_LOGGING_PATH=/path/to/logs  # 日志文件路径，默认 None (输出到控制台)
 export ROCK_LOGGING_FILE_NAME=rocklet.log  # 日志文件名，默认 "rocklet.log"
 export ROCK_LOGGING_LEVEL=INFO  # 日志输出级别，默认 "INFO"
-export ROCK_WORKER_ENV_TYPE=local  # 运行时环境类型，可选值: local, docker, uv
+export ROCK_WORKER_ENV_TYPE=local  # 运行时环境类型，可选值: local, docker, uv, pip
 ```
 
 更多环境变量可参考 `rock/env_vars.py` 文件。
 
 ### 1.1 运行时环境 (Runtime Environments)
 
-ROCK 提供了三种不同的运行时环境来满足不同场景的需求，选择通过环境变量 `ROCK_WORKER_ENV_TYPE` 进行配置。每种环境有不同的部署要求、性能特征和适用场景。每种环境都有其独特的优势和限制，开发者可以根据部署环境的需要选择最适合的运行时。
+ROCK 提供了多种不同的运行时环境来满足不同场景的需求，选择通过环境变量 `ROCK_WORKER_ENV_TYPE` 进行配置。每种环境有不同的部署要求、性能特征和适用场景。每种环境都有其独特的优势和限制，开发者可以根据部署环境的需要选择最适合的运行时环境。
 
 #### 1.1.1 Docker 运行时环境
 
@@ -104,7 +104,31 @@ chmod +x /tmp/local_files/docker_run_with_uv.sh && /tmp/local_files/docker_run_w
 - 网络要求较高
 - 启动时间较长
 
-#### 1.1.4 配置指南
+#### 1.1.4 PIP 运行时环境
+
+PIP 运行时环境使用 pip 在容器内安装所需依赖。这种环境适合快速设置并能在容器中完成依赖安装的场景，是默认的运行时环境。它不需要预先构建包含依赖的镜像，通过 pip 直接管理 Python 包。
+
+**挂载配置:**
+- `local_files` - 包含执行所需的本地文件
+
+**启动命令:**
+```bash
+chmod +x /tmp/local_files/docker_run_with_pip.sh && /tmp/local_files/docker_run_with_pip.sh
+```
+
+**适用场景:**
+- 使用PIP源安装的ROCK
+- 快速测试ROCK
+
+**优势:**
+- 简单的部署设置
+
+**限制:**
+- 依赖安装时间较长
+- 需要网络访问以安装依赖包
+- 每次启动时都需要安装依赖
+
+#### 1.1.5 配置指南
 
 根据不同的使用场景，可以参考以下选择指南：
 
@@ -115,8 +139,9 @@ chmod +x /tmp/local_files/docker_run_with_uv.sh && /tmp/local_files/docker_run_w
 | Mac 开发 | UV 运行时 | 支持最佳的跨平台兼容性 |
 | 跨平台开发 | UV 运行时 | 避免环境兼容性问题 |
 | 快速测试 | UV 运行时 | 无需预配置工作 |
+| PIP源安装 | PIP 运行时 | 直接使用 pip 安装依赖 |
 
-这些运行时环境通过 `ROCK_WORKER_ENV_TYPE` 环境变量进行配置，该变量可设置为 "local"、"docker" 或 "uv"。
+这些运行时环境通过 `ROCK_WORKER_ENV_TYPE` 环境变量进行配置，该变量可设置为 "local"、"docker"、"uv" 或 "pip"。
 
 ### 1.2 日志配置
 

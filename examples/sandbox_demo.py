@@ -35,5 +35,5 @@ async def run_sandbox():
 if __name__ == "__main__":
     # Ensure admin server is running before executing
     print("IMPORTANT: Make sure the admin server is running before executing this demo!")
-    print("Start the admin server with: uv run admin --env local")
+    print("Start the admin server with: rock admin start")
     asyncio.run(run_sandbox())
