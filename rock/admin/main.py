@@ -13,7 +13,7 @@ from starlette.responses import JSONResponse
 from rock import env_vars
 from rock.admin.core.ray_service import RayService
 from rock.admin.entrypoints.sandbox_api import sandbox_router, set_sandbox_manager
-from rock.admin.entrypoints.sandbox_proxy_api import sandbox_read_router, set_sandbox_proxy_service
+from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_sandbox_proxy_service
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
 from rock.admin.gem.api import gem_router, set_env_service
 from rock.config import RockConfig
@@ -26,7 +26,7 @@ from rock.utils.providers import RedisProvider
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--env", type=str, default="local")
-parser.add_argument("--role", type=str, default="write", choices=["write", "read"])
+parser.add_argument("--role", type=str, default="admin", choices=["admin", "proxy"])
 parser.add_argument("--port", type=int, default=8080)
 
 args = parser.parse_args()
@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
         await redis_provider.init_pool()
 
     # init sandbox service
-    if args.role == "write":
+    if args.role == "admin":
         # init service
         if rock_config.runtime.enable_auto_clear:
             sandbox_manager = GemManager(
@@ -163,10 +163,10 @@ async def log_requests_and_responses(request: Request, call_next):
 
 def main():
     # config router
-    if args.role == "write":
+    if args.role == "admin":
         app.include_router(sandbox_router, prefix="/apis/envs/sandbox/v1", tags=["sandbox"])
     else:
-        app.include_router(sandbox_read_router, prefix="/apis/envs/sandbox/v1", tags=["sandbox"])
+        app.include_router(sandbox_proxy_router, prefix="/apis/envs/sandbox/v1", tags=["sandbox"])
     app.include_router(warmup_router, prefix="/apis/envs/sandbox/v1", tags=["warmup"])
     app.include_router(gem_router, prefix="/apis/v1/envs/gem", tags=["gem"])
 

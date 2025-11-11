@@ -25,7 +25,7 @@ from rock.admin.proto.request import (
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.utils import handle_exceptions
 
-sandbox_read_router = APIRouter()
+sandbox_proxy_router = APIRouter()
 sandbox_proxy_service: SandboxProxyService
 
 
@@ -34,19 +34,19 @@ def set_sandbox_proxy_service(service: SandboxProxyService):
     sandbox_proxy_service = service
 
 
-@sandbox_read_router.post("/execute")
+@sandbox_proxy_router.post("/execute")
 @handle_exceptions(error_message="execute command failed")
 async def execute(command: SandboxCommand) -> RockResponse[CommandResponse]:
     return RockResponse(result=await sandbox_proxy_service.execute(command.transform()))
 
 
-@sandbox_read_router.post("/create_session")
+@sandbox_proxy_router.post("/create_session")
 @handle_exceptions(error_message="create session failed")
 async def create_session(request: SandboxCreateBashSessionRequest) -> RockResponse[CreateBashSessionResponse]:
     return RockResponse(result=await sandbox_proxy_service.create_session(request.transform()))
 
 
-@sandbox_read_router.post("/run_in_session")
+@sandbox_proxy_router.post("/run_in_session")
 @handle_exceptions(error_message="run in session failed")
 async def run(action: SandboxBashAction) -> RockResponse[BashObservation]:
     result = await sandbox_proxy_service.run_in_session(action.transform())
@@ -55,31 +55,31 @@ async def run(action: SandboxBashAction) -> RockResponse[BashObservation]:
     return RockResponse(result=result)
 
 
-@sandbox_read_router.post("/close_session")
+@sandbox_proxy_router.post("/close_session")
 @handle_exceptions(error_message="close session failed")
 async def close_session(request: SandboxCloseBashSessionRequest) -> RockResponse[CloseBashSessionResponse]:
     return RockResponse(result=await sandbox_proxy_service.close_session(request.transform()))
 
 
-@sandbox_read_router.get("/is_alive")
+@sandbox_proxy_router.get("/is_alive")
 @handle_exceptions(error_message="get sandbox is alive failed")
 async def is_alive(sandbox_id: str):
     return RockResponse(result=await sandbox_proxy_service.is_alive(sandbox_id))
 
 
-@sandbox_read_router.post("/read_file")
+@sandbox_proxy_router.post("/read_file")
 @handle_exceptions(error_message="read file failed")
 async def read_file(request: SandboxReadFileRequest) -> RockResponse[ReadFileResponse]:
     return RockResponse(result=await sandbox_proxy_service.read_file(request.transform()))
 
 
-@sandbox_read_router.post("/write_file")
+@sandbox_proxy_router.post("/write_file")
 @handle_exceptions(error_message="write file failed")
 async def write_file(request: SandboxWriteFileRequest) -> RockResponse[WriteFileResponse]:
     return RockResponse(result=await sandbox_proxy_service.write_file(request.transform()))
 
 
-@sandbox_read_router.post("/upload")
+@sandbox_proxy_router.post("/upload")
 @handle_exceptions(error_message="upload file failed")
 async def upload(
     file: UploadFile = File(...),
@@ -89,8 +89,8 @@ async def upload(
     return RockResponse(result=await sandbox_proxy_service.upload(file, target_path, sandbox_id))
 
 
-@sandbox_read_router.websocket("/sandboxes/{id}/proxy/ws")
-@sandbox_read_router.websocket("/sandboxes/{id}/proxy/ws/{path:path}")
+@sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/ws")
+@sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/ws/{path:path}")
 async def websocket_proxy(websocket: WebSocket, id: str, path: str = ""):
     await websocket.accept()
     sandbox_id = id
@@ -104,7 +104,7 @@ async def websocket_proxy(websocket: WebSocket, id: str, path: str = ""):
         await websocket.close(code=1011, reason=f"Proxy error: {str(e)}")
 
 
-@sandbox_read_router.get("/get_token")
+@sandbox_proxy_router.get("/get_token")
 @handle_exceptions(error_message="get oss sts token failed")
 async def get_token():
     result = await asyncio.to_thread(sandbox_proxy_service.gen_oss_sts_token)
