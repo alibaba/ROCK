@@ -41,7 +41,9 @@ logger = init_logger(__name__)
 
 class SandboxReadService:
     _redis_provider: RedisProvider = None
-    _httpx_client = httpx.AsyncClient(timeout=180.0)
+    _httpx_client = httpx.AsyncClient(
+        timeout=180.0, limits=httpx.Limits(max_connections=500, max_keepalive_connections=100)
+    )
 
     def __init__(self, rock_config: RockConfig, redis_provider: RedisProvider | None = None):
         self._redis_provider = redis_provider
