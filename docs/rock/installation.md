@@ -1,3 +1,7 @@
+---
+sidebar_position: 3
+---
+
 # Installation Guide
 
 This document explains how to install and set up the ROCK development environment using both `uv` and `pip`. The project is a Reinforcement Open Construction Kit that supports various components.

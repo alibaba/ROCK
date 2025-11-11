@@ -1,3 +1,7 @@
+---
+sidebar_position: 1
+---
+
 # ROCK Overview
 
 ROCK (Reinforcement Open Construction Kit) is an open-source reinforcement learning environment development framework designed to simplify the development, deployment, and management of reinforcement learning environments.
