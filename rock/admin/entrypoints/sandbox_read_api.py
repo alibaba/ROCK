@@ -84,13 +84,9 @@ async def write_file(request: SandboxWriteFileRequest) -> RockResponse[WriteFile
 async def upload(
     file: UploadFile = File(...),
     target_path: str = Form(...),
-    container_name: str | None = Form(None),
     sandbox_id: str | None = Form(None),
 ) -> RockResponse[UploadResponse]:
-    if container_name:
-        return RockResponse(result=await sandbox_read_service.upload(file, target_path, container_name))
-    else:
-        return RockResponse(result=await sandbox_read_service.upload(file, target_path, sandbox_id))
+    return RockResponse(result=await sandbox_read_service.upload(file, target_path, sandbox_id))
 
 
 @sandbox_read_router.websocket("/sandboxes/{id}/proxy/ws")

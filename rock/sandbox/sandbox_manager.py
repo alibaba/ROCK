@@ -6,19 +6,13 @@ from fastapi import UploadFile
 
 from rock import env_vars
 from rock.actions import (
-    BashAction,
     BashInterruptAction,
     BashObservation,
-    CloseBashSessionRequest,
     CloseBashSessionResponse,
-    Command,
     CommandResponse,
     CreateBashSessionResponse,
-    CreateSessionRequest,
-    ReadFileRequest,
     ReadFileResponse,
     UploadResponse,
-    WriteFileRequest,
     WriteFileResponse,
 )
 from rock.admin.core.redis_key import ALIVE_PREFIX, alive_sandbox_key, timeout_sandbox_key
@@ -30,6 +24,14 @@ from rock.deployments.constants import Status
 from rock.deployments.status import PhaseStatus, ServiceStatus
 from rock.logger import init_logger
 from rock.rocklet import __version__ as swe_version
+from rock.rocklet.proto.request import (
+    InternalBashAction,
+    InternalCloseBashSessionRequest,
+    InternalCommand,
+    InternalCreateSessionRequest,
+    InternalReadFileRequest,
+    InternalWriteFileRequest,
+)
 from rock.sandbox import __version__ as gateway_version
 from rock.sandbox.base_manager import BaseManager
 from rock.sandbox.sandbox_actor import SandboxActor
@@ -231,14 +233,14 @@ class SandboxManager(BaseManager):
                 experiment_id=experiment_id,
             )
 
-    async def execute(self, command: Command) -> CommandResponse:
+    async def execute(self, command: InternalCommand) -> CommandResponse:
         sandbox_actor = await self.async_ray_get_actor(command.container_name)
         if sandbox_actor is None:
             raise Exception(f"sandbox {command.container_name} not found to execute")
         await self._update_expire_time(command.container_name)
         return await self.async_ray_get(sandbox_actor.execute.remote(command))
 
-    async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
+    async def create_session(self, request: InternalCreateSessionRequest) -> CreateBashSessionResponse:
         sandbox_actor = await self.async_ray_get_actor(request.container_name)
         if sandbox_actor is None:
             raise Exception(f"sandbox {request.container_name} not found to create session")
@@ -246,21 +248,21 @@ class SandboxManager(BaseManager):
         return await self.async_ray_get(sandbox_actor.create_session.remote(request))
 
     @monitor_sandbox_operation()
-    async def run_in_session(self, action: BashAction | BashInterruptAction) -> BashObservation:
+    async def run_in_session(self, action: InternalBashAction | BashInterruptAction) -> BashObservation:
         sandbox_actor = await self.async_ray_get_actor(action.container_name)
         if sandbox_actor is None:
             raise Exception(f"sandbox {action.container_name} not found to run in session")
         await self._update_expire_time(action.container_name)
         return await self.async_ray_get(sandbox_actor.run_in_session.remote(action))
 
-    async def close_session(self, request: CloseBashSessionRequest) -> CloseBashSessionResponse:
+    async def close_session(self, request: InternalCloseBashSessionRequest) -> CloseBashSessionResponse:
         sandbox_actor = await self.async_ray_get_actor(request.container_name)
         if sandbox_actor is None:
             raise Exception(f"sandbox {request.container_name} not found to close session")
         await self._update_expire_time(request.container_name)
         return await self.async_ray_get(sandbox_actor.close_session.remote(request))
 
-    async def read_file(self, request: ReadFileRequest) -> ReadFileResponse:
+    async def read_file(self, request: InternalReadFileRequest) -> ReadFileResponse:
         sandbox_actor = await self.async_ray_get_actor(request.container_name)
         if sandbox_actor is None:
             raise Exception(f"sandbox {request.container_name} not found to read file")
@@ -268,7 +270,7 @@ class SandboxManager(BaseManager):
         return await self.async_ray_get(sandbox_actor.read_file.remote(request))
 
     @monitor_sandbox_operation()
-    async def write_file(self, request: WriteFileRequest) -> WriteFileResponse:
+    async def write_file(self, request: InternalWriteFileRequest) -> WriteFileResponse:
         sandbox_actor = await self.async_ray_get_actor(request.container_name)
         if sandbox_actor is None:
             raise Exception(f"sandbox {request.container_name} not found to write file")

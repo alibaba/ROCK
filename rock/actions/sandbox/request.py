@@ -36,21 +36,14 @@ class Command(BaseModel):
     cwd: str | None = None
     """The current working directory to run the command in."""
 
-    container_name: str | None = None
-    """The name of the container to run the command in."""
-
 
 class CreateBashSessionRequest(BaseModel):
     session: str = "default"
     session_type: Literal["bash"] = "bash"
     startup_source: list[str] = []
-
     startup_timeout: float = 1.0
     """The timeout for the startup commands."""
-    container_name: str | None = None
-    """The name of the container to run the command in."""
     max_read_size: int = 2000
-
     env_enable: bool = False
     env: dict[str, str] | None = Field(default=None)
 
@@ -64,9 +57,6 @@ class BashAction(BaseModel):
     command: str
     session: str = "default"
     check: Literal["silent", "raise", "ignore"] = "raise"
-
-    container_name: str | None = None
-    """The name of the container to run the command in."""
 
     timeout: float | None = None
     """The timeout (seconds) for the command. None means no timeout."""
@@ -98,9 +88,6 @@ class BashInterruptAction(BaseModel):
     timeout: float = 0.2
     """The timeout for the command. None means no timeout."""
 
-    container_name: str | None = None
-    """The name of the container to run the command in."""
-
     n_retry: int = 3
     """How many times to retry quitting."""
 
@@ -116,15 +103,11 @@ Action = BashAction
 class WriteFileRequest(BaseModel):
     content: str
     path: str
-    container_name: str | None = None
-    """The name of the container to run the command in."""
 
 
 class CloseBashSessionRequest(BaseModel):
     session: str = "default"
     session_type: Literal["bash"] = "bash"
-    container_name: str | None = None
-    """The name of the container to run the command in."""
 
 
 CloseSessionRequest = Annotated[CloseBashSessionRequest, Field(discriminator="session_type")]
@@ -165,9 +148,6 @@ class ReadFileRequest(BaseModel):
     errors: str | None = None
     """Error handling strategy when reading the file. None uses default handling.
     This corresponds to the `errors` parameter of `Path.read_text()`."""
-
-    container_name: str | None = None
-    """Name of the container where the file should be read from."""
 
 
 class UploadRequest(BaseModel):

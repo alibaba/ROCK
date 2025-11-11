@@ -11,20 +11,14 @@ from fastapi import UploadFile
 
 from rock import env_vars
 from rock.actions import (
-    BashAction,
     BashInterruptAction,
     BashObservation,
-    CloseBashSessionRequest,
     CloseBashSessionResponse,
-    Command,
     CommandResponse,
     CreateBashSessionResponse,
-    CreateSessionRequest,
     IsAliveResponse,
-    ReadFileRequest,
     ReadFileResponse,
     UploadResponse,
-    WriteFileRequest,
     WriteFileResponse,
 )
 from rock.admin.core.redis_key import alive_sandbox_key, timeout_sandbox_key
@@ -34,6 +28,14 @@ from rock.config import OssConfig, RockConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
+from rock.rocklet.proto.request import (
+    InternalBashAction,
+    InternalCloseBashSessionRequest,
+    InternalCommand,
+    InternalCreateSessionRequest,
+    InternalReadFileRequest,
+    InternalWriteFileRequest,
+)
 from rock.utils.providers import RedisProvider
 
 logger = init_logger(__name__)
@@ -54,7 +56,7 @@ class SandboxReadService:
         )
 
     @monitor_sandbox_operation()
-    async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
+    async def create_session(self, request: InternalCreateSessionRequest) -> CreateBashSessionResponse:
         sandbox_id = request.container_name
         await self._update_expire_time(sandbox_id)
         sandbox_status_dicts = await self.get_service_status(sandbox_id)
@@ -64,7 +66,7 @@ class SandboxReadService:
         return CreateBashSessionResponse(**response)
 
     @monitor_sandbox_operation()
-    async def run_in_session(self, action: BashAction | BashInterruptAction) -> BashObservation:
+    async def run_in_session(self, action: InternalBashAction | BashInterruptAction) -> BashObservation:
         sandbox_id = action.container_name
         await self._update_expire_time(sandbox_id)
         sandbox_status_dicts = await self.get_service_status(sandbox_id)
@@ -74,7 +76,7 @@ class SandboxReadService:
         return BashObservation(**response)
 
     @monitor_sandbox_operation()
-    async def close_session(self, request: CloseBashSessionRequest) -> CloseBashSessionResponse:
+    async def close_session(self, request: InternalCloseBashSessionRequest) -> CloseBashSessionResponse:
         sandbox_id = request.container_name
         await self._update_expire_time(sandbox_id)
         sandbox_status_dicts = await self.get_service_status(sandbox_id)
@@ -84,13 +86,13 @@ class SandboxReadService:
         return CloseBashSessionResponse(**response)
 
     @monitor_sandbox_operation()
-    async def is_alive(self, sandbox_id) -> IsAliveResponse:
+    async def is_alive(self, sandbox_id: str) -> IsAliveResponse:
         sandbox_status_dicts = await self.get_service_status(sandbox_id)
         response = await self._send_request(sandbox_id, sandbox_status_dicts[0], "is_alive", None, None, None, "GET")
         return IsAliveResponse(**response)
 
     @monitor_sandbox_operation()
-    async def read_file(self, request: ReadFileRequest) -> ReadFileResponse:
+    async def read_file(self, request: InternalReadFileRequest) -> ReadFileResponse:
         sandbox_id = request.container_name
         await self._update_expire_time(sandbox_id)
         sandbox_status_dicts = await self.get_service_status(sandbox_id)
@@ -100,7 +102,7 @@ class SandboxReadService:
         return ReadFileResponse(**response)
 
     @monitor_sandbox_operation()
-    async def write_file(self, request: WriteFileRequest) -> WriteFileResponse:
+    async def write_file(self, request: InternalWriteFileRequest) -> WriteFileResponse:
         sandbox_id = request.container_name
         await self._update_expire_time(sandbox_id)
         sandbox_status_dicts = await self.get_service_status(sandbox_id)
@@ -119,7 +121,7 @@ class SandboxReadService:
         return UploadResponse(**response)
 
     @monitor_sandbox_operation()
-    async def execute(self, command: Command) -> CommandResponse:
+    async def execute(self, command: InternalCommand) -> CommandResponse:
         sandbox_id = command.container_name
         await self._update_expire_time(sandbox_id)
         sandbox_status_dicts = await self.get_service_status(sandbox_id)

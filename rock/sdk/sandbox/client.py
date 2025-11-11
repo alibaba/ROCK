@@ -14,6 +14,9 @@ from typing_extensions import deprecated
 from rock import env_vars
 from rock.actions import (
     Action,
+    CloseResponse,
+    CloseSessionRequest,
+    CloseSessionResponse,
     Command,
     CommandResponse,
     CreateBashSessionRequest,
@@ -30,6 +33,7 @@ from rock.actions import (
     WriteFileRequest,
     WriteFileResponse,
 )
+from rock.actions.sandbox.base import AbstractSandbox
 from rock.sdk.common.constants import RunModeType
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
 from rock.utils import HttpUtils, extract_nohup_pid, retry_async
@@ -37,7 +41,7 @@ from rock.utils import HttpUtils, extract_nohup_pid, retry_async
 logger = logging.getLogger(__name__)
 
 
-class Sandbox:
+class Sandbox(AbstractSandbox):
     config: SandboxConfig
     _url: str
     _route_key: str
@@ -115,9 +119,9 @@ class Sandbox:
         except Exception as e:
             raise Exception(f"Failed to start standbox: {str(e)}, post url {url}")
 
-        logging.debug(f"Start container response: {response}")
+        logging.debug(f"Start sandbox response: {response}")
         if "Success" != response.get("status"):
-            raise Exception(f"Failed to start container: {response}")
+            raise Exception(f"Failed to start sandbox: {response}")
         self._sandbox_id = response.get("result").get("sandbox_id")
         self._host_name = response.get("result").get("host_name")
         self._host_ip = response.get("result").get("host_ip")
@@ -144,7 +148,7 @@ class Sandbox:
             raise Exception(f"Failed to get is alive: {str(e)}")
 
     async def get_status(self) -> SandboxStatusResponse:
-        url = f"{self._url}/get_status?sandbox_id={self._sandbox_id}"
+        url = f"{self._url}/get_status?sandbox_id={self.sandbox_id}"
         headers = self._build_headers()
         response = await HttpUtils.get(url, headers)
         logging.debug(f"Get status response: {response}")
@@ -158,8 +162,7 @@ class Sandbox:
         headers = self._build_headers()
         data = {
             "command": command.command,
-            "container_name": self._sandbox_id,
-            "sandbox_id": self._sandbox_id,
+            "sandbox_id": self.sandbox_id,
         }
         try:
             response = await HttpUtils.post(url, headers, data)
@@ -174,28 +177,26 @@ class Sandbox:
         return CommandResponse(**result)
 
     async def stop(self):
-        if not self._sandbox_id:
+        if not self.sandbox_id:
             return
         try:
             url = f"{self._url}/stop"
             headers = self._build_headers()
             data = {
-                "container_name": self._sandbox_id,
-                "sandbox_id": self._sandbox_id,
+                "sandbox_id": self.sandbox_id,
             }
             await HttpUtils.post(url, headers, data)
         except Exception as e:
-            logging.warning(f"Failed to stop container, IGNORE: {e}")
+            logging.warning(f"Failed to stop sandbox, IGNORE: {e}")
 
     async def commit(self, image_tag: str, username: str, password: str):
-        if not self._sandbox_id:
+        if not self.sandbox_id:
             return
 
         url = f"{self._url}/commit"
         headers = self._build_headers()
         data = {
-            "container_name": self._sandbox_id,
-            "sandbox_id": self._sandbox_id,
+            "sandbox_id": self.sandbox_id,
             "image_tag": image_tag,
             "username": username,
             "password": password,
@@ -211,9 +212,7 @@ class Sandbox:
         url = f"{self._url}/create_session"
         headers = self._build_headers()
         data = {
-            "container_name": self._sandbox_id,
-            "session_type": "bash",
-            "sandbox_id": self._sandbox_id,
+            "sandbox_id": self.sandbox_id,
             **create_session_request.model_dump(),
         }
         try:
@@ -235,11 +234,10 @@ class Sandbox:
         url = f"{self._url}/run_in_session"
         headers = self._build_headers()
         data = {
-            "container_name": self._sandbox_id,
             "action_type": "bash",
             "session": action.session,
             "command": action.command,
-            "sandbox_id": self._sandbox_id,
+            "sandbox_id": self.sandbox_id,
             "check": action.check,
         }
         try:
@@ -331,28 +329,20 @@ class Sandbox:
             return Observation(output="", exit_code=1, failure_reason="Unsupported arun mode")
 
     async def write_file(self, request: WriteFileRequest) -> WriteFileResponse:
-        url = f"{self._url}/write_file"
-        headers = self._build_headers()
         content = request.content
         path = request.path
-        sandbox_id = self._sandbox_id if request.container_name is None else request.container_name
-        data = {
-            "content": content,
-            "path": path,
-            "sandbox_id": sandbox_id,
-        }
-        response = await HttpUtils.post(url, headers, data)
-        if "Success" != response.get("status"):
-            return WriteFileResponse(success=False, message=f"Failed to write file {path}: upload response: {response}")
-        return WriteFileResponse(success=True, message=f"Successfully write content to file {path}")
+        return await self._do_write_file(content, path)
 
     async def write_file_by_path(self, content: str, path: str) -> WriteFileResponse:
+        return await self._do_write_file(content, path)
+
+    async def _do_write_file(self, content: str, path: str) -> WriteFileResponse:
         url = f"{self._url}/write_file"
         headers = self._build_headers()
         data = {
             "content": content,
             "path": path,
-            "sandbox_id": self._sandbox_id,
+            "sandbox_id": self.sandbox_id,
         }
         response = await HttpUtils.post(url, headers, data)
         if "Success" != response.get("status"):
@@ -434,7 +424,10 @@ class Sandbox:
         else:
             return UploadResponse(success=False, message=f"Unsupported file input type: {type(file_path)}")
 
-        data = {"target_path": target_path, "sandbox_id": self._sandbox_id, "container_name": self._sandbox_id}
+        data = {
+            "target_path": target_path,
+            "sandbox_id": self.sandbox_id,
+        }
 
         files = {"file": (filename, file_content, content_type)}
 
@@ -448,12 +441,11 @@ class Sandbox:
     async def read_file(self, request: ReadFileRequest) -> ReadFileResponse:
         url = f"{self._url}/read_file"
         headers = self._build_headers()
-        sandbox_id = self._sandbox_id if request.container_name is None else request.container_name
         data = {
             "path": request.path,
             "encoding": request.encoding,
             "errors": request.errors,
-            "sandbox_id": sandbox_id,
+            "sandbox_id": self.sandbox_id,
         }
         response = await HttpUtils.post(url, headers, data)
         result: dict = response.get("result")
@@ -462,7 +454,7 @@ class Sandbox:
     @deprecated(
         "The function cannot guarantee complete consistency with the original file content and may lose newline characters or other information."
     )
-    async def read_file_by_path(
+    async def read_file_by_line_range(
         self,
         file_path: str,
         start_line: int | None = None,
@@ -530,7 +522,7 @@ class Sandbox:
 
         data = {
             "path": file_path,
-            "sandbox_id": self._sandbox_id,
+            "sandbox_id": self.sandbox_id,
         }
         response = await HttpUtils.post(url, headers, data)
         result: dict = response.get("result")
@@ -614,6 +606,13 @@ class Sandbox:
 
     def _generate_utc_iso_time(self):
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    async def close_session(self, request: CloseSessionRequest) -> CloseSessionResponse:
+        # TODO: implement this
+        pass
+
+    async def close(self) -> CloseResponse:
+        await self.stop()
 
 
 class SandboxGroup:
