@@ -22,14 +22,14 @@ from rock.admin.proto.request import (
     SandboxReadFileRequest,
     SandboxWriteFileRequest,
 )
-from rock.sandbox.service.sandbox_read_service import SandboxReadService
+from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.utils import handle_exceptions
 
 sandbox_read_router = APIRouter()
-sandbox_read_service: SandboxReadService
+sandbox_read_service: SandboxProxyService
 
 
-def set_sandbox_read_service(service: SandboxReadService):
+def set_sandbox_read_service(service: SandboxProxyService):
     global sandbox_read_service
     sandbox_read_service = service
 

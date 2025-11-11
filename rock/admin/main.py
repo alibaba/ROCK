@@ -19,7 +19,7 @@ from rock.admin.gem.api import gem_router, set_env_service
 from rock.config import RockConfig
 from rock.logger import init_logger
 from rock.sandbox.gem_manager import GemManager
-from rock.sandbox.service.sandbox_read_service import SandboxReadService
+from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sandbox.service.warmup_service import WarmupService
 from rock.utils import sandbox_id_ctx_var
 from rock.utils.providers import RedisProvider
@@ -82,7 +82,7 @@ async def lifespan(app: FastAPI):
 
         RayService(rock_config.ray).init()
     else:
-        sandbox_manager = SandboxReadService(rock_config=rock_config, redis_provider=redis_provider)
+        sandbox_manager = SandboxProxyService(rock_config=rock_config, redis_provider=redis_provider)
         set_sandbox_read_service(sandbox_manager)
 
     logger.info("rock-admin start")

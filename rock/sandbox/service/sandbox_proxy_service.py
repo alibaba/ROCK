@@ -39,7 +39,7 @@ from rock.utils.providers import RedisProvider
 logger = init_logger(__name__)
 
 
-class SandboxReadService:
+class SandboxProxyService:
     _redis_provider: RedisProvider = None
     _httpx_client = httpx.AsyncClient(
         timeout=180.0, limits=httpx.Limits(max_connections=500, max_keepalive_connections=100)
