@@ -1,6 +1,7 @@
 import asyncio
 import os
 import tempfile
+import warnings
 
 from rock.actions import CreateBashSessionRequest
 from rock.actions.sandbox.request import ReadFileRequest, UploadRequest, WriteFileRequest
@@ -60,7 +61,9 @@ async def file_operations():
     print(f"✓ read_file result: '{full_content}'")
 
     # Method 2: read_file_by_line_range (first line)
-    read_range_response = await sandbox.read_file_by_line_range(write_path, start_line=1, end_line=1)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        read_range_response = await sandbox.read_file_by_line_range(write_path, start_line=1, end_line=1)
     range_content = read_range_response.content.strip()
     print(f"✓ read_file_by_line_range result: '{range_content}'")
 
