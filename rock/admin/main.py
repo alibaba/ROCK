@@ -13,7 +13,7 @@ from starlette.responses import JSONResponse
 from rock import env_vars
 from rock.admin.core.ray_service import RayService
 from rock.admin.entrypoints.sandbox_api import sandbox_router, set_sandbox_manager
-from rock.admin.entrypoints.sandbox_read_api import sandbox_read_router, set_sandbox_read_service
+from rock.admin.entrypoints.sandbox_proxy_api import sandbox_read_router, set_sandbox_read_service
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
 from rock.admin.gem.api import gem_router, set_env_service
 from rock.config import RockConfig
