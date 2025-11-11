@@ -13,7 +13,7 @@ from starlette.responses import JSONResponse
 from rock import env_vars
 from rock.admin.core.ray_service import RayService
 from rock.admin.entrypoints.sandbox_api import sandbox_router, set_sandbox_manager
-from rock.admin.entrypoints.sandbox_proxy_api import sandbox_read_router, set_sandbox_read_service
+from rock.admin.entrypoints.sandbox_proxy_api import sandbox_read_router, set_sandbox_proxy_service
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
 from rock.admin.gem.api import gem_router, set_env_service
 from rock.config import RockConfig
@@ -83,7 +83,7 @@ async def lifespan(app: FastAPI):
         RayService(rock_config.ray).init()
     else:
         sandbox_manager = SandboxProxyService(rock_config=rock_config, redis_provider=redis_provider)
-        set_sandbox_read_service(sandbox_manager)
+        set_sandbox_proxy_service(sandbox_manager)
 
     logger.info("rock-admin start")
 
