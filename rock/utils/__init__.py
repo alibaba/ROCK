@@ -20,6 +20,9 @@ from .importer import (
     can_import_class,
     safe_import_class,
 )
+from .retry import (
+    retry_async,
+)
 from .system import (
     extract_nohup_pid,
     find_free_port,
@@ -69,6 +72,8 @@ __all__ = [
     "safe_import_class",
     # Exception handling
     "handle_exceptions",
+    # Retry utilities
+    "retry_async",
     # Constants
     "ENV_POOL",
     "sandbox_id_ctx_var",

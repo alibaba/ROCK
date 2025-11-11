@@ -32,7 +32,9 @@ from rock.actions import (
 )
 from rock.sdk.common.constants import RunModeType
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
-from rock.utils import HttpUtils, extract_nohup_pid
+from rock.utils import HttpUtils, extract_nohup_pid, retry_async
+
+logger = logging.getLogger(__name__)
 
 
 class Sandbox:
@@ -457,24 +459,69 @@ class Sandbox:
         result: dict = response.get("result")
         return ReadFileResponse(content=result["content"])
 
+    @deprecated(
+        "The function cannot guarantee complete consistency with the original file content and may lose newline characters or other information."
+    )
     async def read_file_by_path(
-        self, file_path: str, start_line: int, end_line: int, session: str | None = None
+        self,
+        file_path: str,
+        start_line: int | None = None,
+        end_line: int | None = None,
+        lines_per_request: int = 1000,
+        session: str | None = None,
     ) -> ReadFileResponse:
         # Pre check
-        if start_line < 0 or end_line < start_line:
-            raise Exception(f"start_line({start_line}) must be positive and start_line < end_line({end_line})")
-        if end_line - start_line > 1000:
-            raise Exception(f"end_line({end_line}) - start_line({start_line}) must be less than 1000")
+        if start_line is None:
+            start_line = 1
+        if start_line < 1:
+            raise Exception(f"start_line({start_line}) must be positive")
+        if end_line is not None and end_line < start_line:
+            raise Exception(f"end_line({end_line}) must be greater than start_line({start_line})")
+        if lines_per_request < 1 or lines_per_request > 10000:
+            raise Exception(f"lines_per_request({lines_per_request}) must be between 1 and 10000")
 
         if session is None:
-            session = await self._generate_tmp_session_name()
-            await self.create_session(CreateBashSessionRequest(session=session))
 
-        sed_result = await self.arun(f"sed -n '{start_line},{end_line}p' {file_path}", session=session)
+            @retry_async(max_attempts=3, delay_seconds=1.0)
+            async def _create_tmp_session() -> str:
+                session = await self._generate_tmp_session_name()
+                await self.create_session(CreateBashSessionRequest(session=session))
+                return session
 
-        if sed_result.exit_code != 0:
-            raise Exception(f"Failed to read file {file_path}, sed result: {sed_result}")
-        result = ReadFileResponse(content=sed_result.output)
+            session = await _create_tmp_session()
+
+        if end_line is None:
+
+            @retry_async(max_attempts=3, delay_seconds=1.0)
+            async def _count_lines() -> int:
+                result = await self.arun(f"wc -l < {file_path}", session=session)
+                return int(result.output)
+
+            end_line = await _count_lines()
+            logger.info(f"file {file_path} has {end_line} lines")
+
+        @retry_async(max_attempts=3, delay_seconds=1.0)
+        async def _read_lines(start_line: int, end_line: int) -> str:
+            sed_result = await self.execute(Command(command=["sed", "-n", f"{start_line},{end_line}p", file_path]))
+            if sed_result.exit_code != 0:
+                raise Exception(f"Failed to read file {file_path}, sed result: {sed_result}")
+            return sed_result.stdout
+
+        # read lines
+        read_times, last_time_lines = divmod(end_line - start_line + 1, lines_per_request)
+        result = ""
+        for i in range(read_times):
+            tmp_start_line = start_line + i * lines_per_request
+            tmp_end_line = start_line + (i + 1) * lines_per_request - 1
+            logger.info(f"read lines from {tmp_start_line} to {tmp_end_line}")
+            content = await _read_lines(tmp_start_line, tmp_end_line)
+            result += content
+        if last_time_lines > 0:
+            logger.info(f"read last lines from {start_line + read_times * lines_per_request} to {end_line}")
+            last_result = await _read_lines(start_line + read_times * lines_per_request, end_line)
+            result += last_result
+
+        result = ReadFileResponse(content=result)
         return result
 
     async def download_file(self, file_path: str | Path) -> dict:
