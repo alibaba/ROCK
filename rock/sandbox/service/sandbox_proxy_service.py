@@ -23,7 +23,7 @@ from rock.actions import (
 from rock.admin.core.redis_key import alive_sandbox_key, timeout_sandbox_key
 from rock.admin.metrics.decorator import monitor_sandbox_operation
 from rock.admin.metrics.monitor import MetricsMonitor
-from rock.config import OssConfig, RockConfig
+from rock.config import OssConfig, ProxyServiceConfig, RockConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
@@ -41,14 +41,23 @@ logger = init_logger(__name__)
 
 class SandboxProxyService:
     _redis_provider: RedisProvider = None
-    _httpx_client = httpx.AsyncClient(
-        timeout=180.0, limits=httpx.Limits(max_connections=500, max_keepalive_connections=100)
-    )
+    _httpx_client = None
 
     def __init__(self, rock_config: RockConfig, redis_provider: RedisProvider | None = None):
         self._redis_provider = redis_provider
         self.metrics_monitor = MetricsMonitor.create()
         self.oss_config: OssConfig = rock_config.oss
+        self.proxy_config: ProxyServiceConfig = rock_config.proxy_service
+        logger.info(f"proxy config: {self.proxy_config}")
+        # Initialize httpx client with configuration
+        self._httpx_client = httpx.AsyncClient(
+            timeout=self.proxy_config.timeout,
+            limits=httpx.Limits(
+                max_connections=self.proxy_config.max_connections,
+                max_keepalive_connections=self.proxy_config.max_keepalive_connections,
+            ),
+        )
+
         self.sts_client = client.AcsClient(
             self.oss_config.access_key_id,
             self.oss_config.access_key_secret,

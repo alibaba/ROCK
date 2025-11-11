@@ -55,6 +55,13 @@ class OssConfig:
 
 
 @dataclass
+class ProxyServiceConfig:
+    timeout: float = 180.0
+    max_connections: int = 500
+    max_keepalive_connections: int = 100
+
+
+@dataclass
 class DatabaseConfig:
     url: str = ""
 
@@ -82,6 +89,7 @@ class RockConfig:
     sandbox_config: SandboxConfig = field(default_factory=SandboxConfig)
     oss: OssConfig = field(default_factory=OssConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    proxy_service: ProxyServiceConfig = field(default_factory=ProxyServiceConfig)
     nacos_provider: NacosConfigProvider | None = None
 
     @classmethod
@@ -117,6 +125,8 @@ class RockConfig:
             kwargs["oss"] = OssConfig(**config["oss"])
         if "runtime" in config:
             kwargs["runtime"] = RuntimeConfig(**config["runtime"])
+        if "proxy_service" in config:
+            kwargs["proxy_service"] = ProxyServiceConfig(**config["proxy_service"])
 
         return cls(**kwargs)
 
