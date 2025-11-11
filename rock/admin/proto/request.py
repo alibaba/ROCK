@@ -8,11 +8,11 @@ from rock.actions import (
     CloseBashSessionRequest,
     Command,
     CreateBashSessionRequest,
-    InitDockerEnvRequest,
     ReadFileRequest,
     WriteFileRequest,
 )
 from rock.rocklet.proto.request import (
+    InitDockerEnvRequest,
     InternalBashAction,
     InternalCloseBashSessionRequest,
     InternalCommand,
@@ -41,7 +41,24 @@ class SandboxStartRequest(BaseModel):
 
 
 class SandboxCommand(Command):
+    timeout: float | None = 1200
+    """The timeout for the command. None means no timeout."""
+    shell: bool = False
+    """Same as the `subprocess.run()` `shell` argument."""
+    check: bool = False
+    """Whether to check for the exit code. If True, we will raise a
+    `CommandFailedError` if the command fails.
+    """
+    error_msg: str = ""
+    """This error message will be used in the `NonZeroExitCodeError` if the
+    command has a non-zero exit code and `check` is True.
+    """
+    env: dict[str, str] | None = None
+    """Environment variables to pass to the command."""
+    cwd: str | None = None
+    """The current working directory to run the command in."""
     sandbox_id: str | None = None
+    """The id of the sandbox."""
 
     def transform(self) -> InternalCommand:
         res = InternalCommand(**self.model_dump())
@@ -50,6 +67,8 @@ class SandboxCommand(Command):
 
 
 class SandboxCreateBashSessionRequest(CreateBashSessionRequest):
+    startup_timeout: float = 1.0
+    max_read_size: int = 2000
     sandbox_id: str | None = None
 
     def transform(self) -> InternalCreateBashSessionRequest:
@@ -60,6 +79,21 @@ class SandboxCreateBashSessionRequest(CreateBashSessionRequest):
 
 class SandboxBashAction(BashAction):
     sandbox_id: str | None = None
+    """The id of the sandbox."""
+    is_interactive_command: bool = False
+    """For a non-exiting command to an interactive program
+    (e.g., gdb), set this to True."""
+    is_interactive_quit: bool = False
+    """This will disable checking for exit codes, since the command won't terminate.
+    If the command is something like "quit" and should terminate the
+    interactive program, set this to False.
+    """
+    error_msg: str = ""
+    """This error message will be used in the `NonZeroExitCodeError` if the
+    command has a non-zero exit code and `check` is True.
+    """
+    expect: list[str] = []
+    """Outputs to expect in addition to the PS1"""
 
     def transform(self) -> InternalBashAction:
         res = InternalBashAction(**self.model_dump())
@@ -73,7 +107,6 @@ class SandboxCloseBashSessionRequest(CloseBashSessionRequest):
     def transform(self) -> InternalCloseBashSessionRequest:
         res = InternalCloseBashSessionRequest(**self.model_dump())
         res.container_name = self.sandbox_id
-        res.session_type = "bash"
         return res
 
 
@@ -96,4 +129,4 @@ class SandboxWriteFileRequest(WriteFileRequest):
 
 
 class WarmupRequest(BaseModel):
-    image: str = "hub.docker.alibaba-inc.com/chatos/python:3.11"
+    image: str = "python:3.11"
