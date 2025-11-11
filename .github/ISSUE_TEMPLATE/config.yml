@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: ROCK Community Discussion
+    url: https://github.com/alibaba/ROCK/discussions
+    about: Please use GitHub Discussions for general questions and discussions
+  - name: ROCK Documentation
+    url: https://alibaba.github.io/ROCK/
+    about: Check the project documentation for more information
