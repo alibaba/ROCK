@@ -78,7 +78,7 @@ class DockerDeploymentConfig(DeploymentConfig):
     remove_container: bool = True
     """Whether to remove the container after it stops running."""
 
-    auto_clear_time: int = 30
+    auto_clear_time_minutes: int = 30
     """Automatic container cleanup time in minutes."""
 
     memory: str = "8g"
@@ -144,6 +144,10 @@ class DockerDeploymentConfig(DeploymentConfig):
         from rock.deployments.docker import DockerDeployment
 
         return DockerDeployment.from_config(self)
+
+    @property
+    def auto_clear_time(self) -> int:
+        return self.auto_clear_time_minutes
 
 
 class RayDeploymentConfig(DockerDeploymentConfig):

@@ -29,7 +29,6 @@ class SandboxStartRequest(BaseModel):
         from rock.rocklet.proto.request import InitDockerEnvRequest
 
         res = InitDockerEnvRequest(**self.model_dump())
-        res.auto_clear_time = self.auto_clear_time_minutes
         return res
 
 
