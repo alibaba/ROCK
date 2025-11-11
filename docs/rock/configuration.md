@@ -1,3 +1,7 @@
+---
+sidebar_position: 4
+---
+
 # ROCK Environment Configuration Guide
 
 This guide provides detailed instructions on how to configure the ROCK environment to meet different usage requirements, including local development, testing, and production deployment.
