@@ -9,28 +9,14 @@ from rock.admin.proto.request import (
     SandboxCommand,
     SandboxCreateBashSessionRequest,
     SandboxReadFileRequest,
+    SandboxStartRequest,
     SandboxWriteFileRequest,
 )
 
 
-class InitDockerEnvRequest(BaseModel):
-    image: str = ""
-    """Docker image name to use for the container."""
-
+class InitDockerEnvRequest(SandboxStartRequest):
     python_standalone_dir: str | None = None
     """Directory path for the Python standalone installation."""
-
-    auto_clear_time: int = 60 * 6
-    """Automatic container cleanup time in minutes."""
-
-    pull: Literal["never", "always", "missing"] = "missing"
-    """Docker image pull policy: 'never', 'always', or 'missing'."""
-
-    memory: str = "8g"
-    """Memory allocation for the container (e.g., '8g', '4096m')."""
-
-    cpus: float = 2
-    """Number of CPU cores to allocate for the container."""
 
     container_name: str | None = None
     """Custom name for the container. If None, a random name will be generated."""
