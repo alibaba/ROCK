@@ -11,15 +11,6 @@ from rock.actions import (
     ReadFileRequest,
     WriteFileRequest,
 )
-from rock.rocklet.proto.request import (
-    InitDockerEnvRequest,
-    InternalBashAction,
-    InternalCloseBashSessionRequest,
-    InternalCommand,
-    InternalCreateBashSessionRequest,
-    InternalReadFileRequest,
-    InternalWriteFileRequest,
-)
 
 
 class SandboxStartRequest(BaseModel):
@@ -34,7 +25,9 @@ class SandboxStartRequest(BaseModel):
     cpus: float = 2
     """The amount of CPUs to allocate for the container."""
 
-    def transform(self) -> InitDockerEnvRequest:
+    def transform(self):
+        from rock.rocklet.proto.request import InitDockerEnvRequest
+
         res = InitDockerEnvRequest(**self.model_dump())
         res.auto_clear_time = self.auto_clear_time_minutes
         return res
@@ -60,7 +53,9 @@ class SandboxCommand(Command):
     sandbox_id: str | None = None
     """The id of the sandbox."""
 
-    def transform(self) -> InternalCommand:
+    def transform(self):
+        from rock.rocklet.proto.request import InternalCommand
+
         res = InternalCommand(**self.model_dump())
         res.container_name = self.sandbox_id
         return res
@@ -71,7 +66,9 @@ class SandboxCreateBashSessionRequest(CreateBashSessionRequest):
     max_read_size: int = 2000
     sandbox_id: str | None = None
 
-    def transform(self) -> InternalCreateBashSessionRequest:
+    def transform(self):
+        from rock.rocklet.proto.request import InternalCreateBashSessionRequest
+
         res = InternalCreateBashSessionRequest(**self.model_dump())
         res.container_name = self.sandbox_id
         return res
@@ -95,7 +92,9 @@ class SandboxBashAction(BashAction):
     expect: list[str] = []
     """Outputs to expect in addition to the PS1"""
 
-    def transform(self) -> InternalBashAction:
+    def transform(self):
+        from rock.rocklet.proto.request import InternalBashAction
+
         res = InternalBashAction(**self.model_dump())
         res.container_name = self.sandbox_id
         return res
@@ -104,7 +103,9 @@ class SandboxBashAction(BashAction):
 class SandboxCloseBashSessionRequest(CloseBashSessionRequest):
     sandbox_id: str | None = None
 
-    def transform(self) -> InternalCloseBashSessionRequest:
+    def transform(self):
+        from rock.rocklet.proto.request import InternalCloseBashSessionRequest
+
         res = InternalCloseBashSessionRequest(**self.model_dump())
         res.container_name = self.sandbox_id
         return res
@@ -113,7 +114,9 @@ class SandboxCloseBashSessionRequest(CloseBashSessionRequest):
 class SandboxReadFileRequest(ReadFileRequest):
     sandbox_id: str | None = None
 
-    def transform(self) -> InternalReadFileRequest:
+    def transform(self):
+        from rock.rocklet.proto.request import InternalReadFileRequest
+
         res = InternalReadFileRequest(**self.model_dump())
         res.container_name = self.sandbox_id
         return res
@@ -122,7 +125,9 @@ class SandboxReadFileRequest(ReadFileRequest):
 class SandboxWriteFileRequest(WriteFileRequest):
     sandbox_id: str | None = None
 
-    def transform(self) -> InternalWriteFileRequest:
+    def transform(self):
+        from rock.rocklet.proto.request import InternalWriteFileRequest
+
         res = InternalWriteFileRequest(**self.model_dump())
         res.container_name = self.sandbox_id
         return res

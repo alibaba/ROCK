@@ -9,6 +9,7 @@ class Command(BaseModel):
 
 
 class CreateBashSessionRequest(BaseModel):
+    session_type: Literal["bash"] = "bash"
     session: str = "default"
     startup_source: list[str] = []
     env_enable: bool = False
@@ -53,8 +54,8 @@ class WriteFileRequest(BaseModel):
 
 
 class CloseBashSessionRequest(BaseModel):
-    session: str = "default"
     session_type: Literal["bash"] = "bash"
+    session: str = "default"
 
 
 CloseSessionRequest = Annotated[CloseBashSessionRequest, Field(discriminator="session_type")]

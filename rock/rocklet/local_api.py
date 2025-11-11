@@ -6,11 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, UploadFile
 
 from rock.actions import (
-    Action,
     CloseResponse,
-    CloseSessionRequest,
-    Command,
-    CreateSessionRequest,
     EnvCloseRequest,
     EnvCloseResponse,
     EnvListResponse,
@@ -20,11 +16,15 @@ from rock.actions import (
     EnvResetResponse,
     EnvStepRequest,
     EnvStepResponse,
-    ReadFileRequest,
     UploadResponse,
-    WriteFileRequest,
 )
 from rock.rocklet.local_sandbox import LocalSandboxRuntime
+from rock.rocklet.proto.request import InternalAction as Action
+from rock.rocklet.proto.request import InternalCloseSessionRequest as CloseSessionRequest
+from rock.rocklet.proto.request import InternalCommand as Command
+from rock.rocklet.proto.request import InternalCreateSessionRequest as CreateSessionRequest
+from rock.rocklet.proto.request import InternalReadFileRequest as ReadFileRequest
+from rock.rocklet.proto.request import InternalWriteFileRequest as WriteFileRequest
 from rock.utils import get_executor
 
 local_router = APIRouter()

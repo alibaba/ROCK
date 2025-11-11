@@ -19,19 +19,13 @@ from typing_extensions import Self
 
 from rock.actions import (
     AbstractSandbox,
-    Action,
-    BashAction,
     BashInterruptAction,
     BashObservation,
     CloseBashSessionResponse,
     CloseResponse,
-    CloseSessionRequest,
     CloseSessionResponse,
-    Command,
     CommandResponse,
-    CreateBashSessionRequest,
     CreateBashSessionResponse,
-    CreateSessionRequest,
     CreateSessionResponse,
     EnvCloseResponse,
     EnvListResponse,
@@ -41,11 +35,8 @@ from rock.actions import (
     IsAliveResponse,
     LocalSandboxRuntimeConfig,
     Observation,
-    ReadFileRequest,
     ReadFileResponse,
-    UploadRequest,
     UploadResponse,
-    WriteFileRequest,
     WriteFileResponse,
 )
 from rock.logger import init_logger
@@ -58,6 +49,15 @@ from rock.rocklet.exceptions import (
     SessionExistsError,
     SessionNotInitializedError,
 )
+from rock.rocklet.proto.request import InternalAction as Action
+from rock.rocklet.proto.request import InternalBashAction as BashAction
+from rock.rocklet.proto.request import InternalCloseSessionRequest as CloseSessionRequest
+from rock.rocklet.proto.request import InternalCommand as Command
+from rock.rocklet.proto.request import InternalCreateBashSessionRequest as CreateBashSessionRequest
+from rock.rocklet.proto.request import InternalCreateSessionRequest as CreateSessionRequest
+from rock.rocklet.proto.request import InternalReadFileRequest as ReadFileRequest
+from rock.rocklet.proto.request import InternalUploadRequest as UploadRequest
+from rock.rocklet.proto.request import InternalWriteFileRequest as WriteFileRequest
 from rock.utils import get_executor
 
 __all__ = ["LocalSandboxRuntime", "BashSession"]

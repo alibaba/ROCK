@@ -2,6 +2,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
+from rock.actions import UploadRequest
 from rock.admin.proto.request import (
     SandboxBashAction,
     SandboxCloseBashSessionRequest,
@@ -66,3 +67,6 @@ class InternalReadFileRequest(SandboxReadFileRequest):
 
 class InternalWriteFileRequest(SandboxWriteFileRequest):
     container_name: str | None = None
+
+
+InternalUploadRequest = UploadRequest

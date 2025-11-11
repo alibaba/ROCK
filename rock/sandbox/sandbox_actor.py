@@ -9,20 +9,14 @@ import ray
 from fastapi import UploadFile
 
 from rock.actions import (
-    BashAction,
     BashInterruptAction,
     BashObservation,
-    CloseBashSessionRequest,
     CloseBashSessionResponse,
-    Command,
     CommandResponse,
-    CreateBashSessionRequest,
     CreateBashSessionResponse,
     IsAliveResponse,
-    ReadFileRequest,
     ReadFileResponse,
     UploadResponse,
-    WriteFileRequest,
     WriteFileResponse,
 )
 from rock.deployments.abstract import AbstractDeployment
@@ -31,6 +25,12 @@ from rock.deployments.constants import Status
 from rock.deployments.docker import DockerDeployment
 from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
+from rock.rocklet.proto.request import InternalBashAction as BashAction
+from rock.rocklet.proto.request import InternalCloseBashSessionRequest as CloseBashSessionRequest
+from rock.rocklet.proto.request import InternalCommand as Command
+from rock.rocklet.proto.request import InternalCreateBashSessionRequest as CreateBashSessionRequest
+from rock.rocklet.proto.request import InternalReadFileRequest as ReadFileRequest
+from rock.rocklet.proto.request import InternalWriteFileRequest as WriteFileRequest
 from rock.sandbox.gem_actor import GemActor
 
 logger = init_logger(__name__)
