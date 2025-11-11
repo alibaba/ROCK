@@ -37,22 +37,22 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `⚠️ **PR Must Reference an Issue**
-              
-This pull request doesn't reference any issue. Please link your PR to an existing issue by:
-              
-1. Adding one of the following keywords in your PR description followed by the issue number:
-   - fixes #123
-   - closes #123  
-   - resolves #123
-   - refs #123
-   - references #123
+              body: \`⚠️ **PR Must Reference an Issue**
 
-2. Or including the issue number in the PR title like:
-   - [FEATURE] Add new feature #123
-   - [BUG] Fix critical bug #123
+          This pull request doesn't reference any issue. Please link your PR to an existing issue by:
 
-If no issue exists for this change, please [create an issue](https://github.com/${context.repo.owner}/${context.repo.repo}/issues/new) first to describe the problem or feature request.`
+          1. Adding one of the following keywords in your PR description followed by the issue number:
+             - fixes #123
+             - closes #123  
+             - resolves #123
+             - refs #123
+             - references #123
+
+          2. Or including the issue number in the PR title like:
+             - [FEATURE] Add new feature #123
+             - [BUG] Fix critical bug #123
+
+          If no issue exists for this change, please [create an issue](https://github.com/\${context.repo.owner}/\${context.repo.repo}/issues/new) first to describe the problem or feature request.\`
             });
 
             // Fail the check
