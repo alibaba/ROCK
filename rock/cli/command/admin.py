@@ -1,9 +1,8 @@
 import argparse
-import subprocess
-import signal
-import psutil
-import time
 import asyncio
+import subprocess
+
+import psutil
 
 from rock.cli.command.command import Command as CliCommand
 from rock.logger import init_logger
@@ -39,15 +38,17 @@ class AdminCommand(CliCommand):
         try:
             # Find admin processes
             admin_processes = []
-            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            for proc in psutil.process_iter(["pid", "name", "cmdline"]):
                 try:
-                    cmdline = proc.info['cmdline']
+                    cmdline = proc.info["cmdline"]
                     if cmdline and len(cmdline) > 0:
                         # Check if it's an admin process
-                        if ('admin' in cmdline[0] or 
-                            (len(cmdline) > 1 and 'admin' in cmdline[1]) or
-                            any('rock.admin.main' in str(cmd) for cmd in cmdline)):
-                            admin_processes.append(proc.info['pid'])
+                        if (
+                            "admin" in cmdline[0]
+                            or (len(cmdline) > 1 and "admin" in cmdline[1])
+                            or any("rock.admin.main" in str(cmd) for cmd in cmdline)
+                        ):
+                            admin_processes.append(proc.info["pid"])
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     continue
 
@@ -61,11 +62,11 @@ class AdminCommand(CliCommand):
             for pid in admin_processes:
                 try:
                     proc = psutil.Process(pid)
-                    
+
                     # First try graceful termination
                     proc.terminate()
                     logger.info(f"Sent SIGTERM to admin process with PID: {pid}")
-                    
+
                     # Wait for process to terminate gracefully
                     try:
                         proc.wait(timeout=5)  # Wait up to 5 seconds
@@ -81,7 +82,7 @@ class AdminCommand(CliCommand):
                             logger.info(f"Admin process {pid} killed forcefully")
                         except (psutil.NoSuchProcess, psutil.TimeoutExpired):
                             logger.warning(f"Could not kill process {pid}")
-                            
+
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     logger.warning(f"Could not access process with PID: {pid}")
                 except Exception as proc_error:
@@ -89,7 +90,7 @@ class AdminCommand(CliCommand):
 
             if stopped_count > 0:
                 print(f"Successfully stopped {stopped_count} admin process(es)")
-                
+
                 # Give a moment for cleanup
                 await asyncio.sleep(0.5)
             else:
@@ -113,4 +114,4 @@ class AdminCommand(CliCommand):
         admin_start_parser.add_argument("--env", default="local", help="admin service env")
 
         # admin stop
-        admin_stop_parser = admin_subparsers.add_parser("stop", help="Stop admin service")
+        admin_subparsers.add_parser("stop", help="Stop admin service")
