@@ -9,17 +9,8 @@ from rock.admin.proto.request import (
     SandboxCommand,
     SandboxCreateBashSessionRequest,
     SandboxReadFileRequest,
-    SandboxStartRequest,
     SandboxWriteFileRequest,
 )
-
-
-class InitDockerEnvRequest(SandboxStartRequest):
-    python_standalone_dir: str | None = None
-    """Directory path for the Python standalone installation."""
-
-    container_name: str | None = None
-    """Custom name for the container. If None, a random name will be generated."""
 
 
 class InternalCommand(SandboxCommand):
