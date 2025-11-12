@@ -1,9 +1,9 @@
 from pathlib import Path
 
 from rock.logger import init_logger
-from rock.sdk.envs.builder.base import EnvBuilder
-from rock.sdk.envs.builder.provider.docker import Docker
-from rock.sdk.envs.builder.provider.dockerfile_builder import DockerfileBuilder
+from rock.sdk.builder.base import EnvBuilder
+from rock.sdk.builder.provider.docker import Docker
+from rock.sdk.builder.provider.dockerfile_builder import DockerfileBuilder
 
 logger = init_logger(__name__)
 
