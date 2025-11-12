@@ -264,6 +264,9 @@ Learn more about the ROCK & ROLL Team through our official channels below👇
   <img src="https://img.shields.io/badge/WeChat-green?logo=wechat" alt="WeChat QR">
 </a>
 
+If you want to know more about the Taotian Future Living Lab, click the link: https://x.com/FutureLab2025 or scan the QR code below👇
+
+<img src="./assets/future_lab.png" alt="Taotian Future Living Lab QR Code" width="150">
 
 ---
 
