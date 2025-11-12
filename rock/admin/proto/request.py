@@ -26,9 +26,9 @@ class SandboxStartRequest(BaseModel):
     """The amount of CPUs to allocate for the container."""
 
     def transform(self):
-        from rock.rocklet.proto.request import InitDockerEnvRequest
+        from rock.deployments.config import DockerDeploymentConfig
 
-        res = InitDockerEnvRequest(**self.model_dump())
+        res = DockerDeploymentConfig(**self.model_dump())
         return res
 
 

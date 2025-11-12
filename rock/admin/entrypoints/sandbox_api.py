@@ -23,7 +23,6 @@ from rock.admin.proto.request import (
     SandboxWriteFileRequest,
 )
 from rock.admin.proto.response import SandboxStartResponse
-from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.utils import handle_exceptions
 
@@ -39,7 +38,7 @@ def set_sandbox_manager(service: SandboxManager):
 @sandbox_router.post("/start")
 @handle_exceptions(error_message="start sandbox failed")
 async def start(config: SandboxStartRequest) -> RockResponse[SandboxStartResponse]:
-    sandbox_start_response = await sandbox_manager.start(DockerDeploymentConfig(**config.transform().model_dump()))
+    sandbox_start_response = await sandbox_manager.start(config.transform())
     return RockResponse(result=sandbox_start_response)
 
 
@@ -51,7 +50,7 @@ async def start_async(
     x_experiment_id: str | None = Header(default="default", alias="X-Experiment-Id"),
 ) -> RockResponse[SandboxStartResponse]:
     sandbox_start_response = await sandbox_manager.start_async(
-        DockerDeploymentConfig(**config.transform().model_dump()),
+        config.transform(),
         user_info={"user_id": x_user_id, "experiment_id": x_experiment_id},
     )
     return RockResponse(result=sandbox_start_response)
