@@ -251,7 +251,7 @@ Special thanks to:
 
 ---
 
-## 🤝 About [ROCK n ROLL Team]
+## 🤝 About [ROCK & ROLL Team]
 ROCK is a project jointly developed by Taotian Future Living Lab and Alibaba AI Engine Team, with a strong emphasis on pioneering the future of Reinforcement Learning (RL). Our mission is to explore and shape innovative forms of future living powered by advanced RL technologies. If you are passionate about the future of RL and want to be part of its evolution, we warmly welcome you to join us! 
 
 For more information about **ROLL**, please visit:
@@ -263,7 +263,9 @@ Learn more about the ROCK & ROLL Team through our official channels below👇
 <a href="./assets/rock_wechat.png" target="_blank">
   <img src="https://img.shields.io/badge/WeChat-green?logo=wechat" alt="WeChat QR">
 </a>
-
+<a href="./assets/future_lab.png" target="_blank">
+  <img src="https://img.shields.io/twitter/follow/FutureLab2025?style=social" alt="X QR">
+</a>
 
 ---
 
