@@ -1,6 +1,5 @@
 """EnvHub core implementation"""
 
-import logging
 import subprocess
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
@@ -13,9 +12,10 @@ from rock import env_vars
 from rock.envhub.api.schemas import DeleteEnvRequest, EnvInfo, GetEnvRequest, ListEnvsRequest, RegisterRequest
 from rock.envhub.database.base import Base
 from rock.envhub.database.docker_env import RockDockerEnv
+from rock.logger import init_logger
 
 # Configure logging
-logger = logging.getLogger(__name__)
+logger = init_logger(__name__)
 
 
 class EnvHub(ABC):
@@ -133,8 +133,6 @@ class DockerEnvHub(EnvHub):
             logger.info(f"Default environment already exists: {self.DEFAULT_ENV_NAME}, env_info: {existing_env}")
         except Exception:
             # Environment doesn't exist, so create it using the register method
-            from rock.envhub.api.schemas import RegisterRequest
-
             register_request = RegisterRequest(
                 env_name=self.DEFAULT_ENV_NAME,
                 image=default_docker_image,

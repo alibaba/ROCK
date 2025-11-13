@@ -6,6 +6,7 @@ import yaml
 
 from rock import env_vars
 from rock.logger import init_logger
+from rock.utils import is_absolute_db_path
 from rock.utils.providers import NacosConfigProvider
 
 logger = init_logger(__name__)
@@ -71,6 +72,7 @@ class RuntimeConfig:
     enable_auto_clear: bool = False
     project_root: str = field(default_factory=lambda: env_vars.ROCK_PROJECT_ROOT)
     python_env_path: str = field(default_factory=lambda: env_vars.ROCK_PYTHON_ENV_PATH)
+    envhub_db_url: str = field(default_factory=lambda: env_vars.ROCK_ENVHUB_DB_URL)
 
     def __post_init__(self) -> None:
         if not self.python_env_path:
@@ -78,6 +80,14 @@ class RuntimeConfig:
                 "ROCK_PYTHON_ENV_PATH is not set, please specify the actual Python environment path "
                 "(e.g., conda or system Python) that uv depends on"
             )
+
+        if not self.envhub_db_url:
+            raise Exception("ROCK_ENVHUB_DB_URL is not set, please specify the actual EnvHub database URL")
+
+        # Considering Ray's distributed nature, the passed-in envhub_db_url may itself be a relative path, so it should not be pass as a relative path
+
+        if not is_absolute_db_path(self.envhub_db_url):
+            raise Exception("ROCK_ENVHUB_DB_URL is not an absolute path")
 
 
 @dataclass

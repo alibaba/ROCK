@@ -1,9 +1,12 @@
 from contextvars import ContextVar
 
-from .concurrent import AsyncAtomicInt, AsyncSafeDict, RayUtil, Timer, get_executor, run_until_complete, timeout
+from .concurrent_helper import AsyncAtomicInt, AsyncSafeDict, RayUtil, Timer, get_executor, run_until_complete, timeout
 from .data import (
     FileUtil,
     ListUtil,
+)
+from .database import (
+    is_absolute_db_path,
 )
 from .docker import (
     DockerUtil,
@@ -61,6 +64,8 @@ __all__ = [
     # Data utilities
     "FileUtil",
     "ListUtil",
+    # Database utilities
+    "is_absolute_db_path",
     # HTTP utilities
     "HttpUtils",
     "wait_until_alive",

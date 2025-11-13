@@ -20,6 +20,7 @@ from rock.deployments.constants import Port, Status
 from rock.deployments.hooks.abstract import CombinedDeploymentHook, DeploymentHook
 from rock.deployments.runtime_env import DockerRuntimeEnv, LocalRuntimeEnv, PipRuntimeEnv, UvRuntimeEnv
 from rock.deployments.status import ServiceStatus
+from rock.envhub import DockerEnvHub
 from rock.logger import init_logger
 from rock.rocklet import PACKAGE_NAME, REMOTE_EXECUTABLE_NAME
 from rock.rocklet.exceptions import DeploymentNotStartedError, DockerPullError
@@ -74,6 +75,8 @@ class DockerDeployment(AbstractDeployment):
             self._runtime_env = PipRuntimeEnv(self._config.runtime_config)
         else:
             raise Exception(f"Invalid ROCK_WORKER_ENV_TYPE: {env_vars.ROCK_WORKER_ENV_TYPE}")
+
+        self.envhub: DockerEnvHub | None = None
 
     def add_hook(self, hook: DeploymentHook):
         self._hooks.add_hook(hook)
@@ -267,6 +270,12 @@ class DockerDeployment(AbstractDeployment):
 
     async def start(self):
         """Starts the runtime."""
+        if not self.envhub:
+            self.envhub = DockerEnvHub(db_url=self._config.runtime_config.envhub_db_url)
+
+        if not self.envhub.check_envs_available():
+            raise Exception("Envhub related to current Admin Server all envs not available")
+
         if self._container_name is None:
             self.set_container_name(self._get_container_name())
         executor = get_executor()
