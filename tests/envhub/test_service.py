@@ -3,7 +3,7 @@ import tempfile
 import pytest
 
 from rock import env_vars
-from rock.envhub import DeleteEnvRequest, GetEnvRequest, ListEnvsRequest, RegisterRequest
+from rock.envhub import DeleteEnvRequest, DockerEnvHub, GetEnvRequest, ListEnvsRequest, RegisterRequest
 
 # ============ Basic functionality tests ============
 
@@ -293,9 +293,6 @@ def test_check_envs_available_with_existing_default_image(docker_available, defa
 
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_file:
         db_path = tmp_file.name
-
-        from rock.envhub.api.schemas import RegisterRequest
-        from rock.envhub.core.envhub import DockerEnvHub
 
         db_url = f"sqlite:///{db_path}"
         hub = DockerEnvHub(db_url=db_url)
