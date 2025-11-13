@@ -274,7 +274,7 @@ class DockerDeployment(AbstractDeployment):
             self.envhub = DockerEnvHub(db_url=self._config.runtime_config.envhub_db_url)
 
         if not self.envhub.check_envs_available():
-            raise Exception("Envhub related to current Admin Server all envs not available")
+            raise Exception("Images in DockerEnvhub related to current Admin Server are not available")
 
         if self._container_name is None:
             self.set_container_name(self._get_container_name())

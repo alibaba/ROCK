@@ -127,22 +127,16 @@ class DockerEnvHub(EnvHub):
             logger.warning("No default docker image specified, skipping initialization")
             return
 
-        # Check if environment already exists using get_env
-        try:
-            existing_env = self.get_env(GetEnvRequest(env_name=self.DEFAULT_ENV_NAME))
-            logger.info(f"Default environment already exists: {self.DEFAULT_ENV_NAME}, env_info: {existing_env}")
-        except Exception:
-            # Environment doesn't exist, so create it using the register method
-            register_request = RegisterRequest(
-                env_name=self.DEFAULT_ENV_NAME,
-                image=default_docker_image,
-                owner="ENVHUB",
-                description="Default docker environment provided by EnvHub",
-                tags=["default", "system", "envhub"],
-                extra_spec={},
-            )
-            self.register(register_request)
-            logger.info(f"Created default environment: {self.DEFAULT_ENV_NAME} with image {default_docker_image}")
+        register_request = RegisterRequest(
+            env_name=self.DEFAULT_ENV_NAME,
+            image=default_docker_image,
+            owner="ENVHUB",
+            description="Default docker environment provided by EnvHub",
+            tags=["default", "system", "envhub"],
+            extra_spec={},
+        )
+        self.register(register_request)
+        logger.info(f"Created default environment: {self.DEFAULT_ENV_NAME} with image {default_docker_image}")
 
     def check_envs_available(self) -> bool:
         """
