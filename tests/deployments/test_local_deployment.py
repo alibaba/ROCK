@@ -2,9 +2,9 @@ import platform
 
 import pytest
 
+from rock.admin.proto.request import SandboxBashAction as BashAction
+from rock.admin.proto.request import SandboxCreateBashSessionRequest as CreateBashSessionRequest
 from rock.deployments.local import LocalDeployment
-from rock.rocklet.proto.request import InternalBashAction as BashAction
-from rock.rocklet.proto.request import InternalCreateBashSessionRequest as CreateBashSessionRequest
 
 
 @pytest.mark.asyncio

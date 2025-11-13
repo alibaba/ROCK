@@ -11,6 +11,7 @@ from fastapi import UploadFile
 
 from rock import env_vars
 from rock.actions import (
+    BashInterruptAction,
     BashObservation,
     CloseBashSessionResponse,
     CommandResponse,
@@ -23,17 +24,16 @@ from rock.actions import (
 from rock.admin.core.redis_key import alive_sandbox_key, timeout_sandbox_key
 from rock.admin.metrics.decorator import monitor_sandbox_operation
 from rock.admin.metrics.monitor import MetricsMonitor
+from rock.admin.proto.request import SandboxBashAction as BashAction
+from rock.admin.proto.request import SandboxCloseBashSessionRequest as CloseBashSessionRequest
+from rock.admin.proto.request import SandboxCommand as Command
+from rock.admin.proto.request import SandboxCreateSessionRequest as CreateSessionRequest
+from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
+from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.config import OssConfig, ProxyServiceConfig, RockConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
-from rock.rocklet.proto.request import BashInterruptAction
-from rock.rocklet.proto.request import InternalBashAction as BashAction
-from rock.rocklet.proto.request import InternalCloseBashSessionRequest as CloseBashSessionRequest
-from rock.rocklet.proto.request import InternalCommand as Command
-from rock.rocklet.proto.request import InternalCreateSessionRequest as CreateSessionRequest
-from rock.rocklet.proto.request import InternalReadFileRequest as ReadFileRequest
-from rock.rocklet.proto.request import InternalWriteFileRequest as WriteFileRequest
 from rock.utils.providers import RedisProvider
 
 logger = init_logger(__name__)

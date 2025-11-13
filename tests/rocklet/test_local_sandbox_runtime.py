@@ -4,16 +4,12 @@ import gem
 import pytest
 from gem.envs.game_env.sokoban import SokobanEnv
 
-from rock.actions import (
-    EnvMakeResponse,
-    EnvStepResponse,
-)
+from rock.actions import EnvMakeResponse, EnvStepResponse, UploadRequest
+from rock.admin.proto.request import SandboxBashAction as BashAction
+from rock.admin.proto.request import SandboxCloseBashSessionRequest as CloseBashSessionRequest
+from rock.admin.proto.request import SandboxCreateBashSessionRequest as CreateBashSessionRequest
+from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.rocklet.local_sandbox import LocalSandboxRuntime
-from rock.rocklet.proto.request import InternalBashAction as BashAction
-from rock.rocklet.proto.request import InternalCloseBashSessionRequest as CloseBashSessionRequest
-from rock.rocklet.proto.request import InternalCreateBashSessionRequest as CreateBashSessionRequest
-from rock.rocklet.proto.request import InternalReadFileRequest as ReadFileRequest
-from rock.rocklet.proto.request import InternalUploadRequest as UploadRequest
 
 
 @pytest.fixture

@@ -83,37 +83,37 @@ async def get_status(sandbox_id: str):
 @sandbox_router.post("/execute")
 @handle_exceptions(error_message="execute command failed")
 async def execute(command: SandboxCommand) -> RockResponse[CommandResponse]:
-    return RockResponse(result=await sandbox_manager.execute(command.transform()))
+    return RockResponse(result=await sandbox_manager.execute(command))
 
 
 @sandbox_router.post("/create_session")
 @handle_exceptions(error_message="create session failed")
 async def create_session(request: SandboxCreateBashSessionRequest) -> RockResponse[CreateBashSessionResponse]:
-    return RockResponse(result=await sandbox_manager.create_session(request.transform()))
+    return RockResponse(result=await sandbox_manager.create_session(request))
 
 
 @sandbox_router.post("/run_in_session")
 @handle_exceptions(error_message="run in session failed")
 async def run(action: SandboxBashAction) -> RockResponse[BashObservation]:
-    return RockResponse(result=await sandbox_manager.run_in_session(action.transform()))
+    return RockResponse(result=await sandbox_manager.run_in_session(action))
 
 
 @sandbox_router.post("/close_session")
 @handle_exceptions(error_message="close session failed")
 async def close_session(request: SandboxCloseBashSessionRequest) -> RockResponse[CloseBashSessionResponse]:
-    return RockResponse(result=await sandbox_manager.close_session(request.transform()))
+    return RockResponse(result=await sandbox_manager.close_session(request))
 
 
 @sandbox_router.post("/read_file")
 @handle_exceptions(error_message="read file failed")
 async def read_file(request: SandboxReadFileRequest) -> RockResponse[ReadFileResponse]:
-    return RockResponse(result=await sandbox_manager.read_file(request.transform()))
+    return RockResponse(result=await sandbox_manager.read_file(request))
 
 
 @sandbox_router.post("/write_file")
 @handle_exceptions(error_message="write file failed")
 async def write_file(request: SandboxWriteFileRequest) -> RockResponse[WriteFileResponse]:
-    return RockResponse(result=await sandbox_manager.write_file(request.transform()))
+    return RockResponse(result=await sandbox_manager.write_file(request))
 
 
 @sandbox_router.post("/upload")

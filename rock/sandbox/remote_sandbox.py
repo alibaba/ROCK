@@ -16,7 +16,6 @@ from rock.actions import (
     AbstractSandbox,
     CloseResponse,
     CloseSessionResponse,
-    Command,
     CommandResponse,
     CreateSessionResponse,
     EnvCloseRequest,
@@ -32,19 +31,19 @@ from rock.actions import (
     Observation,
     ReadFileResponse,
     RemoteSandboxRuntimeConfig,
+    UploadRequest,
     UploadResponse,
     WriteFileResponse,
     _ExceptionTransfer,
 )
+from rock.admin.proto.request import SandboxAction as Action
+from rock.admin.proto.request import SandboxCloseSessionRequest as CloseSessionRequest
+from rock.admin.proto.request import SandboxCommand as Command
+from rock.admin.proto.request import SandboxCreateSessionRequest as CreateSessionRequest
+from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
+from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.logger import init_logger
 from rock.rocklet.exceptions import RockletException
-from rock.rocklet.proto.request import InternalAction as Action
-from rock.rocklet.proto.request import InternalCloseSessionRequest as CloseSessionRequest
-from rock.rocklet.proto.request import InternalCommand as Command
-from rock.rocklet.proto.request import InternalCreateSessionRequest as CreateSessionRequest
-from rock.rocklet.proto.request import InternalReadFileRequest as ReadFileRequest
-from rock.rocklet.proto.request import InternalUploadRequest as UploadRequest
-from rock.rocklet.proto.request import InternalWriteFileRequest as WriteFileRequest
 from rock.utils import SANDBOX_ID, sandbox_id_ctx_var, wait_until_alive
 
 __all__ = ["RemoteSandboxRuntime", "RemoteSandboxRuntimeConfig"]
