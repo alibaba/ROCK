@@ -75,7 +75,7 @@ class SandboxBashAction(BashAction):
     """Outputs to expect in addition to the PS1"""
 
 
-SandboxAction = SandboxBashAction
+SandboxAction = Annotated[SandboxBashAction, Field(discriminator="action_type")]
 
 
 class SandboxCloseBashSessionRequest(CloseBashSessionRequest):
