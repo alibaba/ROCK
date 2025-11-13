@@ -168,7 +168,7 @@ class DockerEnvHub(EnvHub):
                         if result.returncode == 0:
                             logger.info(f"Environment {db_env.env_name} with image {image} is available")
                         else:
-                            logger.warning(f"Docker image {image} not found locally for environment {db_env.env_name}")
+                            logger.error(f"Docker image {image} not found locally for environment {db_env.env_name}")
                             return False
 
                     except subprocess.TimeoutExpired:
