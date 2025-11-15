@@ -7,6 +7,19 @@ logger = logging.getLogger(__name__)
 class DockerUtil:
     """Docker operation utilities"""
 
+    def is_docker_available(cls):
+        """检查 Docker 是否可用"""
+        try:
+            # 尝试运行 docker --version 命令
+            result = subprocess.run(["docker", "--version"], capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                # 进一步检查 Docker daemon 是否运行
+                result = subprocess.run(["docker", "info"], capture_output=True, text=True, timeout=10)
+                return result.returncode == 0
+            return False
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return False
+
     @classmethod
     def is_image_available(cls, image: str) -> bool:
         """Check if a Docker image is available locally"""

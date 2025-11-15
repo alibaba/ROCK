@@ -16,4 +16,5 @@ async def test_local_deployment():
 
 async def test_docker():
     docker_util = DockerUtil()
+    assert docker_util.is_docker_available()
     assert docker_util.is_image_available("hello-world:latest")
