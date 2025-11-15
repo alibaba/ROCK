@@ -13,7 +13,8 @@ class DockerUtil:
         try:
             subprocess.check_call(["docker", "inspect", image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return True
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
+            logger.debug(f"Docker image {image} is not available locally, exception: {e}")
             return False
 
     @classmethod
