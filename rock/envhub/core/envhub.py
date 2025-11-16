@@ -111,11 +111,14 @@ class DockerEnvHub(EnvHub):
         if not db_url:
             db_url = env_vars.ROCK_ENVHUB_DB_URL
         if not env_validator:
-            validator = DockerEnvValidator()
+            env_validator = DockerEnvValidator()
 
-        super().__init__(db_url=db_url, validator=validator)
+        super().__init__(db_url=db_url, env_validator=env_validator)
         self.engine = create_engine(db_url, echo=False)
         Base.metadata.create_all(self.engine)
+
+        # pre-check env
+        self.init_default_env()
 
     def init_default_env(self):
         """
