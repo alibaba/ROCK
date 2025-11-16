@@ -20,7 +20,7 @@ from rock.deployments.constants import Port, Status
 from rock.deployments.hooks.abstract import CombinedDeploymentHook, DeploymentHook
 from rock.deployments.runtime_env import DockerRuntimeEnv, LocalRuntimeEnv, PipRuntimeEnv, UvRuntimeEnv
 from rock.deployments.status import ServiceStatus
-from rock.envhub import DockerEnvHub
+from rock.envhub import DockerValidator
 from rock.logger import init_logger
 from rock.rocklet import PACKAGE_NAME, REMOTE_EXECUTABLE_NAME
 from rock.rocklet.exceptions import DeploymentNotStartedError, DockerPullError
@@ -76,7 +76,7 @@ class DockerDeployment(AbstractDeployment):
         else:
             raise Exception(f"Invalid ROCK_WORKER_ENV_TYPE: {env_vars.ROCK_WORKER_ENV_TYPE}")
 
-        self.envhub: DockerEnvHub | None = None
+        self.env_validator: DockerValidator | None = DockerValidator()
 
     def add_hook(self, hook: DeploymentHook):
         self._hooks.add_hook(hook)
@@ -270,11 +270,8 @@ class DockerDeployment(AbstractDeployment):
 
     async def start(self):
         """Starts the runtime."""
-        if not self.envhub:
-            self.envhub = DockerEnvHub(db_url=self._config.runtime_config.envhub_db_url)
-
-        if not self.envhub.check_envs_available():
-            raise Exception("Images in DockerEnvhub related to current Admin Server are not available")
+        if not self.env_validator.check_docker():
+            raise Exception("Docker is not available")
 
         if self._container_name is None:
             self.set_container_name(self._get_container_name())
@@ -285,6 +282,10 @@ class DockerDeployment(AbstractDeployment):
             image_id = self._build_image()
         else:
             image_id = self._config.image
+
+        if not self.env_validator.check_image(image_id):
+            raise Exception(f"Image {image_id} is not valid")
+
         await self.do_port_mapping()
         platform_arg = []
         if self._config.platform is not None:

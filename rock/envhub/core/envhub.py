@@ -1,6 +1,5 @@
 """EnvHub core implementation"""
 
-import subprocess
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from datetime import datetime
@@ -14,6 +13,8 @@ from rock.envhub.database.base import Base
 from rock.envhub.database.docker_env import RockDockerEnv
 from rock.logger import init_logger
 
+from .validator import DockerValidator, Validator
+
 # Configure logging
 logger = init_logger(__name__)
 
@@ -21,7 +22,7 @@ logger = init_logger(__name__)
 class EnvHub(ABC):
     """EnvHub abstract base class"""
 
-    def __init__(self, db_url: str | None = None):
+    def __init__(self, db_url: str | None = None, validator: Validator | None = None):
         """
         Initialize EnvHub
 
@@ -29,6 +30,7 @@ class EnvHub(ABC):
             db_url: Database URL
         """
         self.db_url = db_url
+        self.validator = validator
 
     @abstractmethod
     def register(self, request: RegisterRequest) -> EnvInfo:
@@ -99,7 +101,7 @@ class DockerEnvHub(EnvHub):
 
     DEFAULT_ENV_NAME = "EnvhubDefaultDockerImage"
 
-    def __init__(self, db_url: str | None = None):
+    def __init__(self, db_url: str | None = None, validator: Validator | None = None):
         """
         Initialize DockerEnvHub
 
@@ -108,12 +110,14 @@ class DockerEnvHub(EnvHub):
         """
         if not db_url:
             db_url = env_vars.ROCK_ENVHUB_DB_URL
-        super().__init__(db_url=db_url)
+        if not validator:
+            validator = DockerValidator()
+        if not isinstance(validator, DockerValidator):
+            raise Exception("Validator must be an instance of DockerValidator for DockerEnvHub")
+
+        super().__init__(db_url=db_url, validator=validator)
         self.engine = create_engine(db_url, echo=False)
         Base.metadata.create_all(self.engine)
-
-        # pre-check env
-        self.init_default_env()
 
     def init_default_env(self):
         """
@@ -146,47 +150,21 @@ class DockerEnvHub(EnvHub):
         Returns:
             True if all environment docker images are available, False if any is not available
         """
-        try:
-            # Check if docker command is available
-            result = subprocess.run(["docker", "images"], capture_output=True, text=True, timeout=10)
-            if result.returncode != 0:
-                logger.error("Docker is not installed or not accessible")
-                return False
-
-            # Get all environments from database
-            with self.get_session() as session:
-                all_envs = session.query(RockDockerEnv).all()
-
-                for db_env in all_envs:
-                    image = db_env.image
-                    try:
-                        # Use docker inspect to check if image exists
-                        result = subprocess.run(
-                            ["docker", "image", "inspect", image], capture_output=True, text=True, timeout=10
-                        )
-
-                        if result.returncode == 0:
-                            logger.info(f"Environment {db_env.env_name} with image {image} is available")
-                        else:
-                            logger.error(f"Docker image {image} not found locally for environment {db_env.env_name}")
-                            return False
-
-                    except subprocess.TimeoutExpired:
-                        logger.error(f"Timeout checking docker image for environment {db_env.env_name}")
-                        return False
-                    except Exception as e:
-                        logger.error(f"Error checking docker image for environment {db_env.env_name}: {e}")
-                        return False
-
-        except subprocess.TimeoutExpired:
-            logger.error("Timeout checking docker availability")
-            return False
-        except FileNotFoundError:
+        # Check if docker command is available
+        if not self.validator.check_docker():
             logger.error("Docker command not found, cannot check environment availability")
             return False
-        except Exception as e:
-            logger.error(f"Failed to check environments availability: {e}")
-            return False
+
+        # Get all environments from database
+        with self.get_session() as session:
+            all_envs = session.query(RockDockerEnv).all()
+
+            for db_env in all_envs:
+                image = db_env.image
+                # Use docker inspect to check if image exists
+                if not self.validator.check_image(image):
+                    logger.error(f"Docker image {image} not found")
+                    return False
 
         return True
 

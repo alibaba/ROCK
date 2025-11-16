@@ -8,6 +8,15 @@ class DockerUtil:
     """Docker operation utilities"""
 
     @classmethod
+    def is_docker_available(cls) -> bool:
+        """Check if Docker command is available"""
+        try:
+            result = subprocess.run(["docker", "--version"], capture_output=True, text=True, timeout=10)
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return False
+
+    @classmethod
     def is_image_available(cls, image: str) -> bool:
         """Check if a Docker image is available locally"""
         try:

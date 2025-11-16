@@ -1,10 +1,12 @@
 from .api.schemas import DeleteEnvRequest, EnvInfo, GetEnvRequest, ListEnvsRequest, RegisterRequest
-from .core.envhub import DockerEnvHub, EnvHub
+from .core import DockerEnvHub, DockerValidator, EnvHub, Validator
 
 __all__ = [
     "DockerEnvHub",
     "EnvHub",
     "EnvInfo",
+    "Validator",
+    "DockerValidator",
     "RegisterRequest",
     "GetEnvRequest",
     "ListEnvsRequest",
