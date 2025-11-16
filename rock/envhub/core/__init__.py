@@ -1,9 +1,9 @@
+from .env_validator import DockerEnvValidator, EnvValidator
 from .envhub import DockerEnvHub, EnvHub
-from .validator import DockerValidator, Validator
 
 __all__ = [
     "DockerEnvHub",
     "EnvHub",
-    "Validator",
-    "DockerValidator",
+    "EnvValidator",
+    "DockerEnvValidator",
 ]
