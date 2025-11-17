@@ -56,7 +56,8 @@ def rocklet_remote_server() -> RemoteServer:
 
 @pytest.fixture(scope="session")
 def rocklet_test_client():
-    return TestClient(rock.rocklet.server.app)
+    client = TestClient(rock.rocklet.server.app)
+    yield client
 
 
 @pytest.fixture(scope="session")
