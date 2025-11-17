@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from pathlib import Path
 
@@ -7,15 +6,6 @@ import pytest
 from rock import env_vars
 from rock.config import RockConfig
 from rock.utils.providers import RedisProvider
-
-
-@pytest.fixture(autouse=True)
-def event_loop():
-    # Make Sure each test has its own event loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    yield loop
-    loop.close()
 
 
 @pytest.fixture(scope="session")
