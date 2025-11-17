@@ -26,7 +26,7 @@ def configure_logging():
         env_vars.ROCK_LOGGING_PATH = log_dir
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def docker_env_hub():
     """Create a DockerEnvHub instance with a temporary database"""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_file:
@@ -53,7 +53,7 @@ def docker_available():
         pytest.skip("Docker not available")
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="funtion")
 def default_image_available():
     """Check if default docker image is available."""
     try:
