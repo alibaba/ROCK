@@ -18,7 +18,6 @@ from tests.integration.conftest import RemoteServer
 def admin_remote_server():
     port = run_until_complete(find_free_port())
 
-    # 启动子进程
     process = subprocess.Popen(
         [
             "admin",
@@ -48,7 +47,6 @@ def admin_remote_server():
 
     yield RemoteServer(port)
 
-    # 清理：测试结束后关闭服务器
     process.terminate()
     try:
         process.wait(timeout=5)
