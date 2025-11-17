@@ -19,12 +19,12 @@ from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Port, Status
 from rock.deployments.hooks.abstract import CombinedDeploymentHook, DeploymentHook
 from rock.deployments.runtime_env import DockerRuntimeEnv, LocalRuntimeEnv, PipRuntimeEnv, UvRuntimeEnv
+from rock.deployments.sandbox_validator import DockerSandboxValidator
 from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
 from rock.rocklet import PACKAGE_NAME, REMOTE_EXECUTABLE_NAME
 from rock.rocklet.exceptions import DeploymentNotStartedError, DockerPullError
 from rock.sandbox.remote_sandbox import RemoteSandboxRuntime
-from rock.sandbox.validator import DockerSandboxValidator
 from rock.utils import (
     ENV_POOL,
     DockerUtil,

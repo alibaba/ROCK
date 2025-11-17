@@ -8,11 +8,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from rock import env_vars
+from rock.deployments.sandbox_validator import DockerSandboxValidator
 from rock.envhub.api.schemas import DeleteEnvRequest, EnvInfo, GetEnvRequest, ListEnvsRequest, RegisterRequest
 from rock.envhub.database.base import Base
 from rock.envhub.database.docker_env import RockDockerEnv
 from rock.logger import init_logger
-from rock.sandbox.validator import DockerSandboxValidator
 
 # Configure logging
 logger = init_logger(__name__)
