@@ -1,11 +1,29 @@
+import os
 import tempfile
 
 import pytest
 
 from rock import env_vars
 from rock.envhub import DeleteEnvRequest, DockerEnvHub, GetEnvRequest, ListEnvsRequest, RegisterRequest
+from rock.utils import DockerUtil
 
 # ============ Basic functionality tests ============
+
+
+@pytest.fixture(scope="function")
+def docker_env_hub():
+    """Create a DockerEnvHub instance with a temporary database"""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_file:
+        db_path = tmp_file.name
+
+    db_url = f"sqlite:///{db_path}"
+    hub = DockerEnvHub(db_url=db_url)
+
+    yield hub
+
+    # Cleanup
+    if os.path.exists(db_path):
+        os.unlink(db_path)
 
 
 def test_register_new_env(docker_env_hub):
@@ -280,7 +298,11 @@ def test_init_default_env_creates_default_environment(docker_env_hub):
     assert default_env.owner == "ENVHUB"
 
 
-def test_check_envs_available_basic(docker_env_hub, docker_available, default_image_available):
+@pytest.mark.skipif(
+    not (DockerUtil.is_docker_available() and DockerUtil.is_image_available(env_vars.ROCK_ENVHUB_DEFAULT_DOCKER_IMAGE)),
+    reason=f"Requires Docker and image {env_vars.ROCK_ENVHUB_DEFAULT_DOCKER_IMAGE}",
+)
+def test_check_envs_available_basic(docker_env_hub):
     """Test that check_envs_available checks default env properly - should return False without docker installed."""
     result = docker_env_hub.check_envs_available()
     # In a basic DockerEnvHub instance (without docker installed or images present),
@@ -288,7 +310,11 @@ def test_check_envs_available_basic(docker_env_hub, docker_available, default_im
     assert isinstance(result, bool)
 
 
-def test_check_envs_available_with_existing_default_image(docker_available, default_image_available):
+@pytest.mark.skipif(
+    not (DockerUtil.is_docker_available() and DockerUtil.is_image_available(env_vars.ROCK_ENVHUB_DEFAULT_DOCKER_IMAGE)),
+    reason=f"Requires Docker and image {env_vars.ROCK_ENVHUB_DEFAULT_DOCKER_IMAGE}",
+)
+def test_check_envs_available_with_existing_default_image():
     """Test check_envs_available with mocked docker functionality."""
 
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_file:
