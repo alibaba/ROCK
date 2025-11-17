@@ -1,8 +1,6 @@
-import asyncio
 import socket
 import threading
 import time
-from collections.abc import Generator
 from dataclasses import dataclass, field
 
 import pytest
@@ -11,7 +9,6 @@ from fastapi.testclient import TestClient
 
 import rock
 import rock.rocklet.server
-from rock.sandbox.remote_sandbox import RemoteSandboxRuntime
 from rock.utils import find_free_port, run_until_complete
 
 TEST_API_KEY = "testkey"
@@ -24,7 +21,7 @@ class RemoteServer:
 
 
 @pytest.fixture(scope="session")
-def remote_server() -> RemoteServer:
+def rocklet_remote_server() -> RemoteServer:
     port = run_until_complete(find_free_port())
     print(f"Using port {port} for the remote server")
 
@@ -47,13 +44,6 @@ def remote_server() -> RemoteServer:
         pytest.fail("Server did not start within the expected time")
 
     return RemoteServer(port)
-
-
-@pytest.fixture
-def remote_runtime(remote_server: RemoteServer) -> Generator[RemoteSandboxRuntime, None]:
-    r = RemoteSandboxRuntime(port=remote_server.port)
-    yield r
-    asyncio.run(r.close())
 
 
 @pytest.fixture(scope="session")
