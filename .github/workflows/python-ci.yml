@@ -62,4 +62,4 @@ jobs:
       if: success()
       run: |
         echo "🐌 Running slow tests..."
-        uv run pytest -m "slow" -n 4
+        uv run pytest -m "slow"
