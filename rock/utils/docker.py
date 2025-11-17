@@ -8,13 +8,14 @@ class DockerUtil:
     """Docker operation utilities"""
 
     @classmethod
-    def is_docker_available(cls) -> bool:
-        """Check if Docker command is available"""
-        # TODO: Check if Docker can pull image from registry correctly
+    def is_docker_available(cls):
         try:
             result = subprocess.run(["docker", "--version"], capture_output=True, text=True, timeout=10)
-            return result.returncode == 0
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+            if result.returncode == 0:
+                result = subprocess.run(["docker", "info"], capture_output=True, text=True, timeout=10)
+                return result.returncode == 0
+            return False
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
 
     @classmethod
