@@ -2,8 +2,6 @@ import requests
 
 from tests.integration.conftest import RemoteServer
 
-headers = {"X-API-Key": "your_secret_api_key_here"}
-
 
 def test_is_alive(rocklet_remote_server: RemoteServer):
     response = requests.get(
