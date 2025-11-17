@@ -12,8 +12,7 @@ from rock.envhub.api.schemas import DeleteEnvRequest, EnvInfo, GetEnvRequest, Li
 from rock.envhub.database.base import Base
 from rock.envhub.database.docker_env import RockDockerEnv
 from rock.logger import init_logger
-
-from .env_validator import DockerEnvValidator, EnvValidator
+from rock.sandbox.validator import DockerSandboxValidator
 
 # Configure logging
 logger = init_logger(__name__)
@@ -21,16 +20,6 @@ logger = init_logger(__name__)
 
 class EnvHub(ABC):
     """EnvHub abstract base class"""
-
-    def __init__(self, db_url: str | None = None, env_validator: EnvValidator | None = None):
-        """
-        Initialize EnvHub
-
-        Args:
-            db_url: Database URL
-        """
-        self.db_url = db_url
-        self.env_validator = env_validator
 
     @abstractmethod
     def register(self, request: RegisterRequest) -> EnvInfo:
@@ -101,7 +90,7 @@ class DockerEnvHub(EnvHub):
 
     DEFAULT_ENV_NAME = "EnvhubDefaultDockerImage"
 
-    def __init__(self, db_url: str | None = None, env_validator: DockerEnvValidator | None = None):
+    def __init__(self, db_url: str | None = None, validator: DockerSandboxValidator | None = None):
         """
         Initialize DockerEnvHub
 
@@ -110,10 +99,12 @@ class DockerEnvHub(EnvHub):
         """
         if not db_url:
             db_url = env_vars.ROCK_ENVHUB_DB_URL
-        if not env_validator:
-            env_validator = DockerEnvValidator()
+        if not validator:
+            validator = DockerSandboxValidator()
 
-        super().__init__(db_url=db_url, env_validator=env_validator)
+        self.db_url = db_url
+        self.validator = validator
+
         self.engine = create_engine(db_url, echo=False)
         Base.metadata.create_all(self.engine)
 
@@ -152,7 +143,7 @@ class DockerEnvHub(EnvHub):
             True if all environment docker images are available, False if any is not available
         """
         # Check if docker command is available
-        if not self.env_validator.check_availability():
+        if not self.validator.check_availability():
             logger.error("Docker command not found, cannot check environment availability")
             return False
 
@@ -163,7 +154,7 @@ class DockerEnvHub(EnvHub):
             for db_env in all_envs:
                 image = db_env.image
                 # Use docker inspect to check if image exists
-                if not self.env_validator.check_resource(image):
+                if not self.validator.check_resource(image):
                     logger.error(f"Docker image {image} not found")
                     return False
 

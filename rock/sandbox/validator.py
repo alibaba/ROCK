@@ -3,8 +3,8 @@ from abc import ABC, abstractmethod
 from rock.utils.docker import DockerUtil
 
 
-class EnvValidator(ABC):
-    """Base validator for environment requirements."""
+class SandboxValidator(ABC):
+    """Base validator for sandbox environment requirements."""
 
     @abstractmethod
     def check_availability(self) -> bool:
@@ -17,7 +17,7 @@ class EnvValidator(ABC):
         pass
 
 
-class DockerEnvValidator(EnvValidator):
+class DockerSandboxValidator(SandboxValidator):
     def check_availability(self) -> bool:
         """Check if Docker daemon is available."""
         return DockerUtil.is_docker_available()
