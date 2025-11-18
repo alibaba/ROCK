@@ -17,7 +17,7 @@ def rock_config():
     return RockConfig.from_env(config_path=config_path)
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session")
 def ray_init_shutdown(rock_config: RockConfig):
     ray_config = rock_config.ray
     ray_namespace = ray_config.namespace

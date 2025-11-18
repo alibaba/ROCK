@@ -10,8 +10,7 @@ from rock.sdk.sandbox.config import SandboxConfig
 from tests.integration.conftest import SKIP_IF_NO_DOCKER, RemoteServer
 
 
-@pytest.mark.integration
-@pytest.mark.slow
+@pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
 async def test_sandbox_file_operations(admin_remote_server: RemoteServer):
@@ -101,8 +100,7 @@ async def test_sandbox_file_operations(admin_remote_server: RemoteServer):
         await sandbox.stop()
 
 
-@pytest.mark.integration
-@pytest.mark.slow
+@pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
 async def test_sandbox(admin_remote_server):

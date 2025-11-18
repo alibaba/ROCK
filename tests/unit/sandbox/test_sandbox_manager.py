@@ -13,7 +13,7 @@ from rock.sandbox.sandbox_manager import SandboxManager
 
 
 @pytest.fixture
-async def sandbox_manager(rock_config: RockConfig):
+async def sandbox_manager(rock_config: RockConfig, ray_init_shutdown):
     sandbox_manager = SandboxManager(
         rock_config,
         redis_provider=None,
@@ -23,6 +23,7 @@ async def sandbox_manager(rock_config: RockConfig):
     return sandbox_manager
 
 
+@pytest.mark.need_ray
 @pytest.mark.asyncio
 async def test_async_sandbox_start(sandbox_manager: SandboxManager):
     response = await sandbox_manager.start_async(DockerDeploymentConfig())
@@ -45,6 +46,7 @@ async def test_async_sandbox_start(sandbox_manager: SandboxManager):
     await sandbox_manager.stop(sandbox_id)
 
 
+@pytest.mark.need_ray
 @pytest.mark.asyncio
 async def test_get_status(sandbox_manager):
     response = await sandbox_manager.start_async(DockerDeploymentConfig(image="python:3.11"))
@@ -67,12 +69,7 @@ async def test_get_status(sandbox_manager):
     await sandbox_manager.stop(response.sandbox_id)
 
 
-def test_set_sandbox_status_response():
-    service_status = ServiceStatus()
-    status_response = SandboxStatusResponse(sandbox_id="test", status=service_status.phases)
-    assert status_response.sandbox_id == "test"
-
-
+@pytest.mark.need_ray
 @pytest.mark.asyncio
 async def test_ray_actor_is_alive(sandbox_manager):
     docker_deploy_config = DockerDeploymentConfig()
@@ -88,8 +85,9 @@ async def test_ray_actor_is_alive(sandbox_manager):
     assert not await sandbox_manager._is_actor_alive(response.sandbox_id)
 
 
+@pytest.mark.need_ray
 @pytest.mark.asyncio
-async def test_user_info_set_success(ray_init_shutdown, sandbox_manager):
+async def test_user_info_set_success(sandbox_manager):
     user_info = {"user_id": "test_user_id", "experiment_id": "test_experiment_id"}
     response = await sandbox_manager.start_async(RayDeploymentConfig(), user_info=user_info)
     sandbox_id = response.sandbox_id
@@ -113,3 +111,9 @@ async def test_user_info_set_success(ray_init_shutdown, sandbox_manager):
     assert await sandbox_actor.experiment_id.remote() == "test_experiment_id"
 
     await sandbox_manager.stop(sandbox_id)
+
+
+def test_set_sandbox_status_response():
+    service_status = ServiceStatus()
+    status_response = SandboxStatusResponse(sandbox_id="test", status=service_status.phases)
+    assert status_response.sandbox_id == "test"

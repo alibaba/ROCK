@@ -7,8 +7,7 @@ from rock.sdk.envs import RockEnv
 from tests.integration.conftest import SKIP_IF_NO_DOCKER, RemoteServer
 
 
-@pytest.mark.integration
-@pytest.mark.slow
+@pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
 def test_rock_env(admin_remote_server: RemoteServer, monkeypatch):
     # For now, don't use the sandbox_server fixture approach, manually start admin for testing

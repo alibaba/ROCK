@@ -4,8 +4,7 @@ from fastapi.testclient import TestClient
 from tests.integration.conftest import SKIP_IF_NO_DOCKER
 
 
-@pytest.mark.integration
-@pytest.mark.slow
+@pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
 def test_env_api_sequence(admin_client: TestClient):
     """Test the complete workflow of env API in order"""

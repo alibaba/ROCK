@@ -144,4 +144,6 @@ addopts = [
 markers = [
     "slow: marks tests as slow",
     "integration: marks tests as integration tests",
+    "need_ray: need ray start",
+    "need_admin: need admin start"
 ]
