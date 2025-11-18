@@ -24,7 +24,7 @@ sidebar_position: 7
 docker --version
 
 # 验证 Docker 可用, 且可提前拉取 Sokoban 游戏环境镜像，避免训练时等待
-docker pull chatos-registry.cn-hangzhou.cr.aliyuncs.com/chatos/sandbox-sokoban:0.0.26
+docker pull rock-n-roll-registry.cn-hangzhou.cr.aliyuncs.com/rock/sokoban-sandbox:latest
 
 # 验证 uv 安装
 uv --version
@@ -121,9 +121,6 @@ PYPI_MIRROR="https://mirrors.aliyun.com/pypi/simple/"
 cd ROCK
 pip install . -i $PYPI_MIRROR
 pip install ".[admin]" -i $PYPI_MIRROR
-pip install ".[rocklet]" -i $PYPI_MIRROR
-pip install ".[builder]" -i $PYPI_MIRROR
-pip install ".[all]" -i $PYPI_MIRROR
 
 # 安装ROLL的依赖
 cd ../ROLL

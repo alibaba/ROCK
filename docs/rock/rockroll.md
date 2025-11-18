@@ -25,7 +25,7 @@ docker --version
 
 # Verify Docker is running and pre-pull the Sokoban environment image
 # This will save time when the training starts.
-docker pull chatos-registry.cn-hangzhou.cr.aliyuncs.com/chatos/sandbox-sokoban:0.0.26
+docker pull rock-n-roll-registry.cn-hangzhou.cr.aliyuncs.com/rock/sokoban-sandbox:latest
 
 # Verify uv installation
 uv --version
@@ -115,9 +115,6 @@ Since ROCK cannot reuse the environment, it may need to reinstall some dependenc
 cd ROCK
 pip install .
 pip install ".[admin]"
-pip install ".[rocklet]"
-pip install ".[builder]"
-pip install ".[all]"
 
 # Install ROLL's dependencies
 cd ../ROLL
