@@ -1,3 +1,7 @@
+---
+sidebar_position: 7
+---
+
 # ROCK & ROLL 快速开始指南
 
 本指南将引导您使用 ROLL (训练框架) 和 ROCK (环境管理) 来运行一个基于 Sokoban 游戏（推箱子）的强化学习训练示例。

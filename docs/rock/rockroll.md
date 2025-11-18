@@ -1,3 +1,7 @@
+---
+sidebar_position: 7
+---
+
 # ROCK & ROLL Quick Start Guide
 
 This guide will walk you through running a reinforcement learning training example based on the Sokoban game, using ROLL (the training framework) and ROCK (the environment management tool).
