@@ -55,8 +55,8 @@ jobs:
     - name: Run fast tests
       run: |
         mkdir -p data/logs
-        echo "🚀 Running basic tests..."
-        uv run pytest -m "not need_ray and not need_admin" --reruns 1
+        echo "🚀 Running fast tests..."
+        uv run pytest -m "not need_ray and not need_admin" --reruns 1 -n auto
 
     - name: Run tests need ray
       if: success()
