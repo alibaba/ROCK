@@ -15,8 +15,9 @@ from rock.sandbox.sandbox_actor import SandboxActor
 logger = init_logger(__name__)
 
 
+@pytest.mark.need_ray
 @pytest.mark.asyncio
-async def test_execute():
+async def test_execute(ray_init_shutdown):
     sandbox_config = LocalDeploymentConfig()
     sandbox_actor = SandboxActor.remote(sandbox_config, sandbox_config.get_deployment())
     sandbox_actor.start.remote()
@@ -42,7 +43,8 @@ async def test_execute():
 
 
 @pytest.mark.asyncio
-async def test_execute_with_additional_pkgs():
+@pytest.mark.need_ray
+async def test_execute_with_additional_pkgs(ray_init_shutdown):
     sandbox_config = LocalDeploymentConfig(role="test", env="dev")
     actor_name = "sandbox-test"
     sandbox_actor = SandboxActor.options(name=actor_name).remote(sandbox_config, sandbox_config.get_deployment())
