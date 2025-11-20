@@ -517,18 +517,6 @@ class Sandbox(AbstractSandbox):
         result = ReadFileResponse(content=result)
         return result
 
-    async def download_file(self, file_path: str | Path) -> dict:
-        url = f"{self._url}/read_file"
-        headers = self._build_headers()
-
-        data = {
-            "path": file_path,
-            "sandbox_id": self.sandbox_id,
-        }
-        response = await HttpUtils.post(url, headers, data)
-        result: dict = response.get("result")
-        return result
-
     async def _generate_tmp_session_name(self) -> str:
         timestamp = str(time.time_ns())
         return f"bash-{timestamp}"
