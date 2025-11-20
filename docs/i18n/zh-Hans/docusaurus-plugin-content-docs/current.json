@@ -3,8 +3,12 @@
     "message": "Next",
     "description": "The label for version current"
   },
-  "sidebar.tutorialSidebar.category.CN": {
-    "message": "CN",
-    "description": "The label for category 'CN' in sidebar 'tutorialSidebar'"
+  "sidebar.tutorialSidebar.category.references": {
+    "message": "参考",
+    "description": "The label for category 'Python SDK 参考' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.release-notes": {
+    "message": "发布说明",
+    "description": "The label for category 'release-notes' in sidebar 'tutorialSidebar'"
   }
 }

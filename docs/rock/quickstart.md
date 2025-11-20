@@ -8,18 +8,22 @@ This guide will demonstrate how to use ROCK to create and manage reinforcement l
 
 ## Table of Contents
 
-1. [Environment Preparation](#1-environment-preparation)
-   - [System Requirements](#11-system-requirements)
-   - [Verify Dependency Installation](#12-verify-dependency-installation)
-   - [Project Initialization](#13-project-initialization)
-2. [Activate Virtual Environment](#2-activate-virtual-environment)
-3. [Verify Environment Configuration](#3-verify-environment-configuration)
-4. [Start ROCK Service](#4-start-rock-service)
-5. [Run Example Environments](#5-run-example-environments)
-   - [Example Descriptions](#51-example-descriptions)
-6. [Distributed Environment Configuration (Optional)](#6-distributed-environment-configuration-optional)
-7. [MacOS Startup](#7-macos-startup)
-8. [Starting from Pip Source](#8-starting-from-pip-source)
+- [Getting Started](#getting-started)
+  - [Table of Contents](#table-of-contents)
+  - [1. Environment Preparation](#1-environment-preparation)
+    - [1.1 System Requirements](#11-system-requirements)
+    - [1.2 Verify Dependency Installation](#12-verify-dependency-installation)
+    - [1.3 Project Initialization](#13-project-initialization)
+  - [2. Activate Virtual Environment](#2-activate-virtual-environment)
+  - [3. Verify Environment Configuration](#3-verify-environment-configuration)
+  - [4. Start ROCK Service](#4-start-rock-service)
+  - [5. Run Example Environments](#5-run-example-environments)
+    - [5.1 Example Descriptions](#51-example-descriptions)
+  - [6. Distributed Environment Configuration (Optional)](#6-distributed-environment-configuration-optional)
+  - [7. MacOS Startup](#7-macos-startup)
+  - [8. Starting from Pip Source](#8-starting-from-pip-source)
+  - [Summary](#summary)
+  - [Next Steps](#next-steps)
 
 ## 1. Environment Preparation
 
@@ -176,6 +180,6 @@ For a deeper understanding of ROCK's additional features, please refer to the fo
 
 - [Configuration Guide](configuration.md) - Detailed information about ROCK configuration options
 - [API Documentation](api.md) - View complete API interfaces
-- [SDK Documentation](sdk.md) - Learn how to use the Python SDK for development
+- [Python SDK Documentation](./references/sdk.md) - Learn how to use the Python SDK for development
 - [Installation Guide](installation.md) - Detailed information about ROCK installation and setup
 - [Overview](overview.md) - Understand ROCK's overall architecture and design philosophy

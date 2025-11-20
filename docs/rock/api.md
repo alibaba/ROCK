@@ -8,15 +8,25 @@ This guide provides detailed information about the core API services provided by
 
 ## Table of Contents
 
-1. [Overview](#1-overview)
-2. [Sandbox API](#2-sandbox-api)
-   - [Sandbox Management Interfaces](#sandbox-management-interfaces)
-   - [Command Execution Interfaces](#command-execution-interfaces)
-   - [File Operation Interfaces](#file-operation-interfaces)
-3. [GEM API](#3-gem-api)
-4. [HTTP API Usage Examples](#4-http-api-usage-examples)
-   - [Sandbox API Examples](#41-sandbox-api-examples)
-   - [GEM API Examples](#42-gem-api-examples)
+- [API Reference](#api-reference)
+  - [Table of Contents](#table-of-contents)
+  - [1. Overview](#1-overview)
+  - [2. Sandbox API](#2-sandbox-api)
+    - [Sandbox Management Interfaces](#sandbox-management-interfaces)
+    - [Command Execution Interfaces](#command-execution-interfaces)
+    - [File Operation Interfaces](#file-operation-interfaces)
+  - [3. GEM API](#3-gem-api)
+  - [4. HTTP API Usage Examples](#4-http-api-usage-examples)
+    - [4.1 Sandbox API Examples](#41-sandbox-api-examples)
+      - [Start Sandbox](#start-sandbox)
+      - [Asynchronously Start Sandbox](#asynchronously-start-sandbox)
+      - [Execute Command](#execute-command)
+      - [Create Session](#create-session)
+      - [Run Command in Session](#run-command-in-session)
+      - [Upload File](#upload-file)
+      - [Stop Sandbox](#stop-sandbox)
+    - [4.2 GEM API Examples](#42-gem-api-examples)
+  - [Related Documents](#related-documents)
 
 ## 1. Overview
 
@@ -202,6 +212,6 @@ curl -X POST 'http://localhost:8080/apis/v1/envs/gem/close' \
 ## Related Documents
 
 - [Quick Start Guide](quickstart.md) - Learn how to quickly get started with ROCK API
-- [SDK Documentation](sdk.md) - Learn how to use the SDK to call APIs
+- [Python SDK Documentation](./references/sdk.md) - Learn how to use the SDK to call APIs
 - [Configuration Guide](configuration.md) - Learn about API-related configuration options
 - [Installation Guide](installation.md) - Detailed information about ROCK installation and setup

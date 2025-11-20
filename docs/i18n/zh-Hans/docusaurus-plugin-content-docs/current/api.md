@@ -8,7 +8,7 @@ sidebar_position: 5
 
 ## 目录
 
-- [ROCK API 文档](#rock-api-文档)
+- [API 参考](#api-参考)
   - [目录](#目录)
   - [1. 概述](#1-概述)
   - [2. Sandbox API](#2-sandbox-api)
@@ -109,7 +109,7 @@ GEM环境交互功能：
 ## 相关文档
 
 - [快速开始指南](quickstart.md) - 了解如何快速开始使用 ROCK API
-- [SDK 文档](sdk.md) - 学习如何使用 SDK 调用 API
+- [Python SDK 文档](./references/sdk.md) - 学习如何使用 SDK 调用 API
 - [配置指南](configuration.md) - 了解 API 相关的配置选项
 - [安装指南](installation.md) - 详细了解 ROCK 安装和配置
 

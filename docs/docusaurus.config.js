@@ -121,7 +121,7 @@ const config = {
             items: [
               {
                 label: 'overview',
-                to: '/ROCK/docs/overview',
+                to: '/docs/overview',
               },
             ],
           },

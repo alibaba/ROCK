@@ -8,13 +8,16 @@ sidebar_position: 6
 
 ## 目录
 
-1. [概述](#1-概述)
-2. [Sandbox SDK](#2-sandbox-sdk)
-   - [基本沙箱操作](#21-基本沙箱操作)
-   - [沙箱组管理](#22-沙箱组管理)
-   - [配置示例](#23-配置示例)
-3. [GEM SDK](#3-gem-sdk)
-   - [Python SDK 方式](#31-python-sdk-方式)
+- [Python SDK 参考](#python-sdk-参考)
+  - [目录](#目录)
+  - [1. 概述](#1-概述)
+  - [2. Sandbox SDK](#2-sandbox-sdk)
+    - [2.1 基本沙箱操作](#21-基本沙箱操作)
+    - [3.2 沙箱组管理](#32-沙箱组管理)
+  - [相关文档](#相关文档)
+    - [3.3 配置示例](#33-配置示例)
+  - [4. GEM SDK](#4-gem-sdk)
+    - [4.1 Python SDK 方式](#41-python-sdk-方式)
 
 ## 1. 概述
 

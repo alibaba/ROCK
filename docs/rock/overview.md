@@ -8,10 +8,12 @@ ROCK (Reinforcement Open Construction Kit) is an open-source reinforcement learn
 
 ## Table of Contents
 
-1. [What is ROCK](#what-is-rock)
-2. [Core Capabilities of ROCK](#core-capabilities-of-rock)
-3. [Value of ROCK](#value-of-rock)
-4. [Target Audience](#target-audience)
+- [Overview](#overview)
+  - [Table of Contents](#table-of-contents)
+  - [What is ROCK](#what-is-rock)
+  - [Core Capabilities of ROCK](#core-capabilities-of-rock)
+  - [Value of ROCK](#value-of-rock)
+  - [Learn More](#learn-more)
 
 ## What is ROCK
 
@@ -37,4 +39,4 @@ ROCK provides significant value to different roles of engineers:
 - [Quick Start Guide](quickstart.md) - Get started with ROCK quickly
 - [Configuration Guide](configuration.md) - Detailed information about ROCK configuration options
 - [API Documentation](api.md) - View ROCK's API interfaces
-- [SDK Documentation](sdk.md) - Learn how to use ROCK's Python SDK
+- [Python SDK Documentation](./references/sdk.md) - Learn how to use ROCK's Python SDK

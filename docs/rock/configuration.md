@@ -192,5 +192,5 @@ echo $ROCK_PROJECT_ROOT
 
 - [Quick Start Guide](quickstart.md) - Learn how to quickly set up the ROCK environment
 - [API Documentation](api.md) - View sandbox-related API interfaces
-- [SDK Documentation](sdk.md) - Learn how to use the SDK to configure sandboxes
+- [Python SDK Documentation](./references/sdk.md) - Learn how to use the SDK to configure sandboxes
 - [Installation Guide](installation.md) - Detailed information about ROCK installation and setup
