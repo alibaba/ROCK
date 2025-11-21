@@ -191,4 +191,4 @@ bash examples/agentic_demo/run_agentic_pipeline_sokoban_sandbox_multi_nodes.sh
 ### Advanced: Distributed ROLL Training
 
 If you wish to deploy the ROLL training task itself in a distributed manner, you can refer to ROLL's official documentation for distributed deployment.
-> [Quick Start: Multi-Node Deployment Guide](https://alibaba.github.io/ROLL/docs/QuickStart/multi_nodes_quick_start/)
+> [Quick Start: Multi-Node Deployment Guide](https://alibaba.github.io/ROLL/docs/Getting%20Started/Quick%20Start/multi_nodes_quick_start)

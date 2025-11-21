@@ -36,7 +36,7 @@ ROCK provides significant value to different roles of engineers:
 
 ## Learn More
 
-- [Quick Start Guide](quickstart.md) - Get started with ROCK quickly
-- [Configuration Guide](configuration.md) - Detailed information about ROCK configuration options
-- [API Documentation](api.md) - View ROCK's API interfaces
-- [Python SDK Documentation](./references/sdk.md) - Learn how to use ROCK's Python SDK
+- [Quick Start Guide](./Getting%20Started/quickstart.md) - Get started with ROCK quickly
+- [Configuration Guide](./User%20Guides/configuration.md) - Detailed information about ROCK configuration options
+- [API Documentation](./References/api.md) - View ROCK's API interfaces
+- [Python SDK Documentation](./References/python_sdk.md) - Learn how to use ROCK's Python SDK

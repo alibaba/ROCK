@@ -1,5 +1,5 @@
 ---
-sidebar_position: 6
+sidebar_position: 2
 ---
 
 # Python SDK 参考
@@ -98,10 +98,10 @@ await sandbox_group.stop()
 
 ## 相关文档
 
-- [快速开始指南](quickstart.md) - 了解如何快速开始使用 ROCK SDK
-- [API 文档](api.md) - 查看 SDK 封装的底层 API 接口
-- [配置指南](configuration.md) - 了解 SDK 相关的配置选项
-- [安装指南](installation.md) - 详细了解 ROCK 安装和配置
+- [快速开始指南](../Getting%20Started/quickstart.md) - 了解如何快速开始使用 ROCK SDK
+- [API 文档](./api.md) - 查看 SDK 封装的底层 API 接口
+- [配置指南](../User%20Guides/configuration.md) - 了解 SDK 相关的配置选项
+- [安装指南](../Getting%20Started/installation.md) - 详细了解 ROCK 安装和配置
 
 ### 3.3 配置示例
 

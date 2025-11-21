@@ -2,13 +2,13 @@
 sidebar_position: 2
 ---
 
-# Getting Started
+# Quick Start
 
 This guide will demonstrate how to use ROCK to create and manage reinforcement learning environments through complete examples.
 
 ## Table of Contents
 
-- [Getting Started](#getting-started)
+- [Quick Start](#quick-start)
   - [Table of Contents](#table-of-contents)
   - [1. Environment Preparation](#1-environment-preparation)
     - [1.1 System Requirements](#11-system-requirements)
@@ -152,11 +152,11 @@ export ROCK_WORKER_ENV_TYPE=uv
 
 During container startup, the corresponding uv environment will be installed. For details, please refer to the `rock/rocklet/docker_run_with_uv.sh` script.
 
-> **Note**: Compared to Linux systems, the startup speed on macOS will be slower and more dependent on network conditions. You can adjust the script according to actual conditions.You can find detatils for ROCK_WORKER_ENV_TYPE in [Configuration Guide](configuration.md).
+> **Note**: Compared to Linux systems, the startup speed on macOS will be slower and more dependent on network conditions. You can adjust the script according to actual conditions.You can find detatils for ROCK_WORKER_ENV_TYPE in [Configuration Guide](../User%20Guides/configuration.md).
 
 ## 8. Starting from Pip Source
 
-If starting the Admin Server from Pip source, after completing the ROCK installation by referring to [installation.md](installation.md), you need to set an additional environment variable:
+If starting the Admin Server from Pip source, after completing the ROCK installation by referring to [installation.md](./installation.md), you need to set an additional environment variable:
 
 ```bash
 export ROCK_WORKER_ENV_TYPE=pip
@@ -178,8 +178,8 @@ For a deeper understanding of ROCK's additional features, please refer to the fo
 
 ## Next Steps
 
-- [Configuration Guide](configuration.md) - Detailed information about ROCK configuration options
-- [API Documentation](api.md) - View complete API interfaces
-- [Python SDK Documentation](./references/sdk.md) - Learn how to use the Python SDK for development
-- [Installation Guide](installation.md) - Detailed information about ROCK installation and setup
-- [Overview](overview.md) - Understand ROCK's overall architecture and design philosophy
+- [Configuration Guide](../User%20Guides/configuration.md) - Detailed information about ROCK configuration options
+- [API Documentation](../References/api.md) - View complete API interfaces
+- [Python SDK Documentation](../References/python_sdk.md) - Learn how to use the Python SDK for development
+- [Installation Guide](./installation.md) - Detailed information about ROCK installation and setup
+- [Overview](../overview.md) - Understand ROCK's overall architecture and design philosophy

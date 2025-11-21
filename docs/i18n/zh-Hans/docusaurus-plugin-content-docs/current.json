@@ -3,12 +3,20 @@
     "message": "Next",
     "description": "The label for version current"
   },
-  "sidebar.tutorialSidebar.category.references": {
-    "message": "参考",
-    "description": "The label for category 'Python SDK 参考' in sidebar 'tutorialSidebar'"
+  "sidebar.tutorialSidebar.category.Getting Started": {
+    "message": "快速上手",
+    "description": "The label for category 'Getting Started' in sidebar 'tutorialSidebar'"
   },
-  "sidebar.tutorialSidebar.category.release-notes": {
-    "message": "发布说明",
-    "description": "The label for category 'release-notes' in sidebar 'tutorialSidebar'"
+  "sidebar.tutorialSidebar.category.User Guides": {
+    "message": "用户指南",
+    "description": "The label for category 'User Guides' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.References": {
+    "message": "参考",
+    "description": "The label for category 'References' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Release Notes": {
+    "message": "版本说明",
+    "description": "The label for category 'Release Notes' in sidebar 'tutorialSidebar'"
   }
 }

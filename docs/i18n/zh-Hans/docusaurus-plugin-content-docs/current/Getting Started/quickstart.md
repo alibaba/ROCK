@@ -156,12 +156,12 @@ export ROCK_WORKER_ENV_TYPE=uv
 
 在容器启动时，会安装对应的 uv 环境，细节可以参考 `rock/rocklet/docker_run_with_uv.sh` 脚本。
 
-> **注意**: 相比 Linux 系统，macOS 上的启动速度会较慢，且比较依赖网络环境，可以根据实际情况调整脚本。ROCK_WORKER_ENV_TYPE的细节可以参考 [Configuration Guide](configuration.md).
+> **注意**: 相比 Linux 系统，macOS 上的启动速度会较慢，且比较依赖网络环境，可以根据实际情况调整脚本。ROCK_WORKER_ENV_TYPE的细节可以参考 [Configuration Guide](../User%20Guides/configuration.md).
 
 
 ## 8. 从Pip源启动
 
-如果从Pip源启动Admin Server，在参照[installation.md](installation.md)安装完成ROCK后, 需要设置额外环境变量: 
+如果从Pip源启动Admin Server，在参照[installation.md](./installation.md)安装完成ROCK后, 需要设置额外环境变量: 
 
 ```bash
 export ROCK_WORKER_ENV_TYPE=pip
@@ -184,8 +184,8 @@ export ROCK_WORKER_ENV_TYPE=pip
 
 ## 下一步学习
 
-- [配置指南](configuration.md) - 详细了解 ROCK 的配置选项
-- [API 文档](api.md) - 查看完整的 API 接口
-- [Python SDK 文档](./references/sdk.md) - 学习如何使用 Python SDK 进行开发
-- [安装指南](installation.md) - 详细了解 ROCK 安装和配置
-- [概述](overview.md) - 了解 ROCK 的整体架构和设计理念
+- [配置指南](../User%20Guides/configuration.md) - 详细了解 ROCK 的配置选项
+- [API 文档](../References/api.md) - 查看完整的 API 接口
+- [Python SDK 文档](../References/python_sdk.md) - 学习如何使用 Python SDK 进行开发
+- [安装指南](./installation.md) - 详细了解 ROCK 安装和配置
+- [概述](../overview.md) - 了解 ROCK 的整体架构和设计理念

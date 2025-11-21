@@ -197,4 +197,4 @@ bash examples/agentic_demo/run_agentic_pipeline_sokoban_sandbox_multi_nodes.sh
 ### 进阶：分布式 ROLL 训练
 
 如果您希望将 ROLL 训练任务本身进行分布式部署，可以参考 ROLL 的官方分布式部署文档。
-> [快速上手：多节点部署指南](https://alibaba.github.io/ROLL/zh-Hans/docs/QuickStart/multi_nodes_quick_start)
+> [快速上手：多节点部署指南](https://alibaba.github.io/ROLL/zh-Hans/docs/Getting%20Started/Quick%20Start/multi_nodes_quick_start)

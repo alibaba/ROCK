@@ -48,6 +48,7 @@ const config = {
         docs: {
           path: "rock",
           sidebarPath: './sidebars.js',
+          sidebarCollapsed: false,
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
@@ -56,6 +57,10 @@ const config = {
         },
         theme: {
           customCss: './src/css/custom.css',
+        },
+        gtag: {
+          trackingID: 'G-26LMNFB70V',
+          anonymizeIP: true,
         },
       }),
     ],
@@ -120,8 +125,12 @@ const config = {
             title: 'Docs',
             items: [
               {
-                label: 'overview',
+                label: 'Overview',
                 to: '/docs/overview',
+              },
+              {
+                label: 'Quick Start',
+                to: '/docs/Getting%20Started/quickstart',
               },
             ],
           },

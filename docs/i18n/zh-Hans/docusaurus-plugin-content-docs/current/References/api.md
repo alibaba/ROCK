@@ -1,5 +1,5 @@
 ---
-sidebar_position: 5
+sidebar_position: 1
 ---
 
 # API 参考
@@ -108,10 +108,10 @@ GEM环境交互功能：
 
 ## 相关文档
 
-- [快速开始指南](quickstart.md) - 了解如何快速开始使用 ROCK API
-- [Python SDK 文档](./references/sdk.md) - 学习如何使用 SDK 调用 API
-- [配置指南](configuration.md) - 了解 API 相关的配置选项
-- [安装指南](installation.md) - 详细了解 ROCK 安装和配置
+- [快速开始指南](../Getting%20Started/quickstart.md) - 了解如何快速开始使用 ROCK API
+- [Python SDK 文档](./python_sdk.md) - 学习如何使用 SDK 调用 API
+- [配置指南](../User%20Guides/configuration.md) - 了解 API 相关的配置选项
+- [安装指南](../Getting%20Started/installation.md) - 详细了解 ROCK 安装和配置
 
 
 ## 4. HTTP API 使用示例
