@@ -6,6 +6,21 @@
 
 import { themes as prismThemes } from 'prism-react-renderer';
 
+function hiddenTargetSidebars(items) {
+  // hidden not display sidebar
+  const result = items.filter(item => {
+    return !(item.type === 'doc' && HiddenSidebars.includes(item.id));
+  }).map((item) => {
+    if (item.type === 'category') {
+      return { ...item, items: hiddenTargetSidebars(item.items) };
+    }
+    return item;
+  });
+  return result;
+}
+// 如果需要在sidebar隐藏的话，可以把文档id加到这里，id的命名方式为 路径名/文件名
+const HiddenSidebars = ['Getting Started/quickstart', 'References/Python SDK References/python_sdk', 'Release Notes/index']
+
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
 /** @type {import('@docusaurus/types').Config} */
@@ -54,6 +69,10 @@ const config = {
           editUrl:
             'https://github.com/alibaba/ROCK/tree/master/docs/rock/',
           showLastUpdateTime: true,
+          sidebarItemsGenerator: async ({ defaultSidebarItemsGenerator, ...args }) => {
+            const sidebarItems = await defaultSidebarItemsGenerator(args);
+            return hiddenTargetSidebars(sidebarItems);
+          },
         },
         theme: {
           customCss: './src/css/custom.css',

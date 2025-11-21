@@ -2,35 +2,35 @@
 sidebar_position: 2
 ---
 
-# Python SDK Reference
+# Python SDK 参考
 
-This guide provides detailed information on how to use the ROCK SDK for development, including sandbox environment management and GEM environment interaction.
+本指南详细介绍如何使用 ROCK SDK 进行开发，包括沙箱环境管理和 GEM 环境交互。
 
-## Table of Contents
+## 目录
 
-- [Python SDK Reference](#python-sdk-reference)
-  - [Table of Contents](#table-of-contents)
-  - [1. Overview](#1-overview)
+- [Python SDK 参考](#python-sdk-参考)
+  - [目录](#目录)
+  - [1. 概述](#1-概述)
   - [2. Sandbox SDK](#2-sandbox-sdk)
-    - [2.1 Basic Sandbox Operations](#21-basic-sandbox-operations)
-    - [3.2 Sandbox Group Management](#32-sandbox-group-management)
-    - [3.4 Configuration Example](#34-configuration-example)
-  - [Related Documents](#related-documents)
-  - [3. GEM SDK](#3-gem-sdk)
-    - [3.1 Python SDK Approach](#31-python-sdk-approach)
+    - [2.1 基本沙箱操作](#21-基本沙箱操作)
+    - [3.2 沙箱组管理](#32-沙箱组管理)
+  - [相关文档](#相关文档)
+    - [3.3 配置示例](#33-配置示例)
+  - [4. GEM SDK](#4-gem-sdk)
+    - [4.1 Python SDK 方式](#41-python-sdk-方式)
 
-## 1. Overview
+## 1. 概述
 
-ROCK SDK provides developers with convenient Python interfaces to use ROCK platform features, including sandbox environment management and GEM environment interaction.
+ROCK SDK为开发者提供了便捷的Python接口来使用ROCK平台的功能，包括沙箱环境管理和GEM环境交互。
 
-> **Important Note**: Before using the SDK, ensure that the ROCK Admin service is running. You can start it with the following command:
+> **重要提示**: 使用 SDK 之前，请确保 ROCK Admin 服务正在运行。可以通过以下命令启动：
 > ```bash
 > rock admin start
 > ```
 
 ## 2. Sandbox SDK
 
-### 2.1 Basic Sandbox Operations
+### 2.1 基本沙箱操作
 
 ```python
 import asyncio
@@ -72,31 +72,38 @@ if __name__ == "__main__":
     asyncio.run(run_sandbox())
 ```
 
-### 3.2 Sandbox Group Management
+### 3.2 沙箱组管理
 
 ```python
 from rock.sdk.sandbox.config import SandboxGroupConfig
 
-# Create sandbox group configuration
+# 创建沙箱组配置
 config = SandboxGroupConfig(
     image="python:3.11",
-    size=4,  # Create 4 sandboxes
-    start_concurrency=2,  # Concurrency level for startup is 2
+    size=4,  # 创建4个沙箱
+    start_concurrency=2,  # 并发启动级别为2
 )
 
-# Create and start sandbox group
+# 创建并启动沙箱组
 sandbox_group = SandboxGroup(config)
 await sandbox_group.start()
 
-# Batch operations
+# 批量操作
 for sandbox in sandbox_group.sandbox_list:
     await sandbox.run_in_session(Action(session="default", command="echo Hello"))
 
-# Batch stop
+# 批量停止
 await sandbox_group.stop()
 ```
 
-### 3.4 Configuration Example
+## 相关文档
+
+- [快速开始指南](../../Getting%20Started/quickstart.md) - 了解如何快速开始使用 ROCK SDK
+- [API 文档](../api.md) - 查看 SDK 封装的底层 API 接口
+- [配置指南](../../User%20Guides/configuration.md) - 了解 SDK 相关的配置选项
+- [安装指南](../../Getting%20Started/installation.md) - 详细了解 ROCK 安装和配置
+
+### 3.3 配置示例
 
 ```python
 config = SandboxConfig(
@@ -106,16 +113,9 @@ config = SandboxConfig(
 )
 ```
 
-## Related Documents
+## 4. GEM SDK
 
-- [Quick Start Guide](../Getting%20Started/quickstart.md) - Learn how to quickly get started with the ROCK SDK
-- [API Documentation](./api.md) - View the underlying API interfaces encapsulated by the SDK
-- [Configuration Guide](../User%20Guides/configuration.md) - Learn about SDK-related configuration options
-- [Installation Guide](../Getting%20Started/installation.md) - Detailed information about ROCK installation and setup
-
-## 3. GEM SDK
-
-### 3.1 Python SDK Approach
+### 4.1 Python SDK 方式
 
 ```python
 import random

@@ -2,13 +2,13 @@
 sidebar_position: 2
 ---
 
-# 快速开始
+# 快速上手
 
 本指南将通过完整的示例演示如何使用 ROCK 创建和管理强化学习环境。ROCK (Reinforcement Open Construction Kit) 是一个全面的沙箱环境管理框架，主要用于强化学习和AI开发环境。
 
 ## 目录
 
-- [快速开始](#快速开始)
+- [快速上手](#快速上手)
   - [目录](#目录)
   - [1. 环境准备](#1-环境准备)
     - [1.1 系统要求](#11-系统要求)
@@ -186,6 +186,6 @@ export ROCK_WORKER_ENV_TYPE=pip
 
 - [配置指南](../User%20Guides/configuration.md) - 详细了解 ROCK 的配置选项
 - [API 文档](../References/api.md) - 查看完整的 API 接口
-- [Python SDK 文档](../References/python_sdk.md) - 学习如何使用 Python SDK 进行开发
+- [Python SDK 文档](../References/Python%20SDK%20References/python_sdk.md) - 学习如何使用 Python SDK 进行开发
 - [安装指南](./installation.md) - 详细了解 ROCK 安装和配置
 - [概述](../overview.md) - 了解 ROCK 的整体架构和设计理念

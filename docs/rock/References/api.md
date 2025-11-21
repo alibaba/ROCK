@@ -212,6 +212,6 @@ curl -X POST 'http://localhost:8080/apis/v1/envs/gem/close' \
 ## Related Documents
 
 - [Quick Start Guide](../Getting%20Started/quickstart.md) - Learn how to quickly get started with ROCK API
-- [Python SDK Documentation](./python_sdk.md) - Learn how to use the SDK to call APIs
+- [Python SDK Documentation](./Python%20SDK%20References/python_sdk.md) - Learn how to use the SDK to call APIs
 - [Configuration Guide](../User%20Guides/configuration.md) - Learn about API-related configuration options
 - [Installation Guide](../Getting%20Started/installation.md) - Detailed information about ROCK installation and setup

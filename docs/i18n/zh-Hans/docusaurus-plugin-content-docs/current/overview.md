@@ -40,7 +40,7 @@ ROCK 为不同角色的工程师提供了显著价值：
 - [快速开始指南](./Getting%20Started/quickstart.md) - 快速上手 ROCK
 - [配置指南](./User%20Guides/configuration.md) - 详细了解 ROCK 的配置选项
 - [API 文档](./References/api.md) - 查看 ROCK 提供的 API 接口
-- [Python SDK 文档](./References/python_sdk.md) - 学习如何使用 ROCK 的 Python SDK
+- [Python SDK 文档](./References/Python%20SDK%20References/python_sdk.md) - 学习如何使用 ROCK 的 Python SDK
 - [安装指南](./Getting%20Started/installation.md) - 详细了解 ROCK 安装和配置
 
 ## 相关文档
@@ -48,7 +48,7 @@ ROCK 为不同角色的工程师提供了显著价值：
 如果您是第一次使用 ROCK，建议按以下顺序阅读文档：
 1. [快速开始指南](./Getting%20Started/quickstart.md) - 快速搭建开发环境
 2. [配置指南](./User%20Guides/configuration.md) - 配置您的 ROCK 环境
-3. [Python SDK 文档](./References/python_sdk.md) - 学习如何使用 Python SDK 进行开发
+3. [Python SDK 文档](./References/Python%20SDK%20References/python_sdk.md) - 学习如何使用 Python SDK 进行开发
 4. [API 文档](./References/api.md) - 了解完整的 API 接口
 5. [安装指南](./Getting%20Started/installation.md) - 详细了解 ROCK 安装和配置
 

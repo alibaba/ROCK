@@ -191,5 +191,5 @@ echo $ROCK_PROJECT_ROOT
 
 - [快速开始指南](../Getting%20Started/quickstart.md) - 了解如何快速搭建 ROCK 环境
 - [API 文档](../References/api.md) - 查看沙箱相关的 API 接口
-- [Python SDK 文档](../References/python_sdk.md) - 学习如何使用 SDK 配置沙箱
+- [Python SDK 文档](../References/Python%20SDK%20References/python_sdk.md) - 学习如何使用 SDK 配置沙箱
 - [安装指南](../Getting%20Started/installation.md) - 详细了解 ROCK 安装和配置

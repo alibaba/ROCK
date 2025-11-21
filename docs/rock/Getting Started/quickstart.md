@@ -2,13 +2,13 @@
 sidebar_position: 2
 ---
 
-# Quick Start
+# Getting Started
 
 This guide will demonstrate how to use ROCK to create and manage reinforcement learning environments through complete examples.
 
 ## Table of Contents
 
-- [Quick Start](#quick-start)
+- [Getting Started](#getting-started)
   - [Table of Contents](#table-of-contents)
   - [1. Environment Preparation](#1-environment-preparation)
     - [1.1 System Requirements](#11-system-requirements)
@@ -180,6 +180,6 @@ For a deeper understanding of ROCK's additional features, please refer to the fo
 
 - [Configuration Guide](../User%20Guides/configuration.md) - Detailed information about ROCK configuration options
 - [API Documentation](../References/api.md) - View complete API interfaces
-- [Python SDK Documentation](../References/python_sdk.md) - Learn how to use the Python SDK for development
+- [Python SDK Documentation](../References/Python%20SDK%20References/python_sdk.md) - Learn how to use the Python SDK for development
 - [Installation Guide](./installation.md) - Detailed information about ROCK installation and setup
 - [Overview](../overview.md) - Understand ROCK's overall architecture and design philosophy
