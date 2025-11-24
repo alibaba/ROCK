@@ -13,9 +13,11 @@ class HttpUtils:
     """HTTP client utilities"""
 
     @staticmethod
-    async def post(url: str, headers: dict, data: dict) -> dict:
+    async def post(url: str, headers: dict, data: dict, read_timeout: float = 300.0) -> dict:
         """Send POST request"""
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout=300.0, connect=300.0, read=300.0)) as client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout=300.0, connect=300.0, read=read_timeout if read_timeout else 300.0)
+        ) as client:
             try:
                 response: Response = await client.post(url, headers=headers, json=data)
                 response.raise_for_status()
@@ -88,7 +90,7 @@ class HttpUtils:
             except Exception as e:
                 logging.exception(f"Failed to post multipart to {url}: {e}")
                 raise e
-            
+
     @staticmethod
     def _process_file_data(file_data: BinaryIO | bytes | tuple) -> tuple:
         """

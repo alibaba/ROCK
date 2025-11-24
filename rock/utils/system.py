@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from threading import Lock
 
+from rock.sdk.common.constants import PID_PREFIX
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,7 +65,7 @@ async def run_shell_command(command: str) -> tuple[int, str, str]:
     return proc.returncode, stdout.decode().strip(), stderr.decode().strip()
 
 
-def extract_nohup_pid(nohup_output: str) -> str:
+def extract_nohup_pid(nohup_output: str) -> int:
     """
     Extract process ID from nohup command output.
 
@@ -74,12 +76,10 @@ def extract_nohup_pid(nohup_output: str) -> str:
         Process ID as string, or empty string if extraction fails.
     """
     try:
-        pid = nohup_output.splitlines()[-1].strip()
-        if not pid.isdigit():
-            return ""
-        return pid
+        pid = re.findall(f"{PID_PREFIX}([0-9]+)", nohup_output)
+        return int(pid[0])
     except Exception:
-        return ""
+        return None
 
 
 async def find_free_port(max_attempts: int = 10, sleep_between_attempts: float = 0.1) -> int:

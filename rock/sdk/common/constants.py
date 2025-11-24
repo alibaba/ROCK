@@ -19,3 +19,5 @@ class Constants(metaclass=DeprecatedMeta):
 
 
 RunModeType = Literal["normal", "nohup"]
+PID_PREFIX = "PIDSTART"
+PID_SUFFIX = "PIDEND"
