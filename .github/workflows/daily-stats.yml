@@ -49,8 +49,12 @@ jobs:
           STATS_FILE: public-data/stats.json
         run: node scripts/update-stats.js
 
+      - name: Debug: show stats.json content
+        run: cat public-data/stats.json
+
       - name: Deploy to gh-pages
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
+        if: github.ref == 'refs/heads/master'
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./public-data
