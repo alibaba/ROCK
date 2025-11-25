@@ -49,7 +49,7 @@ jobs:
           STATS_FILE: public-data/stats.json
         run: node scripts/update-stats.js
 
-      - name: Debug: show stats.json content
+      - name: show stats.json content
         run: cat public-data/stats.json
 
       - name: Deploy to gh-pages
