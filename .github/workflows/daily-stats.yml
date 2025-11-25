@@ -15,11 +15,16 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout gh-pages branch
+      - name: Checkout main branch
         uses: actions/checkout@v4
         with:
-          ref: gh-pages
-          fetch-depth: 0
+          ref: main
+    
+      - name: Fetch current stats.json from gh-pages
+        run: |
+          mkdir -p public-data
+          curl -s -o public-data/stats.json \
+            https://raw.githubusercontent.com/${{ github.repository }}/gh-pages/stats.json || echo "{}" > public-data/stats.json
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -41,16 +46,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          STATS_FILE: public-data/stats.json
         run: node scripts/update-stats.js
 
-      - name: Commit and push
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          
-          # Ensure file exists (in case first run)
-          [ -f stats.json ] || echo "{}" > stats.json
-          
-          git add stats.json
-          git commit -m "chore: update daily stats on $(date +%Y-%m-%d)" || echo "No changes"
-          git push origin gh-pages
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public-data
+          destination_dir: .  
+          keep_files: true 

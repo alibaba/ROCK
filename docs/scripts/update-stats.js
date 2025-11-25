@@ -2,7 +2,7 @@
 // scripts/update-stats.js
 const fs = require('fs');
 
-const OUTPUT_PATH = 'build/stats.json';
+const OUTPUT_PATH = process.env.STATS_FILE || 'build/stats.json';
 
 async function main() {
   const { Octokit } = await import('octokit');
