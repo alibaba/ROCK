@@ -75,7 +75,12 @@ async function main() {
   // Load existing data
   let stats = {};
   if (fs.existsSync(OUTPUT_PATH)) {
-    stats = JSON.parse(fs.readFileSync(OUTPUT_PATH, 'utf8'));
+    try {
+      stats = JSON.parse(fs.readFileSync(OUTPUT_PATH, 'utf8'));
+    }
+    catch (err) {
+      console.log('fail to get stats file')
+    }
   }
 
   stats[date] = {
