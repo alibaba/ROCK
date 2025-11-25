@@ -22,9 +22,9 @@ jobs:
     
       - name: Fetch current stats.json from gh-pages
         run: |
-          mkdir -p public-data
-          curl -s -o public-data/stats.json \
-            https://raw.githubusercontent.com/${{ github.repository }}/gh-pages/stats.json || echo "{}" > public-data/stats.json
+          mkdir -p ./public-data
+          curl -s -o ./public-data/stats.json \
+            https://raw.githubusercontent.com/${{ github.repository }}/gh-pages/stats.json || echo "{}" > ./public-data/stats.json
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -46,15 +46,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          STATS_FILE: public-data/stats.json
+          STATS_FILE: ./public-data/stats.json
         run: node scripts/update-stats.js
 
       - name: show stats.json content
-        run: cat public-data/stats.json
+        run: cat ./public-data/stats.json
 
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v4
-        if: github.ref == 'refs/heads/master'
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./public-data
