@@ -50,7 +50,9 @@ jobs:
         run: node scripts/update-stats.js
 
       - name: show stats.json content
-        run: cat ./public-data/stats.json
+        run: |
+          cat ./public-data/stats.json
+          pwd
 
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v4
