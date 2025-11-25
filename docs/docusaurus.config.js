@@ -18,6 +18,47 @@ function hiddenTargetSidebars(items) {
   });
   return result;
 }
+const reverseReleaseNoteSidebars = (items) => {
+  // 筛选出符合 Release Notes 格式的项
+  const releaseNoteItems = items.filter(item => item.type !== 'category').filter(item => {
+    const ids = item.id?.split('/');
+    // 检查是否包含'Release Notes'且至少有2个部分
+    if (ids.includes('Release Notes') && ids.length >= 2) {
+      // 检查最后一个部分是否符合版本号格式(x.x.x 或 x.x.x.x)
+      const versionPattern = /^v?\d+\.\d+\.\d+(\.\d+)?$/;
+      return versionPattern.test(ids[ids.length - 1]);
+    }
+    return false;
+  });
+
+  // 对符合条件的Release Notes条目进行排序
+  if (releaseNoteItems.length > 0) {
+    // 按版本号从大到小排序
+    releaseNoteItems.sort((a, b) => {
+      const versionA = a.id.split('/').pop();
+      const versionB = b.id.split('/').pop();
+
+      // 将版本号分割为数字数组
+      const partsA = versionA.replace(/^v/, '').split('.').map(Number);
+      const partsB = versionB.replace(/^v/, '').split('.').map(Number);
+
+      // 逐个比较版本号的每个部分
+      for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
+        const partA = partsA[i] || 0;
+        const partB = partsB[i] || 0;
+
+        if (partA > partB) return -1;
+        if (partA < partB) return 1;
+      }
+
+      return 0;
+    });
+  }
+
+  // 合并非Release Notes项目和已排序的Release Notes项目
+  const nonReleaseNoteItems = items.filter(item => !releaseNoteItems.includes(item));
+  return [...nonReleaseNoteItems, ...releaseNoteItems];
+}
 // 如果需要在sidebar隐藏的话，可以把文档id加到这里，id的命名方式为 路径名/文件名
 const HiddenSidebars = ['Getting Started/quickstart', 'References/Python SDK References/python_sdk', 'Release Notes/index']
 
@@ -71,7 +112,10 @@ const config = {
           showLastUpdateTime: true,
           sidebarItemsGenerator: async ({ defaultSidebarItemsGenerator, ...args }) => {
             const sidebarItems = await defaultSidebarItemsGenerator(args);
-            return hiddenTargetSidebars(sidebarItems);
+            // 去掉需要隐藏的侧边导航
+            const filterHiddenSidebars = hiddenTargetSidebars(sidebarItems);
+            // release note按照版本号倒排
+            return reverseReleaseNoteSidebars(filterHiddenSidebars);
           },
         },
         theme: {
