@@ -8,6 +8,9 @@ on:
 jobs:
   update-stats:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs
     permissions:
       contents: write
 
@@ -23,6 +26,14 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
 
       - name: Install dependencies
         run: npm install octokit
@@ -31,7 +42,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-        run: node docs/scripts/update-stats.js
+        run: node scripts/update-stats.js
 
       - name: Commit and push
         run: |
