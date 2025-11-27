@@ -307,6 +307,8 @@ class Sandbox(AbstractSandbox):
         mode: RunModeType = "normal",
         response_limited_bytes_in_nohup: int | None = None,
     ) -> Observation:
+        # Default max file size threshold (1MB) to prevent large file issues
+        _DEFAULT_MAX_FILE_SIZE = 1024 * 1024
         if mode == "nohup":
             try:
                 timestamp = str(time.time_ns())
@@ -336,16 +338,59 @@ class Sandbox(AbstractSandbox):
                 success, message = await self._wait_for_process_completion(
                     pid=pid, session=session, wait_timeout=wait_timeout, wait_interval=wait_interval
                 )
-                check_res_command = f"cat {tmp_file}"
+                # Smart file reading: check file size first to prevent large file issues
                 if response_limited_bytes_in_nohup:
+                    # User specified a limit, use it directly
                     check_res_command = f"head -c {response_limited_bytes_in_nohup} {tmp_file}"
-                exec_result: Observation = await self._run_in_session(
-                    BashAction(session=session, command=check_res_command)
-                )
-                if success:
-                    return Observation(output=exec_result.output, exit_code=0)
+                    exec_result: Observation = await self._run_in_session(
+                        BashAction(session=session, command=check_res_command)
+                    )
+                    output_content = exec_result.output
                 else:
-                    return Observation(output=exec_result.output, exit_code=1, failure_reason=message)
+                    # No limit specified, check file size first
+                    size_check = await self._run_in_session(
+                        BashAction(session=session, command=f"stat -c %s {tmp_file} 2>/dev/null || echo 0")
+                    )
+                    try:
+                        file_size = int(size_check.output.strip())
+                    except (ValueError, AttributeError):
+                        file_size = 0
+
+                    if file_size > _DEFAULT_MAX_FILE_SIZE:
+                        # File too large, get head and tail to preserve important info
+                        half_size = _DEFAULT_MAX_FILE_SIZE // 2
+                        
+                        # Optimize: Run head and tail in a single command to reduce network overhead
+                        # and include file path in the notice for agent's reference
+                        truncated_notice = (
+                            f"\\n\\n... [TRUNCATED: File {tmp_file} size {file_size} bytes exceeds limit. "
+                            f"Showing first {half_size} and last {half_size} bytes] ...\\n\\n"
+                        )
+                        
+                        check_res_command = (
+                            f"{{ head -c {half_size} {tmp_file}; "
+                            f"echo '{truncated_notice}'; "
+                            f"tail -c {half_size} {tmp_file}; }}"
+                        )
+                        
+                        exec_result: Observation = await self._run_in_session(
+                            BashAction(session=session, command=check_res_command)
+                        )
+                        output_content = exec_result.output
+                        
+                        logging.warning(
+                            f"Output file {tmp_file} is {file_size} bytes, exceeds {_DEFAULT_MAX_FILE_SIZE} bytes limit, showing head and tail"
+                        )
+                    else:
+                        exec_result: Observation = await self._run_in_session(
+                            BashAction(session=session, command=f"cat {tmp_file}")
+                        )
+                        output_content = exec_result.output
+
+                if success:
+                    return Observation(output=output_content, exit_code=0)
+                else:
+                    return Observation(output=output_content, exit_code=1, failure_reason=message)
             except ReadTimeout:
                 error_msg = f"Command execution failed due to timeout: '{cmd}'. This may be caused by an interactive command that requires user input."
                 return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)

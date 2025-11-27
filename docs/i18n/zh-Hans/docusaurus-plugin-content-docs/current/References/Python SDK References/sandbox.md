@@ -2,7 +2,7 @@
 
 ## `arun`
 `arun()` 方法新增 `response_limited_bytes_in_nohup` 参数(int型)，解决response过长导致的请求超时问题。
-该参数用于限制 nohup 模式下返回的 output 字符数，默认值为 `None`，表示不限制。
+该参数用于限制 nohup 模式下返回的 output 字节数，默认值为 `None`，启用智能模式：当文件超过 1MB 时，返回前 512KB 和后 512KB 的内容，并附带截断提示，同时保留开头上下文和末尾的重要错误信息。
 
 ```python
 from rock.sdk.sandbox.client import Sandbox

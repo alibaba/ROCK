@@ -3,7 +3,7 @@
 ## `arun`
 
 The `arun()` method now supports a new parameter: `response_limited_bytes_in_nohup` (integer type), which resolves request timeout issues caused by excessively long responses.  
-This parameter limits the number of characters returned in the output when running in `nohup` mode. The default value is `None`, meaning no limit is applied.
+This parameter limits the number of bytes returned in the output when running in `nohup` mode. The default value is `None`, which enables smart mode: when file size exceeds 1MB, it returns the first 512KB and last 512KB with a truncation notice to preserve both the beginning context and important error messages at the end.
 
 ```python
 from rock.sdk.sandbox.client import Sandbox

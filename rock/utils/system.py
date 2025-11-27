@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from threading import Lock
 
-from rock.sdk.common.constants import PID_PREFIX
+from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +73,16 @@ def extract_nohup_pid(nohup_output: str) -> int:
         nohup_output: Output string from nohup command.
 
     Returns:
-        Process ID as string, or empty string if extraction fails.
+        Process ID as int, or None if extraction fails.
     """
     try:
+        # Use both PREFIX and SUFFIX for more robust PID extraction
+        pid = re.findall(f"{PID_PREFIX}([0-9]+){PID_SUFFIX}", nohup_output)
+        if pid:
+            return int(pid[0])
+        # Fallback: try matching with just PREFIX for backward compatibility
         pid = re.findall(f"{PID_PREFIX}([0-9]+)", nohup_output)
-        return int(pid[0])
+        return int(pid[0]) if pid else None
     except Exception:
         return None
 
