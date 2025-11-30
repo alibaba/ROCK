@@ -5,9 +5,12 @@ import warnings
 import pytest
 
 from rock.actions import CreateBashSessionRequest, ReadFileRequest, UploadRequest, WriteFileRequest
+from rock.logger import init_logger
 from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.sandbox.config import SandboxConfig
 from tests.integration.conftest import SKIP_IF_NO_DOCKER, RemoteServer
+
+logger = init_logger(__name__)
 
 
 @pytest.mark.need_admin
@@ -103,37 +106,11 @@ async def test_sandbox_file_operations(admin_remote_server: RemoteServer):
 @pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
-async def test_sandbox(admin_remote_server):
-    """Test sandbox with admin server.
+async def test_sandbox(sandbox_instance: Sandbox):
+    result = await sandbox_instance.arun(cmd="echo Hello ROCK", session="default")
 
-    This test requires the admin server to be running for proper execution.
-    The admin_remote_server fixture provides the running server instance.
-    """
-    # Configure to use the admin server from fixture
-    # Create sandbox configuration
-    config = SandboxConfig(
-        image="python:3.11", memory="8g", cpus=2.0, base_url=f"http://127.0.0.1:{admin_remote_server.port}"
-    )
+    # Assertions
+    assert result.output is not None
+    assert "Hello ROCK" in result.output
 
-    # Create sandbox instance
-    sandbox = Sandbox(config)
-
-    try:
-        # Start sandbox (connects to admin server)
-        await sandbox.start()
-
-        # Create session in sandbox for command execution
-        await sandbox.create_session(CreateBashSessionRequest(session="bash-1"))
-
-        # Execute command in sandbox session
-        result = await sandbox.arun(cmd="echo Hello ROCK", session="bash-1")
-
-        # Assertions
-        assert result.output is not None
-        assert "Hello ROCK" in result.output
-
-        print("\n" + "*" * 50 + "\n" + result.output + "\n" + "*" * 50 + "\n")
-
-    finally:
-        # Stop and clean up sandbox resources
-        await sandbox.stop()
+    logger.info("\n" + "*" * 50 + "\n" + result.output + "\n" + "*" * 50 + "\n")

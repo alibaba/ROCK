@@ -246,7 +246,9 @@ class Sandbox(AbstractSandbox):
         try:
             response = await HttpUtils.post(url, headers, data, action.timeout)
         except ReadTimeout:
-            raise ReadTimeout(f"Command execution failed due to timeout: '{action.command}' in {action.timeout} seconds")
+            raise ReadTimeout(
+                f"Command execution failed due to timeout: '{action.command}' in {action.timeout} seconds"
+            )
         except Exception as e:
             raise Exception(f"Failed to run in session: {str(e)}, post url {url}")
 
@@ -630,6 +632,34 @@ class Sandbox(AbstractSandbox):
 
     async def close(self) -> CloseResponse:
         await self.stop()
+
+    def __str__(self):
+        """返回用户友好的字符串表示，包含主要成员变量"""
+        return (
+            f"Sandbox(sandbox_id={self._sandbox_id}, "
+            f"host_name={self._host_name!r}, "
+            f"host_ip={self._host_ip}, "
+            f"image={self.config.image}, "
+            f"cluster={self._cluster})"
+        )
+
+    def __repr__(self):
+        """返回开发者友好的字符串表示，包含所有成员变量"""
+        return (
+            f"Sandbox("
+            f"config={self.config!r}, "
+            f"_url={self._url!r}, "
+            f"_route_key={self._route_key!r}, "
+            f"_sandbox_id={self._sandbox_id!r}, "
+            f"_host_name={self._host_name!r}, "
+            f"_host_ip={self._host_ip!r}, "
+            f"_oss_bucket={self._oss_bucket!r}, "
+            f"_cluster={self._cluster!r}, "
+            f"_pod_name={self._pod_name!r}, "
+            f"_ip={self._ip!r}, "
+            f"_oss_token_expire_time={self._oss_token_expire_time!r}"
+            f")"
+        )
 
 
 class SandboxGroup:

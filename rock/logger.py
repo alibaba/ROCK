@@ -35,9 +35,9 @@ class StandardFormatter(logging.Formatter):
 
         # Build header part with or without sandbox_id
         if sandbox_id:
-            header_str = f"[{level_str}][{time_str}][{file_str}][{logger_str}][{sandbox_id}]"
+            header_str = f"{time_str} {level_str}:{file_str} [{logger_str}] [{sandbox_id}] --"
         else:
-            header_str = f"[{level_str}][{time_str}][{file_str}][{logger_str}]"
+            header_str = f"{time_str} {level_str}:{file_str} [{logger_str}] -- "
 
         # Color the header part and keep message in default color
         return f"{log_color}{header_str}{RESET} {record.getMessage()}"
