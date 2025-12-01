@@ -25,6 +25,24 @@ async def test_arun_nohup(admin_remote_server: RemoteServer):
     print(resp.output)
     nohup_test_resp = await sandbox.arun(session="bash-1", cmd="cat /tmp/nohup_test.txt")
     assert "import os" in nohup_test_resp.output
+
+    detached_resp = await sandbox.arun(
+        session="bash-1",
+        cmd="/bin/bash -c 'echo detached-output'",
+        mode="nohup",
+        collect_output=False,
+    )
+    output_line = next((line for line in detached_resp.output.splitlines() if line.startswith("Output file:")), None)
+    assert output_line is not None
+    output_file = output_line.split(":", 1)[1].strip()
+    assert "without streaming the log content" in detached_resp.output
+    # Verify file size is included in output
+    assert "File size:" in detached_resp.output
+
+    file_content_resp = await sandbox.arun(session="bash-1", cmd=f"cat {output_file}")
+    assert "detached-output" in file_content_resp.output
+    await sandbox.arun(session="bash-1", cmd=f"rm -f {output_file}")
+
     await sandbox.arun(session="bash-1", cmd="rm -rf /tmp/nohup_test.txt")
     await sandbox.stop()
 

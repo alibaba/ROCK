@@ -163,6 +163,8 @@ class BashSession(Session):
     def _get_reset_commands(self) -> list[str]:
         """Commands to reset the PS1, PS2, and PS0 variables to their default values."""
         return [
+            # Disable bash history expansion so literals like PIDSTART$!PIDEND remain intact.
+            "set +H",
             "unset PROMPT_COMMAND",
             f"export PS1='{self._ps1}'",
             "export PS2=''",
