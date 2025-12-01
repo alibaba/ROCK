@@ -1,0 +1,16 @@
+{
+  "2025-12-01": {
+    "stars": 219,
+    "forks": 21,
+    "contributors": 8,
+    "issues": {
+      "total": 40,
+      "open": 15,
+      "fixRate": 62
+    },
+    "prs": {
+      "total": 62,
+      "open": 0
+    }
+  }
+}
