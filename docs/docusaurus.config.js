@@ -5,7 +5,29 @@
 // See: https://docusaurus.io/docs/api/docusaurus-config
 
 import { themes as prismThemes } from 'prism-react-renderer';
+import versions from './versions.json';
 
+// 添加版本数组到对象的转换函数
+/**
+ * @param {string[]} versionsArray
+ * @returns {Record<string, {label: string, banner: string}>}
+ */
+function convertVersionsArrayToObject(versionsArray) {
+  /** @type {Record<string, {label: string, banner: string}>} */
+  const versionsObject = {};
+  versionsArray.forEach(/** @type {string} */(version) => {
+    versionsObject[version] = {
+      label: version,
+      banner: 'none'
+    };
+  });
+  return versionsObject;
+}
+
+/**
+ * @param {Array<{type: string, id: string}>} items
+ * @returns {Array<{type: string, id: string}>}
+ */
 function hiddenTargetSidebars(items) {
   // hidden not display sidebar
   const result = items.filter(item => {
@@ -18,6 +40,11 @@ function hiddenTargetSidebars(items) {
   });
   return result;
 }
+
+/**
+ * @param {Array<any>} items
+ * @returns {Array<any>}
+ */
 const reverseReleaseNoteSidebars = (items) => {
   // 筛选出符合 Release Notes 格式的项
   const releaseNoteItems = items.filter(item => item.type !== 'category').filter(item => {
@@ -117,6 +144,9 @@ const config = {
             // release note按照版本号倒排
             return reverseReleaseNoteSidebars(filterHiddenSidebars);
           },
+          lastVersion: '0.2.x',
+          includeCurrentVersion: false,
+          versions: convertVersionsArrayToObject(versions)
         },
         theme: {
           customCss: './src/css/custom.css',
@@ -164,6 +194,10 @@ const config = {
             sidebarId: 'tutorialSidebar',
             position: 'left',
             label: 'Docs',
+          },
+          {
+            type: 'docsVersionDropdown',
+            position: "right",
           },
           {
             type: 'localeDropdown',
