@@ -17,7 +17,7 @@ PIPELINE_ID="49245"
 GITHUB_COMMIT_ID="${COMMIT_ID}"
 GITHUB_SOURCE_REPO=$3
 GITHUB_PR_ID=$4
-BRANCH_NAME="open_merge_docs/${GITHUB_PR_ID}"
+BRANCH_NAME="test_open_merge_docs/${GITHUB_PR_ID}"
 
 # Get current timestamp
 timestamp=$(date +%s)
