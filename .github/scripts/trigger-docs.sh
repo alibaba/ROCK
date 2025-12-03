@@ -18,6 +18,7 @@ GITHUB_COMMIT_ID="${COMMIT_ID}"
 GITHUB_SOURCE_REPO=$3
 GITHUB_PR_ID=$4
 BRANCH_NAME="test_open_merge_docs/${GITHUB_PR_ID}"
+CHECKOUT_SUBMODULES="true"
 
 # Get current timestamp
 timestamp=$(date +%s)
@@ -40,6 +41,6 @@ curl -v -H "Content-Type: application/json" \
             \"repositoryUrl\": \"${REPO_URL}\",
             \"aone\": { \"projectId\": \"${PROJECT_ID}\", \"pipelineId\": \"${PIPELINE_ID}\"},
             \"newBranch\": { \"name\": \"${BRANCH_NAME}\", \"ref\": \"${BRANCH_REF}\" },  
-            \"params\": {\"cancel-in-progress\": \"${CANCEL_IN_PROGRESS}\", \"github_commit\":\"${GITHUB_COMMIT_ID}\", \"github_source_repo\": \"${GITHUB_SOURCE_REPO}\"}
+            \"params\": {\"cancel-in-progress\": \"${CANCEL_IN_PROGRESS}\", \"github_commit\":\"${GITHUB_COMMIT_ID}\", \"github_source_repo\": \"${GITHUB_SOURCE_REPO}\", \"checkout_submodules\": \"${CHECKOUT_SUBMODULES}\"}
          }" \
      "http://triggerid-to-mq-wjrdhcgbie.cn-hangzhou.fcapp.run"
