@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Check if two arguments are provided
-if [ $# -ne 4 ]; then
-    echo "Usage: $0 <COMMIT_ID> <SECURITY> <GITHUB_SOURCE_REPO> <GITHUB_PR_ID>"
+if [ $# -ne 6 ]; then
+    echo "Usage: $0 <COMMIT_ID> <SECURITY> <GITHUB_SOURCE_REPO> <GITHUB_PR_ID> <CHECK_USER_NAME> <CHECK_TOKEN>"
     exit 1
 fi
 
@@ -11,13 +11,15 @@ COMMIT_ID=$1
 SECURITY=$2
 REPO_URL="https://github.com/${GITHUB_REPOSITORY}.git"
 PROJECT_ID="3567319"
-BRANCH_REF="feature/docs-manage"
+BRANCH_REF="master"
 CANCEL_IN_PROGRESS="true"
 PIPELINE_ID="49245"
 GITHUB_COMMIT_ID="${COMMIT_ID}"
 GITHUB_SOURCE_REPO=$3
 GITHUB_PR_ID=$4
-BRANCH_NAME="test_open_merge_docs/${GITHUB_PR_ID}"
+CHECK_USER_NAME=$5
+CHECK_TOKEN=$6
+BRANCH_NAME="open_merge_docs/${GITHUB_PR_ID}"
 CHECKOUT_SUBMODULES="true"
 
 # Get current timestamp
@@ -41,6 +43,6 @@ curl -v -H "Content-Type: application/json" \
             \"repositoryUrl\": \"${REPO_URL}\",
             \"aone\": { \"projectId\": \"${PROJECT_ID}\", \"pipelineId\": \"${PIPELINE_ID}\"},
             \"newBranch\": { \"name\": \"${BRANCH_NAME}\", \"ref\": \"${BRANCH_REF}\" },  
-            \"params\": {\"cancel-in-progress\": \"${CANCEL_IN_PROGRESS}\", \"github_commit\":\"${GITHUB_COMMIT_ID}\", \"github_source_repo\": \"${GITHUB_SOURCE_REPO}\", \"checkout_submodules\": \"${CHECKOUT_SUBMODULES}\"}
+            \"params\": {\"cancel-in-progress\": \"${CANCEL_IN_PROGRESS}\", \"github_commit\":\"${GITHUB_COMMIT_ID}\", \"github_source_repo\": \"${GITHUB_SOURCE_REPO}\", \"checkout_submodules\": \"${CHECKOUT_SUBMODULES}\", \"checkout_username\": \"${CHECK_USER_NAME}\", \"checkout_token\": \"${CHECK_TOKEN}\"}
          }" \
      "http://triggerid-to-mq-wjrdhcgbie.cn-hangzhou.fcapp.run"
