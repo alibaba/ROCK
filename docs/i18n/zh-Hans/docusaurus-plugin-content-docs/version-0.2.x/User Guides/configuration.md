@@ -21,7 +21,7 @@ ROCK 支持通过环境变量配置关键参数。以下是主要的环境变量
 export ROCK_BASE_URL=http://localhost:8080  # ROCK服务基础URL
 export ROCK_LOG_LEVEL=INFO  # 日志级别
 export ROCK_LOGGING_PATH=/path/to/logs  # 日志文件路径，默认 None (输出到控制台)
-export ROCK_LOGGING_FILE_NAME=rocklet.log  # 日志文件名，默认 "rocklet.log"
+export ROCK_LOGGING_FILE_NAME=rocklet.log  # 日志文件名，默认 "rocklet.log", 启动admin时可以自定义日志文件名, 如admin.log
 export ROCK_LOGGING_LEVEL=INFO  # 日志输出级别，默认 "INFO"
 export ROCK_WORKER_ENV_TYPE=local  # 运行时环境类型，可选值: local, docker, uv, pip
 ```
