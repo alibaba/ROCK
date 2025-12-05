@@ -84,7 +84,7 @@ class EnvBuilder(ABC):
                 start_concurrency=10,
                 start_retry_times=60,
                 image=await self.get_env_build_image(),
-                auto_clear_seconds=60 * 60,
+                auto_clear_seconds=60 * 10,
                 user_id="rock-mirror",
                 xrl_authorization=authorization,
                 cluster=cluster,
@@ -212,6 +212,6 @@ class EnvBuilder(ABC):
         command = await self.get_build_remote_one_split_command(split_filename=target_filename, **kwargs)
         logger.info(f"sandbox {index} [{sandbox.sandbox_id}] start to run command in nohup: {command}")
         result = await sandbox.arun(
-            cmd=command, session=tmp_session_name, mode="nohup", wait_timeout=60 * 60 * 3, wait_interval=60
+            cmd=command, session=tmp_session_name, mode="nohup", wait_timeout=60 * 60 * 12, wait_interval=60
         )
         logger.info(f"sandbox {index} [{sandbox.sandbox_id}] run command in nohup result: {result}")
