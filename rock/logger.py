@@ -54,7 +54,11 @@ def _should_skip_stdout(logger_name: str) -> bool:
         True if logger should skip stdout, False otherwise
     """
     # Check if logger name matches specific patterns that should not output to stdout
-    if logger_name.startswith("rock.actions.local") or logger_name.startswith("rocklet."):
+    if (
+        logger_name.startswith("rock.actions.local")
+        or logger_name.startswith("rocklet.")
+        or logger_name.startswith("accessLog")
+    ):
         return True
     return False
 
@@ -83,7 +87,7 @@ def init_logger(name: str | None = None):
         elif _should_skip_stdout(logger_name):
             # Don't add any handler, effectively disabling output for these loggers
             # Set a NullHandler to prevent propagation to parent loggers
-            handler = logging.NullHandler()
+            return logger
         # Priority 3: Default to stdout for other loggers
         else:
             handler = logging.StreamHandler(sys.stdout)
