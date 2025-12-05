@@ -2,7 +2,6 @@
 
 import argparse
 import asyncio
-import logging
 import time
 import traceback
 
@@ -32,7 +31,7 @@ async def log_requests_and_responses(request: Request, call_next):
     if sandbox_id := (request.headers.get(SANDBOX_ID) or request.headers.get(ROUTE_KEY)):
         sandbox_id_ctx_var.set(sandbox_id)
 
-    req_logger = logging.getLogger("accessLog")
+    req_logger = init_logger("rocklet.accessLog")
     # Record request information
     req_logger.info(
         "request",

@@ -43,6 +43,22 @@ class StandardFormatter(logging.Formatter):
         return f"{log_color}{header_str}{RESET} {record.getMessage()}"
 
 
+def _should_skip_stdout(logger_name: str) -> bool:
+    """
+    Determine if a logger should skip stdout output (only output to file if configured)
+
+    Args:
+        logger_name: The name of the logger
+
+    Returns:
+        True if logger should skip stdout, False otherwise
+    """
+    # Check if logger name matches specific patterns that should not output to stdout
+    if logger_name.startswith("rock.actions.local") or logger_name.startswith("rocklet."):
+        return True
+    return False
+
+
 def init_logger(name: str | None = None):
     """Initialize and return a logger instance with custom handler and formatter
 
@@ -57,17 +73,17 @@ def init_logger(name: str | None = None):
 
     # Only add handler if logger doesn't have one yet to avoid duplicates
     if not logger.handlers:
-        # Determine if we should log to file based on ROCK_LOGGING_PATH
-        # Only log to file if ROCK_LOGGING_PATH has been explicitly set by the user
-        # (not just the default value), which means it should be in os.environ
+        # Priority 1: File logging (if configured, applies to ALL loggers)
         if env_vars.ROCK_LOGGING_PATH and env_vars.ROCK_LOGGING_FILE_NAME:
-            # Create file handler
             log_file_path = os.path.join(env_vars.ROCK_LOGGING_PATH, env_vars.ROCK_LOGGING_FILE_NAME)
             # Ensure directory exists
             os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
             handler = logging.FileHandler(log_file_path)
+        # Priority 2: Skip stdout for specific logger patterns (no output at all)
+        elif _should_skip_stdout(logger_name):
+            return logger
+        # Priority 3: Default to stdout for other loggers
         else:
-            # Use stdout handler
             handler = logging.StreamHandler(sys.stdout)
 
         handler.setFormatter(StandardFormatter())

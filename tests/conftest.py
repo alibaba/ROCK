@@ -27,3 +27,18 @@ def configure_logging():
 def random_container_name() -> str:
     container_name = uuid.uuid4().hex
     return container_name
+
+
+@pytest.fixture(scope="session", autouse=True)
+def suppress_third_party_logs():
+    """Suppress noisy third-party library logs during testing"""
+    third_party_loggers = [
+        "apscheduler",
+        "httpx",
+        "httpcore",
+        "urllib3",
+        "asyncio",
+    ]
+
+    for logger_name in third_party_loggers:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
