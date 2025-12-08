@@ -1,4 +1,3 @@
-import asyncio
 import socket
 import subprocess
 import sys
@@ -98,6 +97,7 @@ def admin_client_fixture():
 def admin_remote_server():
     port = run_until_complete(find_free_port())
 
+    # Do not redirect stdout and stderr to pipes without reading from them, as this will cause the program to hang.
     process = subprocess.Popen(
         [
             "admin",
@@ -108,8 +108,8 @@ def admin_remote_server():
             "--port",
             str(port),
         ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=None,
+        stderr=None,
     )
 
     # Wait for the server to start
@@ -147,9 +147,9 @@ def sandbox_config(admin_remote_server):
 
 
 @pytest.fixture
-def sandbox_instance(request, admin_remote_server):
-    """为每个测试用例提供独立的sandbox实例，确保失败后一定会调用stop"""
-    # 获取测试函数中的 image 参数，如果没有则使用默认值
+async def sandbox_instance(request, admin_remote_server):
+    """Provides an independent sandbox instance for each test case, ensuring stop is always called after failure"""
+    # Get the image parameter from the test function, use default value if not present
     image = getattr(request, "param", {}).get("image", "python:3.11")
 
     config = SandboxConfig(
@@ -157,14 +157,14 @@ def sandbox_instance(request, admin_remote_server):
     )
     sandbox = Sandbox(config)
     try:
-        asyncio.run(sandbox.start())
+        await sandbox.start()
         logger.info(f"sandbox started with image {image}, {repr(sandbox)}")
-        asyncio.run(sandbox.create_session(CreateBashSessionRequest(session="default")))
+        await sandbox.create_session(CreateBashSessionRequest(session="default"))
         yield sandbox
     finally:
-        # 无论测试成功还是失败，都会执行stop
+        # Stop will be executed regardless of whether the test succeeds or fails
         try:
-            asyncio.run(sandbox.stop())
+            await sandbox.stop()
             logger.info(f"sandbox stopped, {str(sandbox)}")
         except Exception as e:
             logger.warning(f"Failed to stop sandbox: {e}")
