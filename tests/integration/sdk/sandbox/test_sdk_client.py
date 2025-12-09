@@ -34,3 +34,23 @@ async def test_arun_timeout(sandbox_instance: Sandbox):
     assert resp.output.__contains__("Command execution failed due to timeout")
 
     await sandbox_instance.stop()
+
+@pytest.mark.need_admin
+@SKIP_IF_NO_DOCKER
+@pytest.mark.asyncio
+async def test_update_mount(sandbox_instance: Sandbox):
+    with pytest.raises(Exception) as exc_info:
+        await sandbox_instance.arun(session="default", cmd="rm -rf /tmp/miniforge/bin")
+    assert "Read-only file system" in str(exc_info.value)
+
+    with pytest.raises(Exception) as exc_info:
+        await sandbox_instance.arun(session="default", cmd="rm -rf /tmp/local_files/docker_run.sh")
+    assert "Read-only file system" in str(exc_info.value)
+
+    with pytest.raises(Exception) as exc_info:
+        await sandbox_instance.arun(session="default", cmd="chmod +x /tmp/local_files/docker_run.sh")
+    assert "Read-only file system" in str(exc_info.value)
+
+    with pytest.raises(Exception) as exc_info:
+        await sandbox_instance.arun(session="default", cmd="touch /tmp/local_files/test.txt")
+    assert "Read-only file system" in str(exc_info.value)

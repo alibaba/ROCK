@@ -353,7 +353,7 @@ class DockerDeployment(AbstractDeployment):
             local_path = config["local"]
             container_path = config["container"]
             if os.path.exists(local_path):
-                volume_args.extend(["-v", f"{local_path}:{container_path}"])
+                volume_args.extend(["-v", f"{local_path}:{container_path}:ro"])
 
         logger.info(f"volume_args: {volume_args}")
         return volume_args
