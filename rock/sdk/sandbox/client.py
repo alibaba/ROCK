@@ -134,10 +134,11 @@ class Sandbox(AbstractSandbox):
                 status = await self.get_status()
                 logging.debug(f"Get status response: {status}")
                 if status.is_alive:
-                    break
+                    return
             except Exception as e:
                 logging.warning(f"Failed to get status, {str(e)}")
-            await asyncio.sleep(1)
+            await asyncio.sleep(3)
+        raise Exception(f"Failed to start sandbox within {self.config.startup_timeout}s")
 
     async def is_alive(self) -> IsAliveResponse:
         try:
