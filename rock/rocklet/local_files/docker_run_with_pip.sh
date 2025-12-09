@@ -19,7 +19,8 @@ if [ ! -f /etc/alpine-release ]; then
 
     $PIP_CMD install rl-rock[rocklet] -i https://mirrors.aliyun.com/pypi/simple/
 
-    rocklet
+    mkdir -p /data/logs
+    rocklet >> /data/logs/rocklet.log 2>&1
 else
     exit 1
 fi
