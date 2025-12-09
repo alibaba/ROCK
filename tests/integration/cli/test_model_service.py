@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import subprocess
 import threading
 
@@ -12,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 @pytest.mark.asyncio
 async def test_model_service():
+    os.environ["ROCK_MODEL_SERVICE_DATA_DIR"] = "/tmp/rock_model_service_test_data"
+
     subprocess.run(["rock", "model-service", "start"])
 
     mock_agent_process = subprocess.Popen(["sleep", "200"])

@@ -1,3 +1,5 @@
+from rock import env_vars
+
 """Configuration for LLM Service."""
 
 # Service configuration
@@ -5,7 +7,7 @@ SERVICE_HOST = "0.0.0.0"
 SERVICE_PORT = 8080
 
 # Log file configuration
-LOG_DIR = "/data/logs"
+LOG_DIR = env_vars.ROCK_MODEL_SERVICE_DATA_DIR
 LOG_FILE = LOG_DIR + "/LLMService.log"
 
 # Polling configuration
