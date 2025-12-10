@@ -152,6 +152,7 @@ class BashSession(Session):
         self._ps1 = "SHELLPS1PREFIX"
         self._shell: pexpect.spawn | None = None
         self._executor = get_executor()
+        self._system_user = "root"
 
     @property
     def shell(self) -> pexpect.spawn:
@@ -179,8 +180,11 @@ class BashSession(Session):
         if self.request.env is not None:
             env.update(self.request.env)
         logger.info(f"env:{env}")
+        command = "/bin/bash"
+        if self.request.remote_user is not None and self.request.remote_user != self._system_user:
+            command = f"su {self.request.remote_user} -c {command}"
         self._shell = pexpect.spawn(
-            "/bin/bash",
+            command,
             encoding="utf-8",
             codec_errors="backslashreplace",
             echo=False,

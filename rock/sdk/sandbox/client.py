@@ -38,6 +38,7 @@ from rock.actions import (
 )
 from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX, RunModeType
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
+from rock.sdk.sandbox.remote_user import LinuxRemoteUser, RemoteUser
 from rock.utils import HttpUtils, extract_nohup_pid, retry_async
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ class Sandbox(AbstractSandbox):
     _host_ip: str | None = None
     _oss_bucket: oss2.Bucket | None = None
     _cluster: str | None = None
+    remote_user: RemoteUser | None = None
 
     def __init__(self, config: SandboxConfig):
         self._pod_name = None
@@ -66,6 +68,7 @@ class Sandbox(AbstractSandbox):
 
         self._oss_token_expire_time = self._generate_utc_iso_time()
         self._cluster = self.config.cluster
+        self.remote_user = LinuxRemoteUser(self)
 
     @property
     def sandbox_id(self) -> str:

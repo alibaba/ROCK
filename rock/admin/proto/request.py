@@ -51,6 +51,7 @@ class SandboxCreateBashSessionRequest(CreateBashSessionRequest):
     startup_timeout: float = 1.0
     max_read_size: int = 2000
     sandbox_id: str | None = None
+    remote_user: str | None = Field(default=None)
 
 
 SandboxCreateSessionRequest = Annotated[SandboxCreateBashSessionRequest, Field(discriminator="session_type")]
