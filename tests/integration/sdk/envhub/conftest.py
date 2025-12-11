@@ -28,7 +28,7 @@ async def envhub_server_fixture():
         # Start server process with random port
         cmd = ["envhub", "--db-url", f"sqlite:///{db_file}", "--port", str(port)]
 
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        process = subprocess.Popen(cmd, stdout=None, stderr=None)
 
         # Health check
         server_url = f"http://127.0.0.1:{port}"

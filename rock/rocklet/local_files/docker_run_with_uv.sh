@@ -39,8 +39,10 @@ if [ ! -f /etc/alpine-release ]; then
     # Install dependencies
     $UV_CMD pip install --python /tmp/rocklet-venv/bin/python -e ".[rocklet]"
 
+
+    mkdir -p /data/logs
     # Run rocklet
-    /tmp/rocklet-venv/bin/rocklet
+    /tmp/rocklet-venv/bin/rocklet >> /data/logs/rocklet.log 2>&1
 
 else
     echo "Alpine Linux system is not supported yet"

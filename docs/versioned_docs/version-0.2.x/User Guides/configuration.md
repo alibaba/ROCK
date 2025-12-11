@@ -21,7 +21,7 @@ ROCK supports configuring key parameters through environment variables. The main
 export ROCK_BASE_URL=http://localhost:8080  # ROCK service base URL
 export ROCK_LOG_LEVEL=INFO  # Log level
 export ROCK_LOGGING_PATH=/path/to/logs  # Log file path, default None (output to console)
-export ROCK_LOGGING_FILE_NAME=rocklet.log  # Log file name, default "rocklet.log"
+export ROCK_LOGGING_FILE_NAME=rocklet.log  # Log file name, default "rocklet.log", can be customized by admin like admin.log
 export ROCK_LOGGING_LEVEL=INFO  # Log output level, default "INFO"
 export ROCK_WORKER_ENV_TYPE=local  # Runtime environment type, options: local, docker, uv, pip
 ```
