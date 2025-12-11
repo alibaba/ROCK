@@ -4070,6 +4070,10 @@ rocklet = [
     { name = "twisted" },
     { name = "uvicorn" },
 ]
+sandbox-actor = [
+    { name = "apscheduler" },
+    { name = "gem-llm" },
+]
 
 [package.dev-dependencies]
 test = [
@@ -4095,6 +4099,7 @@ requires-dist = [
     { name = "alibabacloud-cr20181201", marker = "extra == 'admin'", specifier = "==2.0.5" },
     { name = "anyio" },
     { name = "apscheduler", marker = "extra == 'admin'" },
+    { name = "apscheduler", marker = "extra == 'sandbox-actor'", specifier = ">=3.11.0" },
     { name = "bashlex", marker = "extra == 'rocklet'" },
     { name = "boto3", marker = "extra == 'admin'" },
     { name = "build" },
@@ -4102,6 +4107,7 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'rocklet'" },
     { name = "gem-llm", marker = "extra == 'builder'", specifier = ">=0.1.0" },
     { name = "gem-llm", marker = "extra == 'rocklet'", specifier = ">=0.1.0" },
+    { name = "gem-llm", marker = "extra == 'sandbox-actor'", specifier = ">=0.1.0" },
     { name = "httpx" },
     { name = "nacos-sdk-python", marker = "extra == 'admin'", specifier = ">=0.1.14" },
     { name = "opentelemetry-api" },
@@ -4129,7 +4135,7 @@ requires-dist = [
     { name = "uvicorn", marker = "extra == 'rocklet'" },
     { name = "websockets", marker = "extra == 'admin'", specifier = ">=15.0.1" },
 ]
-provides-extras = ["admin", "rocklet", "builder", "all"]
+provides-extras = ["admin", "rocklet", "sandbox-actor", "builder", "all"]
 
 [package.metadata.requires-dev]
 test = [

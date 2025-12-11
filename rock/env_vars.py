@@ -36,6 +36,9 @@ if TYPE_CHECKING:
     ROCK_CLI_LOAD_PATHS: str = str(Path(__file__).parent / "cli" / "command")
     ROCK_CLI_DEFAULT_CONFIG_PATH: str
 
+    # Model Service Config
+    ROCK_MODEL_SERVICE_DATA_DIR: str
+
 
 environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_LOGGING_PATH": lambda: os.getenv("ROCK_LOGGING_PATH"),
@@ -70,6 +73,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_CLI_DEFAULT_CONFIG_PATH": lambda: os.getenv(
         "ROCK_CLI_DEFAULT_CONFIG_PATH", Path.home() / ".rock" / "config.ini"
     ),
+    "ROCK_MODEL_SERVICE_DATA_DIR": lambda: os.getenv("ROCK_MODEL_SERVICE_DATA_DIR", "/data/logs"),
 }
 
 

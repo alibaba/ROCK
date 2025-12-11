@@ -1,12 +1,7 @@
 ray:
     runtime_env:
         working_dir: ./
-        pip:
-            - "apscheduler"
-            - "opentelemetry-api"
-            - "opentelemetry-sdk"
-            - "opentelemetry-exporter-otlp"
-            - "gem-llm"
+        pip: ./requirements_sandbox_actor.txt
     namespace: "rock-sandbox-test"
 
 warmup:

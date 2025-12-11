@@ -14,6 +14,7 @@ class CreateBashSessionRequest(BaseModel):
     startup_source: list[str] = []
     env_enable: bool = False
     env: dict[str, str] | None = Field(default=None)
+    remote_user: str | None = Field(default=None)
 
 
 CreateSessionRequest = Annotated[CreateBashSessionRequest, Field(discriminator="session_type")]

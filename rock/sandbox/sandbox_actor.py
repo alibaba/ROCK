@@ -18,6 +18,7 @@ from rock.actions import (
     UploadResponse,
     WriteFileResponse,
 )
+from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.proto.request import SandboxBashAction as BashAction
 from rock.admin.proto.request import SandboxCloseBashSessionRequest as CloseBashSessionRequest
 from rock.admin.proto.request import SandboxCommand as Command
@@ -42,6 +43,11 @@ class SandboxActor(GemActor):
     _clean_container_background_script = "rock/admin/scripts/clean_container_background.sh"
     _clean_container_background_process = None
     _metrics_monitor = None
+    _role = "test"
+    _env = "dev"
+    _user_id = "default"
+    _experiment_id = "default"
+    _namespace = "default"
 
     def __init__(
         self,
@@ -238,6 +244,9 @@ class SandboxActor(GemActor):
     async def set_experiment_id(self, experiment_id: str):
         self._experiment_id = experiment_id
 
+    async def set_namespace(self, namespace: str):
+        self._namespace = namespace
+
     async def user_id(self) -> str | None:
         if isinstance(self._deployment, DockerDeployment):
             return self._user_id
@@ -247,3 +256,23 @@ class SandboxActor(GemActor):
         if isinstance(self._deployment, DockerDeployment):
             return self._experiment_id
         return None
+
+    async def namespace(self) -> str | None:
+        if isinstance(self._deployment, DockerDeployment):
+            return self._namespace
+        return None
+
+    async def sandbox_info(self) -> SandboxInfo:
+        if isinstance(self._deployment, DockerDeployment):
+            return {
+                "host_ip": await self.host_ip(),
+                "host_name": await self.host_name(),
+                "image": self._config.image,
+                "user_id": await self.user_id(),
+                "experiment_id": await self.experiment_id(),
+                "sandbox_id": self._config.container_name,
+                "namespace": await self.namespace(),
+                "cpus": self._config.cpus,
+                "memory": self._config.memory,
+            }
+        return {}
