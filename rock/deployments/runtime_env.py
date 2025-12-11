@@ -63,7 +63,7 @@ class DockerRuntimeEnv(RuntimeEnv):
 
         Makes the docker_run.sh script executable and executes it.
         """
-        cmd = "chmod +x /tmp/local_files/docker_run.sh && /tmp/local_files/docker_run.sh"
+        cmd = "cp /tmp/local_files/docker_run.sh /tmp/docker_run.sh && chmod +x /tmp/docker_run.sh && /tmp/docker_run.sh"
         return cmd
 
 
@@ -118,7 +118,7 @@ class LocalRuntimeEnv(RuntimeEnv):
 
         Makes the docker_run.sh script executable and executes it.
         """
-        cmd = "chmod +x /tmp/local_files/docker_run.sh && /tmp/local_files/docker_run.sh"
+        cmd = "cp /tmp/local_files/docker_run.sh /tmp/docker_run.sh && chmod +x /tmp/docker_run.sh && /tmp/docker_run.sh"
         return cmd
 
 
@@ -165,8 +165,9 @@ class UvRuntimeEnv(RuntimeEnv):
 
         container_project_root = f"/tmp{self._runtime_config.project_root}"
         cmd = (
-            f"chmod +x /tmp/local_files/docker_run_with_uv.sh && "
-            f"/tmp/local_files/docker_run_with_uv.sh '{container_project_root}'"
+            f"cp /tmp/local_files/docker_run_with_uv.sh /tmp/docker_run_with_uv.sh &&"
+            f"chmod +x /tmp/docker_run_with_uv.sh && "
+            f"/tmp/docker_run_with_uv.sh '{container_project_root}'"
         )
         return cmd
 
@@ -188,5 +189,5 @@ class PipRuntimeEnv(RuntimeEnv):
         return mount_configs
 
     def get_rocklet_start_cmd(self):
-        cmd = "chmod +x /tmp/local_files/docker_run_with_pip.sh && /tmp/local_files/docker_run_with_pip.sh"
+        cmd = "cp /tmp/local_files/docker_run_with_pip.sh /tmp/docker_run_with_pip.sh && chmod +x /tmp/docker_run_with_pip.sh && /tmp/docker_run_with_pip.sh"
         return cmd

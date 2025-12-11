@@ -57,6 +57,11 @@ rocklet = [
     "gem-llm>=0.1.0",
 ]
 
+sandbox-actor = [
+    "apscheduler>=3.11.0",
+    "gem-llm>=0.1.0"
+]
+
 # Legacy optional dependencies for backward compatibility
 builder = [
     "swebench",
