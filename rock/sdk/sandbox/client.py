@@ -38,8 +38,6 @@ from rock.actions import (
 )
 from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX, RunModeType
 from rock.sdk.sandbox.agent.base import Agent
-from rock.sdk.sandbox.agent.config import AgentConfig
-from rock.sdk.sandbox.agent.factory import AgentFactory
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
 from rock.utils import HttpUtils, extract_nohup_pid, retry_async
 
@@ -142,10 +140,6 @@ class Sandbox(AbstractSandbox):
             except Exception as e:
                 logging.warning(f"Failed to get status, {str(e)}")
             await asyncio.sleep(1)
-
-    async def init_agent(self, agent_config: AgentConfig):
-        self.agent = await AgentFactory.create(self, agent_config)
-        await self.agent.init()
 
     async def is_alive(self) -> IsAliveResponse:
         try:
