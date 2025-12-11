@@ -87,7 +87,7 @@ python -c "import sys; print('Base prefix:', sys.base_prefix)"
 
 ```bash
 # 检查关键依赖
-python -c "import rock; print("Hello ROCK")
+python -c "import rock; print(\"Hello ROCK\")"
 ```
 
 
