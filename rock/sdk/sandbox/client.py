@@ -314,6 +314,7 @@ class Sandbox(AbstractSandbox):
         wait_interval=10,
         mode: RunModeType = "normal",
         response_limited_bytes_in_nohup: int | None = None,
+        ignore_output: bool = False,
     ) -> Observation:
         if mode == "nohup":
             try:
@@ -344,6 +345,24 @@ class Sandbox(AbstractSandbox):
                 success, message = await self._wait_for_process_completion(
                     pid=pid, session=session, wait_timeout=wait_timeout, wait_interval=wait_interval
                 )
+
+                if ignore_output:
+                    # Get file size to help user decide how to read it
+                    file_size = None
+                    try:
+                        size_result: Observation = await self._run_in_session(
+                            BashAction(session=session, command=f"stat -c %s {tmp_file} 2>/dev/null || stat -f %z {tmp_file}")
+                        )
+                        if size_result.exit_code == 0 and size_result.output.strip().isdigit():
+                            file_size = int(size_result.output.strip())
+                    except Exception:
+                        # Best-effort; ignore file-size errors
+                        pass
+                    detached_msg = self._build_nohup_detached_message(tmp_file, success, message, file_size)
+                    if success:
+                        return Observation(output=detached_msg, exit_code=0)
+                    return Observation(output=detached_msg, exit_code=1, failure_reason=message)
+
                 check_res_command = f"cat {tmp_file}"
                 if response_limited_bytes_in_nohup:
                     check_res_command = f"head -c {response_limited_bytes_in_nohup} {tmp_file}"
@@ -436,6 +455,30 @@ class Sandbox(AbstractSandbox):
         elapsed = time.perf_counter() - start_time
         timeout_msg = f"Process {pid} did not complete within {elapsed:.1f}s (timeout: {wait_timeout}s)"
         return False, timeout_msg
+
+    def _build_nohup_detached_message(
+        self, tmp_file: str, success: bool, detail: str | None, file_size: int | None = None
+    ) -> str:
+        status = "completed" if success else "finished with errors"
+        lines = [
+            "Command executed in nohup mode without streaming the log content.",
+            f"Status: {status}",
+            f"Output file: {tmp_file}",
+        ]
+        if file_size is not None:
+            if file_size < 1024:
+                size_str = f"{file_size} bytes"
+            elif file_size < 1024 * 1024:
+                size_str = f"{file_size / 1024:.2f} KB"
+            else:
+                size_str = f"{file_size / (1024 * 1024):.2f} MB"
+            lines.append(f"File size: {size_str}")
+        lines.append(
+            f"Use Sandbox.read_file(...), download APIs, or run 'cat {tmp_file}' inside the session to inspect the result."
+        )
+        if detail:
+            lines.append(f"Detail: {detail}")
+        return "\n".join(lines)
 
     async def upload(self, request: UploadRequest) -> UploadResponse:
         return await self.upload_by_path(file_path=request.source_path, target_path=request.target_path)
