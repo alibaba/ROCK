@@ -277,7 +277,7 @@ class Sandbox(AbstractSandbox):
 
             # Build and execute nohup command
             nohup_command = (
-                f"nohup {cmd} < /dev/null > {redirect_file_path} 2>&1 & echo {PID_PREFIX}$!{PID_SUFFIX};disown"
+                f"nohup {cmd} < /dev/null > {redirect_file_path} 2>&1 & echo {PID_PREFIX}${{!}}{PID_SUFFIX};disown"
             )
             # todo:
             # Theoretically, the nohup command should return in a very short time, but the total time online is longer,
@@ -323,7 +323,7 @@ class Sandbox(AbstractSandbox):
                     await self.create_session(CreateBashSessionRequest(session=temp_session))
                     session = temp_session
                 tmp_file = f"/tmp/tmp_{timestamp}.out"
-                nohup_command = f"nohup {cmd} < /dev/null > {tmp_file} 2>&1 & echo {PID_PREFIX}$!{PID_SUFFIX};disown"
+                nohup_command = f"nohup {cmd} < /dev/null > {tmp_file} 2>&1 & echo {PID_PREFIX}${{!}}{PID_SUFFIX};disown"
                 # todo:
                 # Theoretically, the nohup command should return in a very short time, but the total time online is longer,
                 # so time_out is set larger to avoid affecting online usage. It will be reduced after optimizing the read cluster time.
