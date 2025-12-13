@@ -7,6 +7,18 @@ class Command(BaseModel):
     session_type: Literal["bash"] = "bash"
     command: str | list[str]
 
+    timeout: float | None = 1200
+    """The timeout for the command. None means no timeout."""
+
+    env: dict[str, str] | None = None
+    """Environment variables to pass to the command."""
+
+    cwd: str | None = None
+    """The current working directory to run the command in."""
+
+    sandbox_id: str | None = None
+    """The sandbox id derived from init_env."""
+
 
 class CreateBashSessionRequest(BaseModel):
     session_type: Literal["bash"] = "bash"
