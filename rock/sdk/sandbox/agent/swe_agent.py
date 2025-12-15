@@ -44,6 +44,7 @@ from rock.logger import init_logger
 from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.agent.config import AgentConfig
 from rock.sdk.sandbox.client import Sandbox
+from rock.utils import retry_async
 
 logger = init_logger(__name__)
 
@@ -87,7 +88,7 @@ class SweAgentConfig(AgentConfig):
     python_install_cmd: str = env_vars.ROCK_AGENT_PYTHON_INSTALL_CMD
 
     # Command to clone SWE-agent repository and install dependencies
-    swe_agent_install_cmd: str = "git clone https://github.com/SWE-agent/SWE-agent.git && cd SWE-agent && pip install -e . -i https://mirrors.aliyun.com/pypi/simple/"
+    swe_agent_install_cmd: str = "[ -d SWE-agent ] && rm -rf SWE-agent; git clone https://github.com/SWE-agent/SWE-agent.git && cd SWE-agent && pip install -e . -i https://mirrors.aliyun.com/pypi/simple/"
 
     python_install_timeout: int = 300
 
@@ -178,28 +179,64 @@ class SweAgent(Agent):
             session=self.swe_session,
         )
 
-        # Step 4: Install Python environment
+        # Step 4: Install Python environment with retry
         logger.info(f"[{sandbox_id}] Installing Python environment")
+
         python_install_cmd = f"cd {self.config.swe_agent_workdir} && {self.config.python_install_cmd}"
-        await self._sandbox.arun(
+        await self._arun_with_retry(
             cmd=f"bash -c {shlex.quote(python_install_cmd)}",
             session=self.swe_session,
             mode="nohup",
             wait_timeout=self.config.python_install_timeout,
+            error_msg="Python installation failed",
         )
         logger.info(f"[{sandbox_id}] Python installation completed")
 
-        # Step 5: Clone and install SWE-agent repository
+        # Step 5: Install SWE-agent repository with retry
         # Note: Temporarily using standalone pip from installed Python
         logger.info(f"[{sandbox_id}] Installing SWE-agent from repository")
+
         swe_agent_install_cmd = f"export PATH={self.config.swe_agent_workdir}/python/bin:$PATH && cd {self.config.swe_agent_workdir} && {self.config.swe_agent_install_cmd}"
-        await self._sandbox.arun(
+        await self._arun_with_retry(
             cmd=f"bash -c {shlex.quote(swe_agent_install_cmd)}",
             session=self.swe_session,
             mode="nohup",
             wait_timeout=self.config.swe_agent_install_timeout,
+            error_msg="SWE-agent installation failed",
         )
         logger.info(f"[{sandbox_id}] SWE-agent installation completed successfully")
+
+    @retry_async(max_attempts=3, delay_seconds=5.0, backoff=2.0)
+    async def _arun_with_retry(
+        self,
+        cmd: str,
+        session: str,
+        mode: str = "nohup",
+        wait_timeout: int = 300,
+        wait_interval: int = 10,
+        error_msg: str = "Command failed",
+    ):
+        """
+        Execute a command with retry logic based on exit code.
+
+        Args:
+            cmd: Command to execute
+            session: Session name to execute command in
+            mode: Execution mode (normal, nohup, etc.)
+            wait_timeout: Timeout for command execution
+            wait_interval: Check interval for nohup commands
+            error_msg: Error message to use when raising exception
+
+        Returns:
+            Command result upon success
+        """
+        result = await self._sandbox.arun(
+            cmd=cmd, session=session, mode=mode, wait_timeout=wait_timeout, wait_interval=wait_interval
+        )
+        # If exit_code is not 0, raise an exception to trigger retry
+        if result.exit_code != 0:
+            raise Exception(f"{error_msg} with exit code: {result.exit_code}, output: {result.output}")
+        return result
 
     async def run(self, swe_agent_config_path: str | Path):
         """

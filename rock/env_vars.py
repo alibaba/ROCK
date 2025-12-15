@@ -81,7 +81,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_MODEL_SERVICE_DATA_DIR": lambda: os.getenv("ROCK_MODEL_SERVICE_DATA_DIR", "/data/logs"),
     "ROCK_AGENT_PYTHON_INSTALL_CMD": lambda: os.getenv(
         "ROCK_AGENT_PYTHON_INSTALL_CMD",
-        "wget -q -O cpython31114.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20251120/cpython-3.11.14+20251120-x86_64-unknown-linux-gnu-install_only.tar.gz && tar -xzf cpython31114.tar.gz",
+        "[ -f cpython31114.tar.gz ] && rm cpython31114.tar.gz; [ -d python ] && rm -rf python; wget -q -O cpython31114.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20251120/cpython-3.11.14+20251120-x86_64-unknown-linux-gnu-install_only.tar.gz && tar -xzf cpython31114.tar.gz",
     ),
     "ROCK_AGENT_PRE_STARTUP_BASH_CMD_LIST": lambda: json.loads(os.getenv("ROCK_AGENT_PRE_STARTUP_BASH_CMD_LIST", "[]")),
 }
