@@ -120,4 +120,4 @@ class ImageMirror(EnvBuilder):
         return command
 
     async def get_env_build_image(self):
-        return "rock-n-roll-registry.cn-hangzhou.cr.aliyuncs.com/rock/rock-env-builder:0.2.1"
+        return "rock-n-roll-registry.cn-hangzhou.cr.aliyuncs.com/rock/rock-env-builder:0.2.1a1"
