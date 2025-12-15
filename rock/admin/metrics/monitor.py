@@ -28,12 +28,12 @@ class MetricsMonitor:
         self._register_metrics()
 
     @classmethod
-    def create(cls) -> "MetricsMonitor":
+    def create(cls, export_interval_millis: int = 20000) -> "MetricsMonitor":
         host, port = get_uniagent_endpoint()
         env = env_vars.ROCK_ADMIN_ENV
         role = env_vars.ROCK_ADMIN_ROLE
         logging.info(f"Initializing MetricsCollector with host={host}, port={port}, " f"env={env}, role={role}")
-        return cls(host=host, port=port, env=env, role=role)
+        return cls(host=host, port=port, env=env, role=role, export_interval_millis=export_interval_millis)
 
     def _register_metrics(self):
         """Register all monitoring metrics"""
