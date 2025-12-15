@@ -85,7 +85,8 @@ class EnvBuilder(ABC):
                 start_retry_times=60,
                 image=await self.get_env_build_image(),
                 auto_clear_seconds=60 * 10,
-                user_id="rock-mirror",
+                user_id="rock-env-builder",
+                experiment_id=f"{dataset}",
                 xrl_authorization=authorization,
                 cluster=cluster,
             )
