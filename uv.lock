@@ -4008,8 +4008,10 @@ dependencies = [
     { name = "oss2" },
     { name = "pydantic" },
     { name = "python-multipart" },
+    { name = "pyyaml" },
     { name = "requests" },
     { name = "rich" },
+    { name = "sqlalchemy" },
     { name = "uuid" },
 ]
 
@@ -4120,6 +4122,7 @@ requires-dist = [
     { name = "psutil", marker = "extra == 'rocklet'" },
     { name = "pydantic" },
     { name = "python-multipart" },
+    { name = "pyyaml" },
     { name = "ray", extras = ["default"], marker = "extra == 'admin'", specifier = "==2.43.0" },
     { name = "redis", marker = "extra == 'admin'" },
     { name = "requests" },
@@ -4128,6 +4131,7 @@ requires-dist = [
     { name = "rl-rock", extras = ["builder"], marker = "extra == 'all'" },
     { name = "rl-rock", extras = ["rocklet"], marker = "extra == 'admin'" },
     { name = "rl-rock", extras = ["rocklet"], marker = "extra == 'all'" },
+    { name = "sqlalchemy" },
     { name = "sqlmodel", marker = "extra == 'admin'" },
     { name = "swebench", marker = "extra == 'builder'" },
     { name = "twisted", marker = "extra == 'rocklet'" },

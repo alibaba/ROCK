@@ -25,6 +25,8 @@ dependencies = [
     "python-multipart",
     "rich",
     "oss2",
+    "pyyaml",
+    "sqlalchemy",
 ]
 
 [project.optional-dependencies]
