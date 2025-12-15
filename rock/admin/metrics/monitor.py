@@ -9,6 +9,7 @@ from opentelemetry.sdk.metrics.export import InMemoryMetricReader, PeriodicExpor
 
 from rock import env_vars
 from rock.admin.metrics.constants import MetricsConstants
+from rock.admin.metrics.gc_view_instrument_match import patch_view_instrument_match
 from rock.utils import get_uniagent_endpoint
 
 
@@ -21,6 +22,7 @@ class MetricsMonitor:
         role: str = "test",
         export_interval_millis: int = 10000,
     ):
+        patch_view_instrument_match()
         self._init_basic_attributes(host, port, env, role)
         self._init_telemetry(export_interval_millis)
         self.counters: dict[str, Counter] = {}
