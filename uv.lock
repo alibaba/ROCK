@@ -4048,6 +4048,7 @@ all = [
     { name = "pexpect" },
     { name = "pip" },
     { name = "psutil" },
+    { name = "pyyaml" },
     { name = "ray", extra = ["default"] },
     { name = "redis" },
     { name = "sqlmodel" },
@@ -4060,6 +4061,9 @@ builder = [
     { name = "docker" },
     { name = "gem-llm" },
     { name = "swebench" },
+]
+examples = [
+    { name = "pyyaml" },
 ]
 rocklet = [
     { name = "bashlex" },
@@ -4120,12 +4124,14 @@ requires-dist = [
     { name = "psutil", marker = "extra == 'rocklet'" },
     { name = "pydantic" },
     { name = "python-multipart" },
+    { name = "pyyaml", marker = "extra == 'examples'" },
     { name = "ray", extras = ["default"], marker = "extra == 'admin'", specifier = "==2.43.0" },
     { name = "redis", marker = "extra == 'admin'" },
     { name = "requests" },
     { name = "rich" },
     { name = "rl-rock", extras = ["admin"], marker = "extra == 'all'" },
     { name = "rl-rock", extras = ["builder"], marker = "extra == 'all'" },
+    { name = "rl-rock", extras = ["examples"], marker = "extra == 'all'" },
     { name = "rl-rock", extras = ["rocklet"], marker = "extra == 'admin'" },
     { name = "rl-rock", extras = ["rocklet"], marker = "extra == 'all'" },
     { name = "sqlmodel", marker = "extra == 'admin'" },
@@ -4135,7 +4141,7 @@ requires-dist = [
     { name = "uvicorn", marker = "extra == 'rocklet'" },
     { name = "websockets", marker = "extra == 'admin'", specifier = ">=15.0.1" },
 ]
-provides-extras = ["admin", "rocklet", "sandbox-actor", "builder", "all"]
+provides-extras = ["admin", "rocklet", "sandbox-actor", "builder", "examples", "all"]
 
 [package.metadata.requires-dev]
 test = [

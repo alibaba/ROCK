@@ -6,7 +6,7 @@ import yaml
 
 from rock import env_vars
 from rock.logger import init_logger
-from rock.utils import is_absolute_db_path
+from rock.utils.database import is_absolute_db_path
 from rock.utils.providers import NacosConfigProvider
 
 logger = init_logger(__name__)

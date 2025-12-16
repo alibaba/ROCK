@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 from collections.abc import Callable
@@ -39,6 +40,10 @@ if TYPE_CHECKING:
     # Model Service Config
     ROCK_MODEL_SERVICE_DATA_DIR: str
 
+    # Agentic
+    ROCK_AGENT_PRE_STARTUP_BASH_CMD_LIST: list[str] = []
+    ROCK_AGENT_PYTHON_INSTALL_CMD: str
+
 
 environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_LOGGING_PATH": lambda: os.getenv("ROCK_LOGGING_PATH"),
@@ -74,6 +79,11 @@ environment_variables: dict[str, Callable[[], Any]] = {
         "ROCK_CLI_DEFAULT_CONFIG_PATH", Path.home() / ".rock" / "config.ini"
     ),
     "ROCK_MODEL_SERVICE_DATA_DIR": lambda: os.getenv("ROCK_MODEL_SERVICE_DATA_DIR", "/data/logs"),
+    "ROCK_AGENT_PYTHON_INSTALL_CMD": lambda: os.getenv(
+        "ROCK_AGENT_PYTHON_INSTALL_CMD",
+        "[ -f cpython31114.tar.gz ] && rm cpython31114.tar.gz; [ -d python ] && rm -rf python; wget -q -O cpython31114.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20251120/cpython-3.11.14+20251120-x86_64-unknown-linux-gnu-install_only.tar.gz && tar -xzf cpython31114.tar.gz",
+    ),
+    "ROCK_AGENT_PRE_STARTUP_BASH_CMD_LIST": lambda: json.loads(os.getenv("ROCK_AGENT_PRE_STARTUP_BASH_CMD_LIST", "[]")),
 }
 
 

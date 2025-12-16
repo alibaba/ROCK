@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from rock.utils import is_absolute_db_path
+from rock.utils.database import is_absolute_db_path
 
 
 @pytest.mark.asyncio

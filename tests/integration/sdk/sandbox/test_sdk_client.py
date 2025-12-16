@@ -17,8 +17,25 @@ async def test_arun_nohup(sandbox_instance: Sandbox):
     print(resp.output)
     nohup_test_resp = await sandbox_instance.arun(session="default", cmd="cat /tmp/nohup_test.txt")
     assert "import os" in nohup_test_resp.output
-    await sandbox_instance.arun(session="default", cmd="rm -rf /tmp/nohup_test.txt")
 
+    detached_resp = await sandbox_instance.arun(
+        session="default",
+        cmd="/bin/bash -c 'echo detached-output'",
+        mode="nohup",
+        ignore_output=True,
+    )
+    output_line = next((line for line in detached_resp.output.splitlines() if line.startswith("Output file:")), None)
+    assert output_line is not None
+    output_file = output_line.split(":", 1)[1].strip()
+    assert "without streaming the log content" in detached_resp.output
+    # Verify file size is included in output
+    assert "File size:" in detached_resp.output
+
+    file_content_resp = await sandbox_instance.arun(session="default", cmd=f"cat {output_file}")
+    assert "detached-output" in file_content_resp.output
+    await sandbox_instance.arun(session="default", cmd=f"rm -f {output_file}")
+
+    await sandbox_instance.arun(session="default", cmd="rm -rf /tmp/nohup_test.txt")
 
 @pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
