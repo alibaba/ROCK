@@ -10,7 +10,7 @@ from enum import Enum
 from rock.actions import Command, CommandResponse, CreateBashSessionRequest
 from rock.sdk.sandbox.client import Sandbox, SandboxGroup
 from rock.sdk.sandbox.config import SandboxGroupConfig
-from rock.utils import FileUtil
+from rock.utils import FileUtil, retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,8 @@ class EnvBuilder(ABC):
                 start_retry_times=60,
                 image=await self.get_env_build_image(),
                 auto_clear_seconds=60 * 10,
-                user_id="rock-mirror",
+                user_id="rock-env-builder",
+                experiment_id=f"{dataset}",
                 xrl_authorization=authorization,
                 cluster=cluster,
             )
@@ -106,7 +107,9 @@ class EnvBuilder(ABC):
         await asyncio.gather(*futures, return_exceptions=True)
         report_future.cancel()
         await self._report_once(
-            sandbox_group.sandbox_list, dest_filename=f"data/output/env-build/result-{datetime.now().timestamp()}.jsonl"
+            sandbox_group.sandbox_list,
+            dest_filename=f"data/output/env-build/result-{datetime.now().timestamp()}.jsonl",
+            retry_attempts=3,
         )
 
     async def get_env_build_image(self) -> str:
@@ -145,12 +148,19 @@ class EnvBuilder(ABC):
             except Exception as e:
                 logger.error(f"report status failed {e}")
 
-    async def _report_once(self, sandbox_list: list[Sandbox], dest_filename: str | None = None):
+    async def _report_once(
+        self, sandbox_list: list[Sandbox], dest_filename: str | None = None, retry_attempts: int = 1
+    ):
         statistic_dict: dict[int, str] = {}
         for i in range(len(sandbox_list)):
             try:
-                status = await self._query_status_for_sandbox(sandbox_list[i])
-                logger.info(f"sandbox {i} [{sandbox_list[i].sandbox_id}] status: {status}")
+
+                @retry_async(max_attempts=retry_attempts)
+                async def query_status_for_sandbox(sandbox: Sandbox):
+                    return await self._query_status_for_sandbox(sandbox)
+
+                status = await query_status_for_sandbox(sandbox_list[i])
+                logger.debug(f"sandbox {i} [{sandbox_list[i].sandbox_id}] status: {status}")
                 statistic = await self._parse_status_statistic(sandbox_list[i], status)
                 statistic_dict[i] = statistic
                 if dest_filename is not None:
@@ -162,6 +172,8 @@ class EnvBuilder(ABC):
         for i in range(len(statistic_dict)):
             statistic = statistic_dict[i]
             logger.info(f"report statistic {i}: {statistic}")
+        if dest_filename is not None:
+            logger.info(f"report finished! please check {dest_filename}")
 
     async def _parse_status_statistic(self, sandbox: Sandbox, status: CommandResponse) -> str:
         if status.exit_code != 0:

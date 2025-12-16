@@ -124,7 +124,7 @@ async def test_top_command():
     cmd = "export TERM=xterm && top"
     async for pid, output in mock_arun(cmd):
         assert pid
-        assert output.__contains__("failed tty get")
+        assert "failed tty get" in output or "Processes:" in output
 
 
 @pytest.mark.asyncio

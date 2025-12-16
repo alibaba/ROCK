@@ -5,9 +5,6 @@ from .data import (
     FileUtil,
     ListUtil,
 )
-from .database import (
-    is_absolute_db_path,
-)
 from .docker import (
     DockerUtil,
     ImageUtil,
@@ -64,8 +61,6 @@ __all__ = [
     # Data utilities
     "FileUtil",
     "ListUtil",
-    # Database utilities
-    "is_absolute_db_path",
     # HTTP utilities
     "HttpUtils",
     "wait_until_alive",
