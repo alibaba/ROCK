@@ -1,6 +1,5 @@
 """LLM Service - FastAPI server for sandbox communication."""
 import asyncio
-import logging
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -11,12 +10,12 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
+from rock.logger import init_logger
 from rock.sdk.model.server.config import LOG_FILE, SERVICE_HOST, SERVICE_PORT
 from rock.sdk.model.server.file_handler import FileHandler
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
+logger = init_logger(__name__)
 
 # Global request counter
 request_counter = 0
