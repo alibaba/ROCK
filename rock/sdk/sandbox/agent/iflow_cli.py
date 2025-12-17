@@ -214,13 +214,6 @@ class IFlowCli(Agent):
         )
         logger.debug(f"[{sandbox_id}] Settings uploaded to /root/.iflow/settings.json")
 
-        # 复制一个上面的settings到~/.iflow/settings.json
-
-        await self._sandbox.arun(
-            cmd="cp /root/.iflow/settings.json ~/.iflow/settings.json",
-            session=self.config.agent_session,
-        )
-
         logger.info(f"[{sandbox_id}] IFlow settings configuration completed successfully")
 
     @retry_async(max_attempts=3, delay_seconds=5.0, backoff=2.0)
