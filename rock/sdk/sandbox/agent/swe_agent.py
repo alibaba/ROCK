@@ -24,8 +24,7 @@ Usage Example:
         version="unknown",
         swe_agent_workdir="/tmp_sweagent",
         agent_session=self.agent_session,
-        default_run_single_config=default_config_data,
-        instance_id="task001"
+        default_run_single_config=default_config_data
     )
 
     # Or use with default configuration
@@ -33,8 +32,7 @@ Usage Example:
     #     agent_type="swe-agent",
     #     version="unknown",
     #     swe_agent_workdir="/tmp_sweagent",
-    #     agent_session=self.agent_session,
-    #     instance_id="task001"
+    #     agent_session=self.agent_session
     #     # default_run_single_config will use its default value
     # )
 
@@ -42,7 +40,7 @@ Usage Example:
     sandbox.agent = SweAgent(sandbox, config)
 
     await sandbox.agent.init()
-    await sandbox.agent.run("Fix the bug in login function", "/path/to/project")
+    await sandbox.agent.run("Fix the bug in login function", "/path/to/project", "task001")
     ```
 
 Note:
@@ -183,7 +181,6 @@ class SweAgentConfig(AgentConfig):
 
     Attributes:
         agent_type: Fixed identifier for this agent type ("swe-agent")
-        instance_id: Identifier for the current instance (required)
         default_run_single_config: Default configuration object for a single run
         agent_session: Name of the bash session used for SWE-agent execution
         pre_startup_bash_cmd_list: Commands executed before agent initialization
@@ -223,8 +220,6 @@ class SweAgentConfig(AgentConfig):
     agent_run_timeout: int = 1800
 
     agent_run_check_interval: int = 30
-
-    instance_id: str
 
     default_run_single_config: dict[str, Any] = DEFAULT_RUN_SINGLE_CONFIG
 
@@ -369,22 +364,20 @@ class SweAgent(Agent):
         return result
 
     @contextmanager
-    def _config_template_context(self, problem_statement: str, project_path: str):
+    def _config_template_context(self, problem_statement: str, project_path: str, instance_id: str):
         """
         Context manager for temporary config file generation and cleanup.
 
         Args:
             problem_statement: The problem statement for the task
             project_path: Path to the target project
+            instance_id: The instance identifier for the run
 
         Yields:
             Path to the temporary config file
         """
         import copy
         import tempfile
-
-        # Use the instance_id directly from config (now required to be set in config)
-        instance_id = self.config.instance_id
 
         # Get the default template config from the config attribute
         template = self.config.default_run_single_config
@@ -429,7 +422,7 @@ class SweAgent(Agent):
             except OSError as e:
                 logger.warning(f"⚠ Could not clean up temporary config file {temp_file_path}: {e}")
 
-    async def run(self, problem_statement: str, project_path: str):
+    async def run(self, problem_statement: str, project_path: str, instance_id: str):
         """
         Execute SWE-agent with the specified problem statement and project path.
 
@@ -440,6 +433,7 @@ class SweAgent(Agent):
         Args:
             problem_statement: The problem statement for the task
             project_path: Path to the target project
+            instance_id: The instance identifier for the run
 
         Returns:
             CommandResult: Execution result containing exit code, stdout, and stderr
@@ -450,7 +444,7 @@ class SweAgent(Agent):
 
         Example:
             ```python
-            result = await agent.run("Fix the bug in login function", "/path/to/project")
+            result = await agent.run("Fix the bug in login function", "/path/to/project", "task001")
             if result.exit_code == 0:
                 print("Agent completed successfully")
             ```
@@ -458,7 +452,7 @@ class SweAgent(Agent):
         assert isinstance(self._sandbox, Sandbox), "Sandbox must be an instance of Sandbox class"
 
         # Use the context manager for temporary config file generation and cleanup
-        with self._config_template_context(problem_statement, project_path) as generated_config_path:
+        with self._config_template_context(problem_statement, project_path, instance_id) as generated_config_path:
             logger.info(f"→ Starting SWE-agent execution with config: {generated_config_path}")
 
             config_filename = Path(generated_config_path).name
