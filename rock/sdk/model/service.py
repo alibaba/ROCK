@@ -8,7 +8,7 @@ import httpx
 
 
 class ModelService:
-    def start_sandbox_service(self, type: str = "local") -> subprocess.Popen:
+    def start_sandbox_service(self, model_service_type: str = "local") -> subprocess.Popen:
         """start sandbox service"""
         current_file = Path(__file__).resolve()
         service_dir = current_file.parent / "server"
@@ -16,11 +16,11 @@ class ModelService:
         if not service_dir.exists():
             raise FileNotFoundError(f"Service directory not found: {service_dir}")
 
-        process = subprocess.Popen([sys.executable, "-m", "main", "--type", type], cwd=str(service_dir))
+        process = subprocess.Popen([sys.executable, "-m", "main", "--type", model_service_type], cwd=str(service_dir))
         return process
 
-    async def start(self, timeout_seconds: int = 30, type: str = "local") -> str:
-        process = self.start_sandbox_service(type=type)
+    async def start(self, timeout_seconds: int = 30, model_service_type: str = "local") -> str:
+        process = self.start_sandbox_service(model_service_type=model_service_type)
         pid = process.pid
 
         success = await self._wait_service_available(timeout_seconds)

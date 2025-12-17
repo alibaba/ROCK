@@ -28,7 +28,7 @@ class ModelServiceCommand(Command):
                 return
             logger.info("start model service")
             model_service = ModelService()
-            pid = await model_service.start(type=args.type)
+            pid = await model_service.start(model_service_type=args.type)
             logger.info(f"model service started, pid: {pid}")
             with open(self.DEFAULT_MODEL_SERVICE_PID_FILE, "w") as f:
                 f.write(pid)
