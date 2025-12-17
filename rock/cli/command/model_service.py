@@ -28,7 +28,7 @@ class ModelServiceCommand(Command):
                 return
             logger.info("start model service")
             model_service = ModelService()
-            pid = await model_service.start()
+            pid = await model_service.start(type=args.type)
             logger.info(f"model service started, pid: {pid}")
             with open(self.DEFAULT_MODEL_SERVICE_PID_FILE, "w") as f:
                 f.write(pid)
@@ -77,9 +77,16 @@ class ModelServiceCommand(Command):
         )
 
         # rock model-service start
-        model_service_subparsers.add_parser(
+        start_parser = model_service_subparsers.add_parser(
             "start",
             help="start model service",
+        )
+        start_parser.add_argument(
+            "--type",
+            type=str,
+            choices=["local", "proxy"],
+            default="local",
+            help="Type of model service (local/proxy)",
         )
 
         watch_agent_parser = model_service_subparsers.add_parser(
