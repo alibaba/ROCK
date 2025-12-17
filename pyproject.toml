@@ -25,6 +25,7 @@ dependencies = [
     "python-multipart",
     "rich",
     "oss2",
+    "pyyaml",
 ]
 
 [project.optional-dependencies]
@@ -69,15 +70,10 @@ builder = [
     "docker"
 ]
 
-examples = [
-    "pyyaml"
-]
-
 all = [
     "rl-rock[admin]",
     "rl-rock[rocklet]",
     "rl-rock[builder]",
-    "rl-rock[examples]",
 ]
 
 [project.scripts]
