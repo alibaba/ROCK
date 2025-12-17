@@ -1,5 +1,4 @@
 import shlex
-from pathlib import Path
 from typing import Literal
 
 from rock import env_vars
@@ -259,7 +258,7 @@ class IFlowCli(Agent):
         logger.debug(f"[{sandbox_id}] Command executed successfully with retry mechanism")
         return result
 
-    async def run(self, project_path: str | Path, problem_statement: str):
+    async def run(self, problem_statement: str, project_path: str):
         """Run IFlow CLI to solve a specified problem
 
         This method switches to the specified project directory and executes the IFlow CLI command
@@ -277,11 +276,6 @@ class IFlowCli(Agent):
         sandbox_id = self._sandbox.sandbox_id
         logger.info(f"[{sandbox_id}] Starting IFlow CLI run operation")
         logger.debug(f"[{sandbox_id}] Project path: {project_path}, Problem statement: {problem_statement[:100]}...")
-
-        # Change directory to the project path
-        if isinstance(project_path, Path):
-            logger.debug(f"[{sandbox_id}] Converting Path object to string: {project_path}")
-            project_path = str(project_path)
 
         logger.info(f"[{sandbox_id}] Changing working directory to: {project_path}")
         result = await self._sandbox.arun(
