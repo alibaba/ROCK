@@ -170,7 +170,7 @@ class Sandbox(AbstractSandbox):
         headers = self._build_headers()
         data = {
             "command": command.command,
-            "sandbox_id": self._sandbox_id,
+            "sandbox_id": self.sandbox_id,
             "timeout": command.timeout,
             "cwd": command.cwd,
             "env": command.env
