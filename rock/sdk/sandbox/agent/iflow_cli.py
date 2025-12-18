@@ -88,13 +88,9 @@ class IFlowCliConfig(AgentConfig):
 
     npm_install_cmd: str = env_vars.ROCK_AGENT_NPM_INSTALL_CMD
 
-    npm_ln_cmd: str = "ln -sf /opt/nodejs/bin/node /usr/local/bin/node && ln -sf /opt/nodejs/bin/npm /usr/local/bin/npm && ln -sf /opt/nodejs/bin/npx /usr/local/bin/npx && ln -sf /opt/nodejs/bin/corepack /usr/local/bin/corepack"
-
     npm_install_timeout: int = 300
 
     iflow_cli_install_cmd: str = env_vars.ROCK_AGENT_IFLOW_CLI_INSTALL_CMD
-
-    iflow_cli_ln_cmd: str = "ln -s /opt/nodejs/bin/iflow /usr/local/bin/iflow"
 
     iflow_settings: dict[str, Any] = DEFAULT_IFLOW_SETTINGS
 
@@ -213,15 +209,6 @@ class IFlowCli(Agent):
             wait_timeout=self.config.npm_install_timeout,
             error_msg="npm installation failed",
         )
-        logger.info(f"[{sandbox_id}] npm archive downloaded and extracted")
-
-        logger.info(f"[{sandbox_id}] Creating symbolic links for npm binaries")
-        await self._sandbox.arun(
-            cmd=self.config.npm_ln_cmd,
-            session=self.config.agent_session,
-        )
-        logger.debug(f"[{sandbox_id}] npm symbolic links created successfully")
-
         logger.info(f"[{sandbox_id}] npm installation completed")
 
         # Step 4: Configure npm to use mirror registry for faster downloads
@@ -246,14 +233,6 @@ class IFlowCli(Agent):
             wait_timeout=self.config.npm_install_timeout,
             error_msg="iflow-cli installation failed",
         )
-        logger.info(f"[{sandbox_id}] iflow-cli installed from package")
-
-        logger.info(f"[{sandbox_id}] Creating symbolic link for iflow binary")
-        await self._sandbox.arun(
-            cmd=self.config.iflow_cli_ln_cmd,
-            session=self.config.agent_session,
-        )
-        logger.debug(f"[{sandbox_id}] iflow symbolic link created successfully")
 
         logger.info(f"[{sandbox_id}] iflow-cli installation completed successfully")
 

@@ -89,10 +89,11 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_AGENT_PRE_STARTUP_BASH_CMD_LIST": lambda: json.loads(os.getenv("ROCK_AGENT_PRE_STARTUP_BASH_CMD_LIST", "[]")),
     "ROCK_AGENT_NPM_INSTALL_CMD": lambda: os.getenv(
         "ROCK_AGENT_NPM_INSTALL_CMD",
-        "wget --tries=10 --waitretry=2 https://npmmirror.com/mirrors/node/v22.18.0/node-v22.18.0-linux-x64.tar.xz && tar -xf node-v22.18.0-linux-x64.tar.xz -C /opt/ && mv /opt/node-v22.18.0-linux-x64 /opt/nodejs",
+        "wget --tries=10 --waitretry=2 https://npmmirror.com/mirrors/node/v22.18.0/node-v22.18.0-linux-x64.tar.xz && tar -xf node-v22.18.0-linux-x64.tar.xz -C /opt/ && mv /opt/node-v22.18.0-linux-x64 /opt/nodejs && ln -sf /opt/nodejs/bin/node /usr/local/bin/node && ln -sf /opt/nodejs/bin/npm /usr/local/bin/npm && ln -sf /opt/nodejs/bin/npx /usr/local/bin/npx && ln -sf /opt/nodejs/bin/corepack /usr/local/bin/corepack",
     ),
     "ROCK_AGENT_IFLOW_CLI_INSTALL_CMD": lambda: os.getenv(
-        "ROCK_AGENT_IFLOW_CLI_INSTALL_CMD", "npm i -g @iflow-ai/iflow-cli@latest"
+        "ROCK_AGENT_IFLOW_CLI_INSTALL_CMD",
+        "npm i -g @iflow-ai/iflow-cli@latest && ln -s /opt/nodejs/bin/iflow /usr/local/bin/iflow",
     ),
 }
 
