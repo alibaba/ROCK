@@ -70,10 +70,19 @@ builder = [
     "docker"
 ]
 
+model-service = [
+    "psutil",
+    "alibabacloud_cr20181201==2.0.5",
+    "swebench",
+    "fastapi",
+    "uvicorn",
+]
+
 all = [
     "rl-rock[admin]",
     "rl-rock[rocklet]",
     "rl-rock[builder]",
+    "rl-rock[model-service]",
 ]
 
 [project.scripts]
