@@ -217,10 +217,6 @@ class SweAgentConfig(AgentConfig):
 
     swe_agent_install_timeout: int = 600
 
-    agent_run_timeout: int = 1800
-
-    agent_run_check_interval: int = 30
-
     default_run_single_config: dict[str, Any] = DEFAULT_RUN_SINGLE_CONFIG
 
     session_envs: dict[str, str] = {}
@@ -425,7 +421,14 @@ class SweAgent(Agent):
             except OSError as e:
                 logger.warning(f"⚠ Could not clean up temporary config file {temp_file_path}: {e}")
 
-    async def run(self, problem_statement: str, project_path: str, instance_id: str):
+    async def run(
+        self,
+        problem_statement: str,
+        project_path: str,
+        instance_id: str,
+        agent_run_timeout: int = 1800,
+        agent_run_check_interval: int = 30,
+    ):
         """
         Execute SWE-agent with the specified problem statement and project path.
 
@@ -437,6 +440,8 @@ class SweAgent(Agent):
             problem_statement: The problem statement for the task
             project_path: Path to the target project
             instance_id: The instance identifier for the run
+            agent_run_timeout: Maximum seconds to wait for agent execution completion (default 1800)
+            agent_run_check_interval: Seconds between status checks during execution (default 30)
 
         Returns:
             CommandResult: Execution result containing exit code, stdout, and stderr
@@ -473,15 +478,15 @@ class SweAgent(Agent):
             # Construct and execute SWE-agent run command
             swe_agent_run_cmd = f"cd {self.config.swe_agent_workdir} && {self.config.swe_agent_workdir}/python/bin/sweagent run --config {config_filename}"
             logger.info(
-                f"▶ Executing SWE-agent (timeout: {self.config.agent_run_timeout}s, check interval: {self.config.agent_run_check_interval}s)"
+                f"▶ Executing SWE-agent (timeout: {agent_run_timeout}s, check interval: {agent_run_check_interval}s)"
             )
 
             result = await self._sandbox.arun(
                 cmd=f"bash -c {shlex.quote(swe_agent_run_cmd)}",
                 session=self.agent_session,
                 mode="nohup",
-                wait_timeout=self.config.agent_run_timeout,
-                wait_interval=self.config.agent_run_check_interval,
+                wait_timeout=agent_run_timeout,
+                wait_interval=agent_run_check_interval,
             )
 
         # Log execution outcome

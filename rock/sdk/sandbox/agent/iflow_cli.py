@@ -96,10 +96,6 @@ class IFlowCliConfig(AgentConfig):
 
     iflow_run_cmd: str = "iflow -r {session_id} -p {problem_statement} --yolo > {iflow_log_file} 2>&1"
 
-    agent_run_timeout: int = 1800
-
-    agent_run_check_interval: int = 30
-
     iflow_log_file: str = "~/.iflow/session_info.log"
 
     session_envs: dict[str, str] = {
@@ -404,7 +400,13 @@ class IFlowCli(Agent):
             logger.error(f"[{sandbox_id}] Error retrieving session ID from sandbox: {str(e)}")
             return ""
 
-    async def run(self, problem_statement: str, project_path: str):
+    async def run(
+        self,
+        problem_statement: str,
+        project_path: str,
+        agent_run_timeout: int = 1800,
+        agent_run_check_interval: int = 30,
+    ):
         """Run IFlow CLI to solve a specified problem.
 
         Automatically attempts to retrieve the previous session ID from the log file.
@@ -414,6 +416,8 @@ class IFlowCli(Agent):
         Args:
             problem_statement: Problem statement that IFlow CLI will attempt to solve.
             project_path: Project path, can be a string or Path object.
+            agent_run_timeout: Agent execution timeout in seconds. Defaults to 1800 (30 minutes).
+            agent_run_check_interval: Interval for checking progress during agent execution in seconds. Defaults to 30.
 
         Returns:
             Object containing command execution results, including exit code and output.
@@ -446,8 +450,8 @@ class IFlowCli(Agent):
 
         # Step 3: Prepare and execute IFlow CLI command
         logger.info(
-            f"[{sandbox_id}] Preparing to run IFlow CLI with timeout {self.config.agent_run_timeout}s "
-            f"and check interval {self.config.agent_run_check_interval}s"
+            f"[{sandbox_id}] Preparing to run IFlow CLI with timeout {agent_run_timeout}s "
+            f"and check interval {agent_run_check_interval}s"
         )
         #  iflow  -r "session-c844f0f1-5754-4888-9c77-4ffe8dff10e5" -p "我是谁"
         # Format the command with session ID (empty string if not found) and problem statement
@@ -467,8 +471,8 @@ class IFlowCli(Agent):
             cmd=safe_iflow_run_cmd,
             session=self.config.agent_session,
             mode="nohup",
-            wait_timeout=self.config.agent_run_timeout,
-            wait_interval=self.config.agent_run_check_interval,
+            wait_timeout=agent_run_timeout,
+            wait_interval=agent_run_check_interval,
         )
 
         # Step 4: Log execution outcome with detailed information
