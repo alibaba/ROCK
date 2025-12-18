@@ -223,6 +223,8 @@ class SweAgentConfig(AgentConfig):
 
     default_run_single_config: dict[str, Any] = DEFAULT_RUN_SINGLE_CONFIG
 
+    session_envs: dict[str, str] = {}
+
 
 class SweAgent(Agent):
     """
@@ -285,6 +287,7 @@ class SweAgent(Agent):
             CreateBashSessionRequest(
                 session=self.agent_session,
                 env_enable=True,
+                env=self.config.session_envs,
             )
         )
 

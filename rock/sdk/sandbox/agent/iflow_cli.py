@@ -1,6 +1,10 @@
 import json
+import os
 import re
 import shlex
+import tempfile
+from contextlib import contextmanager
+from typing import Any
 
 from rock import env_vars
 from rock.actions import CreateBashSessionRequest, UploadRequest
@@ -12,6 +16,38 @@ from rock.sdk.sandbox.client import Sandbox
 from rock.utils.retry import retry_async
 
 logger = init_logger(__name__)
+
+
+# Default IFlow settings
+DEFAULT_IFLOW_SETTINGS: dict[str, Any] = {
+    "selectedAuthType": "openai-compatible",
+    "apiKey": "",
+    "baseUrl": "",
+    "modelName": "",
+    "searchApiKey": "88888888",
+    "disableAutoUpdate": True,
+    "shellTimeout": 360000,
+    "tokensLimit": 128000,
+    "coreTools": [
+        "Edit",
+        "exit_plan_mode",
+        "glob",
+        "list_directory",
+        "multi_edit",
+        "plan",
+        "read plan",
+        "read_file",
+        "read_many_files",
+        "save_memory",
+        "Search",
+        "Shell",
+        "task",
+        "web_fetch",
+        "web_search",
+        "write_file",
+        "xml_escape",
+    ],
+}
 
 
 class IFlowCliConfig(AgentConfig):
@@ -34,7 +70,7 @@ class IFlowCliConfig(AgentConfig):
             package and installs globally.
         iflow_cli_ln_cmd: Command to create symbolic link for IFlow CLI executable
             to system path.
-        iflow_settings_path: Local path for IFlow configuration file.
+        iflow_settings: Default IFlow configuration settings dict.
         iflow_run_cmd: Command template for running IFlow CLI. Supports {session_id}
             and {problem_statement} placeholders. When session_id is empty string,
             it generates: iflow -r "" -p {problem_statement}
@@ -60,7 +96,7 @@ class IFlowCliConfig(AgentConfig):
 
     iflow_cli_ln_cmd: str = "ln -s /opt/nodejs/bin/iflow /usr/local/bin/iflow"
 
-    iflow_settings_path: str
+    iflow_settings: dict[str, Any] = DEFAULT_IFLOW_SETTINGS
 
     iflow_run_cmd: str = "iflow -r {session_id} -p {problem_statement} --yolo > {iflow_log_file} 2>&1"
 
@@ -69,6 +105,11 @@ class IFlowCliConfig(AgentConfig):
     agent_run_check_interval: int = 30
 
     iflow_log_file: str = "~/.iflow/session_info.log"
+
+    session_envs: dict[str, str] = {
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+    }
 
 
 class IFlowCli(Agent):
@@ -88,6 +129,30 @@ class IFlowCli(Agent):
         super().__init__(sandbox)
         self.config = config
 
+    @contextmanager
+    def _temp_iflow_settings_file(self):
+        """Context manager for creating temporary iflow settings file.
+
+        Creates a temporary JSON file with the configured IFlow settings
+        and ensures cleanup after use.
+
+        Yields:
+            str: Path to the temporary settings file
+        """
+        # Create the settings json content using config settings
+        settings_content = json.dumps(self.config.iflow_settings, indent=2)
+
+        # Create a temporary file to hold the settings
+        with tempfile.NamedTemporaryFile(mode="w", suffix="_iflow_settings.json", delete=False) as temp_file:
+            temp_file.write(settings_content)
+            temp_settings_path = temp_file.name
+
+        try:
+            yield temp_settings_path
+        finally:
+            # Clean up the temporary file
+            os.unlink(temp_settings_path)
+
     async def init(self):
         """Initialize IFlow CLI agent.
 
@@ -96,11 +161,11 @@ class IFlowCli(Agent):
         2. Executing pre-startup configuration commands
         3. Installing NPM and Node.js
         4. Installing IFlow CLI tool
-        5. Uploading configuration files
+        5. Generating and uploading configuration files from default config dict
 
         Raises:
             Exception: If any critical initialization step fails (e.g., creating
-                directories, uploading config files).
+                directories, generating and uploading config files).
         """
         assert isinstance(self._sandbox, Sandbox), "Sandbox must be an instance of Sandbox class"
 
@@ -114,6 +179,7 @@ class IFlowCli(Agent):
             CreateBashSessionRequest(
                 session=self.config.agent_session,
                 env_enable=True,
+                env=self.config.session_envs,
             )
         )
         logger.debug(f"[{sandbox_id}] Bash session '{self.config.agent_session}' created successfully")
@@ -202,17 +268,18 @@ class IFlowCli(Agent):
             raise Exception(f"Failed to create iflow directories: {result.output}")
         logger.debug(f"[{sandbox_id}] IFlow settings directories created")
 
-        # Step 7: Upload iflow-settings.json configuration file
-        logger.info(f"[{sandbox_id}] Uploading iflow settings from {self.config.iflow_settings_path}")
+        # Step 7: Generate and upload iflow-settings.json configuration file from config dict
+        logger.info(f"[{sandbox_id}] Generating and uploading iflow settings from config dict")
 
-        # Upload to root's home directory
-        await self._sandbox.upload(
-            UploadRequest(
-                source_path=self.config.iflow_settings_path,
-                target_path="/root/.iflow/settings.json",
+        # Use context manager to create and clean up temporary settings file
+        with self._temp_iflow_settings_file() as temp_settings_path:
+            await self._sandbox.upload(
+                UploadRequest(
+                    source_path=temp_settings_path,
+                    target_path="/root/.iflow/settings.json",
+                )
             )
-        )
-        logger.debug(f"[{sandbox_id}] Settings uploaded to /root/.iflow/settings.json")
+            logger.debug(f"[{sandbox_id}] Settings uploaded to /root/.iflow/settings.json")
 
         logger.info(f"[{sandbox_id}] IFlow settings configuration completed successfully")
 
