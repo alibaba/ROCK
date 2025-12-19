@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     ROCK_AGENT_NPM_INSTALL_CMD: str
     ROCK_AGENT_IFLOW_CLI_INSTALL_CMD: str
 
+    ROCK_AGENT_MODEL_SERVICE_INSTALL_CMD: str
 
 environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_LOGGING_PATH": lambda: os.getenv("ROCK_LOGGING_PATH"),
@@ -94,6 +95,10 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_AGENT_IFLOW_CLI_INSTALL_CMD": lambda: os.getenv(
         "ROCK_AGENT_IFLOW_CLI_INSTALL_CMD",
         "npm i -g @iflow-ai/iflow-cli@latest && ln -s /opt/nodejs/bin/iflow /usr/local/bin/iflow",
+    ),
+    "ROCK_AGENT_MODEL_SERVICE_INSTALL_CMD": lambda: os.getenv(
+        "ROCK_AGENT_MODEL_SERVICE_INSTALL_CMD",
+        "TO IMPL",
     ),
 }
 

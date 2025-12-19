@@ -48,22 +48,36 @@ Note:
     Requires a Sandbox instance (not AbstractSandbox) for execution.
 """
 
+import asyncio
 import os
 import shlex
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
+from httpx import ReadTimeout
+from pydantic import Field
 
 from rock import env_vars
+from rock.actions import (
+    AbstractSandbox,
+    BashAction,
+    CreateBashSessionRequest,
+    Observation,
+    UploadRequest,
+)
 from rock.actions.sandbox.base import AbstractSandbox
 from rock.actions.sandbox.request import CreateBashSessionRequest, UploadRequest
 from rock.logger import init_logger
+from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX, RunModeType
 from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.agent.config import AgentConfig
+from rock.sdk.sandbox.agent.model_service import AgentModelService, AgentModelServiceConfig
+from rock.sdk.sandbox.agent.utils import arun_with_retry
 from rock.sdk.sandbox.client import Sandbox
-from rock.utils import retry_async
+from rock.utils import extract_nohup_pid
 
 logger = init_logger(__name__)
 
@@ -221,6 +235,8 @@ class SweAgentConfig(AgentConfig):
 
     session_envs: dict[str, str] = {}
 
+    model_service_config: AgentModelServiceConfig = Field(default_factory=AgentModelServiceConfig)
+
 
 class SweAgent(Agent):
     """
@@ -253,17 +269,15 @@ class SweAgent(Agent):
         super().__init__(sandbox)
         self.config = config
         self.agent_session = self.config.agent_session
+        self.agent_model_service = AgentModelService(self.config.model_service_config)
 
     async def init(self):
         """
         Initialize the SWE-agent environment within the sandbox.
 
         Performs the following initialization steps in sequence:
-        1. Creates a dedicated bash session for agent execution
-        2. Executes pre-startup configuration commands
-        3. Creates working directory for agent installation
-        4. Installs Python environment
-        5. Clones and installs SWE-agent
+        1. Install SWE-agent (create session, pre-startup commands, setup environment, install Python, install SWE-agent)
+        2. Install model service in parallel with SWE-agent installation
 
         The initialization process is asynchronous and uses the configured
         timeouts for long-running operations like dependency installation.
@@ -274,8 +288,36 @@ class SweAgent(Agent):
         assert isinstance(self._sandbox, Sandbox), "Sandbox must be an instance of Sandbox class"
 
         sandbox_id = self._sandbox.sandbox_id
-
         logger.info(f"[{sandbox_id}] Starting SWE-agent initialization")
+
+        # Install SWE-agent and model service in parallel
+        logger.info(f"[{sandbox_id}] Installing SWE-agent and model service in parallel")
+
+        await asyncio.gather(
+            self._install_swe_agent(),
+            self.agent_model_service.start(sandbox=self._sandbox),
+        )
+
+        logger.info(f"[{sandbox_id}] SWE-agent and model service installation completed successfully")
+
+    async def _install_swe_agent(self):
+        """
+        Install SWE-agent and configure the environment.
+
+        Performs the following steps in sequence:
+        1. Creates a dedicated bash session for agent execution
+        2. Executes pre-startup configuration commands
+        3. Creates working directory for agent installation
+        4. Installs Python environment
+        5. Clones and installs SWE-agent from repository
+
+        Raises:
+            Exception: If any installation step fails
+        """
+        assert isinstance(self._sandbox, Sandbox), "Sandbox must be an instance of Sandbox class"
+
+        sandbox_id = self._sandbox.sandbox_id
+        logger.info(f"[{sandbox_id}] Starting SWE-agent installation")
 
         # Step 1: Create dedicated bash session for agent operations
         logger.info(f"[{sandbox_id}] Creating bash session: {self.agent_session}")
@@ -305,9 +347,9 @@ class SweAgent(Agent):
 
         # Step 4: Install Python environment with retry
         logger.info(f"[{sandbox_id}] Installing Python environment")
-
         python_install_cmd = f"cd {self.config.swe_agent_workdir} && {self.config.python_install_cmd}"
-        await self._arun_with_retry(
+        await arun_with_retry(
+            sandbox=self._sandbox,
             cmd=f"bash -c {shlex.quote(python_install_cmd)}",
             session=self.agent_session,
             mode="nohup",
@@ -317,50 +359,23 @@ class SweAgent(Agent):
         logger.info(f"[{sandbox_id}] Python installation completed")
 
         # Step 5: Install SWE-agent repository with retry
-        # Note: Temporarily using standalone pip from installed Python
         logger.info(f"[{sandbox_id}] Installing SWE-agent from repository")
+        swe_agent_install_cmd = (
+            f"export PATH={self.config.swe_agent_workdir}/python/bin:$PATH && "
+            f"cd {self.config.swe_agent_workdir} && "
+            f"{self.config.swe_agent_install_cmd}"
+        )
 
-        swe_agent_install_cmd = f"export PATH={self.config.swe_agent_workdir}/python/bin:$PATH && cd {self.config.swe_agent_workdir} && {self.config.swe_agent_install_cmd}"
-        await self._arun_with_retry(
+        await arun_with_retry(
+            sandbox=self._sandbox,
             cmd=f"bash -c {shlex.quote(swe_agent_install_cmd)}",
             session=self.agent_session,
             mode="nohup",
             wait_timeout=self.config.swe_agent_install_timeout,
             error_msg="SWE-agent installation failed",
         )
+
         logger.info(f"[{sandbox_id}] SWE-agent installation completed successfully")
-
-    @retry_async(max_attempts=3, delay_seconds=5.0, backoff=2.0)
-    async def _arun_with_retry(
-        self,
-        cmd: str,
-        session: str,
-        mode: str = "nohup",
-        wait_timeout: int = 300,
-        wait_interval: int = 10,
-        error_msg: str = "Command failed",
-    ):
-        """
-        Execute a command with retry logic based on exit code.
-
-        Args:
-            cmd: Command to execute
-            session: Session name to execute command in
-            mode: Execution mode (normal, nohup, etc.)
-            wait_timeout: Timeout for command execution
-            wait_interval: Check interval for nohup commands
-            error_msg: Error message to use when raising exception
-
-        Returns:
-            Command result upon success
-        """
-        result = await self._sandbox.arun(
-            cmd=cmd, session=session, mode=mode, wait_timeout=wait_timeout, wait_interval=wait_interval
-        )
-        # If exit_code is not 0, raise an exception to trigger retry
-        if result.exit_code != 0:
-            raise Exception(f"{error_msg} with exit code: {result.exit_code}, output: {result.output}")
-        return result
 
     @contextmanager
     def _config_template_context(self, problem_statement: str, project_path: str, instance_id: str):
@@ -481,7 +496,7 @@ class SweAgent(Agent):
                 f"▶ Executing SWE-agent (timeout: {agent_run_timeout}s, check interval: {agent_run_check_interval}s)"
             )
 
-            result = await self._sandbox.arun(
+            result = await self.arun_with_hook(
                 cmd=f"bash -c {shlex.quote(swe_agent_run_cmd)}",
                 session=self.agent_session,
                 mode="nohup",
@@ -498,3 +513,118 @@ class SweAgent(Agent):
             logger.error("✗ SWE-agent execution failed - no result returned")
 
         return result
+
+    async def hook(self, pid: str):
+        """
+        启动监视agent，记录成功和失败日志，但不传播异常
+        """
+        try:
+            await self.agent_model_service.watch_agent(
+                sandbox=self._sandbox,
+                pid=pid,
+            )
+            logger.info(
+                f"Successfully started watch agent for pid: {pid}",
+                extra={
+                    "pid": pid,
+                    "sandbox": self._sandbox,
+                },
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to start watch agent for pid: {pid}",
+                exc_info=True,
+                extra={
+                    "pid": pid,
+                    "sandbox": self._sandbox,
+                    "error_type": type(e).__name__,
+                },
+            )
+            raise
+
+    async def arun_with_hook(
+        self,
+        cmd: str,
+        session: str = None,
+        wait_timeout=300,
+        wait_interval=10,
+        mode: RunModeType = "normal",
+        response_limited_bytes_in_nohup: int | None = None,
+        ignore_output: bool = False,
+    ) -> Observation:
+        assert isinstance(self._sandbox, Sandbox), "Sandbox must be an instance of Sandbox class"
+
+        if mode == "nohup":
+            try:
+                timestamp = str(time.time_ns())
+                if session is None:
+                    temp_session = f"bash-{timestamp}"
+                    await self._sandbox.create_session(CreateBashSessionRequest(session=temp_session))
+                    session = temp_session
+                tmp_file = f"/tmp/tmp_{timestamp}.out"
+                nohup_command = (
+                    f"nohup {cmd} < /dev/null > {tmp_file} 2>&1 & echo {PID_PREFIX}${{!}}{PID_SUFFIX};disown"
+                )
+                action = BashAction(command=nohup_command, session=session, timeout=30)
+                response: Observation = await self._sandbox._run_in_session(action)
+                if response.exit_code != 0:
+                    return response
+
+                pid = extract_nohup_pid(response.output)
+                if not pid:
+                    msg = f"Failed to submit command, nohup output: {response.output}"
+                    return Observation(
+                        output=msg,
+                        exit_code=1,
+                        failure_reason=msg,
+                    )
+
+                # <hook_begin>
+
+                await self.hook(pid=pid)
+
+                # <hook_end>
+
+                success, message = await self._sandbox._wait_for_process_completion(
+                    pid=pid, session=session, wait_timeout=wait_timeout, wait_interval=wait_interval
+                )
+
+                if ignore_output:
+                    # Get file size to help user decide how to read it
+                    file_size = None
+                    try:
+                        size_result: Observation = await self._sandbox._run_in_session(
+                            BashAction(
+                                session=session, command=f"stat -c %s {tmp_file} 2>/dev/null || stat -f %z {tmp_file}"
+                            )
+                        )
+                        if size_result.exit_code == 0 and size_result.output.strip().isdigit():
+                            file_size = int(size_result.output.strip())
+                    except Exception:
+                        # Best-effort; ignore file-size errors
+                        pass
+                    detached_msg = self._sandbox._build_nohup_detached_message(tmp_file, success, message, file_size)
+                    if success:
+                        return Observation(output=detached_msg, exit_code=0)
+                    return Observation(output=detached_msg, exit_code=1, failure_reason=message)
+
+                check_res_command = f"cat {tmp_file}"
+                if response_limited_bytes_in_nohup:
+                    check_res_command = f"head -c {response_limited_bytes_in_nohup} {tmp_file}"
+                exec_result: Observation = await self._sandbox._run_in_session(
+                    BashAction(session=session, command=check_res_command)
+                )
+                if success:
+                    return Observation(output=exec_result.output, exit_code=0)
+                else:
+                    return Observation(output=exec_result.output, exit_code=1, failure_reason=message)
+            except ReadTimeout:
+                error_msg = f"Command execution failed due to timeout: '{cmd}'. This may be caused by an interactive command that requires user input."
+                return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
+            except Exception as e:
+                error_msg = f"Failed to execute nohup command '{cmd}': {str(e)}"
+                return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
+        elif mode == "normal":
+            return await self._sandbox._run_in_session(action=BashAction(command=cmd, session=session))
+        else:
+            return Observation(output="", exit_code=1, failure_reason="Unsupported arun mode")
