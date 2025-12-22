@@ -396,7 +396,7 @@ class ModelService:
         index: int,
         response_payload: str | None = None,
         call_timeout: int = 600,
-        check_interval: int = 5,
+        check_interval: int = 3,
     ) -> str:
         """Execute anti-call LLM command.
 
