@@ -1,5 +1,5 @@
 import rock
-from rock.sdk.sandbox.response import RockResponse
+from rock.actions.response import RockResponse
 from rock.utils.deprecated import deprecated
 
 
