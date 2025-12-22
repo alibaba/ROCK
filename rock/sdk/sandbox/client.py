@@ -417,8 +417,6 @@ class Sandbox(AbstractSandbox):
             return None, response
 
         pid = extract_nohup_pid(response.output)
-        logging.info(f"sandbox {self.sandbox_id} cmd {cmd} pid {pid}")
-
         if not pid:
             return None, None
 
