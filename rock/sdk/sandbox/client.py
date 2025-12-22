@@ -143,7 +143,7 @@ class Sandbox(AbstractSandbox):
             except Exception as e:
                 logging.warning(f"Failed to get status, {str(e)}")
             await asyncio.sleep(3)
-        raise Exception(f"Failed to start sandbox within {self.config.startup_timeout}s")
+        raise Exception(f"Failed to start sandbox within {self.config.startup_timeout}s, sandbox: {str(self)}")
 
     async def is_alive(self) -> IsAliveResponse:
         try:
@@ -173,7 +173,7 @@ class Sandbox(AbstractSandbox):
             "sandbox_id": self.sandbox_id,
             "timeout": command.timeout,
             "cwd": command.cwd,
-            "env": command.env
+            "env": command.env,
         }
         try:
             response = await HttpUtils.post(url, headers, data)
@@ -327,7 +327,9 @@ class Sandbox(AbstractSandbox):
                     await self.create_session(CreateBashSessionRequest(session=temp_session))
                     session = temp_session
                 tmp_file = f"/tmp/tmp_{timestamp}.out"
-                nohup_command = f"nohup {cmd} < /dev/null > {tmp_file} 2>&1 & echo {PID_PREFIX}${{!}}{PID_SUFFIX};disown"
+                nohup_command = (
+                    f"nohup {cmd} < /dev/null > {tmp_file} 2>&1 & echo {PID_PREFIX}${{!}}{PID_SUFFIX};disown"
+                )
                 # todo:
                 # Theoretically, the nohup command should return in a very short time, but the total time online is longer,
                 # so time_out is set larger to avoid affecting online usage. It will be reduced after optimizing the read cluster time.
@@ -354,7 +356,9 @@ class Sandbox(AbstractSandbox):
                     file_size = None
                     try:
                         size_result: Observation = await self._run_in_session(
-                            BashAction(session=session, command=f"stat -c %s {tmp_file} 2>/dev/null || stat -f %z {tmp_file}")
+                            BashAction(
+                                session=session, command=f"stat -c %s {tmp_file} 2>/dev/null || stat -f %z {tmp_file}"
+                            )
                         )
                         if size_result.exit_code == 0 and size_result.output.strip().isdigit():
                             file_size = int(size_result.output.strip())
