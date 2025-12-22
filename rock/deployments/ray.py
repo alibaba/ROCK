@@ -4,7 +4,7 @@ from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.docker import DockerDeployment
 from rock.logger import init_logger
 from rock.sandbox.sandbox_actor import SandboxActor
-from rock.sdk.common.exceptions import InvalidParameterRockException
+from rock.sdk.common.exceptions import BadRequestRockError, InvalidParameterRockException
 from rock.utils.format import parse_memory_size
 
 logger = init_logger(__name__)
@@ -25,9 +25,19 @@ class RayDeployment(DockerDeployment):
         """Create sandbox actor instance"""
         actor_options = {"name": actor_name, "lifetime": "detached"}
         try:
-            # TODO: check upper limit from runtime_config
+            memory = parse_memory_size(self._config.memory)
+            # TODO: refine max allowed spec check
+            max_memory = parse_memory_size("8g")
+            if self._config.cpus > 16:
+                raise BadRequestRockError(
+                    f"Requested CPUs {self._config.cpus} exceed the maximum allowed {self._config.max_allowed_spec.cpus}"
+                )
+            if memory > max_memory:
+                raise BadRequestRockError(
+                    f"Requested memory {self._config.memory} exceed the maximum allowed {self._config.max_allowed_spec.memory}"
+                )
             actor_options["num_cpus"] = self._config.cpus
-            actor_options["memory"] = parse_memory_size(self._config.memory)
+            actor_options["memory"] = memory
             sandbox_actor = SandboxActor.options(**actor_options).remote(self.config)
             return sandbox_actor
         except ValueError as e:

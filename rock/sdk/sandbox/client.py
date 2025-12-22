@@ -13,7 +13,8 @@ import oss2
 from httpx import ReadTimeout
 from typing_extensions import deprecated
 
-from rock import env_vars
+import rock
+from rock import env_vars, raise_for_code
 from rock.actions import (
     AbstractSandbox,
     Action,
@@ -135,6 +136,9 @@ class Sandbox(AbstractSandbox):
 
         logging.debug(f"Start sandbox response: {response}")
         if "Success" != response.get("status"):
+            code: rock.codes = response.get("code", None)
+            if code is not None:
+                raise_for_code(code, f"Failed to start container: {response}")
             raise Exception(f"Failed to start sandbox: {response}")
         self._sandbox_id = response.get("result").get("sandbox_id")
         self._host_name = response.get("result").get("host_name")
@@ -328,9 +332,11 @@ class Sandbox(AbstractSandbox):
     ) -> Observation:
         """
         Asynchronously run a command in the sandbox environment.
+
         This method supports two execution modes:
         - NORMAL: Execute command synchronously and wait for completion
         - NOHUP: Execute command in background using nohup, suitable for long-running tasks
+
         Args:
             cmd (str): The command to execute in the sandbox
             session (str, optional): The session identifier to run the command in.
@@ -340,34 +346,53 @@ class Sandbox(AbstractSandbox):
             wait_interval (int, optional): Interval in seconds between process completion checks for nohup mode.
                 Minimum value is 5 seconds. Defaults to 10.
             mode (RunModeType, optional): Execution mode - either "normal" or "nohup".
-                Defaults to RunMode.NORMAL.
+                Defaults to RunMode.NORMAL.value.
             response_limited_bytes_in_nohup (int | None, optional): Maximum bytes to read from nohup output file.
                 If None, reads entire output. Only applies to nohup mode. Defaults to None.
             nohup_command_timeout (int, optional): Timeout in seconds for the nohup command submission itself.
                 Defaults to 60.
+
         Returns:
             Observation: Command execution result containing output, exit code, and failure reason if any.
                 - For normal mode: Returns immediate execution result
                 - For nohup mode: Returns result after process completion or timeout
+
         Raises:
-            InvalidParameterRockException: If an unsupported run mode is provided
-            ReadTimeout: If command execution times out (nohup mode)
-            Exception: For other execution failures in nohup mode
+            BadRequestRockError: If client's invalid parameters are provided.
+            InternalServerRockError: If ROCK Server errors occur, such as Sandbox timeout, client should retry.
+
         Examples:
             # Normal synchronous execution
             result = await sandbox.arun("ls -la")
+
             # Background execution with nohup
-            result = await sandbox.arun(
-                "python long_running_script.py",
-                mode="nohup",
-                wait_timeout=600
-            )
-            # Limited output reading in nohup mode
-            result = await sandbox.arun(
-                "generate_large_output.sh",
-                mode="nohup",
-                response_limited_bytes_in_nohup=1024
-            )
+            while retry_times < retry_limit:
+                try:
+                    observation: Observation = await sandbox.arun("python long_running_script.py", mode="nohup")
+                    if observation.exit_code != 0:
+                        logging.warning(
+                            f"Command failed with exit code {observation.exit_code}, "
+                            f"output: {observation.output}, failure_reason: {observation.failure_reason}"
+                        )
+                    return observation
+                except RockException as e:
+                    if rock.codes.is_server_error(e.code):
+                        if retry_times >= retry_limit:
+                            logging.error(f"All {retry_limit} attempts failed")
+                            raise e
+                        else:
+                            retry_times += 1
+                            logging.error(
+                                f"Server error occurred, code: {e.code}, message: {e.code.get_reason_phrase()}, "
+                                f"exception: {str(e)}, will not retry, times: {retry_times}."
+                            )
+                            await asyncio.sleep(2)
+                            continue
+                    else:
+                        logging.error(
+                            f"Non-retriable error occurred, code: {e.code}, message: {e.code.get_reason_phrase()}, exception: {str(e)}."
+                        )
+                        raise e
         """
         if mode not in (RunMode.NORMAL, RunMode.NOHUP):
             raise InvalidParameterRockException(f"Unsupported arun mode: {mode}")
