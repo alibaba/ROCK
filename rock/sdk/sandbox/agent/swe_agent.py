@@ -3,7 +3,6 @@ from __future__ import annotations  # Postpone annotation evaluation to avoid ci
 import os
 import shlex
 import time
-from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -16,10 +15,12 @@ from rock.actions import CreateBashSessionRequest, Observation, UploadRequest
 from rock.logger import init_logger
 from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.agent.config import AgentConfig
+from rock.sdk.sandbox.model_service.base import ModelService, ModelServiceConfig
 from rock.sdk.sandbox.utils import arun_with_retry
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
+
 
 logger = init_logger(__name__)
 
@@ -127,8 +128,7 @@ DEFAULT_RUN_SINGLE_CONFIG: dict[str, Any] = {
 
 
 class SweAgentConfig(AgentConfig):
-    """
-    Configuration dataclass for SWE-agent initialization and execution.
+    """Configuration dataclass for SWE-agent initialization and execution.
 
     This class defines all configurable parameters for setting up and running
     SWE-agent in a sandboxed environment, including installation commands,
@@ -147,6 +147,7 @@ class SweAgentConfig(AgentConfig):
         swe_agent_install_timeout: Maximum seconds to wait for SWE-agent installation
         agent_run_timeout: Maximum seconds to wait for agent execution completion
         agent_run_check_interval: Seconds between status checks during execution
+        model_service_config: Configuration for ModelService (optional)
     """
 
     agent_type: Literal["swe-agent"] = "swe-agent"
@@ -176,27 +177,28 @@ class SweAgentConfig(AgentConfig):
 
     session_envs: dict[str, str] = {}
 
+    model_service_config: ModelServiceConfig | None = None
+
 
 class SweAgent(Agent):
-    """
-    SWE-agent implementation for automated software engineering tasks.
+    """SWE-agent implementation with integrated ModelService support.
 
     This class manages the complete lifecycle of SWE-agent including environment
     initialization, dependency installation, and task execution within a sandboxed
     environment. It provides an asynchronous interface for agent operations.
 
+    The agent can optionally integrate with ModelService for LLM handling.
+    If model_service_config is provided during initialization, ModelService will be
+    installed during init() and started during run().
+
     Attributes:
         config: Configuration parameters for agent setup and execution
         agent_session: Name of the bash session used for agent operations
-
-    Note:
-        Currently requires a Sandbox instance (not AbstractSandbox).
-        Only supports LocalDeployment and RunSingleConfig modes.
+        model_service: ModelService instance (created if configured)
     """
 
     def __init__(self, sandbox: Sandbox, config: SweAgentConfig):
-        """
-        Initialize SWE-agent with sandbox environment and configuration.
+        """Initialize SWE-agent with sandbox environment and configuration.
 
         Args:
             sandbox: Sandbox instance for isolated agent execution
@@ -209,9 +211,11 @@ class SweAgent(Agent):
         self.config = config
         self.agent_session = self.config.agent_session
 
+        # ModelService instance (created during init if configured)
+        self.model_service: ModelService | None = None
+
     async def init(self):
-        """
-        Initialize the SWE-agent environment within the sandbox.
+        """Initialize the SWE-agent environment within the sandbox.
 
         Performs the following initialization steps in sequence:
         1. Creates a dedicated bash session for agent execution
@@ -219,6 +223,7 @@ class SweAgent(Agent):
         3. Creates working directory for agent installation
         4. Installs Python environment
         5. Clones and installs SWE-agent
+        6. Initializes ModelService if configured
 
         The initialization process is asynchronous and uses the configured
         timeouts for long-running operations like dependency installation.
@@ -230,6 +235,10 @@ class SweAgent(Agent):
         start_time = time.time()
 
         await self._install_swe_agent()
+
+        # Initialize ModelService if configured
+        if self.config.model_service_config:
+            await self._init_model_service()
 
         elapsed = time.time() - start_time
         logger.info(f"[{sandbox_id}] SWE-agent init completed (elapsed: {elapsed:.2f}s)")
@@ -328,10 +337,38 @@ class SweAgent(Agent):
             )
             raise
 
+    async def _init_model_service(self):
+        """Initialize ModelService (install only, not start).
+
+        Creates a ModelService instance and executes the installation steps.
+        The service will be started later in run() method if needed.
+
+        Raises:
+            Exception: If ModelService initialization fails
+        """
+        sandbox_id = self._sandbox.sandbox_id
+
+        try:
+            logger.info(f"[{sandbox_id}] Initializing ModelService")
+
+            # Create ModelService instance
+            self.model_service = ModelService(
+                sandbox=self._sandbox,
+                config=self.config.model_service_config,
+            )
+
+            # Execute install (this prepares the environment but doesn't start the service)
+            await self.model_service._install()
+
+            logger.info(f"[{sandbox_id}] ModelService initialized successfully")
+
+        except Exception as e:
+            logger.error(f"[{sandbox_id}] ModelService initialization failed: {str(e)}", exc_info=True)
+            raise
+
     @contextmanager
     def _config_template_context(self, problem_statement: str, project_path: str, instance_id: str):
-        """
-        Context manager for temporary config file generation and cleanup.
+        """Context manager for temporary config file generation and cleanup.
 
         Args:
             problem_statement: The problem statement for the task
@@ -394,14 +431,12 @@ class SweAgent(Agent):
         instance_id: str,
         agent_run_timeout: int = 1800,
         agent_run_check_interval: int = 30,
-        on_start_hooks: list[Callable[[Sandbox, str], Awaitable[None]]] | None = None,
     ) -> Observation:
-        """
-        Execute SWE-agent with the specified problem statement and project path.
+        """Execute SWE-agent with the specified problem statement and project path.
 
         This method generates a configuration file from the default template,
-        uploads it to the sandbox and executes SWE-agent with monitoring for completion.
-        The execution runs in nohup mode with periodic status checks based on the configured interval.
+        uploads it to the sandbox and executes SWE-agent. If ModelService is configured,
+        it will be started and watch_agent will be called to monitor the agent process.
 
         Args:
             problem_statement: The problem statement for the task
@@ -409,26 +444,12 @@ class SweAgent(Agent):
             instance_id: The instance identifier for the run
             agent_run_timeout: Maximum seconds to wait for agent execution completion (default 1800)
             agent_run_check_interval: Seconds between status checks during execution (default 30)
-            on_start_hooks: Optional list of async callback functions to execute after agent
-                process starts. Each callback receives sandbox (Sandbox) and pid (str) as arguments.
-                Callbacks are executed sequentially in the order provided. (default None)
 
         Returns:
             Observation: Execution result containing exit code, stdout, and stderr
 
-        Example:
-            ```python
-            async def watch_hook(sandbox: Sandbox, pid: str):
-                if sandbox.model_service:
-                    await sandbox.model_service.watch_agent(pid=pid)
-
-            result = await agent.run(
-                "Fix the bug in login function",
-                "/path/to/project",
-                "task001",
-                on_start_hooks=[watch_hook]
-            )
-            ```
+        Raises:
+            Exception: If agent execution fails
         """
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
@@ -436,6 +457,11 @@ class SweAgent(Agent):
         logger.info(f"[{sandbox_id}] SWE-agent execution started")
 
         try:
+            # Start ModelService if configured
+            if self.model_service:
+                logger.info(f"[{sandbox_id}] Starting ModelService")
+                await self.model_service.start()
+
             with self._config_template_context(problem_statement, project_path, instance_id) as generated_config_path:
                 config_filename = Path(generated_config_path).name
 
@@ -457,7 +483,7 @@ class SweAgent(Agent):
                     f"[{sandbox_id}] Upload completed: Configuration file uploaded (elapsed: {elapsed_step:.2f}s)"
                 )
 
-                # Execute SWE-agent with hooks
+                # Execute SWE-agent
                 step_start = time.time()
                 swe_agent_run_cmd = (
                     f"cd {self.config.swe_agent_workdir} && "
@@ -469,12 +495,11 @@ class SweAgent(Agent):
                     f"Timeout: {agent_run_timeout}s, Check interval: {agent_run_check_interval}s"
                 )
 
-                result = await self._arun_nohup_with_hook(
+                result = await self._agent_run(
                     cmd=full_cmd,
                     session=self.agent_session,
                     wait_timeout=agent_run_timeout,
                     wait_interval=agent_run_check_interval,
-                    on_start_hooks=on_start_hooks,
                 )
                 elapsed_step = time.time() - step_start
                 logger.info(f"[{sandbox_id}] SWE-agent execution completed (elapsed: {elapsed_step:.2f}s)")
@@ -502,18 +527,41 @@ class SweAgent(Agent):
                 exc_info=True,
             )
             raise
+        finally:
+            # Clean up ModelService if started
+            if self.model_service and self.model_service.is_started:
+                try:
+                    logger.info(f"[{sandbox_id}] Stopping ModelService")
+                    await self.model_service.stop()
+                except Exception as e:
+                    logger.warning(f"[{sandbox_id}] Failed to stop ModelService: {str(e)}")
 
-    async def _arun_nohup_with_hook(
+    async def _agent_run(
         self,
         cmd: str,
         session: str,
         wait_timeout: int,
         wait_interval: int,
-        on_start_hooks: list[Callable[[Sandbox, str], Awaitable[None]]] | None = None,
-        response_limited_bytes_in_nohup: int | None = None,
-        ignore_output: bool = False,
     ) -> Observation:
-        """Execute command in nohup mode with optional on-start hooks."""
+        """Execute agent command in nohup mode with optional ModelService watch.
+
+        Starts the agent process and if ModelService is configured, calls watch_agent
+        to monitor the process. The caller is responsible for the anti_call_llm loop
+        and Whale API interactions.
+
+        Args:
+            cmd: Command to execute
+            session: Bash session name
+            wait_timeout: Timeout for process completion
+            wait_interval: Interval for checking process status
+
+        Returns:
+            Observation: Execution result
+
+        Raises:
+            Exception: If process execution fails
+        """
+        sandbox_id = self._sandbox.sandbox_id
 
         try:
             timestamp = str(time.time_ns())
@@ -522,7 +570,6 @@ class SweAgent(Agent):
             # Start nohup process and get PID
             pid, error_response = await self._sandbox.start_nohup_process(cmd=cmd, tmp_file=tmp_file, session=session)
 
-            # If nohup command itself failed, return the error response
             if error_response is not None:
                 return error_response
 
@@ -531,24 +578,35 @@ class SweAgent(Agent):
                 msg = "Failed to submit command, nohup failed to extract PID"
                 return Observation(output=msg, exit_code=1, failure_reason=msg)
 
-            # Execute on-start hooks if provided
-            if on_start_hooks:
-                await self._execute_on_start_hooks(pid=str(pid), hooks=on_start_hooks)
+            logger.info(f"[{sandbox_id}] Agent process started with PID: {pid}")
 
-            # Wait for process completion
+            # If ModelService is configured, call watch_agent to monitor the process
+            if self.model_service:
+                try:
+                    logger.info(f"[{sandbox_id}] Starting ModelService watch-agent for pid {pid}")
+                    await self.model_service.watch_agent(pid=str(pid))
+                    logger.info(f"[{sandbox_id}] ModelService watch-agent started successfully")
+                except Exception as e:
+                    logger.error(f"[{sandbox_id}] Failed to start watch-agent: {str(e)}", exc_info=True)
+                    raise
+
+            # Wait for agent process to complete
+            logger.debug(f"[{sandbox_id}] Waiting for agent process completion (pid={pid})")
             success, message = await self._sandbox.wait_for_process_completion(
                 pid=pid, session=session, wait_timeout=wait_timeout, wait_interval=wait_interval
             )
 
-            # Handle output
-            return await self._sandbox.handle_nohup_output(
+            # Handle nohup output and return result
+            result = await self._sandbox.handle_nohup_output(
                 tmp_file=tmp_file,
                 session=session,
                 success=success,
                 message=message,
-                ignore_output=ignore_output,
-                response_limited_bytes_in_nohup=response_limited_bytes_in_nohup,
+                ignore_output=False,
+                response_limited_bytes_in_nohup=None,
             )
+
+            return result
 
         except ReadTimeout:
             error_msg = f"Command execution failed due to timeout: '{cmd}'. This may be caused by an interactive command that requires user input."
@@ -556,32 +614,3 @@ class SweAgent(Agent):
         except Exception as e:
             error_msg = f"Failed to execute nohup command '{cmd}': {str(e)}"
             return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
-
-    async def _execute_on_start_hooks(
-        self,
-        pid: str,
-        hooks: list[Callable[[Sandbox, str], Awaitable[None]]],
-    ):
-        """Execute on-start hooks sequentially."""
-        sandbox_id = self._sandbox.sandbox_id
-        total_start_time = time.time()
-
-        logger.info(f"[{sandbox_id}] Executing {len(hooks)} on-start hook(s) for pid={pid}")
-        for hook in hooks:
-            hook_start_time = time.time()
-            try:
-                await hook(self._sandbox, pid)
-
-                elapsed = time.time() - hook_start_time
-                logger.info(f"[{sandbox_id}] On-start hook completed for pid {pid} (elapsed: {elapsed:.2f}s)")
-
-            except Exception as e:
-                elapsed = time.time() - hook_start_time
-                logger.error(
-                    f"[{sandbox_id}] On-start hook failed for pid {pid} - {str(e)} (elapsed: {elapsed:.2f}s)",
-                    exc_info=True,
-                )
-                raise
-
-        total_elapsed = time.time() - total_start_time
-        logger.info(f"[{sandbox_id}] All on-start hooks completed for pid {pid} (total elapsed: {total_elapsed:.2f}s)")
