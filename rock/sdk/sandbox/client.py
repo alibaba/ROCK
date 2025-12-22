@@ -375,72 +375,153 @@ class Sandbox(AbstractSandbox):
         if mode == RunMode.NORMAL:
             return await self._run_in_session(action=Action(command=cmd, session=session))
         if mode == RunMode.NOHUP:
+            return await self._arun_with_nohup(
+                cmd=cmd,
+                session=session,
+                wait_timeout=wait_timeout,
+                wait_interval=wait_interval,
+                response_limited_bytes_in_nohup=response_limited_bytes_in_nohup,
+                ignore_output=ignore_output,
+            )
+
+    async def _arun_with_nohup(
+        self,
+        cmd: str,
+        session: str | None,
+        wait_timeout: int,
+        wait_interval: int,
+        response_limited_bytes_in_nohup: int | None,
+        ignore_output: bool,
+    ) -> Observation:
+        """Execute command in nohup mode with process monitoring."""
+        try:
+            timestamp = str(time.time_ns())
+
+            if session is None:
+                temp_session = f"bash-{timestamp}"
+                await self.create_session(CreateBashSessionRequest(session=temp_session))
+                session = temp_session
+
+            tmp_file = f"/tmp/tmp_{timestamp}.out"
+
+            # Start nohup process and get PID
+            pid, error_response = await self._start_nohup_process(cmd=cmd, tmp_file=tmp_file, session=session)
+
+            # If nohup command itself failed, return the error response
+            if error_response is not None:
+                return error_response
+
+            # If failed to extract PID
+            if pid is None:
+                msg = "Failed to submit command, nohup failed to extract PID"
+                return Observation(output=msg, exit_code=1, failure_reason=msg)
+
+            # Wait for process completion
+            success, message = await self._wait_for_process_completion(
+                pid=pid, session=session, wait_timeout=wait_timeout, wait_interval=wait_interval
+            )
+
+            # Handle output based on ignore_output flag
+            return await self._handle_nohup_output(
+                tmp_file=tmp_file,
+                session=session,
+                success=success,
+                message=message,
+                ignore_output=ignore_output,
+                response_limited_bytes_in_nohup=response_limited_bytes_in_nohup,
+            )
+
+        except ReadTimeout:
+            error_msg = f"Command execution failed due to timeout: '{cmd}'. This may be caused by an interactive command that requires user input."
+            return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
+        except Exception as e:
+            error_msg = f"Failed to execute nohup command '{cmd}': {str(e)}"
+            return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
+
+    async def _start_nohup_process(
+        self, cmd: str, tmp_file: str, session: str
+    ) -> tuple[int | None, Observation | None]:
+        """
+        Start a nohup process and extract its PID.
+
+        Args:
+            cmd: Command to execute in nohup
+            tmp_file: Output file path for nohup
+            session: Bash session name
+
+        Returns:
+            Tuple of (PID, error_observation). If successful, returns (pid, None).
+            If failed, returns (None, error_observation) or (None, None) if PID extraction failed.
+        """
+        nohup_command = f"nohup {cmd} < /dev/null > {tmp_file} 2>&1 & echo {PID_PREFIX}${{!}}{PID_SUFFIX};disown"
+
+        # todo:
+        # Theoretically, the nohup command should return in a very short time, but the total time online is longer,
+        # so time_out is set larger to avoid affecting online usage. It will be reduced after optimizing the read cluster time.
+        action = BashAction(command=nohup_command, session=session, timeout=30)
+        response: Observation = await self._run_in_session(action)
+
+        if response.exit_code != 0:
+            return None, response
+
+        pid = extract_nohup_pid(response.output)
+        if not pid:
+            return None, None
+
+        return pid, None
+
+    async def _handle_nohup_output(
+        self,
+        tmp_file: str,
+        session: str,
+        success: bool,
+        message: str,
+        ignore_output: bool,
+        response_limited_bytes_in_nohup: int | None,
+    ) -> Observation:
+        """
+        Handle the output of a completed nohup process.
+
+        Args:
+            tmp_file: Path to the output file
+            session: Bash session name
+            success: Whether the process completed successfully
+            message: Status message from process monitoring
+            ignore_output: Whether to ignore the actual output content
+            response_limited_bytes_in_nohup: Maximum bytes to read from output
+
+        Returns:
+            Observation containing the result
+        """
+        if ignore_output:
+            # Get file size to help user decide how to read it
+            file_size = None
             try:
-                timestamp = str(time.time_ns())
-                if session is None:
-                    temp_session = f"bash-{timestamp}"
-                    await self.create_session(CreateBashSessionRequest(session=temp_session))
-                    session = temp_session
-                tmp_file = f"/tmp/tmp_{timestamp}.out"
-                nohup_command = (
-                    f"nohup {cmd} < /dev/null > {tmp_file} 2>&1 & echo {PID_PREFIX}${{!}}{PID_SUFFIX};disown"
+                size_result: Observation = await self._run_in_session(
+                    BashAction(session=session, command=f"stat -c %s {tmp_file} 2>/dev/null || stat -f %z {tmp_file}")
                 )
-                # todo:
-                # Theoretically, the nohup command should return in a very short time, but the total time online is longer,
-                # so time_out is set larger to avoid affecting online usage. It will be reduced after optimizing the read cluster time.
-                action = BashAction(command=nohup_command, session=session, timeout=30)
-                response: Observation = await self._run_in_session(action)
-                if response.exit_code != 0:
-                    return response
+                if size_result.exit_code == 0 and size_result.output.strip().isdigit():
+                    file_size = int(size_result.output.strip())
+            except Exception:
+                # Best-effort; ignore file-size errors
+                pass
 
-                pid = extract_nohup_pid(response.output)
-                if not pid:
-                    msg = f"Failed to submit command, nohup output: {response.output}"
-                    return Observation(
-                        output=msg,
-                        exit_code=1,
-                        failure_reason=msg,
-                    )
+            detached_msg = self._build_nohup_detached_message(tmp_file, success, message, file_size)
+            if success:
+                return Observation(output=detached_msg, exit_code=0)
+            return Observation(output=detached_msg, exit_code=1, failure_reason=message)
 
-                success, message = await self._wait_for_process_completion(
-                    pid=pid, session=session, wait_timeout=wait_timeout, wait_interval=wait_interval
-                )
+        # Read output from file
+        check_res_command = f"cat {tmp_file}"
+        if response_limited_bytes_in_nohup:
+            check_res_command = f"head -c {response_limited_bytes_in_nohup} {tmp_file}"
 
-                if ignore_output:
-                    # Get file size to help user decide how to read it
-                    file_size = None
-                    try:
-                        size_result: Observation = await self._run_in_session(
-                            BashAction(
-                                session=session, command=f"stat -c %s {tmp_file} 2>/dev/null || stat -f %z {tmp_file}"
-                            )
-                        )
-                        if size_result.exit_code == 0 and size_result.output.strip().isdigit():
-                            file_size = int(size_result.output.strip())
-                    except Exception:
-                        # Best-effort; ignore file-size errors
-                        pass
-                    detached_msg = self._build_nohup_detached_message(tmp_file, success, message, file_size)
-                    if success:
-                        return Observation(output=detached_msg, exit_code=0)
-                    return Observation(output=detached_msg, exit_code=1, failure_reason=message)
+        exec_result: Observation = await self._run_in_session(BashAction(session=session, command=check_res_command))
 
-                check_res_command = f"cat {tmp_file}"
-                if response_limited_bytes_in_nohup:
-                    check_res_command = f"head -c {response_limited_bytes_in_nohup} {tmp_file}"
-                exec_result: Observation = await self._run_in_session(
-                    BashAction(session=session, command=check_res_command)
-                )
-                if success:
-                    return Observation(output=exec_result.output, exit_code=0)
-                else:
-                    return Observation(output=exec_result.output, exit_code=1, failure_reason=message)
-            except ReadTimeout:
-                error_msg = f"Command execution failed due to timeout: '{cmd}'. This may be caused by an interactive command that requires user input."
-                return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
-            except Exception as e:
-                error_msg = f"Failed to execute nohup command '{cmd}': {str(e)}"
-                return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
+        if success:
+            return Observation(output=exec_result.output, exit_code=0)
+        else:
+            return Observation(output=exec_result.output, exit_code=1, failure_reason=message)
 
     async def write_file(self, request: WriteFileRequest) -> WriteFileResponse:
         content = request.content
