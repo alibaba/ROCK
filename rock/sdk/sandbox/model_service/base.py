@@ -1,9 +1,7 @@
 from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
 
-import json
 import shlex
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
@@ -39,8 +37,6 @@ class ModelServiceConfig(BaseModel):
         anti_call_llm_cmd_no_response: Command to anti-call LLM with only index placeholder.
         logging_path: Path for logging directory. Must be configured when starting ModelService.
         logging_file_name: Name of the log file.
-        anti_call_llm_request_log_local_path: Local file path to log anti-call LLM request payloads. The logs can be large but useful for debugging.
-        anti_call_llm_response_log_local_path: Local file path to log anti-call LLM response outputs. The logs can be large but useful for debugging.
     """
 
     workdir: str = "/tmp_model_service"
@@ -64,10 +60,6 @@ class ModelServiceConfig(BaseModel):
     logging_path: str = "/data/logs"
     logging_file_name: str = "model_service.log"
 
-    # Anti-call LLM logs can be large but useful for debugging. Optional local paths to persist request and response payloads.
-    anti_call_llm_request_log_local_path: str | None = None
-    anti_call_llm_response_log_local_path: str | None = None
-
 
 class ModelService:
     """Service for managing model service installation and lifecycle in sandbox.
@@ -77,7 +69,7 @@ class ModelService:
 
     Attributes:
         config: Configuration for the model service.
-        has_installed: Whether the service has been installed.
+        is_installed: Whether the service has been installed.
         is_started: Whether the service is currently running.
     """
 
@@ -90,10 +82,9 @@ class ModelService:
         """
         self._sandbox = sandbox
         self.config = config
-        self.has_installed = False
+        self.is_installed = False
         self.is_started = False
         logger.debug(f"ModelService initialized: workdir={config.workdir}")
-        self._init_anti_call_llm_local_logs()
 
     async def install(self) -> None:
         """Install model service in the sandbox.
@@ -107,7 +98,7 @@ class ModelService:
         Raises:
             Exception: If any installation step fails.
         """
-        if self.has_installed:
+        if self.is_installed:
             return
 
         sandbox_id = self._sandbox.sandbox_id
@@ -194,7 +185,7 @@ class ModelService:
                 f"[{sandbox_id}] Step 4 completed: Model service package installation finished (elapsed: {step_elapsed:.2f}s)"
             )
 
-            self.has_installed = True
+            self.is_installed = True
             total_elapsed = time.time() - install_start_time
             logger.info(f"[{sandbox_id}] Installation finished successfully (total elapsed: {total_elapsed:.2f}s)")
 
@@ -265,6 +256,7 @@ class ModelService:
             await self._sandbox.arun(
                 cmd=bash_stop_cmd,
                 session=None,
+                mode="nohup",
             )
 
             self.is_started = False
@@ -286,7 +278,7 @@ class ModelService:
             Exception: If service is not started or watch fails.
         """
         if not self.is_started:
-            raise Exception("Model service is not started")
+            await self.start()
 
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
@@ -334,7 +326,7 @@ class ModelService:
             Exception: If service is not started or operation fails.
         """
         if not self.is_started:
-            raise Exception("Model service is not started")
+            await self.start()
 
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
@@ -343,9 +335,6 @@ class ModelService:
                 f"[{sandbox_id}] Executing anti-call LLM: index={index}, "
                 f"has_response={response_payload is not None}, timeout={call_timeout}s"
             )
-
-            # Write response to debug log file.
-            self._write_response_log(index, response_payload)
 
             if response_payload:
                 cmd = self.config.anti_call_llm_cmd.format(
@@ -367,8 +356,6 @@ class ModelService:
                 wait_interval=check_interval,
             )
 
-            # Write LLM request to debug log file.
-            self._write_request_log(index, result.output)
             elapsed = time.time() - start_time
             logger.info(f"[{sandbox_id}] Anti-call LLM execution completed (elapsed: {elapsed:.2f}s)")
 
@@ -378,89 +365,3 @@ class ModelService:
             elapsed = time.time() - start_time
             logger.error(f"[{sandbox_id}] Anti-call LLM failed: {str(e)} (elapsed: {elapsed:.2f}s)", exc_info=True)
             raise
-
-    def _init_anti_call_llm_local_logs(self) -> None:
-        """Initialize anti-call LLM debug log files.
-
-        Creates parent directories if they don't exist and initializes the log files.
-        """
-        if self.config.anti_call_llm_request_log_local_path:
-            request_log_local_path = Path(self.config.anti_call_llm_request_log_local_path)
-            request_log_local_path.parent.mkdir(parents=True, exist_ok=True)
-            request_log_local_path.touch(exist_ok=True)
-            logger.debug(f"Anti-call LLM request log initialized in local_path: {request_log_local_path}")
-
-        if self.config.anti_call_llm_response_log_local_path:
-            response_log_local_path = Path(self.config.anti_call_llm_response_log_local_path)
-            response_log_local_path.parent.mkdir(parents=True, exist_ok=True)
-            response_log_local_path.touch(exist_ok=True)
-            logger.debug(f"Anti-call LLM response log initialized in local_path: {response_log_local_path}")
-
-    def _format_json_content(self, content: str | None) -> str:
-        """Format content as pretty-printed JSON if possible.
-
-        Attempts to parse content as JSON and format it with indentation.
-        If parsing fails, returns the original content.
-
-        Args:
-            content: Content to format.
-
-        Returns:
-            Pretty-printed JSON string or original content.
-        """
-        if not content:
-            return "No content"
-
-        try:
-            parsed = json.loads(content)
-            return json.dumps(parsed, indent=2, ensure_ascii=False)
-        except json.JSONDecodeError:
-            return content
-
-    def _write_request_log(self, index: int, payload: str | None) -> None:
-        """Write anti-call LLM request to debug log file.
-
-        Logs the LLM request payload with timestamp and index information.
-
-        Args:
-            index: Index of the request.
-            payload: Request payload content to log.
-        """
-        if not self.config.anti_call_llm_request_log_local_path:
-            return
-
-        try:
-            formatted_payload = self._format_json_content(payload)
-            with open(self.config.anti_call_llm_request_log_local_path, "a", encoding="utf-8") as f:
-                f.write(f"{'=' * 80}\n")
-                f.write(f"Request Index: {index}\n")
-                f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}\n")
-                f.write(f"{'=' * 80}\n")
-                f.write(f"{formatted_payload}\n")
-                f.write("\n")
-        except Exception as e:
-            logger.error(f"Failed to write anti-call LLM request log: {str(e)}")
-
-    def _write_response_log(self, index: int, output: str | None) -> None:
-        """Write anti-call LLM response to debug log file.
-
-        Logs the LLM response output with timestamp and index information.
-
-        Args:
-            index: Index of the response.
-            output: Response output content to log.
-        """
-        if not self.config.anti_call_llm_response_log_local_path:
-            return
-
-        try:
-            formatted_output = self._format_json_content(output)
-            with open(self.config.anti_call_llm_response_log_local_path, "a", encoding="utf-8") as f:
-                f.write(f"{'=' * 80}\n")
-                f.write(f"Response Index: {index}\n")
-                f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}\n")
-                f.write(f"{'=' * 80}\n")
-                f.write(f"{formatted_output}\n")
-                f.write("\n")
-        except Exception as e:
-            logger.error(f"Failed to write anti-call LLM response log: {str(e)}")
