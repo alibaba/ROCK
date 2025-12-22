@@ -1,8 +1,8 @@
 import functools
 import logging
 
-from rock import RockException
-from rock.actions import ResponseStatus, RockResponse
+from rock.actions.response import ResponseStatus, RockResponse
+from rock.sdk.common.exceptions import RockException
 
 logger = logging.getLogger(__name__)
 

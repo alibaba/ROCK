@@ -38,7 +38,7 @@ class RayDeployment(DockerDeployment):
                 )
             actor_options["num_cpus"] = self._config.cpus
             actor_options["memory"] = memory
-            sandbox_actor = SandboxActor.options(**actor_options).remote(self.config)
+            sandbox_actor = SandboxActor.options(**actor_options).remote(self.config, self)
             return sandbox_actor
         except ValueError as e:
             logger.warning(f"Invalid memory size: {self._config.memory}", exc_info=e)
