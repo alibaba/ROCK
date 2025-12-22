@@ -1,16 +1,20 @@
+from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
+
 import json
 import shlex
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
 from rock import env_vars
 from rock.actions import CreateBashSessionRequest
-from rock.actions.sandbox.base import AbstractSandbox
 from rock.logger import init_logger
-from rock.sdk.sandbox.agent.utils import arun_with_retry
-from rock.sdk.sandbox.client import Sandbox
+from rock.sdk.sandbox.utils import arun_with_retry
+
+if TYPE_CHECKING:
+    from rock.sdk.sandbox.client import Sandbox
 
 logger = init_logger(__name__)
 
@@ -75,7 +79,7 @@ class ModelService:
         is_started: Whether the service is currently running.
     """
 
-    def __init__(self, sandbox: AbstractSandbox, config: ModelServiceConfig):
+    def __init__(self, sandbox: Sandbox, config: ModelServiceConfig):
         """Initialize ModelService.
 
         Args:
@@ -185,8 +189,6 @@ class ModelService:
         """
         if self.has_installed:
             return
-
-        assert isinstance(self._sandbox, Sandbox), "Sandbox must be an instance of Sandbox class"
 
         sandbox_id = self._sandbox.sandbox_id
         install_start_time = time.time()

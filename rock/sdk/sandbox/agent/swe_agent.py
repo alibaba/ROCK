@@ -1,10 +1,12 @@
+from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
+
 import os
 import shlex
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
 from httpx import ReadTimeout
@@ -14,8 +16,10 @@ from rock.actions import CreateBashSessionRequest, Observation, UploadRequest
 from rock.logger import init_logger
 from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.agent.config import AgentConfig
-from rock.sdk.sandbox.agent.utils import arun_with_retry
-from rock.sdk.sandbox.client import Sandbox
+from rock.sdk.sandbox.utils import arun_with_retry
+
+if TYPE_CHECKING:
+    from rock.sdk.sandbox.client import Sandbox
 
 logger = init_logger(__name__)
 
@@ -148,7 +152,6 @@ class SweAgent(Agent):
 
     async def init(self):
         """Initialize the SWE-agent environment within the sandbox."""
-        assert isinstance(self._sandbox, Sandbox), "Sandbox must be an instance of Sandbox class"
 
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
@@ -162,7 +165,6 @@ class SweAgent(Agent):
 
     async def _install_swe_agent(self):
         """Install SWE-agent and configure the environment."""
-        assert isinstance(self._sandbox, Sandbox), "Sandbox must be an instance of Sandbox class"
 
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
@@ -344,8 +346,6 @@ class SweAgent(Agent):
             )
             ```
         """
-        assert isinstance(self._sandbox, Sandbox), "Sandbox must be an instance of Sandbox class"
-
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
 
