@@ -47,7 +47,7 @@ from rock.utils import HttpUtils, extract_nohup_pid, retry_async
 logger = logging.getLogger(__name__)
 
 
-class RunMode(Enum):
+class RunMode(str, Enum):
     NORMAL = "normal"
     NOHUP = "nohup"
 
@@ -322,7 +322,7 @@ class Sandbox(AbstractSandbox):
         session: str = None,
         wait_timeout=300,
         wait_interval=10,
-        mode: RunModeType = RunMode.NORMAL.value,
+        mode: RunModeType = RunMode.NORMAL,
         response_limited_bytes_in_nohup: int | None = None,
         ignore_output: bool = False,
     ) -> Observation:
@@ -340,7 +340,7 @@ class Sandbox(AbstractSandbox):
             wait_interval (int, optional): Interval in seconds between process completion checks for nohup mode.
                 Minimum value is 5 seconds. Defaults to 10.
             mode (RunModeType, optional): Execution mode - either "normal" or "nohup".
-                Defaults to RunMode.NORMAL.value.
+                Defaults to RunMode.NORMAL.
             response_limited_bytes_in_nohup (int | None, optional): Maximum bytes to read from nohup output file.
                 If None, reads entire output. Only applies to nohup mode. Defaults to None.
             nohup_command_timeout (int, optional): Timeout in seconds for the nohup command submission itself.
@@ -369,12 +369,12 @@ class Sandbox(AbstractSandbox):
                 response_limited_bytes_in_nohup=1024
             )
         """
-        if mode not in (RunMode.NORMAL.value, RunMode.NOHUP.value):
+        if mode not in (RunMode.NORMAL, RunMode.NOHUP):
             raise InvalidParameterRockException(f"Unsupported arun mode: {mode}")
 
-        if mode == RunMode.NORMAL.value:
+        if mode == RunMode.NORMAL:
             return await self._run_in_session(action=Action(command=cmd, session=session))
-        if mode == RunMode.NOHUP.value:
+        if mode == RunMode.NOHUP:
             try:
                 timestamp = str(time.time_ns())
                 if session is None:
