@@ -95,7 +95,7 @@ class ModelService:
         logger.debug(f"ModelService initialized: workdir={config.workdir}")
         self._init_anti_call_llm_local_logs()
 
-    async def _install(self) -> None:
+    async def install(self) -> None:
         """Install model service in the sandbox.
 
         Performs the following installation steps:
@@ -212,7 +212,7 @@ class ModelService:
         Raises:
             Exception: If service startup fails.
         """
-        await self._install()
+        await self.install()
 
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()

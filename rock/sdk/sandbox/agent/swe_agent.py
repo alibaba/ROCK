@@ -358,7 +358,7 @@ class SweAgent(Agent):
             )
 
             # Execute install (this prepares the environment but doesn't start the service)
-            await self.model_service._install()
+            await self.model_service.install()
 
             logger.info(f"[{sandbox_id}] ModelService initialized successfully")
 
