@@ -1,8 +1,8 @@
 import types
 
 import pytest
-
 from httpx import ReadTimeout
+
 from rock.actions.sandbox.response import Observation
 from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX
 from rock.sdk.sandbox.client import Sandbox
@@ -31,7 +31,7 @@ async def test_arun_nohup_ignore_output_true_returns_hint(monkeypatch):
     async def fake_wait(self, pid, session, wait_timeout, wait_interval):
         return True, "Process completed successfully in 1.0s"
 
-    monkeypatch.setattr(Sandbox, "_wait_for_process_completion", fake_wait)
+    monkeypatch.setattr(Sandbox, "wait_for_process_completion", fake_wait)
 
     result = await sandbox.arun(
         cmd="echo detached",
@@ -72,7 +72,7 @@ async def test_arun_nohup_ignore_output_true_propagates_failure(monkeypatch):
     async def fake_wait(self, pid, session, wait_timeout, wait_interval):
         return False, "Process timed out"
 
-    monkeypatch.setattr(Sandbox, "_wait_for_process_completion", fake_wait)
+    monkeypatch.setattr(Sandbox, "wait_for_process_completion", fake_wait)
 
     result = await sandbox.arun(
         cmd="sleep 999",
@@ -111,7 +111,7 @@ async def test_arun_nohup_ignore_output_stat_fails(monkeypatch):
     async def fake_wait(self, pid, session, wait_timeout, wait_interval):
         return True, "Process completed"
 
-    monkeypatch.setattr(Sandbox, "_wait_for_process_completion", fake_wait)
+    monkeypatch.setattr(Sandbox, "wait_for_process_completion", fake_wait)
 
     result = await sandbox.arun(
         cmd="echo ignore",
@@ -195,7 +195,7 @@ async def test_arun_nohup_response_limited(monkeypatch):
     async def fake_wait(self, pid, session, wait_timeout, wait_interval):
         return True, "done"
 
-    monkeypatch.setattr(Sandbox, "_wait_for_process_completion", fake_wait)
+    monkeypatch.setattr(Sandbox, "wait_for_process_completion", fake_wait)
 
     result = await sandbox.arun(
         cmd="echo long_output",
@@ -230,7 +230,7 @@ async def test_arun_nohup_default_collects_output(monkeypatch):
     async def fake_wait(self, pid, session, wait_timeout, wait_interval):
         return True, "done"
 
-    monkeypatch.setattr(Sandbox, "_wait_for_process_completion", fake_wait)
+    monkeypatch.setattr(Sandbox, "wait_for_process_completion", fake_wait)
 
     result = await sandbox.arun(
         cmd="echo default",
@@ -241,4 +241,3 @@ async def test_arun_nohup_default_collects_output(monkeypatch):
     assert result.exit_code == 0
     assert result.output == "full-log"
     assert any(cmd.startswith("cat ") for cmd in executed_commands)
-
