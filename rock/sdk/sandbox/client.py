@@ -6,6 +6,7 @@ import time
 import uuid
 import warnings
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from pathlib import Path
 
 import oss2
@@ -37,12 +38,18 @@ from rock.actions import (
     WriteFileResponse,
 )
 from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX, RunModeType
+from rock.sdk.common.exceptions import InvalidParameterRockException
 from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
 from rock.sdk.sandbox.remote_user import LinuxRemoteUser, RemoteUser
 from rock.utils import HttpUtils, extract_nohup_pid, retry_async
 
 logger = logging.getLogger(__name__)
+
+
+class RunMode(Enum):
+    NORMAL = "normal"
+    NOHUP = "nohup"
 
 
 class Sandbox(AbstractSandbox):
@@ -315,11 +322,59 @@ class Sandbox(AbstractSandbox):
         session: str = None,
         wait_timeout=300,
         wait_interval=10,
-        mode: RunModeType = "normal",
+        mode: RunModeType = RunMode.NORMAL.value,
         response_limited_bytes_in_nohup: int | None = None,
         ignore_output: bool = False,
     ) -> Observation:
-        if mode == "nohup":
+        """
+        Asynchronously run a command in the sandbox environment.
+        This method supports two execution modes:
+        - NORMAL: Execute command synchronously and wait for completion
+        - NOHUP: Execute command in background using nohup, suitable for long-running tasks
+        Args:
+            cmd (str): The command to execute in the sandbox
+            session (str, optional): The session identifier to run the command in.
+                If None, a temporary session will be created for nohup mode. Defaults to None.
+            wait_timeout (int, optional): Maximum time in seconds to wait for nohup command completion.
+                Defaults to 300.
+            wait_interval (int, optional): Interval in seconds between process completion checks for nohup mode.
+                Minimum value is 5 seconds. Defaults to 10.
+            mode (RunModeType, optional): Execution mode - either "normal" or "nohup".
+                Defaults to RunMode.NORMAL.value.
+            response_limited_bytes_in_nohup (int | None, optional): Maximum bytes to read from nohup output file.
+                If None, reads entire output. Only applies to nohup mode. Defaults to None.
+            nohup_command_timeout (int, optional): Timeout in seconds for the nohup command submission itself.
+                Defaults to 60.
+        Returns:
+            Observation: Command execution result containing output, exit code, and failure reason if any.
+                - For normal mode: Returns immediate execution result
+                - For nohup mode: Returns result after process completion or timeout
+        Raises:
+            InvalidParameterRockException: If an unsupported run mode is provided
+            ReadTimeout: If command execution times out (nohup mode)
+            Exception: For other execution failures in nohup mode
+        Examples:
+            # Normal synchronous execution
+            result = await sandbox.arun("ls -la")
+            # Background execution with nohup
+            result = await sandbox.arun(
+                "python long_running_script.py",
+                mode="nohup",
+                wait_timeout=600
+            )
+            # Limited output reading in nohup mode
+            result = await sandbox.arun(
+                "generate_large_output.sh",
+                mode="nohup",
+                response_limited_bytes_in_nohup=1024
+            )
+        """
+        if mode not in (RunMode.NORMAL.value, RunMode.NOHUP.value):
+            raise InvalidParameterRockException(f"Unsupported arun mode: {mode}")
+
+        if mode == RunMode.NORMAL.value:
+            return await self._run_in_session(action=Action(command=cmd, session=session))
+        if mode == RunMode.NOHUP.value:
             try:
                 timestamp = str(time.time_ns())
                 if session is None:
@@ -386,10 +441,6 @@ class Sandbox(AbstractSandbox):
             except Exception as e:
                 error_msg = f"Failed to execute nohup command '{cmd}': {str(e)}"
                 return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
-        elif mode == "normal":
-            return await self._run_in_session(action=BashAction(command=cmd, session=session))
-        else:
-            return Observation(output="", exit_code=1, failure_reason="Unsupported arun mode")
 
     async def write_file(self, request: WriteFileRequest) -> WriteFileResponse:
         content = request.content
