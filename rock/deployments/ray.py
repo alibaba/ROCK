@@ -4,6 +4,8 @@ from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.docker import DockerDeployment
 from rock.logger import init_logger
 from rock.sandbox.sandbox_actor import SandboxActor
+from rock.sdk.common.exceptions import InvalidParameterRockException
+from rock.utils.format import parse_memory_size
 
 logger = init_logger(__name__)
 
@@ -21,15 +23,13 @@ class RayDeployment(DockerDeployment):
 
     async def _create_sandbox_actor(self, actor_name: str):
         """Create sandbox actor instance"""
-        if self.config.actor_resource and self.config.actor_resource_num:
-            sandbox_actor = SandboxActor.options(
-                name=actor_name,
-                resources={self.config.actor_resource: self.config.actor_resource_num},
-                lifetime="detached",
-            ).remote(self._config, self)
-        else:
-            sandbox_actor = SandboxActor.options(
-                name=actor_name,
-                lifetime="detached",
-            ).remote(self._config, self)
-        return sandbox_actor
+        actor_options = {"name": actor_name, "lifetime": "detached"}
+        try:
+            # TODO: check upper limit from runtime_config
+            actor_options["num_cpus"] = self._config.cpus
+            actor_options["memory"] = parse_memory_size(self._config.memory)
+            sandbox_actor = SandboxActor.options(**actor_options).remote(self.config)
+            return sandbox_actor
+        except ValueError as e:
+            logger.warning(f"Invalid memory size: {self._config.memory}", exc_info=e)
+            raise InvalidParameterRockException(f"Invalid memory size: {self._config.memory}")

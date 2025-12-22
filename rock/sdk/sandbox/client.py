@@ -38,7 +38,7 @@ from rock.actions import (
     WriteFileResponse,
 )
 from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX, RunModeType
-from rock.sdk.common.exceptions import InvalidParameterRockException
+from rock.sdk.common.exceptions import InternalServerRockError, InvalidParameterRockException
 from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
 from rock.sdk.sandbox.remote_user import LinuxRemoteUser, RemoteUser
@@ -240,7 +240,7 @@ class Sandbox(AbstractSandbox):
 
         logging.debug(f"Create session response: {response}")
         if "Success" != response.get("status"):
-            raise Exception(f"Failed to execute command: {response}")
+            raise InternalServerRockError(f"Failed to execute command: {response}")
         result: dict = response.get("result")  # type: ignore
         return CreateBashSessionResponse(**result)
 
@@ -539,14 +539,18 @@ class Sandbox(AbstractSandbox):
         return "\n".join(lines)
 
     async def upload(self, request: UploadRequest) -> UploadResponse:
-        return await self.upload_by_path(file_path=request.source_path, target_path=request.target_path)
+        return await self.upload_by_path(
+            file_path=request.source_path, target_path=request.target_path, oss_threshold=request.oss_threshold
+        )
 
-    async def upload_by_path(self, file_path: str | Path, target_path: str) -> UploadResponse:
+    async def upload_by_path(
+        self, file_path: str | Path, target_path: str, oss_threshold: int = 1 * 1024 * 1024
+    ) -> UploadResponse:
         path_str = file_path
         file_path = Path(file_path)
         if not file_path.exists():
             return UploadResponse(success=False, message=f"File not found: {file_path}")
-        if env_vars.ROCK_OSS_ENABLE and os.path.getsize(file_path) > 1024 * 1024 * 1:
+        if env_vars.ROCK_OSS_ENABLE and os.path.getsize(file_path) > oss_threshold:
             return await self._upload_via_oss(path_str, target_path)
         url = f"{self._url}/upload"
         headers = self._build_headers()
