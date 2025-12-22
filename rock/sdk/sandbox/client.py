@@ -41,6 +41,7 @@ from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX, RunModeType
 from rock.sdk.common.exceptions import InvalidParameterRockException
 from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
+from rock.sdk.sandbox.model_service.base import ModelService
 from rock.sdk.sandbox.remote_user import LinuxRemoteUser, RemoteUser
 from rock.utils import HttpUtils, extract_nohup_pid, retry_async
 
@@ -62,6 +63,7 @@ class Sandbox(AbstractSandbox):
     _oss_bucket: oss2.Bucket | None = None
     _cluster: str | None = None
     agent: Agent | None = None
+    model_service: ModelService | None = None
     remote_user: RemoteUser | None = None
 
     def __init__(self, config: SandboxConfig):
