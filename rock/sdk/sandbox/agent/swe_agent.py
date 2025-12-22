@@ -259,7 +259,6 @@ class SweAgent(Agent):
             # Step 2: Execute pre-startup commands
             step_start = time.time()
             for cmd in self.config.pre_startup_bash_cmd_list:
-                # TODO: 打印出具体的cmd
                 await self._sandbox.arun(
                     cmd=cmd,
                     session=self.agent_session,
@@ -521,7 +520,7 @@ class SweAgent(Agent):
             tmp_file = f"/tmp/tmp_{timestamp}.out"
 
             # Start nohup process and get PID
-            pid, error_response = await self._sandbox._start_nohup_process(cmd=cmd, tmp_file=tmp_file, session=session)
+            pid, error_response = await self._sandbox.start_nohup_process(cmd=cmd, tmp_file=tmp_file, session=session)
 
             # If nohup command itself failed, return the error response
             if error_response is not None:
@@ -537,12 +536,12 @@ class SweAgent(Agent):
                 await self._execute_on_start_hooks(pid=str(pid), hooks=on_start_hooks)
 
             # Wait for process completion
-            success, message = await self._sandbox._wait_for_process_completion(
+            success, message = await self._sandbox.wait_for_process_completion(
                 pid=pid, session=session, wait_timeout=wait_timeout, wait_interval=wait_interval
             )
 
             # Handle output
-            return await self._sandbox._handle_nohup_output(
+            return await self._sandbox.handle_nohup_output(
                 tmp_file=tmp_file,
                 session=session,
                 success=success,

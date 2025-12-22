@@ -308,7 +308,7 @@ class Sandbox(AbstractSandbox):
                 )
 
             # Wait for process completion
-            success, message = await self._wait_for_process_completion(
+            success, message = await self.wait_for_process_completion(
                 pid=pid, session=temp_session, wait_timeout=wait_timeout, wait_interval=wait_interval
             )
 
@@ -407,7 +407,7 @@ class Sandbox(AbstractSandbox):
             tmp_file = f"/tmp/tmp_{timestamp}.out"
 
             # Start nohup process and get PID
-            pid, error_response = await self._start_nohup_process(cmd=cmd, tmp_file=tmp_file, session=session)
+            pid, error_response = await self.start_nohup_process(cmd=cmd, tmp_file=tmp_file, session=session)
 
             # If nohup command itself failed, return the error response
             if error_response is not None:
@@ -419,12 +419,12 @@ class Sandbox(AbstractSandbox):
                 return Observation(output=msg, exit_code=1, failure_reason=msg)
 
             # Wait for process completion
-            success, message = await self._wait_for_process_completion(
+            success, message = await self.wait_for_process_completion(
                 pid=pid, session=session, wait_timeout=wait_timeout, wait_interval=wait_interval
             )
 
             # Handle output based on ignore_output flag
-            return await self._handle_nohup_output(
+            return await self.handle_nohup_output(
                 tmp_file=tmp_file,
                 session=session,
                 success=success,
@@ -440,9 +440,7 @@ class Sandbox(AbstractSandbox):
             error_msg = f"Failed to execute nohup command '{cmd}': {str(e)}"
             return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
 
-    async def _start_nohup_process(
-        self, cmd: str, tmp_file: str, session: str
-    ) -> tuple[int | None, Observation | None]:
+    async def start_nohup_process(self, cmd: str, tmp_file: str, session: str) -> tuple[int | None, Observation | None]:
         """
         Start a nohup process and extract its PID.
 
@@ -472,7 +470,7 @@ class Sandbox(AbstractSandbox):
 
         return pid, None
 
-    async def _handle_nohup_output(
+    async def handle_nohup_output(
         self,
         tmp_file: str,
         session: str,
@@ -546,7 +544,7 @@ class Sandbox(AbstractSandbox):
             return WriteFileResponse(success=False, message=f"Failed to write file {path}: upload response: {response}")
         return WriteFileResponse(success=True, message=f"Successfully write content to file {path}")
 
-    async def _wait_for_process_completion(
+    async def wait_for_process_completion(
         self, pid: int, session: str, wait_timeout: int, wait_interval: int
     ) -> tuple[bool, str]:
         """
