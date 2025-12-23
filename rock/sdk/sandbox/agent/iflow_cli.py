@@ -1,19 +1,28 @@
+from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
+
+import asyncio
 import json
 import os
 import re
 import shlex
 import tempfile
+import time
 from contextlib import contextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from httpx import ReadTimeout
 
 from rock import env_vars
-from rock.actions import CreateBashSessionRequest, UploadRequest
-from rock.actions.sandbox.base import AbstractSandbox
+from rock.actions import CreateBashSessionRequest, Observation, UploadRequest
 from rock.logger import init_logger
 from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.agent.config import AgentConfig
 from rock.sdk.sandbox.client import Sandbox
-from rock.utils.retry import retry_async
+from rock.sdk.sandbox.model_service.base import ModelService, ModelServiceConfig
+from rock.sdk.sandbox.utils import arun_with_retry
+
+if TYPE_CHECKING:
+    from rock.sdk.sandbox.client import Sandbox
 
 logger = init_logger(__name__)
 
@@ -63,21 +72,16 @@ class IFlowCliConfig(AgentConfig):
             (e.g., bashrc setup, hosts config).
         npm_install_cmd: NPM installation command that downloads Node.js binary from
             OSS and extracts to /opt/nodejs.
-        npm_ln_cmd: Command to create symbolic links for NPM related commands to
-            system paths.
         npm_install_timeout: NPM installation command timeout in seconds.
         iflow_cli_install_cmd: IFlow CLI installation command that downloads .tgz
             package and installs globally.
-        iflow_cli_ln_cmd: Command to create symbolic link for IFlow CLI executable
-            to system path.
         iflow_settings: Default IFlow configuration settings dict.
         iflow_run_cmd: Command template for running IFlow CLI. Supports {session_id}
             and {problem_statement} placeholders. When session_id is empty string,
             it generates: iflow -r "" -p {problem_statement}
-        agent_run_timeout: Agent execution timeout in seconds. Defaults to 30 minutes.
-        agent_run_check_interval: Interval for checking progress during agent
-            execution in seconds.
         iflow_log_file: IFlow log file path in sandbox.
+        session_envs: Environment variables for sessions
+        model_service_config: Optional ModelService configuration for LLM integration
     """
 
     agent_type: str = "iflow-cli"
@@ -103,15 +107,18 @@ class IFlowCliConfig(AgentConfig):
         "LC_ALL": "C.UTF-8",
     }
 
+    model_service_config: ModelServiceConfig | None = None
+
 
 class IFlowCli(Agent):
     """IFlow CLI Agent Class.
 
     Manages the lifecycle of the IFlow CLI, including initialization, installation,
     and execution phases. Supports session resumption for continuing previous work.
+    Optionally integrates with ModelService for LLM handling if model_service_config is provided.
     """
 
-    def __init__(self, sandbox: AbstractSandbox, config: IFlowCliConfig):
+    def __init__(self, sandbox: Sandbox, config: IFlowCliConfig):
         """Initialize IFlow CLI agent.
 
         Args:
@@ -119,7 +126,11 @@ class IFlowCli(Agent):
             config: Configuration object for IFlow CLI.
         """
         super().__init__(sandbox)
+        self._sandbox = sandbox
         self.config = config
+
+        # ModelService instance (created during init if configured)
+        self.model_service: ModelService | None = None
 
     @contextmanager
     def _temp_iflow_settings_file(self):
@@ -149,169 +160,197 @@ class IFlowCli(Agent):
         """Initialize IFlow CLI agent.
 
         Sets up all the environment required for agent execution, including:
-        1. Creating dedicated bash session
-        2. Executing pre-startup configuration commands
-        3. Installing NPM and Node.js
-        4. Installing IFlow CLI tool
-        5. Generating and uploading configuration files from default config dict
+        1. Creating dedicated bash session and executing pre-startup commands
+        2. Installing NPM and Node.js
+        3. Installing IFlow CLI tool
+        4. Generating and uploading configuration files from default config dict
+        5. Initializing ModelService if configured (parallel with iflow CLI setup steps)
 
         Raises:
             Exception: If any critical initialization step fails (e.g., creating
                 directories, generating and uploading config files).
         """
-        assert isinstance(self._sandbox, Sandbox), "Sandbox must be an instance of Sandbox class"
 
         sandbox_id = self._sandbox.sandbox_id
+        start_time = time.time()
 
         logger.info(f"[{sandbox_id}] Starting IFlow CLI-agent initialization")
 
-        # Step 1: Create dedicated bash session for agent operations
-        logger.info(f"[{sandbox_id}] Creating bash session: {self.config.agent_session}")
-        await self._sandbox.create_session(
-            CreateBashSessionRequest(
-                session=self.config.agent_session,
-                env_enable=True,
-                env=self.config.session_envs,
-            )
-        )
-        logger.debug(f"[{sandbox_id}] Bash session '{self.config.agent_session}' created successfully")
+        # Prepare tasks to run in parallel
+        tasks = [self._install_iflow_cli()]
 
-        # Step 2: Execute pre-startup configuration commands
-        logger.info(f"[{sandbox_id}] Executing {len(self.config.pre_startup_bash_cmd_list)} pre-startup commands")
-        for idx, cmd in enumerate(self.config.pre_startup_bash_cmd_list, 1):
-            logger.debug(
-                f"[{sandbox_id}] Executing pre-startup command {idx}/{len(self.config.pre_startup_bash_cmd_list)}: {cmd[:100]}..."
+        # Initialize ModelService if configured
+        if self.config.model_service_config:
+            tasks.append(self._init_model_service())
+
+        # Run tasks in parallel
+        await asyncio.gather(*tasks)
+
+        elapsed = time.time() - start_time
+        logger.info(f"[{sandbox_id}] IFlow CLI-agent initialization completed (elapsed: {elapsed:.2f}s)")
+
+    async def _install_iflow_cli(self):
+        """Install iflow-cli and configure the environment."""
+        sandbox_id = self._sandbox.sandbox_id
+        start_time = time.time()
+
+        logger.info(f"[{sandbox_id}] Step 1 started: IFlow CLI installation")
+
+        try:
+            # Step 1: Create dedicated bash session for agent operations
+            step_start = time.time()
+            logger.info(f"[{sandbox_id}] Creating bash session: {self.config.agent_session}")
+            await self._sandbox.create_session(
+                CreateBashSessionRequest(
+                    session=self.config.agent_session,
+                    env_enable=True,
+                    env=self.config.session_envs,
+                )
             )
+            logger.debug(f"[{sandbox_id}] Bash session '{self.config.agent_session}' created successfully")
+            elapsed_step = time.time() - step_start
+            logger.info(f"[{sandbox_id}] Step 1 completed: Bash session created (elapsed: {elapsed_step:.2f}s)")
+
+            # Step 2: Execute pre-startup configuration commands
+            step_start = time.time()
+            logger.info(f"[{sandbox_id}] Executing {len(self.config.pre_startup_bash_cmd_list)} pre-startup commands")
+            for idx, cmd in enumerate(self.config.pre_startup_bash_cmd_list, 1):
+                logger.debug(
+                    f"[{sandbox_id}] Executing pre-startup command {idx}/{len(self.config.pre_startup_bash_cmd_list)}: {cmd[:100]}..."
+                )
+                result = await self._sandbox.arun(
+                    cmd=cmd,
+                    session=self.config.agent_session,
+                )
+                if result.exit_code != 0:
+                    logger.warning(
+                        f"[{sandbox_id}] Pre-startup command {idx} failed with exit code {result.exit_code}: {result.output[:200]}..."
+                    )
+                else:
+                    logger.debug(f"[{sandbox_id}] Pre-startup command {idx} completed successfully")
+            logger.info(f"[{sandbox_id}] Completed {len(self.config.pre_startup_bash_cmd_list)} pre-startup commands")
+            elapsed_step = time.time() - step_start
+            logger.info(
+                f"[{sandbox_id}] Step 2 completed: Pre-startup commands executed (elapsed: {elapsed_step:.2f}s)"
+            )
+
+            # Step 3: Install npm with retry
+            step_start = time.time()
+            logger.info(f"[{sandbox_id}] Installing npm")
+            logger.debug(f"[{sandbox_id}] NPM install command: {self.config.npm_install_cmd[:100]}...")
+
+            await arun_with_retry(
+                sandbox=self._sandbox,
+                cmd=f"bash -c {shlex.quote(self.config.npm_install_cmd)}",
+                session=self.config.agent_session,
+                mode="nohup",
+                wait_timeout=self.config.npm_install_timeout,
+                error_msg="npm installation failed",
+            )
+            elapsed_step = time.time() - step_start
+            logger.info(f"[{sandbox_id}] Step 3 completed: NPM installation finished (elapsed: {elapsed_step:.2f}s)")
+
+            # Step 4: Configure npm to use mirror registry for faster downloads
+            step_start = time.time()
+            logger.info(f"[{sandbox_id}] Configuring npm registry")
             result = await self._sandbox.arun(
-                cmd=cmd,
+                cmd="npm config set registry https://registry.npmmirror.com",
                 session=self.config.agent_session,
             )
             if result.exit_code != 0:
-                logger.warning(
-                    f"[{sandbox_id}] Pre-startup command {idx} failed with exit code {result.exit_code}: {result.output[:200]}..."
-                )
+                logger.warning(f"[{sandbox_id}] Failed to set npm registry: {result.output}")
             else:
-                logger.debug(f"[{sandbox_id}] Pre-startup command {idx} completed successfully")
-        logger.info(f"[{sandbox_id}] Completed {len(self.config.pre_startup_bash_cmd_list)} pre-startup commands")
+                logger.debug(f"[{sandbox_id}] Npm registry configured successfully")
+            elapsed_step = time.time() - step_start
+            logger.info(f"[{sandbox_id}] Step 4 completed: NPM registry configured (elapsed: {elapsed_step:.2f}s)")
 
-        # Step 3: Install npm with retry
-        logger.info(f"[{sandbox_id}] Installing npm")
-        logger.debug(f"[{sandbox_id}] NPM install command: {self.config.npm_install_cmd[:100]}...")
+            # Step 5: Install iflow-cli with retry
+            step_start = time.time()
+            logger.info(f"[{sandbox_id}] Installing iflow-cli")
+            logger.debug(f"[{sandbox_id}] IFlow CLI install command: {self.config.iflow_cli_install_cmd[:100]}...")
 
-        await self._arun_with_retry(
-            cmd=f"bash -c {shlex.quote(self.config.npm_install_cmd)}",
-            session=self.config.agent_session,
-            mode="nohup",
-            wait_timeout=self.config.npm_install_timeout,
-            error_msg="npm installation failed",
-        )
-        logger.info(f"[{sandbox_id}] npm installation completed")
-
-        # Step 4: Configure npm to use mirror registry for faster downloads
-        logger.info(f"[{sandbox_id}] Configuring npm registry")
-        result = await self._sandbox.arun(
-            cmd="npm config set registry https://registry.npmmirror.com",
-            session=self.config.agent_session,
-        )
-        if result.exit_code != 0:
-            logger.warning(f"[{sandbox_id}] Failed to set npm registry: {result.output}")
-        else:
-            logger.debug(f"[{sandbox_id}] Npm registry configured successfully")
-
-        # Step 5: Install iflow-cli with retry
-        logger.info(f"[{sandbox_id}] Installing iflow-cli")
-        logger.debug(f"[{sandbox_id}] IFlow CLI install command: {self.config.iflow_cli_install_cmd[:100]}...")
-
-        await self._arun_with_retry(
-            cmd=f"bash -c {shlex.quote(self.config.iflow_cli_install_cmd)}",
-            session=self.config.agent_session,
-            mode="nohup",
-            wait_timeout=self.config.npm_install_timeout,
-            error_msg="iflow-cli installation failed",
-        )
-
-        logger.info(f"[{sandbox_id}] iflow-cli installation completed successfully")
-
-        # Step 6: Create iflow config directories
-        logger.info(f"[{sandbox_id}] Creating iflow settings directories")
-        result = await self._sandbox.arun(
-            cmd="mkdir -p /root/.iflow && mkdir -p ~/.iflow",
-            session=self.config.agent_session,
-        )
-        if result.exit_code != 0:
-            logger.error(f"[{sandbox_id}] Failed to create iflow directories: {result.output}")
-            raise Exception(f"Failed to create iflow directories: {result.output}")
-        logger.debug(f"[{sandbox_id}] IFlow settings directories created")
-
-        # Step 7: Generate and upload iflow-settings.json configuration file from config dict
-        logger.info(f"[{sandbox_id}] Generating and uploading iflow settings from config dict")
-
-        # Use context manager to create and clean up temporary settings file
-        with self._temp_iflow_settings_file() as temp_settings_path:
-            await self._sandbox.upload(
-                UploadRequest(
-                    source_path=temp_settings_path,
-                    target_path="/root/.iflow/settings.json",
-                )
+            await arun_with_retry(
+                sandbox=self._sandbox,
+                cmd=f"bash -c {shlex.quote(self.config.iflow_cli_install_cmd)}",
+                session=self.config.agent_session,
+                mode="nohup",
+                wait_timeout=self.config.npm_install_timeout,
+                error_msg="iflow-cli installation failed",
             )
-            logger.debug(f"[{sandbox_id}] Settings uploaded to /root/.iflow/settings.json")
+            elapsed_step = time.time() - step_start
+            logger.info(
+                f"[{sandbox_id}] Step 5 completed: IFlow CLI installation finished (elapsed: {elapsed_step:.2f}s)"
+            )
 
-        logger.info(f"[{sandbox_id}] IFlow settings configuration completed successfully")
+            # Step 6: Create iflow config directories
+            step_start = time.time()
+            logger.info(f"[{sandbox_id}] Creating iflow settings directories")
+            result = await self._sandbox.arun(
+                cmd="mkdir -p /root/.iflow && mkdir -p ~/.iflow",
+                session=self.config.agent_session,
+            )
+            if result.exit_code != 0:
+                logger.error(f"[{sandbox_id}] Failed to create iflow directories: {result.output}")
+                raise Exception(f"Failed to create iflow directories: {result.output}")
+            logger.debug(f"[{sandbox_id}] IFlow settings directories created")
+            elapsed_step = time.time() - step_start
+            logger.info(
+                f"[{sandbox_id}] Step 6 completed: IFlow configuration directories created (elapsed: {elapsed_step:.2f}s)"
+            )
 
-    @retry_async(max_attempts=3, delay_seconds=5.0, backoff=2.0)
-    async def _arun_with_retry(
-        self,
-        cmd: str,
-        session: str,
-        mode: str = "nohup",
-        wait_timeout: int = 300,
-        wait_interval: int = 10,
-        error_msg: str = "Command failed",
-    ):
-        """Execute command with retry logic.
+            # Step 7: Generate and upload iflow-settings.json configuration file from config dict
+            step_start = time.time()
+            logger.info(f"[{sandbox_id}] Generating and uploading iflow settings from config dict")
 
-        Executes a command and automatically retries up to 3 times when the command
-        fails (non-zero exit code). Implements exponential backoff strategy with
-        delay between retries that increases progressively.
+            # Use context manager to create and clean up temporary settings file
+            with self._temp_iflow_settings_file() as temp_settings_path:
+                await self._sandbox.upload(
+                    UploadRequest(
+                        source_path=temp_settings_path,
+                        target_path="/root/.iflow/settings.json",
+                    )
+                )
+                logger.debug(f"[{sandbox_id}] Settings uploaded to /root/.iflow/settings.json")
+            elapsed_step = time.time() - step_start
+            logger.info(f"[{sandbox_id}] Step 7 completed: IFlow settings configuration (elapsed: {elapsed_step:.2f}s)")
 
-        Args:
-            cmd: Command to be executed.
-            session: Session name where the command will be executed.
-            mode: Execution mode (normal, nohup, etc.). Defaults to "nohup".
-            wait_timeout: Timeout for command execution in seconds. Defaults to 300.
-            wait_interval: Check interval for nohup commands in seconds. Defaults to 10.
-            error_msg: Error message to use when exception occurs. Defaults to
-                "Command failed".
+        except Exception as e:
+            elapsed_total = time.time() - start_time
+            logger.error(
+                f"[{sandbox_id}] Operation failed: IFlow CLI installation failed - {str(e)} "
+                f"(elapsed: {elapsed_total:.2f}s)",
+                exc_info=True,
+            )
+            raise
 
-        Returns:
-            Command result object upon successful execution.
+    async def _init_model_service(self):
+        """Initialize ModelService (install only, not start).
+
+        Creates a ModelService instance and executes the installation steps.
+        The service will be started later in run() method if needed.
 
         Raises:
-            Exception: Raises exception when command execution fails (non-zero exit
-                code) to trigger retry.
+            Exception: If ModelService initialization fails
         """
-        assert isinstance(self._sandbox, Sandbox), "Sandbox must be an instance of Sandbox class"
-
         sandbox_id = self._sandbox.sandbox_id
-        logger.debug(f"[{sandbox_id}] Executing command with retry: {cmd[:100]}...")
-        logger.debug(
-            f"[{sandbox_id}] Command execution parameters: mode={mode}, timeout={wait_timeout}, interval={wait_interval}"
-        )
 
-        result = await self._sandbox.arun(
-            cmd=cmd, session=session, mode=mode, wait_timeout=wait_timeout, wait_interval=wait_interval
-        )
+        try:
+            logger.info(f"[{sandbox_id}] Initializing ModelService")
 
-        logger.debug(f"[{sandbox_id}] Command execution result: exit_code={result.exit_code}")
+            # Create ModelService instance with specified configuration
+            self.model_service = ModelService(
+                sandbox=self._sandbox,
+                config=self.config.model_service_config,
+            )
 
-        # If exit_code is not 0, raise an exception to trigger retry
-        if result.exit_code != 0:
-            logger.warning(f"[{sandbox_id}] Command attempt failed: {error_msg}, exit code: {result.exit_code}")
-            logger.debug(f"[{sandbox_id}] Command output: {result.output[:500]}...")
-            raise Exception(f"{error_msg} with exit code: {result.exit_code}, output: {result.output}")
+            # Execute install (this prepares the environment but doesn't start the service)
+            await self.model_service.install()
 
-        logger.debug(f"[{sandbox_id}] Command executed successfully with retry mechanism")
-        return result
+            logger.info(f"[{sandbox_id}] ModelService initialized successfully")
+
+        except Exception as e:
+            logger.error(f"[{sandbox_id}] ModelService initialization failed: {str(e)}", exc_info=True)
+            raise
 
     def _extract_session_id_from_log(self, log_content: str) -> str:
         """Extract session ID from IFlow log file content.
@@ -325,7 +364,6 @@ class IFlowCli(Agent):
         Returns:
             Session ID string if found, empty string otherwise.
         """
-        assert isinstance(self._sandbox, Sandbox), "Sandbox must be an instance of Sandbox class"
 
         sandbox_id = self._sandbox.sandbox_id
         logger.debug(f"[{sandbox_id}] Attempting to extract session-id from log content")
@@ -372,7 +410,6 @@ class IFlowCli(Agent):
         Returns:
             Session ID string if found, empty string otherwise.
         """
-        assert isinstance(self._sandbox, Sandbox), "Sandbox must be an instance of Sandbox class"
 
         sandbox_id = self._sandbox.sandbox_id
         logger.info(f"[{sandbox_id}] Retrieving session ID from sandbox log file")
@@ -413,6 +450,8 @@ class IFlowCli(Agent):
         If a session ID is found, it will be used to resume the previous execution.
         If not found, a fresh execution is started with an empty session ID.
 
+        If ModelService is configured, it will be started and used to monitor the agent process.
+
         Args:
             problem_statement: Problem statement that IFlow CLI will attempt to solve.
             project_path: Project path, can be a string or Path object.
@@ -422,76 +461,186 @@ class IFlowCli(Agent):
         Returns:
             Object containing command execution results, including exit code and output.
         """
-        assert isinstance(self._sandbox, Sandbox), "Sandbox must be an instance of Sandbox class"
 
         sandbox_id = self._sandbox.sandbox_id
+        start_time = time.time()
+
         logger.info(f"[{sandbox_id}] Starting IFlow CLI run operation")
         logger.debug(f"[{sandbox_id}] Project path: {project_path}, Problem statement: {problem_statement[:100]}...")
 
-        # Step 1: Change to project directory
-        logger.info(f"[{sandbox_id}] Changing working directory to: {project_path}")
-        result = await self._sandbox.arun(
-            cmd=f"cd {project_path}",
-            session=self.config.agent_session,
-        )
+        try:
+            # Start ModelService if configured
+            if self.model_service and not self.model_service.is_started:
+                logger.info(f"[{sandbox_id}] Starting ModelService")
+                await self.model_service.start()
 
-        if result.exit_code != 0:
-            logger.error(f"[{sandbox_id}] Failed to change directory to {project_path}: {result.output}")
+            # Step 1: Change to project directory
+            logger.info(f"[{sandbox_id}] Changing working directory to: {project_path}")
+            result = await self._sandbox.arun(
+                cmd=f"cd {project_path}",
+                session=self.config.agent_session,
+            )
+
+            if result.exit_code != 0:
+                logger.error(f"[{sandbox_id}] Failed to change directory to {project_path}: {result.output}")
+                return result
+            logger.debug(f"[{sandbox_id}] Successfully changed working directory")
+
+            # Step 2: Attempt to retrieve session ID from previous execution
+            logger.info(f"[{sandbox_id}] Attempting to retrieve session ID from previous execution")
+            session_id = await self._get_session_id_from_sandbox()
+            if session_id:
+                logger.info(f"[{sandbox_id}] Using existing session ID: {session_id}")
+            else:
+                logger.info(f"[{sandbox_id}] No previous session found, will start fresh execution")
+
+            # Step 3: Prepare and execute IFlow CLI command in nohup mode
+            logger.info(
+                f"[{sandbox_id}] Preparing to run IFlow CLI with timeout {agent_run_timeout}s "
+                f"and check interval {agent_run_check_interval}s"
+            )
+            # Format the command with session ID (empty string if not found) and problem statement
+            # Example command: iflow -r "session-id" -p "problem statement" --yolo > ~/.iflow/session_info.log 2>&1
+            iflow_run_cmd = self.config.iflow_run_cmd.format(
+                session_id=f'"{session_id}"',
+                problem_statement=shlex.quote(problem_statement),
+                iflow_log_file=self.config.iflow_log_file,
+            )
+            logger.debug(f"[{sandbox_id}] IFlow command template: {self.config.iflow_run_cmd}")
+            logger.debug(f"[{sandbox_id}] Formatted IFlow command: {iflow_run_cmd}")
+
+            # Use _agent_run method to execute command and handle ModelService integration
+            result = await self._agent_run(
+                cmd=f"bash -c {shlex.quote(iflow_run_cmd)}",
+                session=self.config.agent_session,
+                wait_timeout=agent_run_timeout,
+                wait_interval=agent_run_check_interval,
+            )
+
+            # Step 4: Log execution outcome with detailed information
+            logger.info(f"[{sandbox_id}] IFlow CLI execution completed")
+
+            # Read the last 1000 lines of log file since output was redirected
+            log_file_path = self.config.iflow_log_file
+            result_log = await self._sandbox.arun(
+                cmd=f"tail -1000 {log_file_path} 2>/dev/null || echo ''",
+                session=self.config.agent_session,
+            )
+            log_content = result_log.output
+
+            if result.exit_code == 0:
+                logger.info(f"[{sandbox_id}] ✓ IFlow-Cli completed successfully (exit_code: {result.exit_code})")
+                logger.debug(f"[{sandbox_id}] Command output: {log_content}")
+            else:
+                logger.error(f"[{sandbox_id}] ✗ IFlow-Cli failed with exit_code: {result.exit_code}")
+                logger.error(f"[{sandbox_id}] Error output: {log_content}")
+
+            elapsed_total = time.time() - start_time
+
+            if result and result.exit_code == 0:
+                logger.info(
+                    f"[{sandbox_id}] Agent Run completed: IFlow CLI execution succeeded (elapsed: {elapsed_total:.2f}s)"
+                )
+            else:
+                error_msg = result.failure_reason if result else "No result returned"
+                logger.error(
+                    f"[{sandbox_id}] Operation failed: IFlow CLI execution failed - {error_msg} "
+                    f"(elapsed: {elapsed_total:.2f}s)"
+                )
+
             return result
-        logger.debug(f"[{sandbox_id}] Successfully changed working directory")
 
-        # Step 2: Attempt to retrieve session ID from previous execution
-        logger.info(f"[{sandbox_id}] Attempting to retrieve session ID from previous execution")
-        session_id = await self._get_session_id_from_sandbox()
-        if session_id:
-            logger.info(f"[{sandbox_id}] Using existing session ID: {session_id}")
-        else:
-            logger.info(f"[{sandbox_id}] No previous session found, will start fresh execution")
+        except Exception as e:
+            elapsed_total = time.time() - start_time
+            logger.error(
+                f"[{sandbox_id}] Operation failed: IFlow CLI execution failed - {str(e)} "
+                f"(elapsed: {elapsed_total:.2f}s)",
+                exc_info=True,
+            )
+            raise
+        finally:
+            # Clean up ModelService if started
+            if self.model_service and self.model_service.is_started:
+                try:
+                    await self.model_service.stop()
+                except Exception as e:
+                    logger.warning(f"[{sandbox_id}] Failed to stop ModelService: {str(e)}")
 
-        # Step 3: Prepare and execute IFlow CLI command
-        logger.info(
-            f"[{sandbox_id}] Preparing to run IFlow CLI with timeout {agent_run_timeout}s "
-            f"and check interval {agent_run_check_interval}s"
-        )
-        #  iflow  -r "session-c844f0f1-5754-4888-9c77-4ffe8dff10e5" -p "我是谁"
-        # Format the command with session ID (empty string if not found) and problem statement
-        iflow_run_cmd = self.config.iflow_run_cmd.format(
-            session_id=f'"{session_id}"',
-            problem_statement=shlex.quote(problem_statement),
-            iflow_log_file=self.config.iflow_log_file,
-        )
-        logger.debug(f"[{sandbox_id}] IFlow command template: {self.config.iflow_run_cmd}")
-        logger.debug(f"[{sandbox_id}] Formatted IFlow command: {iflow_run_cmd}")
+    async def _agent_run(
+        self,
+        cmd: str,
+        session: str,
+        wait_timeout: int,
+        wait_interval: int,
+    ):
+        """Execute agent command in nohup mode with optional ModelService watch.
 
-        # Wrap in 'bash -c' and quote the entire command to prevent shell parsing issues
-        safe_iflow_run_cmd = f"bash -c {shlex.quote(iflow_run_cmd)}"
-        logger.info(f"[{sandbox_id}] Executing IFlow CLI command with safety wrapping")
+        Starts the agent process and if ModelService is configured, calls watch_agent
+        to monitor the process during execution.
 
-        result = await self._sandbox.arun(
-            cmd=safe_iflow_run_cmd,
-            session=self.config.agent_session,
-            mode="nohup",
-            wait_timeout=agent_run_timeout,
-            wait_interval=agent_run_check_interval,
-        )
+        Args:
+            cmd: Command to execute
+            session: Bash session name
+            wait_timeout: Timeout for process completion
+            wait_interval: Interval for checking process status
 
-        # Step 4: Log execution outcome with detailed information
-        logger.info(f"[{sandbox_id}] IFlow CLI execution completed")
+        Returns:
+            Observation: Execution result
 
-        # Read the last 1000 lines of log file since output was redirected
-        log_file_path = self.config.iflow_log_file
-        result_log = await self._sandbox.arun(
-            cmd=f"tail -1000 {log_file_path} 2>/dev/null || echo ''",
-            session=self.config.agent_session,
-        )
-        log_content = result_log.output
+        Raises:
+            Exception: If process execution fails
+        """
 
-        if result.exit_code == 0:
-            logger.info(f"[{sandbox_id}] ✓ IFlow-Cli completed successfully (exit_code: {result.exit_code})")
-            logger.debug(f"[{sandbox_id}] Command output: {log_content}")
-        else:
-            logger.error(f"[{sandbox_id}] ✗ IFlow-Cli failed with exit_code: {result.exit_code}")
-            logger.error(f"[{sandbox_id}] Error output: {log_content}")
+        sandbox_id = self._sandbox.sandbox_id
 
-        logger.info(f"[{sandbox_id}] IFlow CLI run operation finished")
-        return result
+        try:
+            timestamp = str(time.time_ns())
+            tmp_file = f"/tmp/tmp_{timestamp}.out"
+
+            # Start nohup process and get PID
+            pid, error_response = await self._sandbox.start_nohup_process(cmd=cmd, tmp_file=tmp_file, session=session)
+
+            if error_response is not None:
+                return error_response
+
+            # If failed to extract PID
+            if pid is None:
+                msg = "Failed to submit command, nohup failed to extract PID"
+                return Observation(output=msg, exit_code=1, failure_reason=msg)
+
+            logger.info(f"[{sandbox_id}] Agent process started with PID: {pid}")
+
+            # If ModelService is configured, call watch_agent to monitor the process
+            if self.model_service:
+                try:
+                    logger.info(f"[{sandbox_id}] Starting ModelService watch-agent for pid {pid}")
+                    await self.model_service.watch_agent(pid=str(pid))
+                    logger.info(f"[{sandbox_id}] ModelService watch-agent started successfully")
+                except Exception as e:
+                    logger.error(f"[{sandbox_id}] Failed to start watch-agent: {str(e)}", exc_info=True)
+                    raise
+
+            # Wait for agent process to complete
+            logger.debug(f"[{sandbox_id}] Waiting for agent process completion (pid={pid})")
+            success, message = await self._sandbox.wait_for_process_completion(
+                pid=pid, session=session, wait_timeout=wait_timeout, wait_interval=wait_interval
+            )
+
+            # Handle nohup output and return result
+            result = await self._sandbox.handle_nohup_output(
+                tmp_file=tmp_file,
+                session=session,
+                success=success,
+                message=message,
+                ignore_output=False,
+                response_limited_bytes_in_nohup=None,
+            )
+
+            return result
+
+        except ReadTimeout:
+            error_msg = f"Command execution failed due to timeout: '{cmd}'. This may be caused by an interactive command that requires user input."
+            return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
+        except Exception as e:
+            error_msg = f"Failed to execute nohup command '{cmd}': {str(e)}"
+            return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)

@@ -1,5 +1,6 @@
 from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
 
+import asyncio
 import shlex
 import time
 from typing import TYPE_CHECKING
@@ -84,6 +85,8 @@ class ModelService:
         self.config = config
         self.is_installed = False
         self.is_started = False
+        self._install_lock = asyncio.Lock()
+        self._start_lock = asyncio.Lock()
         logger.debug(f"ModelService initialized: workdir={config.workdir}")
 
     async def install(self) -> None:
@@ -98,101 +101,106 @@ class ModelService:
         Raises:
             Exception: If any installation step fails.
         """
-        if self.is_installed:
-            return
+        async with self._install_lock:
+            if self.is_installed:
+                return
 
-        sandbox_id = self._sandbox.sandbox_id
-        install_start_time = time.time()
+            sandbox_id = self._sandbox.sandbox_id
+            install_start_time = time.time()
 
-        try:
-            logger.info(f"[{sandbox_id}] Starting model service installation")
+            try:
+                logger.info(f"[{sandbox_id}] Starting model service installation")
 
-            # Step 1: Create bash session
-            step_start_time = time.time()
-            logger.debug(
-                f"[{sandbox_id}] Step 1: Creating bash session: {self.config.model_service_session}, "
-                f"env_enable=True, session_envs={self.config.session_envs}"
-            )
-            await self._sandbox.create_session(
-                CreateBashSessionRequest(
-                    session=self.config.model_service_session,
-                    env_enable=True,
-                    env=self.config.session_envs,
+                # Step 1: Create bash session
+                step_start_time = time.time()
+                logger.debug(
+                    f"[{sandbox_id}] Step 1: Creating bash session: {self.config.model_service_session}, "
+                    f"env_enable=True, session_envs={self.config.session_envs}"
                 )
-            )
-            step_elapsed = time.time() - step_start_time
-            logger.info(f"[{sandbox_id}] Step 1 completed: Bash session created (elapsed: {step_elapsed:.2f}s)")
+                await self._sandbox.create_session(
+                    CreateBashSessionRequest(
+                        session=self.config.model_service_session,
+                        env_enable=True,
+                        env=self.config.session_envs,
+                    )
+                )
+                step_elapsed = time.time() - step_start_time
+                logger.info(f"[{sandbox_id}] Step 1 completed: Bash session created (elapsed: {step_elapsed:.2f}s)")
 
-            # Step 2: Create working directory and Rock config file
-            step_start_time = time.time()
-            mkdir_cmd = f"mkdir -p {self.config.workdir}"
-            logger.debug(f"[{sandbox_id}] Step 2a: {mkdir_cmd}")
-            await self._sandbox.arun(
-                cmd=mkdir_cmd,
-                session=self.config.model_service_session,
-            )
+                # Step 2: Create working directory and Rock config file
+                step_start_time = time.time()
+                mkdir_cmd = f"mkdir -p {self.config.workdir}"
+                logger.debug(f"[{sandbox_id}] Step 2a: {mkdir_cmd}")
+                await self._sandbox.arun(
+                    cmd=mkdir_cmd,
+                    session=self.config.model_service_session,
+                )
 
-            logger.debug(f"[{sandbox_id}] Step 2b: {self.config.config_ini_cmd}")
-            await self._sandbox.arun(
-                cmd=self.config.config_ini_cmd,
-                session=self.config.model_service_session,
-            )
-            step_elapsed = time.time() - step_start_time
-            logger.info(
-                f"[{sandbox_id}] Step 2 completed: Working directory and config initialized (elapsed: {step_elapsed:.2f}s)"
-            )
+                logger.debug(f"[{sandbox_id}] Step 2b: {self.config.config_ini_cmd}")
+                await self._sandbox.arun(
+                    cmd=self.config.config_ini_cmd,
+                    session=self.config.model_service_session,
+                )
+                step_elapsed = time.time() - step_start_time
+                logger.info(
+                    f"[{sandbox_id}] Step 2 completed: Working directory and config initialized (elapsed: {step_elapsed:.2f}s)"
+                )
 
-            # Step 3: Install Python
-            step_start_time = time.time()
-            python_install_cmd = f"cd {self.config.workdir} && {self.config.python_install_cmd}"
-            bash_python_cmd = f"bash -c {shlex.quote(python_install_cmd)}"
-            logger.debug(
-                f"[{sandbox_id}] Step 3: Installing Python (timeout: {self.config.python_install_timeout}s), "
-                f"cmd: {bash_python_cmd}"
-            )
-            await arun_with_retry(
-                sandbox=self._sandbox,
-                cmd=bash_python_cmd,
-                session=self.config.model_service_session,
-                mode="nohup",
-                wait_timeout=self.config.python_install_timeout,
-                error_msg="Python installation failed",
-            )
-            step_elapsed = time.time() - step_start_time
-            logger.info(f"[{sandbox_id}] Step 3 completed: Python installation finished (elapsed: {step_elapsed:.2f}s)")
+                # Step 3: Install Python
+                step_start_time = time.time()
+                python_install_cmd = f"cd {self.config.workdir} && {self.config.python_install_cmd}"
+                bash_python_cmd = f"bash -c {shlex.quote(python_install_cmd)}"
+                logger.debug(
+                    f"[{sandbox_id}] Step 3: Installing Python (timeout: {self.config.python_install_timeout}s), "
+                    f"cmd: {bash_python_cmd}"
+                )
+                await arun_with_retry(
+                    sandbox=self._sandbox,
+                    cmd=bash_python_cmd,
+                    session=self.config.model_service_session,
+                    mode="nohup",
+                    wait_timeout=self.config.python_install_timeout,
+                    error_msg="Python installation failed",
+                )
+                step_elapsed = time.time() - step_start_time
+                logger.info(
+                    f"[{sandbox_id}] Step 3 completed: Python installation finished (elapsed: {step_elapsed:.2f}s)"
+                )
 
-            # Step 4: Install model service
-            step_start_time = time.time()
-            model_service_install_cmd = (
-                f"export PATH={self.config.workdir}/python/bin:$PATH && "
-                f"cd {self.config.workdir} && {self.config.model_service_install_cmd}"
-            )
-            bash_service_cmd = f"bash -c {shlex.quote(model_service_install_cmd)}"
-            logger.debug(
-                f"[{sandbox_id}] Step 4: Installing model service package (timeout: {self.config.model_service_install_timeout}s), "
-                f"cmd: {bash_service_cmd}"
-            )
-            await arun_with_retry(
-                sandbox=self._sandbox,
-                cmd=bash_service_cmd,
-                session=self.config.model_service_session,
-                mode="nohup",
-                wait_timeout=self.config.model_service_install_timeout,
-                error_msg="Model service installation failed",
-            )
-            step_elapsed = time.time() - step_start_time
-            logger.info(
-                f"[{sandbox_id}] Step 4 completed: Model service package installation finished (elapsed: {step_elapsed:.2f}s)"
-            )
+                # Step 4: Install model service
+                step_start_time = time.time()
+                model_service_install_cmd = (
+                    f"export PATH={self.config.workdir}/python/bin:$PATH && "
+                    f"cd {self.config.workdir} && {self.config.model_service_install_cmd}"
+                )
+                bash_service_cmd = f"bash -c {shlex.quote(model_service_install_cmd)}"
+                logger.debug(
+                    f"[{sandbox_id}] Step 4: Installing model service package (timeout: {self.config.model_service_install_timeout}s), "
+                    f"cmd: {bash_service_cmd}"
+                )
+                await arun_with_retry(
+                    sandbox=self._sandbox,
+                    cmd=bash_service_cmd,
+                    session=self.config.model_service_session,
+                    mode="nohup",
+                    wait_timeout=self.config.model_service_install_timeout,
+                    error_msg="Model service installation failed",
+                )
+                step_elapsed = time.time() - step_start_time
+                logger.info(
+                    f"[{sandbox_id}] Step 4 completed: Model service package installation finished (elapsed: {step_elapsed:.2f}s)"
+                )
 
-            self.is_installed = True
-            total_elapsed = time.time() - install_start_time
-            logger.info(f"[{sandbox_id}] Installation finished successfully (total elapsed: {total_elapsed:.2f}s)")
+                self.is_installed = True
+                total_elapsed = time.time() - install_start_time
+                logger.info(f"[{sandbox_id}] Installation finished successfully (total elapsed: {total_elapsed:.2f}s)")
 
-        except Exception as e:
-            total_elapsed = time.time() - install_start_time
-            logger.error(f"[{sandbox_id}] Installation failed: {str(e)} (elapsed: {total_elapsed:.2f}s)", exc_info=True)
-            raise
+            except Exception as e:
+                total_elapsed = time.time() - install_start_time
+                logger.error(
+                    f"[{sandbox_id}] Installation failed: {str(e)} (elapsed: {total_elapsed:.2f}s)", exc_info=True
+                )
+                raise
 
     async def start(self) -> None:
         """Start the model service in the sandbox.
@@ -203,36 +211,42 @@ class ModelService:
         Raises:
             Exception: If service startup fails.
         """
-        await self.install()
+        async with self._start_lock:
+            # Install if not already installed
+            if not self.is_installed:
+                await self.install()
 
-        sandbox_id = self._sandbox.sandbox_id
-        start_time = time.time()
-        try:
-            start_cmd = (
-                f"export ROCK_LOGGING_PATH={self.config.logging_path} && "
-                f"export ROCK_LOGGING_FILE_NAME={self.config.logging_file_name} && "
-                f"{self.config.workdir}/python/bin/{self.config.stop_cmd} && "
-                f"{self.config.workdir}/python/bin/{self.config.start_cmd.format(model_service_type=self.config.model_service_type)}"
-            )
-            bash_start_cmd = f"bash -c {shlex.quote(start_cmd)}"
-            logger.debug(f"[{sandbox_id}] Model service Start command: {bash_start_cmd}")
+            if self.is_started:
+                return
 
-            await self._sandbox.arun(
-                cmd=bash_start_cmd,
-                session=None,
-                mode="nohup",
-            )
-            self.is_started = True
-            elapsed = time.time() - start_time
-            logger.info(f"[{sandbox_id}] Model service started successfully (elapsed: {elapsed:.2f}s)")
+            sandbox_id = self._sandbox.sandbox_id
+            start_time = time.time()
+            try:
+                start_cmd = (
+                    f"export ROCK_LOGGING_PATH={self.config.logging_path} && "
+                    f"export ROCK_LOGGING_FILE_NAME={self.config.logging_file_name} && "
+                    f"{self.config.workdir}/python/bin/{self.config.stop_cmd} && "
+                    f"{self.config.workdir}/python/bin/{self.config.start_cmd.format(model_service_type=self.config.model_service_type)}"
+                )
+                bash_start_cmd = f"bash -c {shlex.quote(start_cmd)}"
+                logger.debug(f"[{sandbox_id}] Model service Start command: {bash_start_cmd}")
 
-        except Exception as e:
-            elapsed = time.time() - start_time
-            logger.error(
-                f"[{sandbox_id}] Model service startup failed: {str(e)} (elapsed: {elapsed:.2f}s)", exc_info=True
-            )
-            self.is_started = False
-            raise
+                await self._sandbox.arun(
+                    cmd=bash_start_cmd,
+                    session=None,
+                    mode="nohup",
+                )
+                self.is_started = True
+                elapsed = time.time() - start_time
+                logger.info(f"[{sandbox_id}] Model service started successfully (elapsed: {elapsed:.2f}s)")
+
+            except Exception as e:
+                elapsed = time.time() - start_time
+                logger.error(
+                    f"[{sandbox_id}] Model service startup failed: {str(e)} (elapsed: {elapsed:.2f}s)", exc_info=True
+                )
+                self.is_started = False
+                raise
 
     async def stop(self) -> None:
         """Stop the model service.
