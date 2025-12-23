@@ -81,6 +81,8 @@ def init_logger(name: str | None = None):
         logger.addHandler(handler)
         logger.setLevel(log_level)
 
+        logger.propagate = False
+
         # Configure urllib3 specifically if this is called for the first time with appropriate logger
         if logger_name in ["rock", "admin"] or logger_name.startswith("rock."):
             logging.getLogger("urllib3").setLevel(logging.WARNING)

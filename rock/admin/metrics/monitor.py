@@ -5,7 +5,7 @@ from opentelemetry import metrics
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.metrics import Counter, _Gauge
 from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader, PeriodicExportingMetricReader
 
 from rock import env_vars
 from rock.admin.metrics.constants import MetricsConstants
@@ -81,6 +81,8 @@ class MetricsMonitor:
     def _init_telemetry(self, export_interval_millis: int):
         if self._should_skip():
             return
+        if self.env == "dev":
+            self.metric_reader = InMemoryMetricReader()
         self.otlp_exporter = OTLPMetricExporter(endpoint=f"http://{self.host}:{self.port}/v1/metrics")
         self.metric_reader = PeriodicExportingMetricReader(
             self.otlp_exporter,

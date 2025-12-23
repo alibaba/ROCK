@@ -69,7 +69,7 @@ async def test_sandbox_get_status(admin_remote_server):
         await sandbox.start()
     assert "Failed to start sandbox" in str(exc_info.value)
     sandbox.stop()
-    
+
 @pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
@@ -89,3 +89,18 @@ async def test_update_mount(sandbox_instance: Sandbox):
     with pytest.raises(Exception) as exc_info:
         await sandbox_instance.arun(session="default", cmd="touch /tmp/local_files/test.txt")
     assert "Read-only file system" in str(exc_info.value)
+
+
+@pytest.mark.need_admin
+@SKIP_IF_NO_DOCKER
+@pytest.mark.asyncio
+async def test_execute(sandbox_instance: Sandbox):
+    from rock.actions.sandbox.request import Command
+
+    curr_status = await sandbox_instance.get_status()
+    if curr_status.is_alive:
+        resp1 = await sandbox_instance.execute(Command(command="pwd", cwd="/root"))
+        assert resp1.stdout.strip() == "/root"
+        resp2 = await sandbox_instance.execute(Command(command="pwd", cwd="/tmp"))
+        assert resp2.stdout.strip() == "/tmp"
+
