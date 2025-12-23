@@ -306,5 +306,19 @@
       "total": 96,
       "open": 1
     }
+  },
+  "2025-12-23": {
+    "stars": 252,
+    "forks": 26,
+    "contributors": 12,
+    "issues": {
+      "total": 71,
+      "open": 22,
+      "fixRate": 69
+    },
+    "prs": {
+      "total": 99,
+      "open": 2
+    }
   }
 }
