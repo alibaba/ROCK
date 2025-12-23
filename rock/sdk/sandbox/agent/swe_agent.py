@@ -1,5 +1,6 @@
 from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
 
+import asyncio
 import os
 import shlex
 import time
@@ -208,6 +209,7 @@ class SweAgent(Agent):
             AssertionError: If sandbox is not an instance of Sandbox class
         """
         super().__init__(sandbox)
+        self._sandbox = sandbox
         self.config = config
         self.agent_session = self.config.agent_session
 
@@ -223,7 +225,7 @@ class SweAgent(Agent):
         3. Creates working directory for agent installation
         4. Installs Python environment
         5. Clones and installs SWE-agent
-        6. Initializes ModelService if configured
+        6. Initializes ModelService if configured (parallel with step 5)
 
         The initialization process is asynchronous and uses the configured
         timeouts for long-running operations like dependency installation.
@@ -231,14 +233,19 @@ class SweAgent(Agent):
         Raises:
             Exception: If any initialization step fails
         """
+
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
 
-        await self._install_swe_agent()
+        # Prepare tasks to run in parallel
+        tasks = [self._install_swe_agent()]
 
         # Initialize ModelService if configured
         if self.config.model_service_config:
-            await self._init_model_service()
+            tasks.append(self._init_model_service())
+
+        # Run tasks in parallel
+        await asyncio.gather(*tasks)
 
         elapsed = time.time() - start_time
         logger.info(f"[{sandbox_id}] SWE-agent init completed (elapsed: {elapsed:.2f}s)")
