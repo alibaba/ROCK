@@ -4062,6 +4062,13 @@ builder = [
     { name = "gem-llm" },
     { name = "swebench" },
 ]
+model-service = [
+    { name = "alibabacloud-cr20181201" },
+    { name = "fastapi" },
+    { name = "psutil" },
+    { name = "swebench" },
+    { name = "uvicorn" },
+]
 rocklet = [
     { name = "bashlex" },
     { name = "fastapi" },
@@ -4098,6 +4105,7 @@ requires-dist = [
     { name = "aiohttp", marker = "extra == 'admin'", specifier = ">=3.12.15" },
     { name = "aiosqlite", marker = "extra == 'admin'" },
     { name = "alibabacloud-cr20181201", marker = "extra == 'admin'", specifier = "==2.0.5" },
+    { name = "alibabacloud-cr20181201", marker = "extra == 'model-service'", specifier = "==2.0.5" },
     { name = "anyio" },
     { name = "apscheduler", marker = "extra == 'admin'" },
     { name = "apscheduler", marker = "extra == 'sandbox-actor'", specifier = ">=3.11.0" },
@@ -4105,6 +4113,7 @@ requires-dist = [
     { name = "boto3", marker = "extra == 'admin'" },
     { name = "build" },
     { name = "docker", marker = "extra == 'builder'" },
+    { name = "fastapi", marker = "extra == 'model-service'" },
     { name = "fastapi", marker = "extra == 'rocklet'" },
     { name = "gem-llm", marker = "extra == 'builder'", specifier = ">=0.1.0" },
     { name = "gem-llm", marker = "extra == 'rocklet'", specifier = ">=0.1.0" },
@@ -4118,6 +4127,7 @@ requires-dist = [
     { name = "oss2" },
     { name = "pexpect", marker = "extra == 'rocklet'" },
     { name = "pip", marker = "extra == 'admin'" },
+    { name = "psutil", marker = "extra == 'model-service'" },
     { name = "psutil", marker = "extra == 'rocklet'" },
     { name = "pydantic" },
     { name = "python-multipart" },
@@ -4132,12 +4142,14 @@ requires-dist = [
     { name = "rl-rock", extras = ["rocklet"], marker = "extra == 'all'" },
     { name = "sqlmodel", marker = "extra == 'admin'" },
     { name = "swebench", marker = "extra == 'builder'" },
+    { name = "swebench", marker = "extra == 'model-service'" },
     { name = "twisted", marker = "extra == 'rocklet'" },
     { name = "uuid" },
+    { name = "uvicorn", marker = "extra == 'model-service'" },
     { name = "uvicorn", marker = "extra == 'rocklet'" },
     { name = "websockets", marker = "extra == 'admin'", specifier = ">=15.0.1" },
 ]
-provides-extras = ["admin", "rocklet", "sandbox-actor", "builder", "all"]
+provides-extras = ["admin", "rocklet", "sandbox-actor", "builder", "model-service", "all"]
 
 [package.metadata.requires-dev]
 test = [
