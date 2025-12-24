@@ -1,0 +1,30 @@
+{
+  "name": "@alibaba/rock-node-cli",
+  "version": "0.2.1",
+  "description": "ROCK NODE CLI Tool",
+  "main": "index.js",
+  "bin": {
+    "rock": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "cli",
+    "rock",
+    "sandbox",
+    "yargs"
+  ],
+  "author": "chatos@alibaba",
+  "license": "ISC",
+  "dependencies": {
+    "yargs": "^17.7.2",
+    "axios": "^1.6.0",
+    "fs-extra": "^11.1.1",
+    "ps-node": "^0.1.6"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
