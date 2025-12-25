@@ -140,8 +140,7 @@ DEFAULT_RUN_SINGLE_CONFIG = {
     }
 }
 
-DEFAULT_PYTHON_DOWNLOAD_URL = "http://tisplus-console.oss-cn-hangzhou.aliyuncs.com/chatos/chatflow/cpython31212.tar.gz"
-DEFAULT_PYTHON_DOWNLOAD_URL1 = "https://github.com/astral-sh/python-build-standalone/releases/download/20251217/cpython-3.12.12+20251217-x86_64-unknown-linux-gnu-install_only.tar.gz"
+DEFAULT_PYTHON_DOWNLOAD_URL = "https://github.com/astral-sh/python-build-standalone/releases/download/20251217/cpython-3.12.12+20251217-x86_64-unknown-linux-gnu-install_only.tar.gz"
 
 MODIFIED_INFER_PATCH = '''diff --git a/benchmarks/swebench/run_infer.py b/benchmarks/swebench/run_infer.py
 index ea528b8..a936f37 100644
