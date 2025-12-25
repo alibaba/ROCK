@@ -469,11 +469,6 @@ class IFlowCli(Agent):
         logger.debug(f"[{sandbox_id}] Project path: {project_path}, Problem statement: {problem_statement[:100]}...")
 
         try:
-            # Start ModelService if configured
-            if self.model_service and not self.model_service.is_started:
-                logger.info(f"[{sandbox_id}] Starting ModelService")
-                await self.model_service.start()
-
             # Step 1: Change to project directory
             logger.info(f"[{sandbox_id}] Changing working directory to: {project_path}")
             result = await self._sandbox.arun(
@@ -558,13 +553,6 @@ class IFlowCli(Agent):
                 exc_info=True,
             )
             raise
-        finally:
-            # Clean up ModelService if started
-            if self.model_service and self.model_service.is_started:
-                try:
-                    await self.model_service.stop()
-                except Exception as e:
-                    logger.warning(f"[{sandbox_id}] Failed to stop ModelService: {str(e)}")
 
     async def _agent_run(
         self,
@@ -644,3 +632,9 @@ class IFlowCli(Agent):
         except Exception as e:
             error_msg = f"Failed to execute nohup command '{cmd}': {str(e)}"
             return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
+
+    async def start_model_service(self):
+        if not self.model_service:
+            raise RuntimeError(f"ModelService is not initialized in {self.config.agent_type}!")
+
+        await self.model_service.start()
