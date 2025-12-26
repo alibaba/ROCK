@@ -2,15 +2,15 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
-import rock
+from rock._codes import codes
 
 
 class SandboxResult(BaseModel):
-    code: rock.codes | None = None
+    code: codes | None = None
     # 向前兼容
     exit_code: int | None = None
     failure_reason: str | None = None
-    message: str = ""
+    message: str | None = None
 
 
 class IsAliveResponse(SandboxResult):
@@ -66,6 +66,7 @@ CreateSessionResponse = Annotated[CreateBashSessionResponse, Field(discriminator
 class BashObservation(SandboxResult):
     session_type: Literal["bash"] = "bash"
     output: str = ""
+    failure_reason: str = ""
     expect_string: str = ""
 
 

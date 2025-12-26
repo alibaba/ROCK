@@ -1,8 +1,8 @@
 import types
 
 import pytest
-
 from httpx import ReadTimeout
+
 from rock.actions.sandbox.response import Observation
 from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX
 from rock.sdk.sandbox.client import Sandbox
@@ -241,4 +241,3 @@ async def test_arun_nohup_default_collects_output(monkeypatch):
     assert result.exit_code == 0
     assert result.output == "full-log"
     assert any(cmd.startswith("cat ") for cmd in executed_commands)
-
