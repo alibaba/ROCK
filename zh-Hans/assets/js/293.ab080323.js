@@ -1,0 +1,1 @@
+"use strict";(globalThis.webpackChunkrock_docs=globalThis.webpackChunkrock_docs||[]).push([[293],{9293(o,c,r){r.r(c),r.d(c,{default:()=>u});r(6540);var s=r(6347),e=r(4848);function u(){return(0,e.jsx)(s.rd,{to:"/ROCK/docs/overview"})}}}]);
