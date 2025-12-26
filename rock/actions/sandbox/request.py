@@ -74,3 +74,6 @@ class UploadRequest(BaseModel):
 
     target_path: str
     """Remote file path to upload to."""
+
+    oss_threshold: int = 1 * 1024 * 1024
+    """File size threshold (in bytes) for using OSS upload. Default is 1 MB."""

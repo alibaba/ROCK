@@ -74,6 +74,14 @@ class RuntimeConfig:
     python_env_path: str = field(default_factory=lambda: env_vars.ROCK_PYTHON_ENV_PATH)
     envhub_db_url: str = field(default_factory=lambda: env_vars.ROCK_ENVHUB_DB_URL)
 
+    @dataclass
+    class StandardSpec:
+        memory: str = "8g"
+        cpus: int = 2
+
+    # standard_spec: StandardSpec = field(default_factory=lambda: StandardSpec())
+    # max_allowed_spec: StandardSpec = field(default_factory=lambda: StandardSpec(cpus=16, memory="64g"))
+
     def __post_init__(self) -> None:
         if not self.python_env_path:
             raise Exception(
