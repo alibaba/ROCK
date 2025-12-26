@@ -3,13 +3,10 @@ from typing import Generic, TypeVar
 
 from pydantic import BaseModel
 
-from rock._codes import codes
-
 
 class ResponseStatus(str, Enum):
     SUCCESS = "Success"
     FAILED = "Failed"
-    code: codes | None = None
 
 
 class BaseResponse(BaseModel):

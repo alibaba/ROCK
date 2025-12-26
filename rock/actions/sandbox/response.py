@@ -2,23 +2,25 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
+import rock
 
-class IsAliveResponse(BaseModel):
-    """Response to the is_alive request.
 
-    You can test the result with bool().
-    """
-
-    is_alive: bool
-
+class SandboxResult(BaseModel):
+    code: rock.codes | None = None
+    # 向前兼容
+    exit_code: int | None = None
+    failure_reason: str | None = None
     message: str = ""
-    """Error message if is_alive is False."""
+
+
+class IsAliveResponse(SandboxResult):
+    is_alive: bool
 
     def __bool__(self) -> bool:
         return self.is_alive
 
 
-class SandboxStatusResponse(BaseModel):
+class SandboxStatusResponse(SandboxResult):
     sandbox_id: str = None
     status: dict = None
     port_mapping: dict = None
@@ -34,28 +36,24 @@ class SandboxStatusResponse(BaseModel):
     memory: str | None = None
 
 
-class CommandResponse(BaseModel):
+class CommandResponse(SandboxResult):
     stdout: str = ""
     stderr: str = ""
-    exit_code: int | None = None
 
 
-class WriteFileResponse(BaseModel):
+class WriteFileResponse(SandboxResult):
     success: bool = False
-    message: str = ""
 
 
-class OssSetupResponse(BaseModel):
+class OssSetupResponse(SandboxResult):
     success: bool = False
-    message: str = ""
 
 
-class ExecuteBashSessionResponse(BaseModel):
+class ExecuteBashSessionResponse(SandboxResult):
     success: bool = False
-    message: str = ""
 
 
-class CreateBashSessionResponse(BaseModel):
+class CreateBashSessionResponse(SandboxResult):
     output: str = ""
 
     session_type: Literal["bash"] = "bash"
@@ -65,18 +63,16 @@ CreateSessionResponse = Annotated[CreateBashSessionResponse, Field(discriminator
 """Union type for all create session responses. Do not use this directly."""
 
 
-class BashObservation(BaseModel):
+class BashObservation(SandboxResult):
     session_type: Literal["bash"] = "bash"
     output: str = ""
-    exit_code: int | None = None
-    failure_reason: str = ""
     expect_string: str = ""
 
 
 Observation = BashObservation
 
 
-class CloseBashSessionResponse(BaseModel):
+class CloseBashSessionResponse(SandboxResult):
     session_type: Literal["bash"] = "bash"
 
 
@@ -84,21 +80,20 @@ CloseSessionResponse = Annotated[CloseBashSessionResponse, Field(discriminator="
 """Union type for all close session responses. Do not use this directly."""
 
 
-class ReadFileResponse(BaseModel):
+class ReadFileResponse(SandboxResult):
     content: str = ""
     """Content of the file as a string."""
 
 
-class UploadResponse(BaseModel):
+class UploadResponse(SandboxResult):
     success: bool = False
-    message: str = ""
     file_name: str = ""
 
 
 FileUploadResponse = UploadResponse
 
 
-class CloseResponse(BaseModel):
+class CloseResponse(SandboxResult):
     """Response for close operations."""
 
     pass

@@ -13,7 +13,6 @@ import oss2
 from httpx import ReadTimeout
 from typing_extensions import deprecated
 
-import rock
 from rock import env_vars, raise_for_code
 from rock.actions import (
     AbstractSandbox,
@@ -38,6 +37,7 @@ from rock.actions import (
     WriteFileRequest,
     WriteFileResponse,
 )
+from rock.actions.sandbox.response import SandboxResult
 from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX, RunModeType
 from rock.sdk.common.exceptions import InternalServerRockError, InvalidParameterRockException
 from rock.sdk.sandbox.agent.base import Agent
@@ -136,9 +136,10 @@ class Sandbox(AbstractSandbox):
 
         logging.debug(f"Start sandbox response: {response}")
         if "Success" != response.get("status"):
-            code: rock.codes = response.get("code", None)
-            if code is not None:
-                raise_for_code(code, f"Failed to start container: {response}")
+            result = response.get("result", None)
+            if result is not None:
+                rock_result = SandboxResult(**result)
+                raise_for_code(rock_result.code, f"Failed to start container: {response}")
             raise Exception(f"Failed to start sandbox: {response}")
         self._sandbox_id = response.get("result").get("sandbox_id")
         self._host_name = response.get("result").get("host_name")
@@ -244,6 +245,10 @@ class Sandbox(AbstractSandbox):
 
         logging.debug(f"Create session response: {response}")
         if "Success" != response.get("status"):
+            result = response.get("result", None)
+            if result is not None:
+                rock_result = SandboxResult(**result)
+                raise_for_code(rock_result.code, f"Failed to create session: {response}")
             raise InternalServerRockError(f"Failed to execute command: {response}")
         result: dict = response.get("result")  # type: ignore
         return CreateBashSessionResponse(**result)

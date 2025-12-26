@@ -17,6 +17,7 @@ import pexpect
 import psutil
 from typing_extensions import Self
 
+import rock
 from rock.actions import (
     AbstractSandbox,
     BashObservation,
@@ -419,7 +420,12 @@ class LocalSandboxRuntime(AbstractSandbox):
             msg = f"unknown session type: {request!r}"
             raise ValueError(msg)
         self.sessions[request.session] = session
-        return await session.start()
+        try:
+            return await session.start()
+        except Exception as ex:
+            self.command_logger.error(f"[create_session error]:{str(ex)}", exc_info=True)
+            response = CreateSessionResponse(code=rock.codes.COMMAND_ERROR, failure_reason=str(ex), exit_code=1)
+            return response
 
     async def run_in_session(self, action: Action) -> Observation:
         """Runs a command in a session."""
