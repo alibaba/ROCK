@@ -2,7 +2,8 @@ import uuid
 
 from rock import env_vars
 from rock.config import RockConfig
-from rock.deployments.config import AbstractDeployment, DeploymentConfig, DockerDeploymentConfig, RayDeploymentConfig
+from rock.deployments.abstract import AbstractDeployment, DeploymentConfig
+from rock.deployments.config import DockerDeploymentConfig, RayDeploymentConfig
 from rock.logger import init_logger
 from rock.utils import sandbox_id_ctx_var
 

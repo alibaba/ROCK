@@ -9,8 +9,7 @@ from rock.actions import (
     EnvStepRequest,
     EnvStepResponse,
 )
-from rock.deployments.abstract import AbstractDeployment
-from rock.deployments.config import DeploymentConfig
+from rock.deployments.abstract import AbstractDeployment, DeploymentConfig
 from rock.deployments.docker import DockerDeployment
 from rock.sandbox.base_actor import BaseActor
 

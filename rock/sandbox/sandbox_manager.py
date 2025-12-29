@@ -25,7 +25,8 @@ from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
 from rock.config import RockConfig
-from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
+from rock.deployments.abstract import DeploymentConfig
+from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Status
 from rock.deployments.status import PhaseStatus, ServiceStatus
 from rock.logger import init_logger

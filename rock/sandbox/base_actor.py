@@ -11,8 +11,7 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
 from rock import env_vars
-from rock.deployments.abstract import AbstractDeployment
-from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
+from rock.deployments.abstract import AbstractDeployment, DeploymentConfig
 from rock.deployments.docker import DockerDeployment
 from rock.logger import init_logger
 from rock.utils import get_uniagent_endpoint
@@ -42,7 +41,7 @@ class BaseActor:
         self._config = config
         self._deployment = deployment
         self._gauges: dict[str, _Gauge] = {}
-        if isinstance(config, DockerDeploymentConfig) and config.auto_clear_time:
+        if hasattr(config, "auto_clear_time") and config.auto_clear_time:
             self._auto_clear_time_in_minutes = config.auto_clear_time
         self._stop_time = datetime.datetime.now() + datetime.timedelta(minutes=self._auto_clear_time_in_minutes)
         # Initialize the user and environment info - can be overridden by subclasses

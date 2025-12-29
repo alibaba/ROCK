@@ -6,35 +6,14 @@ local, Docker, Ray, remote, and dummy deployments. Each configuration class
 provides settings specific to its deployment environment.
 """
 
-from abc import abstractmethod
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from rock.admin.proto.request import SandboxStartRequest
 from rock.config import RuntimeConfig
-from rock.deployments.abstract import AbstractDeployment
+from rock.deployments.abstract import AbstractDeployment, DeploymentConfig
 from rock.utils import REQUEST_TIMEOUT_SECONDS
-
-
-class DeploymentConfig(BaseModel):
-    """Base configuration class for all deployment types."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    role: str = Field(default="test", description="Role identifier for the deployment.")
-    """TODO: Remove this field in future versions."""
-
-    env: str = Field(default="dev", description="Environment identifier for the deployment.")
-    """TODO: Remove this field in future versions."""
-
-    @abstractmethod
-    def get_deployment(self) -> AbstractDeployment:
-        """Create and return the deployment instance.
-
-        Returns:
-            AbstractDeployment: The configured deployment instance.
-        """
 
 
 class LocalDeploymentConfig(DeploymentConfig):

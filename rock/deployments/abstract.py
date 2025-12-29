@@ -1,6 +1,8 @@
 import asyncio
 from abc import ABC, abstractmethod
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from rock.actions import AbstractSandbox, IsAliveResponse
 from rock.deployments.hooks.abstract import DeploymentHook
 from rock.logger import init_logger
@@ -62,3 +64,23 @@ class AbstractDeployment(ABC):
                 loop.run_until_complete(self.stop())
         except Exception:
             pass
+
+
+class DeploymentConfig(BaseModel, ABC):
+    """Base configuration class for all deployment types."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: str = Field(default="test", description="Role identifier for the deployment.")
+    """TODO: Remove this field in future versions."""
+
+    env: str = Field(default="dev", description="Environment identifier for the deployment.")
+    """TODO: Remove this field in future versions."""
+
+    @abstractmethod
+    def get_deployment(self) -> AbstractDeployment:
+        """Create and return the deployment instance.
+
+        Returns:
+            AbstractDeployment: The configured deployment instance.
+        """
