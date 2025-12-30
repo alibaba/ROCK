@@ -74,3 +74,15 @@ class UploadRequest(BaseModel):
 
     target_path: str
     """Remote file path to upload to."""
+
+
+class ChownRequest(BaseModel):
+    remote_user: str
+    paths: list[str] = []
+    recursive: bool = False
+
+
+class ChmodRequest(BaseModel):
+    paths: list[str] = []
+    mode: str = "755"
+    recursive: bool = False
