@@ -242,7 +242,7 @@ class Sandbox(AbstractSandbox):
 
         logging.debug(f"Create session response: {response}")
         if "Success" != response.get("status"):
-            raise Exception(f"Failed to execute command: {response}")
+            raise Exception(f"Failed to create session: {response}")
         result: dict = response.get("result")  # type: ignore
         return CreateBashSessionResponse(**result)
 
