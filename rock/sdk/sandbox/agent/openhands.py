@@ -7,7 +7,7 @@ This code is composed with following parts:
     2. Modify launch entry code which is modified from [run_infer.py](https://github.com/OpenHands/benchmarks/blob/main/benchmarks/swebench/run_infer.py)
         into Sandbox
     3. Upload LLM service configuration into Sandbox
-    4. Execute launch entry file
+    4. Execute rollout command
 """
 from __future__ import annotations
 
@@ -110,7 +110,13 @@ DEFAULT_RUN_SINGLE_CONFIG = {
     "instance": {
         "instance_id": "",
         "problem_statement": "",
-        "prompt_path": ""
+        "repo": "",
+        "base_commit": "",
+        "image_name": "",
+        "FAIL_TO_PASS": "",
+        "remote_user": "/root",
+        "project_path": "",  # repo data store path
+        "script_folder": "/root",  # test script directory
     },
     # model service
     "llm": {
@@ -267,7 +273,7 @@ index ea528b8..a936f37 100644
 -                logger.info(
 -                    f"Building workspace from {official_docker_image} "
 -                    f"for instance {instance.id}. "
--                    "This may take a while...\n"
+-                    "This may take a while...\\n"
 -                    "You can run benchmarks/swebench/build_images.py and set "
 -                    "SWE_BENCH_SKIP_BUILD=1 to skip building and use pre-built "
 -                    "agent-server image."
@@ -361,7 +367,7 @@ index ea528b8..a936f37 100644
 +            hash_res = workspace.execute_command(f"cd {proj_path} && git rev-parse HEAD")
 +            assert hash_res.exit_code == 0
 +            instance.data["base_commit"] = hash_res.stdout.strip()
- 
+
          # git reset
          git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard")
 '''
@@ -377,14 +383,14 @@ class OpenhandsConfig(AgentConfig):
     Attributes:
         agent_type: Fixed identifier for this agent type ("openhands")
         default_run_single_config: Default configuration object for a single run
-        agent_session: Name of the bash session used for SWE-agent execution
+        agent_session: Name of the bash session used for Openhands execution
         pre_startup_bash_cmd_list: Commands executed before agent initialization
         post_startup_bash_cmd_list: Commands executed after agent initialization
         agent_workdir: Working directory for agent installation and execution
         python_install_cmd: Command to install Python environment
         openhands_sdk_install_cmd_list: Commands to clone and install Openhands/benchmarks repository
         python_install_timeout: Maximum seconds to wait for Python installation
-        agent_install_timeout: Maximum seconds to wait for SWE-agent installation
+        agent_install_timeout: Maximum seconds to wait for Openhands installation
         model_service_config: Configuration for ModelService (optional)
     """
 
@@ -400,7 +406,7 @@ class OpenhandsConfig(AgentConfig):
     # Commands to execute after agent initialization
     post_startup_bash_cmd_list: list[str] = []
 
-    # Working directory where SWE-agent will be installed and executed
+    # Working directory where Openhands will be installed and executed
     agent_workdir: str = "/openhands"
 
     # Command to download and set up Python environment
@@ -411,9 +417,10 @@ class OpenhandsConfig(AgentConfig):
 
     # Command to clone Openhands/benchmarks repository and install dependencies
     openhands_sdk_install_cmd_list: list[str] = [
-        f"/openhands/python/bin/pip config set {env_vars.ROCK_PIP_INDEX_URL}",
+        f"/openhands/python/bin/pip config set global.index-url {env_vars.ROCK_PIP_INDEX_URL}",
         "/openhands/python/bin/pip install openhands-agent-server==1.6.0 openhands-sdk==1.6.0",
-        "/openhands/python/bin/pip openhands-tools==1.6.0 openhands-workspace==1.6.0"
+        "/openhands/python/bin/pip install openhands-tools==1.6.0 openhands-workspace==1.6.0",
+        "rm -rf /openhands/benchmarks",
         "git clone https://github.com/OpenHands/benchmarks.git /openhands/benchmarks",
         "git -C /openhands/benchmarks checkout c67349f4ce9bd5e72b394cfb5be91d8f33fe229c",
         "/openhands/python/bin/pip install datasets huggingface-hub jinja2 pandas Pillow toml swebench",
@@ -474,7 +481,7 @@ class Openhands(Agent):
         2. Executes pre-startup configuration commands
         3. Creates working directory for agent installation
         4. Installs Python environment
-        5. Clones and installs SWE-agent
+        5. Clones and installs Openhands
         6. Initializes ModelService if configured (parallel with step 5)
 
         The initialization process is asynchronous and uses the configured
@@ -486,7 +493,7 @@ class Openhands(Agent):
 
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
-
+        # FIXME
         # Prepare tasks to run in parallel
         tasks = [self._install_agent_repo()]
 
@@ -575,7 +582,7 @@ class Openhands(Agent):
                 cmd=full_cmd,
                 session=self.agent_session,
                 mode="nohup",
-                wait_timeout=self.config.swe_agent_install_timeout,
+                wait_timeout=self.config.agent_install_timeout,
                 error_msg="Openhands/benchmarks sdk installation failed",
             )
             elapsed_step = time.time() - step_start
@@ -586,7 +593,7 @@ class Openhands(Agent):
         except Exception as e:
             elapsed_total = time.time() - start_time
             logger.error(
-                f"[{sandbox_id}] Operation failed: SWE-agent installation failed - {str(e)} "
+                f"[{sandbox_id}] Operation failed: Openhands installation failed - {str(e)} "
                 f"(elapsed: {elapsed_total:.2f}s)",
                 exc_info=True,
             )
@@ -639,37 +646,47 @@ class Openhands(Agent):
             logger.debug("agent prompt write successfully...")
 
         r = await self._sandbox.write_file(
-            WriteFileRequest(content=config["llm"], path=f"{self.config.agent_workdir}/benchmarks/.llm_config.json")
+            WriteFileRequest(
+                content=json.dumps(config["llm"], indent=4),
+                path=f"{self.config.agent_workdir}/benchmarks/.llm_config.json"
+            )
         )
         assert r.success, f"llm configuration write failed: {r.error}"
         logger.debug("llm configuration write successfully...")
 
         r = await self._sandbox.write_file(
             WriteFileRequest(
-                content=MODIFIED_INFER_PATCH,
+                content=MODIFIED_INFER_PATCH.replace("\r\n", "\n"),
                 path=f"{self.config.agent_workdir}/benchmarks/modify_infer.patch"
             )
         )
         assert r.success, f"patch write failed: {r.error}"
         logger.debug("patch write successfully...")
 
-        r = await self._sandbox.execute(
-            Command(
-                cmd=f"git apply modify_infer.patch",
-                cwd=f"{self.config.agent_workdir}/benchmarks"
-            )
+        r = await self._sandbox.arun(
+            cmd=f"git -C {self.config.agent_workdir}/benchmarks apply modify_infer.patch",
+            session=self.agent_session
         )
-        assert r.exit_code == 0
-        logger.debug("patch apply successfully...")
+
+        if r.exit_code != 0:
+            logger.error(f"patch apply error...\n{str(r.stderr)}\n{str(r.stdout)}")
+            raise Exception("patch apply error...")
+        else:
+            logger.debug("patch apply successfully...")
 
     @contextmanager
-    def _config_template_context(self, problem_statement: str, project_path: str, instance_id: str):
+    def _config_template_context(
+            self, problem_statement: str, project_path: str, instance_id: str,
+            repo_name: str, base_commit: str
+    ):
         """Context manager for temporary config file generation and cleanup.
 
         Args:
             problem_statement: The problem statement for the task
             project_path: Path to the target project
             instance_id: The instance identifier for the run
+            repo_name: The name of repository
+            base_commit: The base commit hash
 
         Yields:
             Path to the temporary config file
@@ -681,12 +698,14 @@ class Openhands(Agent):
         template = self.config.default_run_single_config
 
         # Create a copy to avoid modifying the original
-        new_config = copy.deepcopy(template)
+        instance_config = copy.deepcopy(template)["instance"]
 
         # Set output directory
-        new_config["instance_id"] = instance_id
-        new_config["problem_statement"] = problem_statement
-        new_config["project_path"] = project_path
+        instance_config["instance_id"] = instance_id
+        instance_config["base_commit"] = base_commit
+        instance_config["problem_statement"] = problem_statement
+        instance_config["repo_name"] = repo_name
+        instance_config["project_path"] = project_path
 
         # Create a temporary config file using Python's tempfile
         temp_config_file = tempfile.NamedTemporaryFile(
@@ -698,7 +717,7 @@ class Openhands(Agent):
 
         temp_file_path = temp_config_file.name
         try:
-            json.dump(new_config, temp_config_file, indent=4, ensure_ascii=False)
+            json.dump(instance_config, temp_config_file, indent=4, ensure_ascii=False)
             temp_config_file.close()  # Close the file so it can be read by other processes
             yield temp_file_path
         except Exception as e:
@@ -714,22 +733,18 @@ class Openhands(Agent):
 
     async def run(
             self,
-            problem_statement: str,
-            project_path: str,
-            instance_id: str,
+            instance_data: dict,
             agent_run_timeout: int = 1800,
             agent_run_check_interval: int = 30,
     ) -> Observation:
         """Execute Openhands with the specified problem statement and project path.
 
         This method generates a configuration file from the default template,
-        uploads it to the sandbox and executes SWE-agent. If ModelService is configured,
+        uploads it to the sandbox and executes Openhands. If ModelService is configured,
         it will be started and watch_agent will be called to monitor the agent process.
 
         Args:
-            problem_statement: The problem statement for the task
-            project_path: Path to the target project
-            instance_id: The instance identifier for the run
+            instance_data: The instance detail information
             agent_run_timeout: Maximum seconds to wait for agent execution completion (default 1800)
             agent_run_check_interval: Seconds between status checks during execution (default 30)
 
@@ -740,6 +755,11 @@ class Openhands(Agent):
             Exception: If agent execution fails
         """
         sandbox_id = self._sandbox.sandbox_id
+        assert instance_data["instance_id"]
+        assert instance_data["problem_statement"]
+        assert instance_data["repo_name"]
+        assert instance_data["project_path"]
+        assert instance_data["base_commit"]
         start_time = time.time()
 
         logger.info(f"[{sandbox_id}] Openhands execution started")
@@ -750,7 +770,7 @@ class Openhands(Agent):
                 logger.info(f"[{sandbox_id}] Starting ModelService")
                 await self.model_service.start()
 
-            with self._config_template_context(problem_statement, project_path, instance_id) as generated_config_path:
+            with self._config_template_context(**instance_data) as generated_config_path:
                 instance_config = Path(generated_config_path).name
 
                 step_start = time.time()
@@ -775,8 +795,9 @@ class Openhands(Agent):
                 step_start = time.time()
                 agent_run_cmd = (
                     f"cd {self.config.agent_workdir}/benchmarks && "
+                    "export PYTHONPATH='.' && "
                     f"{self.config.agent_workdir}/python/bin/python ./benchmarks/swebench/run_infer.py "
-                    f".llm_config.json --dataset eval --split test --note rock_rollout --select ./{instance_config}"
+                    f".llm_config.json --dataset eval --split test --note rock_rollout --select ./{instance_config} "
                     f"--max-iterations 300"
                 )
                 if self.config.agent_prompt != DEFAULT_PROMPT:
@@ -907,3 +928,10 @@ class Openhands(Agent):
         except Exception as e:
             error_msg = f"Failed to execute nohup command '{cmd}': {str(e)}"
             return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
+
+    async def start_model_service(self):
+        if not self.model_service:
+            raise RuntimeError(f"ModelService is not initialized in {self.config.agent_type}!")
+
+        await self.model_service.start()
+
