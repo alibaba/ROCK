@@ -146,8 +146,6 @@ DEFAULT_RUN_SINGLE_CONFIG = {
     }
 }
 
-DEFAULT_PYTHON_DOWNLOAD_URL = "https://github.com/astral-sh/python-build-standalone/releases/download/20251217/cpython-3.12.12+20251217-x86_64-unknown-linux-gnu-install_only.tar.gz"
-
 MODIFIED_INFER_PATCH = '''diff --git a/benchmarks/swebench/run_infer.py b/benchmarks/swebench/run_infer.py
 index ea528b8..a936f37 100644
 --- a/benchmarks/swebench/run_infer.py
@@ -410,10 +408,7 @@ class OpenhandsConfig(AgentConfig):
     agent_workdir: str = "/openhands"
 
     # Command to download and set up Python environment
-    python_install_cmd: str = (
-        "[ -f cpython-3.12.12.tar.gz ] && rm cpython-3.12.12.tar.gz; [ -d python ] && rm -rf python; "
-        f"wget -q -O cpython-3.12.12.tar.gz {DEFAULT_PYTHON_DOWNLOAD_URL} && tar -xzf cpython-3.12.12.tar.gz"
-    )
+    python_install_cmd: str = env_vars.ROCK_AGENT_PYTHON_v12_INSTALL_CMD
 
     # Command to clone Openhands/benchmarks repository and install dependencies
     openhands_sdk_install_cmd_list: list[str] = [
