@@ -1,3 +1,7 @@
+---
+sidebar_position: 2
+---
+
 # 模型服务 (Model Service)
 
 模型服务是Self-ROCK框架中的一个重要组件，负责处理AI模型调用的通信，为代理(Agent)和运行时(Roll)之间提供通信桥梁。

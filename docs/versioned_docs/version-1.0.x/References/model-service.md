@@ -1,3 +1,7 @@
+---
+sidebar_position: 2
+---
+
 # Model Service
 
 Model Service is an important component in the Self-ROCK framework that handles communication for AI model calls, providing a communication bridge between the Agent and Runtime (Roll).

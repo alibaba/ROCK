@@ -30,6 +30,8 @@
       "label": "References",
       "items": [
         "References/api",
+        "References/agent-install",
+        "References/model-service",
         {
           "type": "category",
           "label": "Python SDK References",

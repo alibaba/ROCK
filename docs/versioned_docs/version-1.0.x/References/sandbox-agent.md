@@ -1,3 +1,7 @@
+---
+sidebar_position: 3
+---
+
 # Sandbox Agent
 
 The Sandbox Agent is a component in the Self-ROCK framework for running AI agent tasks in an isolated environment, providing a secure and controllable agent execution environment. Agents can be integrated with Model Service to handle AI model calls.

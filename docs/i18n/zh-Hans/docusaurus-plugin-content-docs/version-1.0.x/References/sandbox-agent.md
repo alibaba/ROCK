@@ -1,3 +1,7 @@
+---
+sidebar_position: 3
+---
+
 # 沙箱代理 (Sandbox Agent)
 
 沙箱代理是Self-ROCK框架中用于在隔离环境中运行AI智能体任务的组件，提供安全且可控制的智能体执行环境。代理可以与模型服务(Model Service)集成，实现AI模型调用的处理。
