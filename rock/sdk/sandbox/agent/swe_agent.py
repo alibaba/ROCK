@@ -187,8 +187,8 @@ class SweAgent(DefaultAgent):
             config: Configuration parameters for agent setup
         """
         super().__init__(sandbox, config)
+
         self.config: SweAgentConfig = config
-        self.agent_session = self.config.agent_session
 
     async def _install(self):
         """Install SWE-agent and configure the environment.

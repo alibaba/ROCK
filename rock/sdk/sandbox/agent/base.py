@@ -10,8 +10,7 @@ from httpx import ReadTimeout
 from rock.actions import CreateBashSessionRequest, Observation
 from rock.actions.sandbox.base import AbstractSandbox
 from rock.logger import init_logger
-from rock.sdk.sandbox.agent.base import Agent
-from rock.sdk.sandbox.agent.config import BaseAgentConfig
+from rock.sdk.sandbox.agent.config import DefaultAgentConfig
 from rock.sdk.sandbox.model_service.base import ModelService
 
 if TYPE_CHECKING:
@@ -49,10 +48,14 @@ class DefaultAgent(Agent):
     - run() - specific execution logic
     """
 
-    def __init__(self, sandbox: Sandbox, config: BaseAgentConfig):
+    def __init__(self, sandbox: Sandbox, config: DefaultAgentConfig):
         super().__init__(sandbox)
+
         self._sandbox = sandbox
         self.model_service: ModelService | None = None
+
+        self.config = config
+        self.agent_session = self.config.agent_session
 
     async def init(self):
         """Initialize the agent environment.

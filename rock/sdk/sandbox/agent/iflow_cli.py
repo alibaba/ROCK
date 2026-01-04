@@ -100,8 +100,8 @@ class IFlowCli(DefaultAgent):
             config: IFlowCliConfig instance with agent settings
         """
         super().__init__(sandbox, config)
+
         self.config: IFlowCliConfig = config
-        self.agent_session = self.config.agent_session
 
     async def _install(self):
         """Install IFlow CLI and configure the environment.
