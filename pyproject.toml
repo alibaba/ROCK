@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 authors = [{ name = "chatos@alibaba" }]
 requires-python = "<4.0,>=3.10"
 name = "rl-rock"
-version = "0.2.1"
+version = "1.0.0"
 description = "ROCK-Reinforcement Open Construction Kit"
 readme = "README.md"
 dependencies = [
@@ -60,7 +60,10 @@ rocklet = [
 
 sandbox-actor = [
     "apscheduler>=3.11.0",
-    "gem-llm>=0.1.0"
+    "gem-llm>=0.1.0",
+    "sqlmodel",
+    "nacos-sdk-python>=0.1.14",
+    "redis",
 ]
 
 # Legacy optional dependencies for backward compatibility
@@ -106,6 +109,7 @@ test = [
     "pytest-trio",
     "pytest-twisted",
     "pytest-env",
+    "fakeredis[json]",
 ]
 
 [tool.setuptools.packages.find]

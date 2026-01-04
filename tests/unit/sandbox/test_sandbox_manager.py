@@ -3,6 +3,7 @@ import time
 
 import pytest
 import ray
+from fakeredis import aioredis
 
 from rock.actions import SandboxStatusResponse
 from rock.config import RockConfig
@@ -10,13 +11,22 @@ from rock.deployments.config import DockerDeploymentConfig, RayDeploymentConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
 from rock.sandbox.sandbox_manager import SandboxManager
+from rock.utils.providers.redis_provider import RedisProvider
 
 
 @pytest.fixture
-async def sandbox_manager(rock_config: RockConfig, ray_init_shutdown):
+async def redis_provider():
+    provider = RedisProvider(host=None, port=None, password="")
+    provider.client = aioredis.FakeRedis(decode_responses=True)
+    yield provider
+    await provider.close_pool()
+
+
+@pytest.fixture
+async def sandbox_manager(rock_config: RockConfig, redis_provider: RedisProvider, ray_init_shutdown):
     sandbox_manager = SandboxManager(
         rock_config,
-        redis_provider=None,
+        redis_provider=redis_provider,
         ray_namespace=rock_config.ray.namespace,
         enable_runtime_auto_clear=rock_config.runtime.enable_auto_clear,
     )
