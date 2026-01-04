@@ -399,7 +399,15 @@ class SweAgent(Agent):
 
         # Update project path
         if "env" in new_config and "repo" in new_config["env"]:
-            new_config["env"]["repo"]["path"] = project_path
+            is_root_level = os.path.dirname(project_path) == "/"
+
+            if is_root_level:
+                repo_name = os.path.basename(project_path)
+                new_config["env"]["repo"]["repo_name"] = repo_name
+                new_config["env"]["repo"]["type"] = "preexisting"
+            else:
+                new_config["env"]["repo"]["path"] = project_path
+                new_config["env"]["repo"]["type"] = "local"
             # base_commit is set using default value in template
 
         # Update problem statement
