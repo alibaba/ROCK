@@ -464,11 +464,6 @@ class SweAgent(Agent):
         logger.info(f"[{sandbox_id}] SWE-agent execution started")
 
         try:
-            # Start ModelService if configured
-            if self.model_service:
-                logger.info(f"[{sandbox_id}] Starting ModelService")
-                await self.model_service.start()
-
             with self._config_template_context(problem_statement, project_path, instance_id) as generated_config_path:
                 config_filename = Path(generated_config_path).name
 
@@ -534,14 +529,6 @@ class SweAgent(Agent):
                 exc_info=True,
             )
             raise
-        finally:
-            # Clean up ModelService if started
-            if self.model_service and self.model_service.is_started:
-                try:
-                    logger.info(f"[{sandbox_id}] Stopping ModelService")
-                    await self.model_service.stop()
-                except Exception as e:
-                    logger.warning(f"[{sandbox_id}] Failed to stop ModelService: {str(e)}")
 
     async def _agent_run(
         self,
@@ -621,3 +608,9 @@ class SweAgent(Agent):
         except Exception as e:
             error_msg = f"Failed to execute nohup command '{cmd}': {str(e)}"
             return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
+
+    async def start_model_service(self):
+        if not self.model_service:
+            raise RuntimeError(f"ModelService is not initialized in {self.config.agent_type}!")
+
+        await self.model_service.start()

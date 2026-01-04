@@ -33,7 +33,6 @@ from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
 from rock.sandbox.base_manager import BaseManager
 from rock.sandbox.sandbox_actor import SandboxActor
-from rock.utils import SANDBOX_ID
 from rock.utils.providers import RedisProvider
 
 logger = init_logger(__name__)
@@ -215,7 +214,7 @@ class SandboxManager(BaseManager):
                 sandbox_info.update(remote_status.to_dict())
                 await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
                 await self._update_expire_time(sandbox_id)
-                self.logger.info(f"sandbox {sandbox_id} status is {remote_status}, write to redis")
+                logger.info(f"sandbox {sandbox_id} status is {remote_status}, write to redis")
             else:
                 sandbox_info = await self.async_ray_get(sandbox_actor.sandbox_info.remote())
 

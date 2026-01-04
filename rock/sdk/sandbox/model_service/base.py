@@ -67,10 +67,8 @@ class ModelService:
     This class handles model service installation, startup, and agent management
     within a sandboxed environment.
 
-    Attributes:
-        config: Configuration for the model service.
-        is_installed: Whether the service has been installed.
-        is_started: Whether the service is currently running.
+    Note:
+        Caller is responsible for ensuring proper sequencing of install/start/stop operations.
     """
 
     def __init__(self, sandbox: Sandbox, config: ModelServiceConfig):
@@ -95,12 +93,12 @@ class ModelService:
         3. Install Python.
         4. Install model service package.
 
+        Note:
+            Caller should ensure this is not called concurrently or repeatedly.
+
         Raises:
             Exception: If any installation step fails.
         """
-        if self.is_installed:
-            return
-
         sandbox_id = self._sandbox.sandbox_id
         install_start_time = time.time()
 
@@ -185,9 +183,10 @@ class ModelService:
                 f"[{sandbox_id}] Step 4 completed: Model service package installation finished (elapsed: {step_elapsed:.2f}s)"
             )
 
-            self.is_installed = True
             total_elapsed = time.time() - install_start_time
             logger.info(f"[{sandbox_id}] Installation finished successfully (total elapsed: {total_elapsed:.2f}s)")
+
+            self.is_installed = True
 
         except Exception as e:
             total_elapsed = time.time() - install_start_time
@@ -197,16 +196,25 @@ class ModelService:
     async def start(self) -> None:
         """Start the model service in the sandbox.
 
-        Installs the service if not already installed, then starts it with
-        configured logging settings.
+        Starts the service with configured logging settings.
+
+        Note:
+            Caller should ensure install() has been called first and this is not called concurrently.
 
         Raises:
             Exception: If service startup fails.
         """
-        await self.install()
-
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
+
+        if not self.is_installed:
+            error_msg = (
+                f"[{sandbox_id}] Cannot start model service: ModelService has not been installed yet. "
+                f"Please call install() first."
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
         try:
             start_cmd = (
                 f"export ROCK_LOGGING_PATH={self.config.logging_path} && "
@@ -222,30 +230,34 @@ class ModelService:
                 session=None,
                 mode="nohup",
             )
-            self.is_started = True
             elapsed = time.time() - start_time
             logger.info(f"[{sandbox_id}] Model service started successfully (elapsed: {elapsed:.2f}s)")
+            self.is_started = True
 
         except Exception as e:
             elapsed = time.time() - start_time
             logger.error(
                 f"[{sandbox_id}] Model service startup failed: {str(e)} (elapsed: {elapsed:.2f}s)", exc_info=True
             )
-            self.is_started = False
             raise
 
     async def stop(self) -> None:
         """Stop the model service.
 
+        Note:
+            Caller should ensure proper sequencing with start().
+
         Raises:
             Exception: If service stop fails.
         """
-        if not self.is_started:
-            logger.warning("Model service is not started, skip stop")
-            return
-
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
+
+        if not self.is_started:
+            logger.warning(
+                f"[{sandbox_id}] Model service is not running, skipping stop operation. is_started={self.is_started}"
+            )
+            return
 
         try:
             logger.info(f"[{sandbox_id}] Stopping model service")
@@ -259,9 +271,9 @@ class ModelService:
                 mode="nohup",
             )
 
-            self.is_started = False
             elapsed = time.time() - start_time
             logger.info(f"[{sandbox_id}] Model service stopped (elapsed: {elapsed:.2f}s)")
+            self.is_started = False
 
         except Exception as e:
             elapsed = time.time() - start_time
@@ -274,14 +286,19 @@ class ModelService:
         Args:
             pid: Process ID to watch.
 
-        Raises:
-            Exception: If service is not started or watch fails.
-        """
-        if not self.is_started:
-            await self.start()
+        Note:
+            Caller should ensure start() has been called first.
 
+        Raises:
+            Exception: If watch fails.
+        """
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
+
+        if not self.is_started:
+            error_msg = f"[{sandbox_id}] Cannot watch agent: ModelService is not started. Please call start() first."
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
 
         try:
             watch_agent_cmd = f"{self.config.workdir}/python/bin/{self.config.watch_agent_cmd.format(pid=pid)}"
@@ -322,14 +339,22 @@ class ModelService:
         Returns:
             Output from the anti-call LLM command.
 
-        Raises:
-            Exception: If service is not started or operation fails.
-        """
-        if not self.is_started:
-            await self.start()
+        Note:
+            Caller should ensure start() has been called first.
 
+        Raises:
+            Exception: If operation fails.
+        """
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
+
+        if not self.is_started:
+            error_msg = (
+                f"[{sandbox_id}] Cannot execute anti-call LLM: ModelService is not started. Please call start() first."
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
         try:
             logger.info(
                 f"[{sandbox_id}] Executing anti-call LLM: index={index}, "

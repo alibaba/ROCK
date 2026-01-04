@@ -1199,6 +1199,25 @@ wheels = [
 ]
 
 [[package]]
+name = "fakeredis"
+version = "2.33.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "redis" },
+    { name = "sortedcontainers" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/5f/f9/57464119936414d60697fcbd32f38909bb5688b616ae13de6e98384433e0/fakeredis-2.33.0.tar.gz", hash = "sha256:d7bc9a69d21df108a6451bbffee23b3eba432c21a654afc7ff2d295428ec5770" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/6e/78/a850fed8aeef96d4a99043c90b818b2ed5419cd5b24a4049fd7cfb9f1471/fakeredis-2.33.0-py3-none-any.whl", hash = "sha256:de535f3f9ccde1c56672ab2fdd6a8efbc4f2619fc2f1acc87b8737177d71c965" },
+]
+
+[package.optional-dependencies]
+json = [
+    { name = "jsonpath-ng" },
+]
+
+[[package]]
 name = "fastapi"
 version = "0.121.0"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -1866,6 +1885,18 @@ source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/e8/5d/447af5ea094b9e4c4054f82e223ada074c552335b9b4b2d14bd9b35a67c4/joblib-1.5.2.tar.gz", hash = "sha256:3faa5c39054b2f03ca547da9b2f52fde67c06240c31853f306aea97f13647b55" }
 wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/1e/e8/685f47e0d754320684db4425a0967f7d3fa70126bffd76110b7009a0090f/joblib-1.5.2-py3-none-any.whl", hash = "sha256:4e1f0bdbb987e6d843c70cf43714cb276623def372df3c22fe5266b2670bc241" },
+]
+
+[[package]]
+name = "jsonpath-ng"
+version = "1.7.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "ply" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/6d/86/08646239a313f895186ff0a4573452038eed8c86f54380b3ebac34d32fb2/jsonpath-ng-1.7.0.tar.gz", hash = "sha256:f6f5f7fd4e5ff79c785f1573b394043b39849fb2bb47bcead935d12b00beab3c" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/35/5a/73ecb3d82f8615f32ccdadeb9356726d6cae3a4bbc840b437ceb95708063/jsonpath_ng-1.7.0-py3-none-any.whl", hash = "sha256:f3d7f9e848cba1b6da28c55b1c26ff915dc9e0b1ba7e752a53d6da8d5cbd00b6" },
 ]
 
 [[package]]
@@ -3019,6 +3050,15 @@ wheels = [
 ]
 
 [[package]]
+name = "ply"
+version = "3.11"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/e5/69/882ee5c9d017149285cab114ebeab373308ef0f874fcdac9beb90e0ac4da/ply-3.11.tar.gz", hash = "sha256:00c7c1aaa88358b9c765b6d3000c6eec0ba42abca5351b095321aef446081da3" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/a3/58/35da89ee790598a0700ea49b2a66594140f44dec458c07e8e3d4979137fc/ply-3.11-py2.py3-none-any.whl", hash = "sha256:096f9b8350b65ebd2fd1346b12452efe5b9607f7482813ffca50c22722a807ce" },
+]
+
+[[package]]
 name = "pre-commit"
 version = "4.3.0"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -4081,10 +4121,14 @@ rocklet = [
 sandbox-actor = [
     { name = "apscheduler" },
     { name = "gem-llm" },
+    { name = "nacos-sdk-python" },
+    { name = "redis" },
+    { name = "sqlmodel" },
 ]
 
 [package.dev-dependencies]
 test = [
+    { name = "fakeredis", extra = ["json"] },
     { name = "iflow-cli-sdk" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -4120,6 +4164,7 @@ requires-dist = [
     { name = "gem-llm", marker = "extra == 'sandbox-actor'", specifier = ">=0.1.0" },
     { name = "httpx" },
     { name = "nacos-sdk-python", marker = "extra == 'admin'", specifier = ">=0.1.14" },
+    { name = "nacos-sdk-python", marker = "extra == 'sandbox-actor'", specifier = ">=0.1.14" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-exporter-prometheus" },
@@ -4134,6 +4179,7 @@ requires-dist = [
     { name = "pyyaml" },
     { name = "ray", extras = ["default"], marker = "extra == 'admin'", specifier = "==2.43.0" },
     { name = "redis", marker = "extra == 'admin'" },
+    { name = "redis", marker = "extra == 'sandbox-actor'" },
     { name = "requests" },
     { name = "rich" },
     { name = "rl-rock", extras = ["admin"], marker = "extra == 'all'" },
@@ -4141,6 +4187,7 @@ requires-dist = [
     { name = "rl-rock", extras = ["rocklet"], marker = "extra == 'admin'" },
     { name = "rl-rock", extras = ["rocklet"], marker = "extra == 'all'" },
     { name = "sqlmodel", marker = "extra == 'admin'" },
+    { name = "sqlmodel", marker = "extra == 'sandbox-actor'" },
     { name = "swebench", marker = "extra == 'builder'" },
     { name = "swebench", marker = "extra == 'model-service'" },
     { name = "twisted", marker = "extra == 'rocklet'" },
@@ -4153,6 +4200,7 @@ provides-extras = ["admin", "rocklet", "sandbox-actor", "builder", "model-servic
 
 [package.metadata.requires-dev]
 test = [
+    { name = "fakeredis", extras = ["json"] },
     { name = "iflow-cli-sdk", specifier = ">=0.1.1" },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pytest" },
