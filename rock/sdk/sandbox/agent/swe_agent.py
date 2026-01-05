@@ -73,7 +73,7 @@ DEFAULT_NEXT_STEP_NO_OUTPUT_TEMPLATE = "Your command ran successfully and did no
 DEFAULT_RUN_SINGLE_CONFIG: dict[str, Any] = {
     "output_dir": "",
     "env": {
-        "repo": {"path": ""},
+        "repo": {},
         "deployment": {"type": "local"},
         "name": "local-deployment",
     },
