@@ -68,4 +68,4 @@ jobs:
       if: success()
       run: |
         echo "🔐 Running admin tests..."
-        uv run pytest -m "need_admin" --reruns 1
+        uv run pytest -n 8 -m "need_admin" --reruns 1
