@@ -108,7 +108,7 @@ def admin_remote_server():
             "--port",
             str(port),
         ],
-        stdout=None,
+        stdout=subprocess.DEVNULL,
         stderr=None,
     )
 
