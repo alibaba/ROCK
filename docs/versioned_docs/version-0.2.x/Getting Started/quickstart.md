@@ -85,7 +85,7 @@ After activating the virtual environment, verify that dependencies are installed
 
 ```bash
 # Check key dependencies
-python -c "import rock; print("Hello ROCK")
+python -c "import rock; print(\"Hello ROCK\")"
 ```
 
 ## 4. Start ROCK Service
