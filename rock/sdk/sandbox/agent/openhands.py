@@ -29,8 +29,8 @@ from rock.actions import (
     Observation,
     WriteFileRequest
 )
-from rock.sdk.sandbox.agent.base import Agent
-from rock.sdk.sandbox.agent.config import AgentConfig
+from rock.sdk.sandbox.agent.base import DefaultAgent
+from rock.sdk.sandbox.agent.config import DefaultAgentConfig
 from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.sandbox.utils import arun_with_retry
 from rock.sdk.sandbox.model_service.base import ModelService, ModelServiceConfig
@@ -146,232 +146,8 @@ DEFAULT_RUN_SINGLE_CONFIG = {
     }
 }
 
-MODIFIED_INFER_PATCH = '''diff --git a/benchmarks/swebench/run_infer.py b/benchmarks/swebench/run_infer.py
-index ea528b8..a936f37 100644
---- a/benchmarks/swebench/run_infer.py
-+++ b/benchmarks/swebench/run_infer.py
-@@ -1,39 +1,69 @@
- import os
-+import json
-+import logging
- from pathlib import Path
- from typing import List
- 
- from jinja2 import Environment, FileSystemLoader
- 
--from benchmarks.swebench.build_images import (
--    extract_custom_tag,
--    get_official_docker_image,
--)
- from benchmarks.utils.args_parser import get_parser
--from benchmarks.utils.build_utils import build_image
--from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
- from benchmarks.utils.critics import create_critic
--from benchmarks.utils.dataset import get_dataset
- from benchmarks.utils.evaluation import Evaluation
- from benchmarks.utils.evaluation_utils import (
-     construct_eval_output_dir,
-     get_default_on_result_writer,
- )
--from benchmarks.utils.image_utils import image_exists
- from benchmarks.utils.models import (
-     EvalInstance,
-     EvalMetadata,
-     EvalOutput,
- )
--from benchmarks.utils.version import SDK_SHORT_SHA
- from openhands.sdk import LLM, Agent, Conversation, get_logger
--from openhands.sdk.workspace import RemoteWorkspace
-+from openhands.sdk.workspace import RemoteWorkspace, LocalWorkspace
- from openhands.tools.preset.default import get_default_tools
--from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
--
- 
-+logging.basicConfig(
-+    level=logging.DEBUG,
-+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-+)
- logger = get_logger(__name__)
- 
- 
-+def make_instance(inst_file: str) -> EvalInstance:
-+    required_keys = (
-+        "instance_id", "image_name", "problem_statement",
-+        "repo_name", "base_commit", "remote_user", "project_path",
-+        "script_folder", "remote_workspace_folder", "FAIL_TO_PASS"
-+    )
-+
-+    with open(inst_file, "r") as f:
-+        curr_instance: dict = json.loads(f.read())
-+        for key in required_keys:
-+            if key not in curr_instance:
-+                logger.warning(f"{key} is missing...")
-+
-+        instance = EvalInstance(
-+            id=curr_instance["instance_id"],
-+            data={
-+                "repo": curr_instance["repo_name"],
-+                "project_path": curr_instance["project_path"].rstrip("/"),  # repo data store path
-+                "problem_statement": curr_instance["problem_statement"],
-+
-+                "base_commit": curr_instance.get("base_commit", ""),
-+                "image_name": curr_instance.get("image_name", ""),
-+                "FAIL_TO_PASS": curr_instance.get("FAIL_TO_PASS", ""),
-+                "remote_user": curr_instance.get("remote_user", ""),
-+                "repo_path": f"/workspace/{curr_instance['repo_name'].split('/')[-1]}",  # Agent work place
-+                "script_folder": curr_instance.get("script_folder", ""),  # test script directory
-+            }
-+        )
-+
-+        if not os.path.exists(instance.data["repo_path"]):
-+            os.makedirs(instance.data["repo_path"])
-+
-+    return instance
-+
-+
- def get_instruction(
-     instance: dict,
-     metadata: EvalMetadata,
-@@ -78,17 +108,7 @@ class SWEBenchEvaluation(Evaluation):
-     def prepare_instances(self) -> List[EvalInstance]:
-         logger.info("Setting up SWE-bench evaluation data")
- 
--        df = get_dataset(
--            dataset_name=self.metadata.dataset,
--            split=self.metadata.dataset_split,
--            eval_limit=self.metadata.eval_limit,
--            selected_instances_file=self.metadata.selected_instances_file,
--        )
--
--        instances: List[EvalInstance] = []
--        for _, row in df.iterrows():
--            inst_id = str(row["instance_id"])
--            instances.append(EvalInstance(id=inst_id, data=row.to_dict()))
-+        instances: List[EvalInstance] = [make_instance(self.metadata.selected_instances_file)]
- 
-         logger.info("Total instances to process: %d", len(instances))
-         return instances
-@@ -98,73 +118,8 @@ class SWEBenchEvaluation(Evaluation):
-         """
-         Use DockerWorkspace by default.
-         """
--        official_docker_image = get_official_docker_image(instance.id)
--        build_target = "source-minimal"
--        custom_tag = extract_custom_tag(official_docker_image)
--        # For non-binary targets, append target suffix
--        suffix = f"-{build_target}" if build_target != "binary" else ""
--
-         if self.metadata.workspace_type == "docker":
--            agent_server_image = (
--                f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
--            )
--            SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
--            logger.info(f"SKIP_BUILD={SKIP_BUILD}")
--            if not SKIP_BUILD:
--                logger.info(
--                    f"Building workspace from {official_docker_image} "
--                    f"for instance {instance.id}. "
--                    "This may take a while...\\n"
--                    "You can run benchmarks/swebench/build_images.py and set "
--                    "SWE_BENCH_SKIP_BUILD=1 to skip building and use pre-built "
--                    "agent-server image."
--                )
--                output = build_image(
--                    base_image=official_docker_image,
--                    target_image=EVAL_AGENT_SERVER_IMAGE,
--                    custom_tag=custom_tag,
--                    target=build_target,
--                    push=False,
--                )
--                logger.info(f"Image build output: {output}")
--                assert output.error is None, f"Image build failed: {output.error}"
--                if agent_server_image not in output.tags:
--                    raise RuntimeError(
--                        f"Built image tags {output.tags} do not include expected tag "
--                        f"{agent_server_image}"
--                    )
--
--            workspace = DockerWorkspace(
--                server_image=agent_server_image,
--                working_dir="/workspace",
--            )
--        elif self.metadata.workspace_type == "remote":
--            runtime_api_key = os.getenv("RUNTIME_API_KEY")
--            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
--            if not runtime_api_key:
--                raise ValueError(
--                    "RUNTIME_API_KEY environment variable is not set for remote workspace"
--                )
--
--            agent_server_image = (
--                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
--            )
--            if not image_exists(agent_server_image):
--                raise RuntimeError(
--                    f"Agent server image {agent_server_image} does not exist in container registry, "
--                    "make sure to build, push it, and make it public accessible before using remote workspace."
--                )
--            logger.info(
--                f"Using remote workspace with image {agent_server_image} (sdk sha: {sdk_short_sha})"
--            )
--            workspace = APIRemoteWorkspace(
--                runtime_api_url=os.getenv(
--                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
--                ),
--                runtime_api_key=runtime_api_key,
--                server_image=agent_server_image,
--                target_type="source" if "source" in build_target else "binary",
--            )
-+            workspace = LocalWorkspace(working_dir=instance.data["repo_path"])
-         else:
-             raise ValueError(
-                 f"Unsupported workspace_type: {self.metadata.workspace_type}"
-@@ -203,14 +158,9 @@ class SWEBenchEvaluation(Evaluation):
-             # security_analyzer=LLMSecurityAnalyzer(),
-         )
- 
--        assert isinstance(workspace, RemoteWorkspace)
--
-         def _log_event(ev):  # keep it simple
-             logger.debug("Event: %s", ev)
- 
--        repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}/"
--        instance.data["repo_path"] = repo_path
--
-         conversation = Conversation(
-             agent=agent,
-             workspace=workspace,
-@@ -218,13 +168,19 @@ class SWEBenchEvaluation(Evaluation):
-             max_iteration_per_run=self.metadata.max_iterations,
-         )
- 
--        logger.info("repo_path: %s", repo_path)
--        cp_testebed_repo = workspace.execute_command(
--            (f"mkdir -p {repo_path} ; cp -r /testbed/. {repo_path}")
--        )
--        assert cp_testebed_repo.exit_code == 0, (
--            f"cp_testebed_repo failed: {cp_testebed_repo.stderr}"
--        )
-+        repo_path = instance.data["repo_path"]
-+        proj_path = instance.data["project_path"]
-+        if proj_path != repo_path:
-+            cp_repo = workspace.execute_command(
-+                f"mkdir -p {repo_path} ; rm -rf {repo_path}/* ; cp -r {proj_path}/. {repo_path}"
-+            )
-+            assert cp_repo.exit_code == 0, (
-+                f"cp_repo failed: {cp_repo.stderr}"
-+            )
-+        if not instance.data["base_commit"]:
-+            hash_res = workspace.execute_command(f"cd {proj_path} && git rev-parse HEAD")
-+            assert hash_res.exit_code == 0
-+            instance.data["base_commit"] = hash_res.stdout.strip()
 
-         # git reset
-         git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard")
-'''
-
-
-class OpenhandsConfig(AgentConfig):
+class OpenhandsConfig(DefaultAgentConfig):
     """Configuration dataclass for Openhands initialization and execution.
 
     This class defines all configurable parameters for setting up and running
@@ -416,8 +192,7 @@ class OpenhandsConfig(AgentConfig):
         "/openhands/python/bin/pip install openhands-agent-server==1.6.0 openhands-sdk==1.6.0",
         "/openhands/python/bin/pip install openhands-tools==1.6.0 openhands-workspace==1.6.0",
         "rm -rf /openhands/benchmarks",
-        "git clone https://github.com/OpenHands/benchmarks.git /openhands/benchmarks",
-        "git -C /openhands/benchmarks checkout c67349f4ce9bd5e72b394cfb5be91d8f33fe229c",
+        "git clone -b features/local_workspace https://github.com/shayue-wt/benchmarks.git /openhands/benchmarks",
         "/openhands/python/bin/pip install datasets huggingface-hub jinja2 pandas Pillow toml swebench",
         "/openhands/python/bin/pip install tqdm 'unidiff>=0.7.5,<0.8.0' 'modal>=1.1.4' commit0 pytest-json-report"
     ]
@@ -433,7 +208,7 @@ class OpenhandsConfig(AgentConfig):
     model_service_config: ModelServiceConfig | None = None
 
 
-class Openhands(Agent):
+class Openhands(DefaultAgent):
     """
     Openhands implementation for automated software engineering tasks.
 
@@ -458,54 +233,11 @@ class Openhands(Agent):
         Raises:
             AssertionError: If sandbox is not an instance of Sandbox class
         """
-        super().__init__(sandbox)
-        self._sandbox = sandbox
-        self.config = config
-        self.agent_session = self.config.agent_session
+        super().__init__(sandbox, config)
 
         self.agent_prompt_path = f"{self.config.agent_workdir}/benchmarks/benchmarks/swebench/prompts/custom.j2"
 
-        # ModelService instance (created during init if configured)
-        self.model_service: ModelService | None = None
-
-    async def init(self):
-        """Initialize the Openhands/benchmarks environment within the sandbox.
-
-        Performs the following initialization steps in sequence:
-        1. Creates a dedicated bash session for agent execution
-        2. Executes pre-startup configuration commands
-        3. Creates working directory for agent installation
-        4. Installs Python environment
-        5. Clones and installs Openhands
-        6. Initializes ModelService if configured (parallel with step 5)
-
-        The initialization process is asynchronous and uses the configured
-        timeouts for long-running operations like dependency installation.
-
-        Raises:
-            Exception: If any initialization step fails
-        """
-
-        sandbox_id = self._sandbox.sandbox_id
-        start_time = time.time()
-        # FIXME
-        # Prepare tasks to run in parallel
-        tasks = [self._install_agent_repo()]
-
-        # Initialize ModelService if configured
-        if self.config.model_service_config:
-            tasks.append(self._init_model_service())
-
-        # Run tasks in parallel
-        await asyncio.gather(*tasks)
-
-        # Prepare configs and apply patch to RUN ENTER FILE
-        await self._hijack_agent_repo()
-
-        elapsed = time.time() - start_time
-        logger.info(f"[{sandbox_id}] Openhands init completed (elapsed: {elapsed:.2f}s)")
-
-    async def _install_agent_repo(self):
+    async def _install(self):
         """Install Openhands/benchmarks and configure the environment."""
 
         sandbox_id = self._sandbox.sandbox_id
@@ -567,7 +299,7 @@ class Openhands(Agent):
             elapsed_step = time.time() - step_start
             logger.info(f"[{sandbox_id}] Step 4 completed: Python environment installed (elapsed: {elapsed_step:.2f}s)")
 
-            # Step 5: Install Openhands/benchmarks and checkout commit
+            # Step 5: Install Openhands/benchmarks
             step_start = time.time()
             full_cmd = f"bash -c {shlex.quote(' && '.join(self.config.openhands_sdk_install_cmd_list))}"
             logger.debug(f"[{sandbox_id}] Command: {full_cmd}")
@@ -585,6 +317,9 @@ class Openhands(Agent):
                 f"[{sandbox_id}] Step 5 completed: Openhands/benchmarks repository installed (elapsed: {elapsed_step:.2f}s)"
             )
 
+            # Step 6: Prepare configs
+            await self.upload_config()
+
         except Exception as e:
             elapsed_total = time.time() - start_time
             logger.error(
@@ -594,36 +329,7 @@ class Openhands(Agent):
             )
             raise
 
-    async def _init_model_service(self):
-        """Initialize ModelService (install only, not start).
-
-        Creates a ModelService instance and executes the installation steps.
-        The service will be started later in run() method if needed.
-
-        Raises:
-            Exception: If ModelService initialization fails
-        """
-        sandbox_id = self._sandbox.sandbox_id
-
-        try:
-            logger.info(f"[{sandbox_id}] Initializing ModelService")
-
-            # Create ModelService instance
-            self.model_service = ModelService(
-                sandbox=self._sandbox,
-                config=self.config.model_service_config,
-            )
-
-            # Execute install (this prepares the environment but doesn't start the service)
-            await self.model_service.install()
-
-            logger.info(f"[{sandbox_id}] ModelService initialized successfully")
-
-        except Exception as e:
-            logger.error(f"[{sandbox_id}] ModelService initialization failed: {str(e)}", exc_info=True)
-            raise
-
-    async def _hijack_agent_repo(self):
+    async def upload_config(self):
         # Hijack Openhands/benchmarks
         sandbox_id = self._sandbox.sandbox_id
 
@@ -648,26 +354,6 @@ class Openhands(Agent):
         )
         assert r.success, f"llm configuration write failed: {r.error}"
         logger.debug("llm configuration write successfully...")
-
-        r = await self._sandbox.write_file(
-            WriteFileRequest(
-                content=MODIFIED_INFER_PATCH.replace("\r\n", "\n"),
-                path=f"{self.config.agent_workdir}/benchmarks/modify_infer.patch"
-            )
-        )
-        assert r.success, f"patch write failed: {r.error}"
-        logger.debug("patch write successfully...")
-
-        r = await self._sandbox.arun(
-            cmd=f"git -C {self.config.agent_workdir}/benchmarks apply modify_infer.patch",
-            session=self.agent_session
-        )
-
-        if r.exit_code != 0:
-            logger.error(f"patch apply error...\n{str(r.stderr)}\n{str(r.stdout)}")
-            raise Exception("patch apply error...")
-        else:
-            logger.debug("patch apply successfully...")
 
     @contextmanager
     def _config_template_context(
@@ -844,89 +530,3 @@ class Openhands(Agent):
                     await self.model_service.stop()
                 except Exception as e:
                     logger.warning(f"[{sandbox_id}] Failed to stop ModelService: {str(e)}")
-
-    async def _agent_run(
-            self,
-            cmd: str,
-            session: str,
-            wait_timeout: int,
-            wait_interval: int,
-    ) -> Observation:
-        """Execute agent command in nohup mode with optional ModelService watch.
-
-        Starts the agent process and if ModelService is configured, calls watch_agent
-        to monitor the process. The caller is responsible for the anti_call_llm loop
-        and Whale API interactions.
-
-        Args:
-            cmd: Command to execute
-            session: Bash session name
-            wait_timeout: Timeout for process completion
-            wait_interval: Interval for checking process status
-
-        Returns:
-            Observation: Execution result
-
-        Raises:
-            Exception: If process execution fails
-        """
-        sandbox_id = self._sandbox.sandbox_id
-
-        try:
-            timestamp = str(time.time_ns())
-            tmp_file = f"/tmp/tmp_{timestamp}.out"
-
-            # Start nohup process and get PID
-            pid, error_response = await self._sandbox.start_nohup_process(cmd=cmd, tmp_file=tmp_file, session=session)
-
-            if error_response is not None:
-                return error_response
-
-            # If failed to extract PID
-            if pid is None:
-                msg = "Failed to submit command, nohup failed to extract PID"
-                return Observation(output=msg, exit_code=1, failure_reason=msg)
-
-            logger.info(f"[{sandbox_id}] Agent process started with PID: {pid}")
-
-            # If ModelService is configured, call watch_agent to monitor the process
-            if self.model_service:
-                try:
-                    logger.info(f"[{sandbox_id}] Starting ModelService watch-agent for pid {pid}")
-                    await self.model_service.watch_agent(pid=str(pid))
-                    logger.info(f"[{sandbox_id}] ModelService watch-agent started successfully")
-                except Exception as e:
-                    logger.error(f"[{sandbox_id}] Failed to start watch-agent: {str(e)}", exc_info=True)
-                    raise
-
-            # Wait for agent process to complete
-            logger.debug(f"[{sandbox_id}] Waiting for agent process completion (pid={pid})")
-            success, message = await self._sandbox.wait_for_process_completion(
-                pid=pid, session=session, wait_timeout=wait_timeout, wait_interval=wait_interval
-            )
-
-            # Handle nohup output and return result
-            result = await self._sandbox.handle_nohup_output(
-                tmp_file=tmp_file,
-                session=session,
-                success=success,
-                message=message,
-                ignore_output=False,
-                response_limited_bytes_in_nohup=None,
-            )
-
-            return result
-
-        except ReadTimeout:
-            error_msg = f"Command execution failed due to timeout: '{cmd}'. This may be caused by an interactive command that requires user input."
-            return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
-        except Exception as e:
-            error_msg = f"Failed to execute nohup command '{cmd}': {str(e)}"
-            return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
-
-    async def start_model_service(self):
-        if not self.model_service:
-            raise RuntimeError(f"ModelService is not initialized in {self.config.agent_type}!")
-
-        await self.model_service.start()
-
