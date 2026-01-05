@@ -98,7 +98,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
     ),
     "ROCK_AGENT_MODEL_SERVICE_INSTALL_CMD": lambda: os.getenv(
         "ROCK_AGENT_MODEL_SERVICE_INSTALL_CMD",
-        "TO IMPL",
+        'pip install "rl_rock[model-service]==1.0.0" -i https://mirrors.aliyun.com/pypi/simple',
     ),
 }
 
