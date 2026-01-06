@@ -7,7 +7,7 @@ from rock import env_vars
 from rock.actions import Command
 from rock.logger import init_logger
 from rock.sdk.sandbox.agent.swe_agent import DEFAULT_RUN_SINGLE_CONFIG, SweAgent, SweAgentConfig
-from rock.sdk.sandbox.client import Sandbox
+from rock.sdk.sandbox.client import RunMode, Sandbox
 from rock.sdk.sandbox.model_service.base import ModelServiceConfig
 from tests.integration.conftest import SKIP_IF_NO_DOCKER
 
@@ -173,6 +173,17 @@ async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 logger.error(f"Task {i} failed: {type(result).__name__}: {str(result)}")
+
+        patch_path = (
+            f"{swe_agent_config.swe_agent_workdir}/{test_instance_id}/{test_instance_id}/{test_instance_id}.patch"
+        )
+
+        file_content = await sandbox_instance.arun(cmd=f"cat {patch_path}", mode=RunMode.NOHUP)
+
+        assert (
+            file_content.output
+            == "diff --git a/1.txt b/2.txt\r\nsimilarity index 100%\r\nrename from 1.txt\r\nrename to 2.txt"
+        )
 
     except Exception as e:
         logger.error(f"Test failed: {type(e).__name__}: {str(e)}", exc_info=True)
