@@ -116,6 +116,7 @@ def find_command(command: str, subclasses: list[type[Command]]) -> type | None:
 def config_log(args: argparse.Namespace):
     """Configure logging"""
     logging.getLogger("httpx").setLevel(getattr(logging, args.httpx_log_level))
+    logging.getLogger("httpcore").setLevel(getattr(logging, args.httpx_log_level))
 
 
 def main():
