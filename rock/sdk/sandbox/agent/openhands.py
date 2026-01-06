@@ -482,7 +482,7 @@ class Openhands(DefaultAgent):
                     f"--max-iterations 300"
                 )
                 if self.config.agent_prompt != DEFAULT_PROMPT:
-                    agent_run_cmd += f" --prompt-path {self.agent_prompt_path}"
+                    agent_run_cmd += f" --prompt-path ./benchmarks/swebench/prompts/custom.j2"
 
                 full_cmd = f"bash -c {shlex.quote(agent_run_cmd)}"
                 logger.debug(
