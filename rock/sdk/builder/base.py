@@ -78,11 +78,12 @@ class EnvBuilder(ABC):
         await FileUtil.split_file(filename, concurrency, tmp_dir)
         tmp_filename_list = [f"{tmp_dir}/{i}.jsonl" for i in range(concurrency)]
 
-        logger.info(f"start to create sandbox group, size {concurrency}, start concurrency 10")
+        start_concurrency = 10
+        logger.info(f"start to create sandbox group, size {concurrency}, start concurrency {start_concurrency}")
         sandbox_group = SandboxGroup(
             SandboxGroupConfig(
                 size=concurrency,
-                start_concurrency=10,
+                start_concurrency=start_concurrency,
                 start_retry_times=60,
                 image=await self.get_env_build_image(),
                 auto_clear_seconds=60 * 10,
