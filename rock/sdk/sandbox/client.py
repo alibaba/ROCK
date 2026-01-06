@@ -38,7 +38,7 @@ from rock.actions import (
     WriteFileResponse,
 )
 from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX, RunModeType
-from rock.sdk.common.exceptions import InvalidParameterRockException
+from rock.sdk.common.exceptions import InternalServerRockError, InvalidParameterRockException
 from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
 from rock.sdk.sandbox.model_service.base import ModelService
@@ -152,7 +152,9 @@ class Sandbox(AbstractSandbox):
             except Exception as e:
                 logging.warning(f"Failed to get status, {str(e)}")
             await asyncio.sleep(3)
-        raise Exception(f"Failed to start sandbox within {self.config.startup_timeout}s, sandbox: {str(self)}")
+        raise InternalServerRockError(
+            f"Failed to start sandbox within {self.config.startup_timeout}s, sandbox: {str(self)}"
+        )
 
     async def is_alive(self) -> IsAliveResponse:
         try:

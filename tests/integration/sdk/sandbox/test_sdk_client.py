@@ -104,3 +104,14 @@ async def test_execute(sandbox_instance: Sandbox):
         resp2 = await sandbox_instance.execute(Command(command="pwd", cwd="/tmp"))
         assert resp2.stdout.strip() == "/tmp"
 
+@pytest.mark.parametrize(
+    "sandbox_instance",
+    [{"cpus": 2}],
+    indirect=True,
+)
+@pytest.mark.asyncio
+async def test_start_sandbox_upper_limit(sandbox_instance: Sandbox):
+    from rock.actions import SandboxStatusResponse
+    status: SandboxStatusResponse = sandbox_instance.get_status()
+    assert status.cpus == 2
+

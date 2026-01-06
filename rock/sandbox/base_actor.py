@@ -46,8 +46,8 @@ class BaseActor:
             self._auto_clear_time_in_minutes = config.auto_clear_time
         self._stop_time = datetime.datetime.now() + datetime.timedelta(minutes=self._auto_clear_time_in_minutes)
         # Initialize the user and environment info - can be overridden by subclasses
-        self._role = "test"
-        self._env = "dev"
+        self._role = env_vars.ROCK_ADMIN_ROLE
+        self._env = env_vars.ROCK_ADMIN_ENV
         self._user_id = "default"
         self._experiment_id = "default"
 

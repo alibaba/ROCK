@@ -89,7 +89,7 @@ class SandboxManager(BaseManager):
 
         deployment = docker_deployment_config.get_deployment()
 
-        sandbox_actor: SandboxActor = await deployment.creator_actor(actor_name)
+        sandbox_actor: SandboxActor = await deployment.creator_actor(actor_name, self.rock_config.runtime)
         user_id = user_info.get("user_id", "default")
         experiment_id = user_info.get("experiment_id", "default")
         namespace = user_info.get("namespace", "default")
