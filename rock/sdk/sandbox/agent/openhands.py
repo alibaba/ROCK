@@ -192,7 +192,7 @@ class OpenhandsConfig(DefaultAgentConfig):
         "/openhands/python/bin/pip install openhands-agent-server==1.6.0 openhands-sdk==1.6.0",
         "/openhands/python/bin/pip install openhands-tools==1.6.0 openhands-workspace==1.6.0",
         "rm -rf /openhands/benchmarks",
-        "git clone -b features/local_workspace https://github.com/shayue-wt/benchmarks.git /openhands/benchmarks",
+        "git clone -b features/local_workspace_fix_early_stop https://github.com/shayue-wt/benchmarks.git /openhands/benchmarks",
         "/openhands/python/bin/pip install datasets huggingface-hub jinja2 pandas Pillow toml swebench",
         "/openhands/python/bin/pip install tqdm 'unidiff>=0.7.5,<0.8.0' 'modal>=1.1.4' commit0 pytest-json-report"
     ]
