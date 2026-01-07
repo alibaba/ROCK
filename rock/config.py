@@ -73,14 +73,17 @@ class RuntimeConfig:
     project_root: str = field(default_factory=lambda: env_vars.ROCK_PROJECT_ROOT)
     python_env_path: str = field(default_factory=lambda: env_vars.ROCK_PYTHON_ENV_PATH)
     envhub_db_url: str = field(default_factory=lambda: env_vars.ROCK_ENVHUB_DB_URL)
+    @dataclass
     class StandardSpec:
-        memory: str = field(default_factory="8g")
-        cpus: int = field(default_factory=2)
-    standard_spec: StandardSpec = field(default=StandardSpec())
-    max_allowed_spec: StandardSpec = field(default=StandardSpec(cpus=16, memory="64g"))
+        memory: str = "8g"
+        cpus: int = 2
+    standard_spec: StandardSpec = field(default_factory=StandardSpec)
+    # max_allowed_spec: StandardSpec = field(default_factory=lambda: StandardSpec(cpus=16, memory="64g"))
+    max_allowed_spec: StandardSpec | None = None
 
 
     def __post_init__(self) -> None:
+        self.max_allowed_spec = self.StandardSpec(cpus=16, memory="64g")
         if not self.python_env_path:
             raise Exception(
                 "ROCK_PYTHON_ENV_PATH is not set, please specify the actual Python environment path "

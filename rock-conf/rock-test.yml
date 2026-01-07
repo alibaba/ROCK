@@ -7,3 +7,8 @@ ray:
 warmup:
     images:
       - "python:3.11"
+
+runtime:
+    standard_spec:
+        memory: "8g"
+        cpus: 2

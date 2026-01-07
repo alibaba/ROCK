@@ -1,7 +1,11 @@
+from __future__ import annotations
 import functools
 import logging
+from typing import TYPE_CHECKING
 
-from rock import RockException
+if TYPE_CHECKING:
+    from rock import RockException
+
 from rock.actions import ResponseStatus, RockResponse
 
 logger = logging.getLogger(__name__)
