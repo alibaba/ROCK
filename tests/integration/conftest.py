@@ -108,8 +108,8 @@ def admin_remote_server():
             "--port",
             str(port),
         ],
-        stdout=None,
-        stderr=None,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
     # Wait for the server to start
