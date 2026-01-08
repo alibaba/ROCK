@@ -1,6 +1,7 @@
 from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
 
 import asyncio
+import shlex
 import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
@@ -11,6 +12,7 @@ from rock.actions import CreateBashSessionRequest, Observation
 from rock.actions.sandbox.base import AbstractSandbox
 from rock.logger import init_logger
 from rock.sdk.sandbox.agent.config import DefaultAgentConfig
+from rock.sdk.sandbox.client import RunMode
 from rock.sdk.sandbox.model_service.base import ModelService
 
 if TYPE_CHECKING:
@@ -144,35 +146,80 @@ class DefaultAgent(Agent):
         """Execute pre-startup configuration commands."""
         sandbox_id = self._sandbox.sandbox_id
         cmd_list = self.config.pre_startup_bash_cmd_list
+        long_running_cmd_list = self.config.pre_startup_long_running_cmd_list
 
-        if not cmd_list:
-            return
+        # Execute short commands first
+        if cmd_list:
+            try:
+                self._log_step(f"Executing {len(cmd_list)} pre-startup commands", step_name="Pre-startup")
 
-        try:
-            self._log_step(f"Executing {len(cmd_list)} pre-startup commands", step_name="Pre-startup")
+                for idx, cmd in enumerate(cmd_list, 1):
+                    logger.debug(f"[{sandbox_id}] Executing pre-startup command {idx}/{len(cmd_list)}: {cmd[:100]}...")
+                    result = await self._sandbox.arun(
+                        cmd=cmd,
+                        session=self.agent_session,
+                    )
 
-            for idx, cmd in enumerate(cmd_list, 1):
-                logger.debug(f"[{sandbox_id}] Executing pre-startup command {idx}/{len(cmd_list)}: {cmd[:100]}...")
-                result = await self._sandbox.arun(
-                    cmd=cmd,
-                    session=self.agent_session,
+                    if result.exit_code != 0:
+                        logger.warning(
+                            f"[{sandbox_id}] Pre-startup command {idx} failed with exit code "
+                            f"{result.exit_code}: {result.output[:200]}..."
+                        )
+                    else:
+                        logger.debug(f"[{sandbox_id}] Pre-startup command {idx} completed successfully")
+
+                self._log_step(
+                    f"Completed {len(cmd_list)} pre-startup commands", step_name="Pre-startup", is_complete=True
+                )
+            except Exception as e:
+                logger.error(
+                    f"[{sandbox_id}] Pre-startup execution failed: {str(e)}",
+                    exc_info=True,
+                )
+                raise
+
+        # Execute long-running commands
+        if long_running_cmd_list:
+            try:
+                self._log_step(
+                    f"Executing {len(long_running_cmd_list)} long-running pre-startup commands",
+                    step_name="Long-running Pre-startup",
                 )
 
-                if result.exit_code != 0:
-                    logger.warning(
-                        f"[{sandbox_id}] Pre-startup command {idx} failed with exit code "
-                        f"{result.exit_code}: {result.output[:200]}..."
-                    )
-                else:
-                    logger.debug(f"[{sandbox_id}] Pre-startup command {idx} completed successfully")
+                for idx, cmd_config in enumerate(long_running_cmd_list, 1):
+                    command = cmd_config.command
+                    timeout = cmd_config.timeout_seconds
 
-            self._log_step(f"Completed {len(cmd_list)} pre-startup commands", step_name="Pre-startup", is_complete=True)
-        except Exception as e:
-            logger.error(
-                f"[{sandbox_id}] Pre-startup execution failed: {str(e)}",
-                exc_info=True,
-            )
-            raise
+                    logger.debug(
+                        f"[{sandbox_id}] Executing long-running pre-startup command {idx}/{len(long_running_cmd_list)}: {command[:100]}... (timeout: {timeout}s)"
+                    )
+
+                    result = await self._sandbox.arun(
+                        cmd=f"bash -c {shlex.quote(command)}",
+                        session=None,
+                        wait_timeout=timeout,
+                        mode=RunMode.NOHUP,
+                    )
+
+                    if result.exit_code != 0:
+                        logger.warning(
+                            f"[{sandbox_id}] Long-running pre-startup command {idx} failed with exit code "
+                            f"{result.exit_code}: {result.output[:200]}..."
+                        )
+                    else:
+                        logger.debug(f"[{sandbox_id}] Long-running pre-startup command {idx} completed successfully")
+
+                self._log_step(
+                    f"Completed {len(long_running_cmd_list)} long-running pre-startup commands",
+                    step_name="Long-running Pre-startup",
+                    is_complete=True,
+                )
+            except Exception as e:
+                logger.error(
+                    f"[{sandbox_id}] Long-running pre-startup execution failed: {str(e)}",
+                    exc_info=True,
+                )
+                raise
 
     async def _execute_post_startup(self):
         """Execute post-startup configuration commands."""
