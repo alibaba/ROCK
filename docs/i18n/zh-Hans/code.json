@@ -360,5 +360,113 @@
   "theme.tags.tagsPageTitle": {
     "message": "标签",
     "description": "The title of the tag list page"
+  },
+  "Get Started": {
+    "message": "快速入门"
+  },
+  "ABOUT ROCK": {
+    "message": "关于 ROCK"
+  },
+  "ROCK (Reinforcement Open Construction Kit) is": {
+    "message": "ROCK (Reinforcement Open Construction Kit) 是"
+  },
+  "an AI-powered reinforcement learning environment platform": {
+    "message": "一个由人工智能驱动的强化学习环境平台"
+  },
+  "that offers standardized infrastructure, intelligent model services, TPP access, and a rich set of built-in scenarios, enabling developers to rapidly conduct RL training tasks.": {
+    "message": "，该平台提供标准化的基础设施、智能模型服务、TPP 接入以及丰富的内置场景，使开发者能够快速开展强化学习训练任务。"
+  },
+  "AI Intelligence": {
+    "message": "AI 智能"
+  },
+  "Cloud Native": {
+    "message": "云原生"
+  },
+  "Standardization": {
+    "message": "标准化"
+  },
+  "CORE FEATURES": {
+    "message": "核心特性"
+  },
+  "Multi-Protocol Action Support": {
+    "message": "多协议动作支持"
+  },
+  "Supports multiple action protocols including GEM, Bash, and Chat.": {
+    "message": "支持多种动作协议，包括 GEM、Bash 和 Chat。"
+  },
+  "Sandbox Runtime": {
+    "message": "沙箱运行时"
+  },
+  "Stateful runtime environments with multiple isolation mechanisms to ensure consistency and security": {
+    "message": "具有多种隔离机制的有状态运行时环境，以确保一致性和安全性"
+  },
+  "Flexible Deployment": {
+    "message": "灵活部署"
+  },
+  "Supports different deployment methods for diverse environment and OS": {
+    "message": "支持针对不同环境和操作系统的多种部署方式"
+  },
+  "Unified SDK Interface": {
+    "message": "统一 SDK 接口"
+  },
+  "Clean Python SDK for Env and Sandbox interaction": {
+    "message": "简洁的 Python SDK，用于环境和沙箱交互"
+  },
+  "Layered Service Architecture": {
+    "message": "分层服务架构"
+  },
+  "Distributed Admin, Worker, and Rocklet architecture for scalable resource management": {
+    "message": "分布式 Admin、Worker 和 Rocklet 架构，实现可扩展的资源管理"
+  },
+  "Efficient Resource Management": {
+    "message": "高效资源管理"
+  },
+  "Automatic sandbox lifecycle management with configurable resource allocation": {
+    "message": "自动化的沙箱生命周期管理，支持可配置的资源分配"
+  },
+  "ROCK Open Source Community": {
+    "message": "ROCK 开源社区"
+  },
+  "Stars": {
+    "message": "星标"
+  },
+  "Contributors": {
+    "message": "贡献者"
+  },
+  "PRs": {
+    "message": "PRs"
+  },
+  "The two work together to form a complete closed loop for intelligent agent training.": {
+    "message": "两者协同工作，形成智能体训练的完整闭环。"
+  },
+  "We welcome contributions from the community!": {
+    "message": "我们欢迎社区的贡献！"
+  },
+  "how to get involved": {
+    "message": "如何参与"
+  },
+  "fork the repository and create a feature branch to make your changes; if applicable, add tests, and then submit a pull request.": {
+    "message": "fork 仓库并创建特性分支进行修改；如适用，添加测试，然后提交 pull request。"
+  },
+  "Please use the GitHub issue tracker to report bugs or suggest features.": {
+    "message": "请使用 GitHub issue 追踪器报告错误或建议新功能。"
+  },
+  "Follow existing code style and conventions. Please run tests before submitting pull requests.": {
+    "message": "遵循现有的代码风格和约定。请在提交 pull request 之前运行测试。"
+  },
+  "GitHub Repository": {
+    "message": "GitHub 仓库"
+  },
+  "WeChat": {
+    "message": "微信群"
+  },
+  "Follow us on X": {
+    "message": "关注我们的 X 账号"
+  },
+  "Home": {
+    "message": "首页"
+  },
+  "Docs": {
+    "message": "文档"
   }
 }
