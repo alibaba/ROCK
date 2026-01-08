@@ -356,7 +356,6 @@ class IFlowCli(DefaultAgent):
         project_path: str,
         agent_run_timeout: int = 1800,
         agent_run_check_interval: int = 30,
-        **kwargs: Any,
     ) -> Observation:
         """Run IFlow CLI to solve a specified problem.
 
