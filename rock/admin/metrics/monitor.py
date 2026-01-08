@@ -85,11 +85,12 @@ class MetricsMonitor:
             return
         if self.env == "dev":
             self.metric_reader = InMemoryMetricReader()
-        self.otlp_exporter = OTLPMetricExporter(endpoint=f"http://{self.host}:{self.port}/v1/metrics")
-        self.metric_reader = PeriodicExportingMetricReader(
-            self.otlp_exporter,
-            export_interval_millis=export_interval_millis,
-        )
+        else:
+            self.otlp_exporter = OTLPMetricExporter(endpoint=f"http://{self.host}:{self.port}/v1/metrics")
+            self.metric_reader = PeriodicExportingMetricReader(
+                self.otlp_exporter,
+                export_interval_millis=export_interval_millis,
+            )
         self.meter_provider = MeterProvider(metric_readers=[self.metric_reader])
         metrics.set_meter_provider(self.meter_provider)
         self.meter = metrics.get_meter(MetricsConstants.METRICS_METER_NAME)
