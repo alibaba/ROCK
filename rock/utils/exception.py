@@ -1,10 +1,5 @@
-from __future__ import annotations
 import functools
 import logging
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from rock import RockException
 
 from rock.actions import ResponseStatus, RockResponse
 
@@ -26,15 +21,6 @@ def handle_exceptions(error_message: str = "error occurred"):
         async def wrapper(*args, **kwargs):
             try:
                 return await func(*args, **kwargs)
-            except RockException as e:
-                logging.error(f"RockException in {func.__name__}: {str(e)}", exc_info=True)
-                return RockResponse(
-                    status=ResponseStatus.FAILED,
-                    message=error_message,
-                    error=str(e),
-                    code=e.code,
-                    result=None,
-                )
             except Exception as e:
                 logger.error(f"Error in {func.__name__}: {str(e)}", exc_info=True)
                 return RockResponse(status=ResponseStatus.FAILED, message=error_message, error=str(e), result=None)

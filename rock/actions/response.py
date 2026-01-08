@@ -1,11 +1,7 @@
-from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
 from enum import Enum
-from typing import TYPE_CHECKING, Generic, TypeVar
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel
-
-if TYPE_CHECKING:
-    from rock import codes
 
 
 class ResponseStatus(str, Enum):
@@ -17,7 +13,6 @@ class BaseResponse(BaseModel):
     status: ResponseStatus = ResponseStatus.SUCCESS
     message: str | None = None
     error: str | None = None
-    code: codes | None = None
 
 
 T = TypeVar("T")

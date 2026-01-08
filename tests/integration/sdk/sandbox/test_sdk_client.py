@@ -106,12 +106,12 @@ async def test_execute(sandbox_instance: Sandbox):
 
 @pytest.mark.parametrize(
     "sandbox_instance",
-    [{"cpus": 2}],
+    [{"cpus": 4}],
     indirect=True,
 )
 @pytest.mark.asyncio
 async def test_start_sandbox_upper_limit(sandbox_instance: Sandbox):
     from rock.actions import SandboxStatusResponse
-    status: SandboxStatusResponse = sandbox_instance.get_status()
-    assert status.cpus == 2
+    status: SandboxStatusResponse = await sandbox_instance.get_status()
+    assert status.cpus == 4
 
