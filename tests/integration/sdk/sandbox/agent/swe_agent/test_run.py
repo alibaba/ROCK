@@ -132,10 +132,6 @@ async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
             default_run_single_config=run_single_config,
             model_service_config=model_service_config,
             python_install_cmd=python_install_cmd,
-            # pre_startup_bash_cmd_list=[
-            #     *env_vars.ROCK_AGENT_PRE_STARTUP_BASH_CMD_LIST,
-            #     "which pip > /dev/null 2>&1 && pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ || true",
-            # ],
         )
 
         # Initialize and setup the agent

@@ -1,6 +1,7 @@
 from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
 
 import asyncio
+import shlex
 import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
@@ -10,7 +11,7 @@ from httpx import ReadTimeout
 from rock.actions import CreateBashSessionRequest, Observation
 from rock.actions.sandbox.base import AbstractSandbox
 from rock.logger import init_logger
-from rock.sdk.sandbox.agent.config import DefaultAgentConfig
+from rock.sdk.sandbox.agent.config import AgentBashCommand, DefaultAgentConfig
 from rock.sdk.sandbox.model_service.base import ModelService
 
 if TYPE_CHECKING:
@@ -62,9 +63,9 @@ class DefaultAgent(Agent):
 
         Common flow:
         1. Setup bash session
-        2. Execute pre-startup commands
+        2. Execute pre-init commands
         3. Install agent-specific dependencies (via _install)
-        4. Execute post-startup commands
+        4. Execute post-init commands
         5. Initialize ModelService if configured
 
         All installation and post-startup tasks run in parallel with ModelService init.
@@ -76,8 +77,9 @@ class DefaultAgent(Agent):
 
         try:
             # Sequential steps that must happen first
+            await self._execute_pre_init()
+
             await self._setup_session()
-            await self._execute_pre_startup()
 
             # Parallel tasks: agent-specific install + ModelService init
             tasks = [self._install()]
@@ -87,8 +89,7 @@ class DefaultAgent(Agent):
 
             await asyncio.gather(*tasks)
 
-            # Post-startup commands (sequential)
-            await self._execute_post_startup()
+            await self._execute_post_init()
 
             elapsed = time.time() - start_time
             logger.info(f"[{sandbox_id}] Agent initialization completed (elapsed: {elapsed:.2f}s)")
@@ -140,74 +141,62 @@ class DefaultAgent(Agent):
             )
             raise
 
-    async def _execute_pre_startup(self):
-        """Execute pre-startup configuration commands."""
+    async def _execute_pre_init(self):
+        await self._execute_init_commands(
+            cmd_list=self.config.pre_init_bash_cmd_list,
+            step_name="pre-init",
+        )
+
+    async def _execute_post_init(self):
+        await self._execute_init_commands(
+            cmd_list=self.config.post_init_bash_cmd_list,
+            step_name="post-init",
+        )
+
+    async def _execute_init_commands(self, cmd_list: list[AgentBashCommand], step_name: str):
+        """Execute init-stage commands using nohup."""
         sandbox_id = self._sandbox.sandbox_id
-        cmd_list = self.config.pre_startup_bash_cmd_list
 
         if not cmd_list:
             return
 
         try:
-            self._log_step(f"Executing {len(cmd_list)} pre-startup commands", step_name="Pre-startup")
+            self._log_step(f"Executing {len(cmd_list)} commands", step_name=step_name)
 
-            for idx, cmd in enumerate(cmd_list, 1):
-                logger.debug(f"[{sandbox_id}] Executing pre-startup command {idx}/{len(cmd_list)}: {cmd[:100]}...")
+            for idx, cmd_config in enumerate(cmd_list, 1):
+                command = cmd_config.command
+                timeout = cmd_config.timeout_seconds
+
+                logger.debug(
+                    f"[{sandbox_id}] Executing {step_name} command {idx}/{len(cmd_list)}: "
+                    f"{command[:100]}... (timeout: {timeout}s)"
+                )
+
+                from rock.sdk.sandbox.client import RunMode
+
                 result = await self._sandbox.arun(
-                    cmd=cmd,
-                    session=self.agent_session,
+                    cmd=f"bash -c {shlex.quote(command)}",
+                    session=None,
+                    wait_timeout=timeout,
+                    mode=RunMode.NOHUP,
                 )
 
                 if result.exit_code != 0:
                     logger.warning(
-                        f"[{sandbox_id}] Pre-startup command {idx} failed with exit code "
+                        f"[{sandbox_id}] {step_name} command {idx} failed with exit code "
                         f"{result.exit_code}: {result.output[:200]}..."
                     )
                 else:
-                    logger.debug(f"[{sandbox_id}] Pre-startup command {idx} completed successfully")
-
-            self._log_step(f"Completed {len(cmd_list)} pre-startup commands", step_name="Pre-startup", is_complete=True)
-        except Exception as e:
-            logger.error(
-                f"[{sandbox_id}] Pre-startup execution failed: {str(e)}",
-                exc_info=True,
-            )
-            raise
-
-    async def _execute_post_startup(self):
-        """Execute post-startup configuration commands."""
-        sandbox_id = self._sandbox.sandbox_id
-        cmd_list = self.config.post_startup_bash_cmd_list
-
-        if not cmd_list:
-            return
-
-        try:
-            self._log_step(f"Executing {len(cmd_list)} post-startup commands", step_name="Post-startup")
-
-            for idx, cmd in enumerate(cmd_list, 1):
-                logger.debug(f"[{sandbox_id}] Executing post-startup command {idx}/{len(cmd_list)}: {cmd[:100]}...")
-                result = await self._sandbox.arun(
-                    cmd=cmd,
-                    session=self.agent_session,
-                )
-
-                if result.exit_code != 0:
-                    logger.warning(
-                        f"[{sandbox_id}] Post-startup command {idx} failed with exit code "
-                        f"{result.exit_code}: {result.output[:200]}..."
-                    )
-                else:
-                    logger.debug(f"[{sandbox_id}] Post-startup command {idx} completed successfully")
+                    logger.debug(f"[{sandbox_id}] {step_name} command {idx} completed successfully")
 
             self._log_step(
-                f"Completed {len(cmd_list)} post-startup commands", step_name="Post-startup", is_complete=True
+                f"Completed {len(cmd_list)} commands",
+                step_name=step_name,
+                is_complete=True,
             )
+
         except Exception as e:
-            logger.error(
-                f"[{sandbox_id}] Post-startup execution failed: {str(e)}",
-                exc_info=True,
-            )
+            logger.error(f"[{sandbox_id}] {step_name} execution failed: {str(e)}", exc_info=True)
             raise
 
     async def _init_model_service(self):
