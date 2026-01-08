@@ -109,6 +109,8 @@ async def test_execute(sandbox_instance: Sandbox):
     [{"cpus": 4}],
     indirect=True,
 )
+@pytest.mark.need_admin
+@SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
 async def test_start_sandbox_upper_limit(sandbox_instance: Sandbox):
     from rock.actions import SandboxStatusResponse
