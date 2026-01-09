@@ -7,8 +7,7 @@
   }
   .header {
     position: relative;
-    width: 1440px;
-    min-height: 700px;
+    height: 700px;
     margin: 0 auto;
     overflow: hidden;
     
@@ -64,7 +63,7 @@
     }
   }
   .about, .features, .opensource, .rock_roll {
-    width: 1440px;
+    width: 1240px;
     margin: 200px auto 0;
     .title {
       font-family: Inter;
@@ -316,7 +315,7 @@
     margin-top: 50px;
   }
   .community {
-    width: 1440px;
+    width: 1240px;
     margin: 100px auto 0;
     .leftTitle {
       font-family: Inter;

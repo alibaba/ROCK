@@ -5,7 +5,6 @@ import clsx from 'clsx';
 import dayjs from 'dayjs';
 import CountUp from 'react-countup';
 import Translate from '@docusaurus/Translate';
-import useBaseUrl from '@docusaurus/useBaseUrl';
 import Header from './Header';
 
 import styles from './styles.module.css';
@@ -25,7 +24,7 @@ export default ({ currentLocale }) => {
     const observerOptions = {
       root: null,
       rootMargin: '0px',
-      threshold: 0.1
+      threshold: 0.5
     };
 
     const observer = new IntersectionObserver((entries) => {

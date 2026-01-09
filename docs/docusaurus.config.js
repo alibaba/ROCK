@@ -135,7 +135,7 @@ const config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/alibaba/ROCK/tree/master/docs/rock/',
+            'https://github.com/alibaba/ROCK/tree/master/docs/',
           showLastUpdateTime: true,
           sidebarItemsGenerator: async ({ defaultSidebarItemsGenerator, ...args }) => {
             const sidebarItems = await defaultSidebarItemsGenerator(args);
