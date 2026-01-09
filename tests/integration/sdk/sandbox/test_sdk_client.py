@@ -59,8 +59,8 @@ async def test_arun_timeout(sandbox_instance: Sandbox):
 async def test_sandbox_get_status(admin_remote_server):
     config = SandboxConfig(
         image="fake_image:latest",
-        memory="8g",
-        cpus=2.0,
+        memory="2g",
+        cpus=0.5,
         base_url=f"{admin_remote_server.endpoint}:{admin_remote_server.port}",
         startup_timeout=10,
     )
