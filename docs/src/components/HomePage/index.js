@@ -17,6 +17,7 @@ export default ({ currentLocale }) => {
   const rockRollRef = useRef(null);
   const communityRef = useRef(null);
   const [todayStat, setTodayStat] = useState({});
+  const [startCounting, setStartCounting] = useState(false);
   const today = dayjs().format('YYYY-MM-DD');
   const isChinese = currentLocale !== 'en';
 
@@ -31,6 +32,10 @@ export default ({ currentLocale }) => {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
           entry.target.classList.add(styles.visible);
+          // 当开源社区统计区域可见时，开始计数
+          if (entry.target === opensourceRef.current) {
+            setStartCounting(true);
+          }
         }
       });
     }, observerOptions);
@@ -266,7 +271,7 @@ export default ({ currentLocale }) => {
         <div className={styles.stats}>
           <div className={styles.statItem}>
             <div className={styles.statNumber}>
-              <CountUp end={todayStat?.stars || 287} />
+              {startCounting && <CountUp end={todayStat?.stars || 287} />}
             </div>
             <div className={styles.statDesc}>
               <Translate>
@@ -276,7 +281,7 @@ export default ({ currentLocale }) => {
           </div>
           <div className={styles.statItem}>
             <div className={styles.statNumber}>
-              <CountUp end={todayStat?.contributors || 12} />
+              {startCounting && <CountUp end={todayStat?.contributors || 12} />}
             </div>
             <div className={styles.statDesc}>
               <Translate>
@@ -286,7 +291,7 @@ export default ({ currentLocale }) => {
           </div>
           <div className={styles.statItem}>
             <div className={styles.statNumber}>
-              <CountUp end={todayStat?.issues?.total || 89} />
+              {startCounting && <CountUp end={todayStat?.issues?.total || 89} />}
             </div>
             <div className={styles.statDesc}>
               <Translate>
