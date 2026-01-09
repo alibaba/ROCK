@@ -1,22 +1,21 @@
 from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
 
-import asyncio
+import copy
 import os
 import shlex
+import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
-from httpx import ReadTimeout
 
 from rock import env_vars
-from rock.actions import CreateBashSessionRequest, Observation, UploadRequest
+from rock.actions import Observation, UploadRequest
 from rock.logger import init_logger
-from rock.sdk.sandbox.agent.base import Agent
-from rock.sdk.sandbox.agent.config import AgentConfig
-from rock.sdk.sandbox.model_service.base import ModelService, ModelServiceConfig
+from rock.sdk.sandbox.agent.base import DefaultAgent
+from rock.sdk.sandbox.agent.config import DefaultAgentConfig
 from rock.sdk.sandbox.utils import arun_with_retry
 
 if TYPE_CHECKING:
@@ -73,7 +72,7 @@ DEFAULT_NEXT_STEP_NO_OUTPUT_TEMPLATE = "Your command ran successfully and did no
 DEFAULT_RUN_SINGLE_CONFIG: dict[str, Any] = {
     "output_dir": "",
     "env": {
-        "repo": {"path": ""},
+        "repo": {},
         "deployment": {"type": "local"},
         "name": "local-deployment",
     },
@@ -128,19 +127,14 @@ DEFAULT_RUN_SINGLE_CONFIG: dict[str, Any] = {
 }
 
 
-class SweAgentConfig(AgentConfig):
+class SweAgentConfig(DefaultAgentConfig):
     """Configuration dataclass for SWE-agent initialization and execution.
 
-    This class defines all configurable parameters for setting up and running
-    SWE-agent in a sandboxed environment, including installation commands,
-    working directories, and execution timeouts.
+    Inherits common agent configuration and adds SWE-agent specific settings.
 
     Attributes:
         agent_type: Fixed identifier for this agent type ("swe-agent")
         default_run_single_config: Default configuration object for a single run
-        agent_session: Name of the bash session used for SWE-agent execution
-        pre_startup_bash_cmd_list: Commands executed before agent initialization
-        post_startup_bash_cmd_list: Commands executed after agent initialization
         swe_agent_workdir: Working directory for agent installation and execution
         python_install_cmd: Command to install Python environment
         swe_agent_install_cmd: Command to clone and install SWE-agent repository
@@ -148,27 +142,25 @@ class SweAgentConfig(AgentConfig):
         swe_agent_install_timeout: Maximum seconds to wait for SWE-agent installation
         agent_run_timeout: Maximum seconds to wait for agent execution completion
         agent_run_check_interval: Seconds between status checks during execution
-        model_service_config: Configuration for ModelService (optional)
     """
 
     agent_type: Literal["swe-agent"] = "swe-agent"
 
     agent_session: str = "swe-agent-session"
 
-    # Commands to execute before agent initialization (e.g., bashrc setup, hosts config)
     pre_startup_bash_cmd_list: list[str] = env_vars.ROCK_AGENT_PRE_STARTUP_BASH_CMD_LIST
 
-    # Commands to execute after agent initialization
     post_startup_bash_cmd_list: list[str] = []
 
-    # Working directory where SWE-agent will be installed and executed
     swe_agent_workdir: str = "/tmp_sweagent"
 
-    # Command to download and set up Python environment
     python_install_cmd: str = env_vars.ROCK_AGENT_PYTHON_INSTALL_CMD
 
-    # Command to clone SWE-agent repository and install dependencies
-    swe_agent_install_cmd: str = "[ -d SWE-agent ] && rm -rf SWE-agent; git clone https://github.com/SWE-agent/SWE-agent.git && cd SWE-agent && pip install -e . -i https://mirrors.aliyun.com/pypi/simple/"
+    swe_agent_install_cmd: str = (
+        "[ -d SWE-agent ] && rm -rf SWE-agent; "
+        "git clone https://github.com/SWE-agent/SWE-agent.git && "
+        "cd SWE-agent && pip install -e . -i https://mirrors.aliyun.com/pypi/simple/"
+    )
 
     python_install_timeout: int = 300
 
@@ -178,24 +170,13 @@ class SweAgentConfig(AgentConfig):
 
     session_envs: dict[str, str] = {}
 
-    model_service_config: ModelServiceConfig | None = None
 
-
-class SweAgent(Agent):
+class SweAgent(DefaultAgent):
     """SWE-agent implementation with integrated ModelService support.
 
-    This class manages the complete lifecycle of SWE-agent including environment
-    initialization, dependency installation, and task execution within a sandboxed
-    environment. It provides an asynchronous interface for agent operations.
-
-    The agent can optionally integrate with ModelService for LLM handling.
-    If model_service_config is provided during initialization, ModelService will be
-    installed during init() and started during run().
-
-    Attributes:
-        config: Configuration parameters for agent setup and execution
-        agent_session: Name of the bash session used for agent operations
-        model_service: ModelService instance (created if configured)
+    Manages the complete lifecycle of SWE-agent including environment
+    initialization, dependency installation, and task execution within
+    a sandboxed environment.
     """
 
     def __init__(self, sandbox: Sandbox, config: SweAgentConfig):
@@ -204,174 +185,119 @@ class SweAgent(Agent):
         Args:
             sandbox: Sandbox instance for isolated agent execution
             config: Configuration parameters for agent setup
-
-        Raises:
-            AssertionError: If sandbox is not an instance of Sandbox class
         """
-        super().__init__(sandbox)
-        self._sandbox = sandbox
-        self.config = config
-        self.agent_session = self.config.agent_session
+        super().__init__(sandbox, config)
 
-        # ModelService instance (created during init if configured)
-        self.model_service: ModelService | None = None
+        self.config: SweAgentConfig = config
 
-    async def init(self):
-        """Initialize the SWE-agent environment within the sandbox.
+    async def _install(self):
+        """Install SWE-agent and configure the environment.
 
-        Performs the following initialization steps in sequence:
-        1. Creates a dedicated bash session for agent execution
-        2. Executes pre-startup configuration commands
-        3. Creates working directory for agent installation
-        4. Installs Python environment
-        5. Clones and installs SWE-agent
-        6. Initializes ModelService if configured (parallel with step 5)
-
-        The initialization process is asynchronous and uses the configured
-        timeouts for long-running operations like dependency installation.
-
-        Raises:
-            Exception: If any initialization step fails
+        Steps:
+        1. Create working directory
+        2. Install Python environment
+        3. Clone and install SWE-agent repository
         """
-
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
 
-        # Prepare tasks to run in parallel
-        tasks = [self._install_swe_agent()]
-
-        # Initialize ModelService if configured
-        if self.config.model_service_config:
-            tasks.append(self._init_model_service())
-
-        # Run tasks in parallel
-        await asyncio.gather(*tasks)
-
-        elapsed = time.time() - start_time
-        logger.info(f"[{sandbox_id}] SWE-agent init completed (elapsed: {elapsed:.2f}s)")
-
-    async def _install_swe_agent(self):
-        """Install SWE-agent and configure the environment."""
-
-        sandbox_id = self._sandbox.sandbox_id
-        start_time = time.time()
-
-        logger.info(f"[{sandbox_id}] Step 1 started: SWE-agent installation")
+        logger.info(f"[{sandbox_id}] Starting SWE-agent installation")
 
         try:
-            # Step 1: Create dedicated bash session
-            step_start = time.time()
-            logger.debug(f"[{sandbox_id}] Creating bash session: {self.agent_session}")
-            await self._sandbox.create_session(
-                CreateBashSessionRequest(
-                    session=self.agent_session,
-                    env_enable=True,
-                    env=self.config.session_envs,
-                )
-            )
-            elapsed_step = time.time() - step_start
-            logger.info(f"[{sandbox_id}] Step 1 completed: Bash session created (elapsed: {elapsed_step:.2f}s)")
+            # Step 1: Create working directory
+            await self._create_working_directory()
 
-            # Step 2: Execute pre-startup commands
-            step_start = time.time()
-            for cmd in self.config.pre_startup_bash_cmd_list:
-                await self._sandbox.arun(
-                    cmd=cmd,
-                    session=self.agent_session,
-                )
-            elapsed_step = time.time() - step_start
-            logger.info(
-                f"[{sandbox_id}] Step 2 completed: Pre-startup commands executed (elapsed: {elapsed_step:.2f}s)"
-            )
+            # Step 2: Install Python
+            await self._install_python()
 
-            # Step 3: Create working directory
-            step_start = time.time()
-            mkdir_cmd = f"mkdir -p {self.config.swe_agent_workdir}"
-            logger.debug(f"[{sandbox_id}] Command: {mkdir_cmd}")
-            await self._sandbox.arun(
-                cmd=mkdir_cmd,
-                session=self.agent_session,
-            )
-            elapsed_step = time.time() - step_start
-            logger.info(f"[{sandbox_id}] Step 3 completed: Working directory created (elapsed: {elapsed_step:.2f}s)")
+            # Step 3: Install SWE-agent
+            await self._install_swe_agent_package()
 
-            # Step 4: Install Python
-            step_start = time.time()
-            python_install_cmd = f"cd {self.config.swe_agent_workdir} && {self.config.python_install_cmd}"
-            full_cmd = f"bash -c {shlex.quote(python_install_cmd)}"
-            logger.debug(f"[{sandbox_id}] Command: {full_cmd}")
-
-            await arun_with_retry(
-                sandbox=self._sandbox,
-                cmd=full_cmd,
-                session=self.agent_session,
-                mode="nohup",
-                wait_timeout=self.config.python_install_timeout,
-                error_msg="Python installation failed",
-            )
-            elapsed_step = time.time() - step_start
-            logger.info(f"[{sandbox_id}] Step 4 completed: Python environment installed (elapsed: {elapsed_step:.2f}s)")
-
-            # Step 5: Install SWE-agent
-            step_start = time.time()
-            swe_agent_install_cmd = (
-                f"export PATH={self.config.swe_agent_workdir}/python/bin:$PATH && "
-                f"cd {self.config.swe_agent_workdir} && "
-                f"{self.config.swe_agent_install_cmd}"
-            )
-            full_cmd = f"bash -c {shlex.quote(swe_agent_install_cmd)}"
-            logger.debug(f"[{sandbox_id}] Command: {full_cmd}")
-
-            await arun_with_retry(
-                sandbox=self._sandbox,
-                cmd=full_cmd,
-                session=self.agent_session,
-                mode="nohup",
-                wait_timeout=self.config.swe_agent_install_timeout,
-                error_msg="SWE-agent installation failed",
-            )
-            elapsed_step = time.time() - step_start
-            logger.info(
-                f"[{sandbox_id}] Step 5 completed: SWE-agent repository installed (elapsed: {elapsed_step:.2f}s)"
-            )
+            elapsed = time.time() - start_time
+            logger.info(f"[{sandbox_id}] SWE-agent installation completed (elapsed: {elapsed:.2f}s)")
 
         except Exception as e:
-            elapsed_total = time.time() - start_time
+            elapsed = time.time() - start_time
             logger.error(
-                f"[{sandbox_id}] Operation failed: SWE-agent installation failed - {str(e)} "
-                f"(elapsed: {elapsed_total:.2f}s)",
+                f"[{sandbox_id}] SWE-agent installation failed - {str(e)} (elapsed: {elapsed:.2f}s)",
                 exc_info=True,
             )
             raise
 
-    async def _init_model_service(self):
-        """Initialize ModelService (install only, not start).
-
-        Creates a ModelService instance and executes the installation steps.
-        The service will be started later in run() method if needed.
-
-        Raises:
-            Exception: If ModelService initialization fails
-        """
+    async def _create_working_directory(self):
+        """Create working directory for SWE-agent."""
         sandbox_id = self._sandbox.sandbox_id
+        step_start = time.time()
 
-        try:
-            logger.info(f"[{sandbox_id}] Initializing ModelService")
+        self._log_step(f"Creating working directory: {self.config.swe_agent_workdir}", step_name="Create Workdir")
 
-            # Create ModelService instance
-            self.model_service = ModelService(
-                sandbox=self._sandbox,
-                config=self.config.model_service_config,
-            )
+        mkdir_cmd = f"mkdir -p {self.config.swe_agent_workdir}"
+        logger.debug(f"[{sandbox_id}] Command: {mkdir_cmd}")
 
-            # Execute install (this prepares the environment but doesn't start the service)
-            await self.model_service.install()
+        await self._sandbox.arun(
+            cmd=mkdir_cmd,
+            session=self.agent_session,
+        )
 
-            logger.info(f"[{sandbox_id}] ModelService initialized successfully")
+        elapsed_step = time.time() - step_start
+        self._log_step("Working directory created", step_name="Create Workdir", is_complete=True, elapsed=elapsed_step)
 
-        except Exception as e:
-            logger.error(f"[{sandbox_id}] ModelService initialization failed: {str(e)}", exc_info=True)
-            raise
+    async def _install_python(self):
+        """Install Python environment."""
+        sandbox_id = self._sandbox.sandbox_id
+        step_start = time.time()
+
+        self._log_step("Installing Python environment", step_name="Python Install")
+
+        python_install_cmd = f"cd {self.config.swe_agent_workdir} && {self.config.python_install_cmd}"
+        full_cmd = f"bash -c {shlex.quote(python_install_cmd)}"
+        logger.debug(f"[{sandbox_id}] Command: {full_cmd}")
+
+        await arun_with_retry(
+            sandbox=self._sandbox,
+            cmd=full_cmd,
+            session=self.agent_session,
+            mode="nohup",
+            wait_timeout=self.config.python_install_timeout,
+            error_msg="Python installation failed",
+        )
+
+        elapsed_step = time.time() - step_start
+        self._log_step(
+            "Python environment installed", step_name="Python Install", is_complete=True, elapsed=elapsed_step
+        )
+
+    async def _install_swe_agent_package(self):
+        """Clone and install SWE-agent repository."""
+        sandbox_id = self._sandbox.sandbox_id
+        step_start = time.time()
+
+        self._log_step("Installing SWE-agent repository", step_name="SWE-agent Install")
+
+        swe_agent_install_cmd = (
+            f"export PATH={self.config.swe_agent_workdir}/python/bin:$PATH && "
+            f"cd {self.config.swe_agent_workdir} && "
+            f"{self.config.swe_agent_install_cmd}"
+        )
+        full_cmd = f"bash -c {shlex.quote(swe_agent_install_cmd)}"
+        logger.debug(f"[{sandbox_id}] Command: {full_cmd}")
+
+        await arun_with_retry(
+            sandbox=self._sandbox,
+            cmd=full_cmd,
+            session=self.agent_session,
+            mode="nohup",
+            wait_timeout=self.config.swe_agent_install_timeout,
+            error_msg="SWE-agent installation failed",
+        )
+
+        elapsed_step = time.time() - step_start
+        self._log_step(
+            "SWE-agent repository installed",
+            step_name="SWE-agent Install",
+            is_complete=True,
+            elapsed=elapsed_step,
+        )
 
     @contextmanager
     def _config_template_context(self, problem_statement: str, project_path: str, instance_id: str):
@@ -385,21 +311,23 @@ class SweAgent(Agent):
         Yields:
             Path to the temporary config file
         """
-        import copy
-        import tempfile
-
-        # Get the default template config from the config attribute
-        template = self.config.default_run_single_config
-
         # Create a copy to avoid modifying the original
-        new_config = copy.deepcopy(template)
+        new_config = copy.deepcopy(self.config.default_run_single_config)
 
         # Set output directory
         new_config["output_dir"] = f"/tmp_sweagent/{instance_id}"
 
         # Update project path
         if "env" in new_config and "repo" in new_config["env"]:
-            new_config["env"]["repo"]["path"] = project_path
+            is_root_level = os.path.dirname(project_path) == "/"
+
+            if is_root_level:
+                repo_name = os.path.basename(project_path)
+                new_config["env"]["repo"]["repo_name"] = repo_name
+                new_config["env"]["repo"]["type"] = "preexisting"
+            else:
+                new_config["env"]["repo"]["path"] = project_path
+                new_config["env"]["repo"]["type"] = "local"
             # base_commit is set using default value in template
 
         # Update problem statement
@@ -407,24 +335,22 @@ class SweAgent(Agent):
             new_config["problem_statement"]["text"] = problem_statement
             new_config["problem_statement"]["id"] = instance_id
 
-        # Create a temporary config file using Python's tempfile
+        # Create a temporary config file
         temp_config_file = tempfile.NamedTemporaryFile(
             mode="w",
             suffix=f"_{instance_id}_generated_config.yaml",
-            delete=False,  # We'll manage the lifecycle through context manager
+            delete=False,
             encoding="utf-8",
         )
 
         temp_file_path = temp_config_file.name
         try:
             yaml.dump(new_config, temp_config_file, default_flow_style=False, allow_unicode=True)
-            temp_config_file.close()  # Close the file so it can be read by other processes
+            temp_config_file.close()
             yield temp_file_path
         except Exception as e:
-            # In exceptional cases, if file couldn't be processed, try to cleanup
             raise e
         finally:
-            # Always cleanup the temporary file
             try:
                 os.unlink(temp_file_path)
                 logger.debug(f"Temporary config file cleaned up: {temp_file_path}")
@@ -449,8 +375,8 @@ class SweAgent(Agent):
             problem_statement: The problem statement for the task
             project_path: Path to the target project
             instance_id: The instance identifier for the run
-            agent_run_timeout: Maximum seconds to wait for agent execution completion (default 1800)
-            agent_run_check_interval: Seconds between status checks during execution (default 30)
+            agent_run_timeout: Maximum seconds to wait for agent execution (default: 1800)
+            agent_run_check_interval: Seconds between status checks (default: 30)
 
         Returns:
             Observation: Execution result containing exit code, stdout, and stderr
@@ -461,18 +387,25 @@ class SweAgent(Agent):
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
 
-        logger.info(f"[{sandbox_id}] SWE-agent execution started")
+        logger.info(f"[{sandbox_id}] Starting SWE-agent run operation")
+        logger.debug(
+            f"[{sandbox_id}] Project path: {project_path}, Instance ID: {instance_id}, "
+            f"Problem statement: {problem_statement[:100]}..."
+        )
 
         try:
             with self._config_template_context(problem_statement, project_path, instance_id) as generated_config_path:
                 config_filename = Path(generated_config_path).name
 
+                # Upload configuration file
                 step_start = time.time()
                 target_path = f"{self.config.swe_agent_workdir}/{config_filename}"
                 logger.debug(
                     f"[{sandbox_id}] UploadRequest(source_path={os.path.abspath(generated_config_path)}, "
                     f"target_path={target_path})"
                 )
+
+                self._log_step("Uploading configuration file", step_name="Upload Config")
 
                 await self._sandbox.upload(
                     UploadRequest(
@@ -481,12 +414,20 @@ class SweAgent(Agent):
                     )
                 )
                 elapsed_step = time.time() - step_start
-                logger.info(
-                    f"[{sandbox_id}] Upload completed: Configuration file uploaded (elapsed: {elapsed_step:.2f}s)"
+                self._log_step(
+                    "Configuration file uploaded",
+                    step_name="Upload Config",
+                    is_complete=True,
+                    elapsed=elapsed_step,
                 )
 
                 # Execute SWE-agent
                 step_start = time.time()
+                self._log_step(
+                    f"Running SWE-agent with timeout {agent_run_timeout}s",
+                    step_name="SWE-agent Run",
+                )
+
                 swe_agent_run_cmd = (
                     f"cd {self.config.swe_agent_workdir} && "
                     f"{self.config.swe_agent_workdir}/python/bin/sweagent run --config {config_filename}"
@@ -504,113 +445,30 @@ class SweAgent(Agent):
                     wait_interval=agent_run_check_interval,
                 )
                 elapsed_step = time.time() - step_start
-                logger.info(f"[{sandbox_id}] SWE-agent execution completed (elapsed: {elapsed_step:.2f}s)")
+                self._log_step(
+                    "SWE-agent execution completed",
+                    step_name="SWE-agent Run",
+                    is_complete=True,
+                    elapsed=elapsed_step,
+                )
 
             elapsed_total = time.time() - start_time
 
             if result and result.exit_code == 0:
                 logger.info(
-                    f"[{sandbox_id}] Agent Run completed: SWE-agent execution succeeded (elapsed: {elapsed_total:.2f}s)"
+                    f"[{sandbox_id}] ✓ SWE-agent completed successfully "
+                    f"(exit_code: {result.exit_code}, elapsed: {elapsed_total:.2f}s)"
                 )
             else:
                 error_msg = result.failure_reason if result else "No result returned"
-                logger.error(
-                    f"[{sandbox_id}] Operation failed: SWE-agent execution failed - {error_msg} "
-                    f"(elapsed: {elapsed_total:.2f}s)"
-                )
+                logger.error(f"[{sandbox_id}] ✗ SWE-agent failed - {error_msg} (elapsed: {elapsed_total:.2f}s)")
 
             return result
 
         except Exception as e:
             elapsed_total = time.time() - start_time
             logger.error(
-                f"[{sandbox_id}] Operation failed: SWE-agent execution failed - {str(e)} "
-                f"(elapsed: {elapsed_total:.2f}s)",
+                f"[{sandbox_id}] SWE-agent execution failed - {str(e)} (elapsed: {elapsed_total:.2f}s)",
                 exc_info=True,
             )
             raise
-
-    async def _agent_run(
-        self,
-        cmd: str,
-        session: str,
-        wait_timeout: int,
-        wait_interval: int,
-    ) -> Observation:
-        """Execute agent command in nohup mode with optional ModelService watch.
-
-        Starts the agent process and if ModelService is configured, calls watch_agent
-        to monitor the process. The caller is responsible for the anti_call_llm loop
-        and Whale API interactions.
-
-        Args:
-            cmd: Command to execute
-            session: Bash session name
-            wait_timeout: Timeout for process completion
-            wait_interval: Interval for checking process status
-
-        Returns:
-            Observation: Execution result
-
-        Raises:
-            Exception: If process execution fails
-        """
-        sandbox_id = self._sandbox.sandbox_id
-
-        try:
-            timestamp = str(time.time_ns())
-            tmp_file = f"/tmp/tmp_{timestamp}.out"
-
-            # Start nohup process and get PID
-            pid, error_response = await self._sandbox.start_nohup_process(cmd=cmd, tmp_file=tmp_file, session=session)
-
-            if error_response is not None:
-                return error_response
-
-            # If failed to extract PID
-            if pid is None:
-                msg = "Failed to submit command, nohup failed to extract PID"
-                return Observation(output=msg, exit_code=1, failure_reason=msg)
-
-            logger.info(f"[{sandbox_id}] Agent process started with PID: {pid}")
-
-            # If ModelService is configured, call watch_agent to monitor the process
-            if self.model_service:
-                try:
-                    logger.info(f"[{sandbox_id}] Starting ModelService watch-agent for pid {pid}")
-                    await self.model_service.watch_agent(pid=str(pid))
-                    logger.info(f"[{sandbox_id}] ModelService watch-agent started successfully")
-                except Exception as e:
-                    logger.error(f"[{sandbox_id}] Failed to start watch-agent: {str(e)}", exc_info=True)
-                    raise
-
-            # Wait for agent process to complete
-            logger.debug(f"[{sandbox_id}] Waiting for agent process completion (pid={pid})")
-            success, message = await self._sandbox.wait_for_process_completion(
-                pid=pid, session=session, wait_timeout=wait_timeout, wait_interval=wait_interval
-            )
-
-            # Handle nohup output and return result
-            result = await self._sandbox.handle_nohup_output(
-                tmp_file=tmp_file,
-                session=session,
-                success=success,
-                message=message,
-                ignore_output=False,
-                response_limited_bytes_in_nohup=None,
-            )
-
-            return result
-
-        except ReadTimeout:
-            error_msg = f"Command execution failed due to timeout: '{cmd}'. This may be caused by an interactive command that requires user input."
-            return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
-        except Exception as e:
-            error_msg = f"Failed to execute nohup command '{cmd}': {str(e)}"
-            return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
-
-    async def start_model_service(self):
-        if not self.model_service:
-            raise RuntimeError(f"ModelService is not initialized in {self.config.agent_type}!")
-
-        await self.model_service.start()

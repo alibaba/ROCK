@@ -81,6 +81,12 @@ Examples:
     parser.add_argument("--base-url", help="ROCK server base URL (overrides config file)")
     parser.add_argument("--auth-token", help="ROCK authorization token (overrides config file)")
     parser.add_argument("--cluster", help="ROCK cluster (overrides config file)")
+    parser.add_argument(
+        "--httpx-log-level",
+        help="httpx log level (default: INFO, options: DEBUG, INFO, WARNING, ERROR)",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        default="INFO",
+    )
 
     # extra-header parameter
     parser.add_argument(
@@ -107,6 +113,12 @@ def find_command(command: str, subclasses: list[type[Command]]) -> type | None:
     return None
 
 
+def config_log(args: argparse.Namespace):
+    """Configure logging"""
+    logging.getLogger("httpx").setLevel(getattr(logging, args.httpx_log_level))
+    logging.getLogger("httpcore").setLevel(getattr(logging, args.httpx_log_level))
+
+
 def main():
     """Main function"""
     load_paths = env_vars.ROCK_CLI_LOAD_PATHS
@@ -122,6 +134,8 @@ def main():
 
     # Load valid configuration (configuration file + command line arguments)
     load_config_from_file(args)
+
+    config_log(args)
 
     try:
         command = find_command(args.command, subclasses)
