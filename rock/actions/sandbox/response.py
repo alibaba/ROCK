@@ -30,6 +30,8 @@ class SandboxStatusResponse(BaseModel):
     swe_rex_version: str | None = None
     user_id: str | None = None
     experiment_id: str | None = None
+    cpus: float | None = None
+    memory: str | None = None
 
 
 class CommandResponse(BaseModel):
