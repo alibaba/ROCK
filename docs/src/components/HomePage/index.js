@@ -68,6 +68,21 @@ export default ({ currentLocale }) => {
   return <ConfigProvider theme={{ algorithm: theme.darkAlgorithm }}>
     <div className={styles.container} id="home">
       <div className={styles.header}>
+        <video
+          className={styles.headerVideo}
+          autoPlay
+          muted
+          loop
+          playsInline
+          poster="https://img.alicdn.com/imgextra/i1/6000000003421/O1CN012ghG7A1b8s3dGSHNy_!!6000000003421-0-tbvideo.jpg"
+        >
+          <source
+            src="https://cloud.video.taobao.com/vod/PHpu7ZebVDB7krFCIj3w-vkcDhcDGSnzZ97XDz8zBOE.mp4"
+            type="video/mp4"
+          />
+        </video>
+        <div className={styles.headerOverlay}></div>
+
         <Header locale={currentLocale} />
 
         <div className={styles.rock}>
@@ -151,7 +166,7 @@ export default ({ currentLocale }) => {
               </Translate>
             </div>
             <div className={styles.line}></div>
-            <div className={styles.subDesp}>
+            <div className={styles.subDesc}>
               <Translate>
                 Supports multiple action protocols including GEM, Bash, and Chat.
               </Translate>
@@ -167,7 +182,7 @@ export default ({ currentLocale }) => {
               </Translate>
             </div>
             <div className={styles.line}></div>
-            <div className={styles.subDesp}>
+            <div className={styles.subDesc}>
               <Translate>
                 Stateful runtime environments with multiple isolation mechanisms to ensure consistency and security
               </Translate>
@@ -186,7 +201,7 @@ export default ({ currentLocale }) => {
                 </Translate>
               </div>
               <div className={styles.line}></div>
-              <div className={styles.subDesp}>
+              <div className={styles.subDesc}>
                 <Translate>
                   Supports different deployment methods for diverse environment and OS
                 </Translate>
@@ -202,7 +217,7 @@ export default ({ currentLocale }) => {
                 </Translate>
               </div>
               <div className={styles.line}></div>
-              <div className={styles.subDesp}>
+              <div className={styles.subDesc}>
                 <Translate>
                   Clean Python SDK for Env and Sandbox interaction
                 </Translate>
@@ -219,7 +234,7 @@ export default ({ currentLocale }) => {
                 </Translate>
               </div>
               <div className={styles.line}></div>
-              <div className={styles.subDesp}>
+              <div className={styles.subDesc}>
                 <Translate>
                   Distributed Admin, Worker, and Rocklet architecture for scalable resource management
                 </Translate>
@@ -234,7 +249,7 @@ export default ({ currentLocale }) => {
                 </Translate>
               </div>
               <div className={styles.line}></div>
-              <div className={styles.subDesp}>
+              <div className={styles.subDesc}>
                 <Translate>
                   Automatic sandbox lifecycle management with configurable resource allocation
                 </Translate>
@@ -334,7 +349,7 @@ export default ({ currentLocale }) => {
         footer={null}
         getContainer={() => document.getElementById('home') || document.body}
       >
-        <Image className={styles.whiteImg} src="https://img.alicdn.com/imgextra/i4/O1CN01MICK0T28fHMzy5P84_!!6000000007959-2-tps-756-850.png" preview={false} />
+        <Image className={styles.whiteImg} src="https://img.alicdn.com/imgextra/i4/O1CN01A2hVeg1OflUzWdvop_!!6000000001733-2-tps-756-850.png" preview={false} />
       </Modal>
     </div >
   </ConfigProvider>

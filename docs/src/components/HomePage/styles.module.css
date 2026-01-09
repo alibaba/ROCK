@@ -6,14 +6,35 @@
     filter: var(--white-image-reverse-filter);
   }
   .header {
-    background-image: url("https://img.alicdn.com/imgextra/i2/O1CN01OIRsde1UsUC4An1s1_!!6000000002573-2-tps-2880-1400.png");
-    background-repeat: no-repeat;
-    background-size: cover;
-    background-position: center;
-    width: 80%;
+    position: relative;
+    width: 1440px;
     min-height: 700px;
     margin: 0 auto;
+    overflow: hidden;
+    
+    .headerVideo {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 0;
+    }
+    
+    .headerOverlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.3);
+      z-index: 1;
+    }
+    
     .rock {
+      position: relative;
+      z-index: 2;
       text-align: center;
       padding-top: 300px;
       .description {
@@ -43,7 +64,7 @@
     }
   }
   .about, .features, .opensource, .rock_roll {
-    width: 80%;
+    width: 1440px;
     margin: 200px auto 0;
     .title {
       font-family: Inter;
@@ -295,7 +316,7 @@
     margin-top: 50px;
   }
   .community {
-    width: 80%;
+    width: 1440px;
     margin: 100px auto 0;
     .leftTitle {
       font-family: Inter;
