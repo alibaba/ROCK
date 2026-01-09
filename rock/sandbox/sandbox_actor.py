@@ -36,7 +36,7 @@ from rock.sandbox.gem_actor import GemActor
 logger = init_logger(__name__)
 
 
-@ray.remote(num_cpus=0, scheduling_strategy="SPREAD")
+@ray.remote(scheduling_strategy="SPREAD")
 class SandboxActor(GemActor):
     _export_interval_millis: int = 10000
     _stop_time: datetime.datetime = None

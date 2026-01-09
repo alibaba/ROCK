@@ -24,7 +24,7 @@ from rock.admin.proto.request import SandboxCreateSessionRequest as CreateSessio
 from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
-from rock.config import RockConfig
+from rock.config import RockConfig, RuntimeConfig
 from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
 from rock.deployments.constants import Status
 from rock.deployments.status import PhaseStatus, ServiceStatus
@@ -33,6 +33,8 @@ from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
 from rock.sandbox.base_manager import BaseManager
 from rock.sandbox.sandbox_actor import SandboxActor
+from rock.sdk.common.exceptions import BadRequestRockError
+from rock.utils.format import parse_memory_size
 from rock.utils.providers import RedisProvider
 
 logger = init_logger(__name__)
@@ -89,6 +91,7 @@ class SandboxManager(BaseManager):
 
         deployment = docker_deployment_config.get_deployment()
 
+        self.validate_sandbox_spec(self.rock_config.runtime, config)
         sandbox_actor: SandboxActor = await deployment.creator_actor(actor_name)
         user_id = user_info.get("user_id", "default")
         experiment_id = user_info.get("experiment_id", "default")
@@ -369,3 +372,19 @@ class SandboxManager(BaseManager):
             env_vars.ROCK_SANDBOX_EXPIRE_TIME_KEY: str(expire_time),
         }
         await self._redis_provider.json_set(timeout_sandbox_key(sandbox_id), "$", new_dict)
+
+    def validate_sandbox_spec(self, runtime_config: RuntimeConfig, deployment_config: DeploymentConfig) -> None:
+        try:
+            memory = parse_memory_size(deployment_config.memory)
+            max_memory = parse_memory_size(runtime_config.max_allowed_spec.memory)
+            if deployment_config.cpus > runtime_config.max_allowed_spec.cpus:
+                raise BadRequestRockError(
+                    f"Requested CPUs {deployment_config.cpus} exceed the maximum allowed {runtime_config.max_allowed_spec.cpus}"
+                )
+            if memory > max_memory:
+                raise BadRequestRockError(
+                    f"Requested memory {deployment_config.memory} exceed the maximum allowed {runtime_config.max_allowed_spec.memory}"
+                )
+        except ValueError as e:
+            logger.warning(f"Invalid memory size: {deployment_config.memory}", exc_info=e)
+            raise BadRequestRockError(f"Invalid memory size: {self._config.memory}")
