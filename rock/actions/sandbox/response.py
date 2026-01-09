@@ -2,6 +2,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
+from rock._codes import codes
+
 
 class IsAliveResponse(BaseModel):
     """Response to the is_alive request.
@@ -55,8 +57,8 @@ class ExecuteBashSessionResponse(BaseModel):
 
 class CreateBashSessionResponse(BaseModel):
     output: str = ""
-
     session_type: Literal["bash"] = "bash"
+    code: codes | None = None
 
 
 CreateSessionResponse = Annotated[CreateBashSessionResponse, Field(discriminator="session_type")]
