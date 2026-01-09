@@ -100,3 +100,13 @@ class CloseResponse(BaseModel):
     """Response for close operations."""
 
     pass
+
+
+class ChownResponse(BaseModel):
+    success: bool = False
+    message: str = ""
+
+
+class ChmodResponse(BaseModel):
+    success: bool = False
+    message: str = ""
