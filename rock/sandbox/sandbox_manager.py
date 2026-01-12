@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 
 import ray
@@ -83,8 +84,8 @@ class SandboxManager(BaseManager):
     @monitor_sandbox_operation()
     async def start_async(self, config: DeploymentConfig, user_info: dict = {}) -> SandboxStartResponse:
         docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(config)
-
         sandbox_id = docker_deployment_config.container_name
+        logger.info(f"[{sandbox_id}] start_async params:{json.dumps(docker_deployment_config.model_dump(), indent=2)}")
         actor_name = self.deployment_manager.get_actor_name(sandbox_id)
 
         deployment = docker_deployment_config.get_deployment()
@@ -314,7 +315,7 @@ class SandboxManager(BaseManager):
     async def _check_job_background(self):
         if not self._redis_provider:
             return
-        logger.info("check job background")
+        logger.debug("check job background")
         async for key in self._redis_provider.client.scan_iter(match=f"{ALIVE_PREFIX}*", count=100):
             sandbox_id = key.removeprefix(ALIVE_PREFIX)
             if not await self._is_actor_alive(sandbox_id):

@@ -1,9 +1,10 @@
 import logging
 import os
 import sys
+from functools import cache
 
 from rock import env_vars
-from rock.utils import sandbox_id_ctx_var
+from rock.utils import sandbox_id_ctx_var, trace_id_ctx_var
 
 
 # Define the formatter class at module level since it doesn't need configuration state
@@ -27,23 +28,35 @@ class StandardFormatter(logging.Formatter):
         # Get sandbox_id from context variable
         sandbox_id = sandbox_id_ctx_var.get()
 
+        # Get trace_id from context variable
+        trace_id = trace_id_ctx_var.get()
+
         # Format basic elements manually
         level_str = record.levelname
         time_str = self.formatTime(record)
         file_str = f"{record.filename}:{record.lineno}"
         logger_str = record.name  # This will be the logger name like 'myapp.utils'
 
-        # Build header part with or without sandbox_id
-        if sandbox_id:
-            header_str = f"{time_str} {level_str}:{file_str} [{logger_str}] [{sandbox_id}] --"
-        else:
-            header_str = f"{time_str} {level_str}:{file_str} [{logger_str}] -- "
+        # Build header part
+        header_str = f"{time_str} {level_str}:{file_str} [{logger_str}] [{sandbox_id}] [{trace_id}] --"
 
         # Color the header part and keep message in default color
         return f"{log_color}{header_str}{RESET} {record.getMessage()}"
 
+@cache
+def init_file_handler(log_name: str):
+    if env_vars.ROCK_LOGGING_PATH:
+        # Create file handler
+        log_file_path = os.path.join(env_vars.ROCK_LOGGING_PATH, log_name)
 
-def init_logger(name: str | None = None):
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+
+        handler = logging.FileHandler(log_file_path, mode="w+", encoding="utf-8")
+        return handler
+    return None
+
+def init_logger(name: str | None = None, handler: logging.Handler | None = None):
     """Initialize and return a logger instance with custom handler and formatter
 
     Args:
@@ -60,15 +73,13 @@ def init_logger(name: str | None = None):
         # Determine if we should log to file based on ROCK_LOGGING_PATH
         # Only log to file if ROCK_LOGGING_PATH has been explicitly set by the user
         # (not just the default value), which means it should be in os.environ
-        if env_vars.ROCK_LOGGING_PATH and env_vars.ROCK_LOGGING_FILE_NAME:
-            # Create file handler
-            log_file_path = os.path.join(env_vars.ROCK_LOGGING_PATH, env_vars.ROCK_LOGGING_FILE_NAME)
-            # Ensure directory exists
-            os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
-            handler = logging.FileHandler(log_file_path)
-        else:
-            # Use stdout handler
-            handler = logging.StreamHandler(sys.stdout)
+        if handler is None:
+            if env_vars.ROCK_LOGGING_PATH and env_vars.ROCK_LOGGING_FILE_NAME:
+                # Use default file handler
+                handler = init_file_handler(env_vars.ROCK_LOGGING_FILE_NAME)
+            else:
+                # Use stdout handler
+                handler = logging.StreamHandler(sys.stdout)
 
         handler.setFormatter(StandardFormatter())
 

@@ -294,6 +294,8 @@ class DockerDeployment(AbstractDeployment):
         if self._config.remove_container:
             rm_arg = ["--rm"]
 
+        env_arg = []
+
         # Conditionally set up logging path mount based on ROCK_LOGGING_PATH
         volume_args = self._prepare_volume_mounts()
         if env_vars.ROCK_LOGGING_PATH:  # Only mount if ROCK_LOGGING_PATH is set (not None or empty)
@@ -301,6 +303,12 @@ class DockerDeployment(AbstractDeployment):
             os.makedirs(log_file_path, exist_ok=True)
             os.chmod(log_file_path, 0o777)
             volume_args.extend(["-v", f"{log_file_path}:{env_vars.ROCK_LOGGING_PATH}"])
+            env_arg = [
+                "-e",
+                f"ROCK_LOGGING_PATH={env_vars.ROCK_LOGGING_PATH}",
+                "-e",
+                f"ROCK_LOGGING_LEVEL={env_vars.ROCK_LOGGING_LEVEL}"
+            ]
 
         time.sleep(random.randint(0, 5))
         cmds = [
@@ -308,6 +316,7 @@ class DockerDeployment(AbstractDeployment):
             "run",
             "--entrypoint",
             "",
+            *env_arg,
             *rm_arg,
             *volume_args,
             "--privileged",
@@ -330,7 +339,7 @@ class DockerDeployment(AbstractDeployment):
         logger.info(
             f"Starting container {self._container_name} with image {self._config.image} serving on port {self._config.port}"
         )
-        logger.debug(f"Command: {cmd_str!r}")
+        logger.info(f"Command: {cmd_str!r}")
         # shell=True required for && etc.
         with Timer(description=f"[{self._config.image}] Container start"):
             self._container_process = await loop.run_in_executor(executor, self._docker_run, cmds)
