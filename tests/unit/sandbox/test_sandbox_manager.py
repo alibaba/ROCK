@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 
 import pytest
@@ -11,8 +12,10 @@ from rock.deployments.config import DockerDeploymentConfig, RayDeploymentConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
 from rock.sandbox.sandbox_manager import SandboxManager
+from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils.providers.redis_provider import RedisProvider
 
+logger = logging.getLogger(__file__)
 
 @pytest.fixture
 async def redis_provider():
@@ -127,3 +130,21 @@ def test_set_sandbox_status_response():
     service_status = ServiceStatus()
     status_response = SandboxStatusResponse(sandbox_id="test", status=service_status.phases)
     assert status_response.sandbox_id == "test"
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_resource_limit_exception(sandbox_manager, docker_deployment_config):
+    docker_deployment_config.cpus = 20
+    with pytest.raises(BadRequestRockError) as e:
+        await sandbox_manager.start_async(docker_deployment_config)
+    logger.warning(f"Resource limit exception: {str(e)}", exc_info=True)
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_resource_limit_exception_memory(sandbox_manager, docker_deployment_config):
+    docker_deployment_config.memory = "65g"
+    with pytest.raises(BadRequestRockError) as e:
+        await sandbox_manager.start_async(docker_deployment_config)
+    logger.warning(f"Resource limit exception: {str(e)}", exc_info=True)
