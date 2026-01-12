@@ -148,8 +148,6 @@ class SweAgentConfig(DefaultAgentConfig):
 
     agent_session: str = "swe-agent-session"
 
-    pre_startup_bash_cmd_list: list[str] = env_vars.ROCK_AGENT_PRE_STARTUP_BASH_CMD_LIST
-
     post_startup_bash_cmd_list: list[str] = []
 
     swe_agent_workdir: str = "/tmp_sweagent"
