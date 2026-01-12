@@ -1,9 +1,9 @@
 """
-Solving software engineering(SWE) problem with [Openhands SDK](https://github.com/OpenHands/software-agent-sdk).
+Solving software engineering(SWE) problem with [Openhands Benchmarks SDK](https://github.com/OpenHands/benchmarks).
 Implementation framework reference: `rock/sdk/sandbox/agent/swe_agent.py`
 
 This code is composed with following parts:
-    1. Install openhands-sdk into Sandbox
+    1. Install openhands-benchmarks into Sandbox
     2. Modify launch entry code which is modified from [run_infer.py](https://github.com/OpenHands/benchmarks/blob/main/benchmarks/swebench/run_infer.py)
         into Sandbox
     3. Upload LLM service configuration into Sandbox
