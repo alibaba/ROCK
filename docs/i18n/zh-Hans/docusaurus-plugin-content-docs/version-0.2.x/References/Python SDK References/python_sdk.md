@@ -6,19 +6,6 @@ sidebar_position: 2
 
 本指南详细介绍如何使用 ROCK SDK 进行开发，包括沙箱环境管理和 GEM 环境交互。
 
-## 目录
-
-- [Python SDK 参考](#python-sdk-参考)
-  - [目录](#目录)
-  - [1. 概述](#1-概述)
-  - [2. Sandbox SDK](#2-sandbox-sdk)
-    - [2.1 基本沙箱操作](#21-基本沙箱操作)
-    - [3.2 沙箱组管理](#32-沙箱组管理)
-  - [相关文档](#相关文档)
-    - [3.3 配置示例](#33-配置示例)
-  - [4. GEM SDK](#4-gem-sdk)
-    - [4.1 Python SDK 方式](#41-python-sdk-方式)
-
 ## 1. 概述
 
 ROCK SDK为开发者提供了便捷的Python接口来使用ROCK平台的功能，包括沙箱环境管理和GEM环境交互。

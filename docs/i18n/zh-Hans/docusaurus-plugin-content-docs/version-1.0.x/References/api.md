@@ -6,28 +6,6 @@ sidebar_position: 1
 
 本指南详细介绍 ROCK 平台提供的核心 API 服务，包括沙箱环境管理和 GEM 环境交互。
 
-## 目录
-
-- [API 参考](#api-参考)
-  - [目录](#目录)
-  - [1. 概述](#1-概述)
-  - [2. Sandbox API](#2-sandbox-api)
-    - [沙箱管理接口](#沙箱管理接口)
-    - [命令执行接口](#命令执行接口)
-    - [文件操作接口](#文件操作接口)
-  - [3. GEM API](#3-gem-api)
-  - [相关文档](#相关文档)
-  - [4. HTTP API 使用示例](#4-http-api-使用示例)
-    - [4.1 Sandbox API 示例](#41-sandbox-api-示例)
-      - [启动沙箱](#启动沙箱)
-      - [异步启动沙箱](#异步启动沙箱)
-      - [执行命令](#执行命令)
-      - [创建会话](#创建会话)
-      - [在会话中执行命令](#在会话中执行命令)
-      - [上传文件](#上传文件)
-      - [停止沙箱](#停止沙箱)
-    - [4.2 GEM API 示例](#42-gem-api-示例)
-
 ## 1. 概述
 
 ROCK平台提供两种核心API服务：
@@ -105,14 +83,6 @@ GEM环境交互功能：
 
 4. **Close Environment** - 关闭GEM环境
    - 释放GEM环境资源
-
-## 相关文档
-
-- [快速开始指南](../Getting%20Started/quickstart.md) - 了解如何快速开始使用 ROCK API
-- [Python SDK 文档](./Python%20SDK%20References/python_sdk.md) - 学习如何使用 SDK 调用 API
-- [配置指南](../User%20Guides/configuration.md) - 了解 API 相关的配置选项
-- [安装指南](../Getting%20Started/installation.md) - 详细了解 ROCK 安装和配置
-
 
 ## 4. HTTP API 使用示例
 
@@ -215,3 +185,10 @@ curl -X POST 'http://localhost:8080/apis/v1/envs/gem/close' \
 -H 'Content-Type: application/json' \
 -d '{"sandbox_id": "sandbox-12345"}'
 ```
+
+## 相关文档
+
+- [快速开始指南](../Getting%20Started/quickstart.md) - 了解如何快速开始使用 ROCK API
+- [Python SDK 文档](./Python%20SDK%20References/python_sdk.md) - 学习如何使用 SDK 调用 API
+- [配置指南](../User%20Guides/configuration.md) - 了解 API 相关的配置选项
+- [安装指南](../Getting%20Started/installation.md) - 详细了解 ROCK 安装和配置

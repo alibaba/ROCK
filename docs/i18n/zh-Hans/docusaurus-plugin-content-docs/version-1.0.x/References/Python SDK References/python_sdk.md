@@ -6,19 +6,6 @@ sidebar_position: 2
 
 本指南详细介绍如何使用 ROCK SDK 进行开发，包括沙箱环境管理和 GEM 环境交互。
 
-## 目录
-
-- [Python SDK 参考](#python-sdk-参考)
-  - [目录](#目录)
-  - [1. 概述](#1-概述)
-  - [2. Sandbox SDK](#2-sandbox-sdk)
-    - [2.1 基本沙箱操作](#21-基本沙箱操作)
-    - [3.2 沙箱组管理](#32-沙箱组管理)
-  - [相关文档](#相关文档)
-    - [3.3 配置示例](#33-配置示例)
-  - [4. GEM SDK](#4-gem-sdk)
-    - [4.1 Python SDK 方式](#41-python-sdk-方式)
-
 ## 1. 概述
 
 ROCK SDK为开发者提供了便捷的Python接口来使用ROCK平台的功能，包括沙箱环境管理和GEM环境交互。
@@ -72,7 +59,7 @@ if __name__ == "__main__":
     asyncio.run(run_sandbox())
 ```
 
-### 3.2 沙箱组管理
+### 2.2 沙箱组管理
 
 ```python
 from rock.sdk.sandbox.config import SandboxGroupConfig
@@ -96,14 +83,7 @@ for sandbox in sandbox_group.sandbox_list:
 await sandbox_group.stop()
 ```
 
-## 相关文档
-
-- [快速开始指南](../../Getting%20Started/quickstart.md) - 了解如何快速开始使用 ROCK SDK
-- [API 文档](../api.md) - 查看 SDK 封装的底层 API 接口
-- [配置指南](../../User%20Guides/configuration.md) - 了解 SDK 相关的配置选项
-- [安装指南](../../Getting%20Started/installation.md) - 详细了解 ROCK 安装和配置
-
-### 3.3 配置示例
+### 2.3 配置示例
 
 ```python
 config = SandboxConfig(
@@ -113,9 +93,9 @@ config = SandboxConfig(
 )
 ```
 
-## 4. GEM SDK
+## 3. GEM SDK
 
-### 4.1 Python SDK 方式
+### 3.1 Python SDK 方式
 
 ```python
 import random
@@ -181,3 +161,10 @@ if __name__ == "__main__":
     )
     main()
 ```
+
+## 相关文档
+
+- [快速开始指南](../../Getting%20Started/quickstart.md) - 了解如何快速开始使用 ROCK SDK
+- [API 文档](../api.md) - 查看 SDK 封装的底层 API 接口
+- [配置指南](../../User%20Guides/configuration.md) - 了解 SDK 相关的配置选项
+- [安装指南](../../Getting%20Started/installation.md) - 详细了解 ROCK 安装和配置

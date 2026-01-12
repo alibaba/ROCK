@@ -6,15 +6,6 @@ sidebar_position: 1
 
 ROCK (Reinforcement Open Construction Kit) is an open-source reinforcement learning environment development framework designed to simplify the development, deployment, and management of reinforcement learning environments.
 
-## Table of Contents
-
-- [Overview](#overview)
-  - [Table of Contents](#table-of-contents)
-  - [What is ROCK](#what-is-rock)
-  - [Core Capabilities of ROCK](#core-capabilities-of-rock)
-  - [Value of ROCK](#value-of-rock)
-  - [Learn More](#learn-more)
-
 ## What is ROCK
 
 ROCK (Reinforcement Open Construction Kit) is an open-source reinforcement learning environment development framework. By using ROCK, developers can quickly develop reinforcement learning environments and integrate with other reinforcement learning training frameworks to implement efficient reinforcement learning training.
