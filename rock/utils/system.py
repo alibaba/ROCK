@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import re
 import socket
 import subprocess
@@ -135,6 +136,39 @@ def get_host_ip():
     except Exception as e:
         logging.error(f"Get host ip error: {e}")
         return None
+
+
+def get_pod_ip():
+    try:
+        hostname = socket.gethostname()
+        pod_ip = socket.gethostbyname(hostname)
+        return pod_ip
+    except Exception as e:
+        logger.error(f"Failed to get pod IP: {e}")
+        return None
+
+
+def get_instance_id():
+    """get instance unique identifier(multi degrade)"""
+    # 1. use pod ip firstly
+    pod_ip = get_pod_ip()
+    if pod_ip:
+        return pod_ip
+    # 2. degrade: use hostname
+    try:
+        hostname = socket.gethostname()
+        if hostname:
+            logger.warning(f"Using hostname as instance ID: {hostname}")
+            return hostname
+    except (OSError, Exception) as e:
+        logger.error(f"Failed to get hostname: {e}")
+
+    # 3. final fallback: host_ip + pid
+    host_ip = get_host_ip()
+    pid = os.getpid()
+    fallback_id = f"{host_ip}:{pid}"
+    logger.warning(f"Using fallback instance ID: {fallback_id}")
+    return fallback_id
 
 
 def get_uniagent_endpoint(
