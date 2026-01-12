@@ -15,25 +15,17 @@ import json
 import os
 import time
 import shlex
-import asyncio
 from pathlib import Path
-from httpx import ReadTimeout
 from contextlib import contextmanager
 
 from rock import env_vars
 from rock.logger import init_logger
-from rock.actions import (
-    Command,
-    CreateBashSessionRequest,
-    UploadRequest,
-    Observation,
-    WriteFileRequest
-)
-from rock.sdk.sandbox.agent.base import DefaultAgent
-from rock.sdk.sandbox.agent.config import DefaultAgentConfig
 from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.sandbox.utils import arun_with_retry
-from rock.sdk.sandbox.model_service.base import ModelService, ModelServiceConfig
+from rock.sdk.sandbox.agent.base import DefaultAgent
+from rock.sdk.sandbox.agent.config import DefaultAgentConfig
+from rock.sdk.sandbox.model_service.base import ModelServiceConfig
+from rock.actions import CreateBashSessionRequest, UploadRequest, Observation, WriteFileRequest
 
 from typing import Any, Literal
 
@@ -203,6 +195,8 @@ class OpenhandsConfig(DefaultAgentConfig):
 
     default_run_single_config: dict[str, Any] = DEFAULT_RUN_SINGLE_CONFIG
 
+    max_iteration: int = 300
+
     session_envs: dict[str, str] = {}
 
     model_service_config: ModelServiceConfig | None = None
@@ -222,6 +216,8 @@ class Openhands(DefaultAgent):
         agent_session: Name of the bash session used for agent operations
         model_service: ModelService instance (created if configured)
     """
+    sandbox: Sandbox
+    config: OpenhandsConfig
 
     def __init__(self, sandbox: Sandbox, config: OpenhandsConfig):
         """Initialize Agent with sandbox environment and configuration.
@@ -234,7 +230,6 @@ class Openhands(DefaultAgent):
             AssertionError: If sandbox is not an instance of Sandbox class
         """
         super().__init__(sandbox, config)
-
         self.agent_prompt_path = f"{self.config.agent_workdir}/benchmarks/benchmarks/swebench/prompts/custom.j2"
 
     async def _install(self):
@@ -414,7 +409,9 @@ class Openhands(DefaultAgent):
 
     async def run(
             self,
-            instance_data: dict,
+            problem_statement: str,
+            project_path: str,
+            instance_id: str,
             agent_run_timeout: int = 1800,
             agent_run_check_interval: int = 30,
     ) -> Observation:
@@ -425,7 +422,9 @@ class Openhands(DefaultAgent):
         it will be started and watch_agent will be called to monitor the agent process.
 
         Args:
-            instance_data: The instance detail information
+            problem_statement: The problem statement for the task
+            project_path: Path to the target project
+            instance_id: The instance identifier for the run
             agent_run_timeout: Maximum seconds to wait for agent execution completion (default 1800)
             agent_run_check_interval: Seconds between status checks during execution (default 30)
 
@@ -436,21 +435,18 @@ class Openhands(DefaultAgent):
             Exception: If agent execution fails
         """
         sandbox_id = self._sandbox.sandbox_id
-        assert instance_data["instance_id"]
-        assert instance_data["problem_statement"]
-        assert instance_data["repo_name"]
-        assert instance_data["project_path"]
-        assert instance_data["base_commit"]
+        instance_data = {
+            "instance_id": instance_id,
+            "problem_statement": problem_statement,
+            "project_path": project_path,
+            "repo_name": instance_id.split("-")[0].replace("__", "/"),
+            "base_commit": "",
+        }
         start_time = time.time()
 
         logger.info(f"[{sandbox_id}] Openhands execution started")
 
         try:
-            # Start ModelService if configured
-            if self.model_service:
-                logger.info(f"[{sandbox_id}] Starting ModelService")
-                await self.model_service.start()
-
             with self._config_template_context(**instance_data) as generated_config_path:
                 instance_config = Path(generated_config_path).name
 
@@ -477,9 +473,10 @@ class Openhands(DefaultAgent):
                 agent_run_cmd = (
                     f"cd {self.config.agent_workdir}/benchmarks && "
                     "export PYTHONPATH='.' && "
-                    f"{self.config.agent_workdir}/python/bin/python ./benchmarks/swebench/run_infer.py "
-                    f".llm_config.json --dataset eval --split test --note rock_rollout --select ./{instance_config} "
-                    f"--max-iterations 300"
+                    f"{self.config.agent_workdir}/python/bin/python "
+                    "./benchmarks/swebench/run_infer.py "
+                    ".llm_config.json --dataset eval --split test --note rock_rollout "
+                    f"--select ./{instance_config} --max-iterations {self.config.max_iteration}"
                 )
                 if self.config.agent_prompt != DEFAULT_PROMPT:
                     agent_run_cmd += f" --prompt-path benchmarks/swebench/prompts/custom.j2"
@@ -522,11 +519,3 @@ class Openhands(DefaultAgent):
                 exc_info=True,
             )
             raise
-        finally:
-            # Clean up ModelService if started
-            if self.model_service and self.model_service.is_started:
-                try:
-                    logger.info(f"[{sandbox_id}] Stopping ModelService")
-                    await self.model_service.stop()
-                except Exception as e:
-                    logger.warning(f"[{sandbox_id}] Failed to stop ModelService: {str(e)}")
