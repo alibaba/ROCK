@@ -101,7 +101,7 @@ bash examples/agentic_demo/run_agentic_pipeline_sokoban_sandbox_single_node.sh
 
 For optimal compatibility with this method, we recommend running these commands inside one of ROLL's official base Docker images. These images come pre-installed with matching CUDA, cuDNN, and other foundational libraries.
 
-> [ROLL's Official Docker Image List](https://alibaba.github.io/ROLL/docs/English/QuickStart/image_address)  
+> [ROLL's Official Docker Image List](https://alibaba.github.io/ROLL/docs/Getting%20Started/Installation/image_address)  
 
 
 #### Warning
@@ -136,7 +136,7 @@ Instead of running everything on a single machine, you can deploy the  **ROCK Se
 
 ### 3.1  Deploy the ROCK Service on Machine A
 
-On a dedicated machine (or container), follow the [ROCK Quick Start Guide](https://rock.io.alibaba-inc.com/docs/rock/quickstart) to deploy and start the ROCK service.
+On a dedicated machine (or container), follow the [ROCK Quick Start Guide](./quickstart.md) to deploy and start the ROCK service.
 
 > **Important**  
 > After starting the service, take note of its IP address and port (e.g., `http://192.168.1.10:8000`). You will need this address for the subsequent steps.

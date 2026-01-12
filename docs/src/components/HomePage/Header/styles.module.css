@@ -1,0 +1,191 @@
+.header {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+}
+
+.container {
+  width: 774px;
+  height: 64px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s ease;
+}
+
+.container:hover {
+  background: rgba(0, 0, 0, 0.9);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+/* Logo区域 */
+.logoSection {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logoIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  font-size: 16px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.textSection {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.primaryText {
+  color: white;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.2;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.secondaryText {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.2;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* 导航区域 */
+.navSection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.navButton {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 16px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.navButton:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  transform: translateY(-1px);
+}
+
+.navButton:active {
+  transform: translateY(0);
+}
+
+.languageButton {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  font-size: 16px;
+  font-weight: 500;
+  padding: 5px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-width: 20px;
+}
+
+.languageButton:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+.languageButton:active {
+  transform: translateY(0);
+}
+
+/* 响应式设计 */
+@media (max-width: 800px) {
+  .container {
+    width: 90vw;
+    max-width: 600px;
+    padding: 0 20px;
+  }
+  
+  .logoSection {
+    gap: 12px;
+  }
+  
+  .logo {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .logoIcon {
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+  }
+  
+  .primaryText {
+    font-size: 16px;
+  }
+  
+  .secondaryText {
+    font-size: 10px;
+  }
+  
+  .navSection {
+    gap: 4px;
+  }
+  
+  .navButton,
+  .languageButton {
+    font-size: 12px;
+    padding: 6px 12px;
+  }
+}
+
+@media (max-width: 600px) {
+  .container {
+    height: 70px;
+    padding: 0 16px;
+  }
+  
+  .secondaryText {
+    display: none;
+  }
+  
+  .navButton,
+  .languageButton {
+    font-size: 11px;
+    padding: 5px 10px;
+  }
+}

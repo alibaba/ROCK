@@ -44,7 +44,7 @@ class SandboxProxyService:
 
     def __init__(self, rock_config: RockConfig, redis_provider: RedisProvider | None = None):
         self._redis_provider = redis_provider
-        self.metrics_monitor = MetricsMonitor.create()
+        self.metrics_monitor = MetricsMonitor.create(export_interval_millis=20_000)
         self.oss_config: OssConfig = rock_config.oss
         self.proxy_config: ProxyServiceConfig = rock_config.proxy_service
         logger.info(f"proxy config: {self.proxy_config}")

@@ -6,28 +6,9 @@ sidebar_position: 2
 
 本指南将通过完整的示例演示如何使用 ROCK 创建和管理强化学习环境。ROCK (Reinforcement Open Construction Kit) 是一个全面的沙箱环境管理框架，主要用于强化学习和AI开发环境。
 
-## 目录
-
-- [快速上手](#快速上手)
-  - [目录](#目录)
-  - [1. 环境准备](#1-环境准备)
-    - [1.1 系统要求](#11-系统要求)
-    - [1.2 验证依赖安装](#12-验证依赖安装)
-    - [1.3 项目初始化](#13-项目初始化)
-  - [2. 激活虚拟环境](#2-激活虚拟环境)
-  - [3. 验证环境配置](#3-验证环境配置)
-  - [4. 启动 ROCK 服务](#4-启动-rock-服务)
-  - [5. 运行示例环境](#5-运行示例环境)
-    - [5.1 示例说明](#51-示例说明)
-  - [6. 分布式环境配置（可选）](#6-分布式环境配置可选)
-  - [7. MacOS 启动](#7-macos-启动)
-  - [8. 从Pip源启动](#8-从pip源启动)
-  - [总结](#总结)
-  - [下一步学习](#下一步学习)
-
 ## 1. 环境准备
 
-我们推荐在 Linux 系统下启动 ROCK，能够尽量复用项目依赖，提升环境拉起速度。如果需要在 macOS 上尝试，可以参考 [MacOS 启动](#7-macos启动) 一节。
+我们推荐在 Linux 系统下启动 ROCK，能够尽量复用项目依赖，提升环境拉起速度。如果需要在 macOS 上尝试，可以参考 [MacOS 启动](#7-macos-启动) 一节。
 
 在开始之前，请确保您的系统已安装以下依赖项：
 
@@ -87,7 +68,7 @@ python -c "import sys; print('Base prefix:', sys.base_prefix)"
 
 ```bash
 # 检查关键依赖
-python -c "import rock; print("Hello ROCK")
+python -c "import rock; print(\"Hello ROCK\")"
 ```
 
 
@@ -154,14 +135,14 @@ python examples/sokoban_demo.py
 export ROCK_WORKER_ENV_TYPE=uv
 ```
 
-在容器启动时，会安装对应的 uv 环境，细节可以参考 `rock/rocklet/docker_run_with_uv.sh` 脚本。
+在容器启动时，会安装对应的 uv 环境，细节可以参考 `rock/rocklet/local_files/docker_run_with_uv.sh` 脚本。
 
 > **注意**: 相比 Linux 系统，macOS 上的启动速度会较慢，且比较依赖网络环境，可以根据实际情况调整脚本。ROCK_WORKER_ENV_TYPE的细节可以参考 [Configuration Guide](../User%20Guides/configuration.md).
 
 
 ## 8. 从Pip源启动
 
-如果从Pip源启动Admin Server，在参照[installation.md](./installation.md)安装完成ROCK后, 需要设置额外环境变量: 
+如果从Pip源启动Admin Server，在参照[安装指南](./installation.md)安装完成ROCK后, 需要设置额外环境变量: 
 
 ```bash
 export ROCK_WORKER_ENV_TYPE=pip

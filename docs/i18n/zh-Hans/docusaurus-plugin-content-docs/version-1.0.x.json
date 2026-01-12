@@ -1,7 +1,7 @@
 {
   "version.label": {
     "message": "1.0.x",
-    "description": "The label for version current"
+    "description": "The label for version 1.0.x"
   },
   "sidebar.tutorialSidebar.category.Getting Started": {
     "message": "快速上手",
@@ -26,5 +26,9 @@
   "sidebar.tutorialSidebar.category.sandbox-agent": {
     "message": "Sandbox Agent参考",
     "description": "The label for category 'Sandbox Agent References' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Python SDK References": {
+    "message": "Python SDK 参考",
+    "description": "The label for category 'Python SDK References' in sidebar 'tutorialSidebar'"
   }
 }

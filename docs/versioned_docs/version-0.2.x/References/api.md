@@ -6,28 +6,6 @@ sidebar_position: 1
 
 This guide provides detailed information about the core API services provided by the ROCK platform, including sandbox environment management and GEM environment interaction.
 
-## Table of Contents
-
-- [API Reference](#api-reference)
-  - [Table of Contents](#table-of-contents)
-  - [1. Overview](#1-overview)
-  - [2. Sandbox API](#2-sandbox-api)
-    - [Sandbox Management Interfaces](#sandbox-management-interfaces)
-    - [Command Execution Interfaces](#command-execution-interfaces)
-    - [File Operation Interfaces](#file-operation-interfaces)
-  - [3. GEM API](#3-gem-api)
-  - [4. HTTP API Usage Examples](#4-http-api-usage-examples)
-    - [4.1 Sandbox API Examples](#41-sandbox-api-examples)
-      - [Start Sandbox](#start-sandbox)
-      - [Asynchronously Start Sandbox](#asynchronously-start-sandbox)
-      - [Execute Command](#execute-command)
-      - [Create Session](#create-session)
-      - [Run Command in Session](#run-command-in-session)
-      - [Upload File](#upload-file)
-      - [Stop Sandbox](#stop-sandbox)
-    - [4.2 GEM API Examples](#42-gem-api-examples)
-  - [Related Documents](#related-documents)
-
 ## 1. Overview
 
 The ROCK platform provides two core API services:

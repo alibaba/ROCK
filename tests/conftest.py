@@ -22,6 +22,9 @@ def configure_logging():
         log_dir = str(project_root / log_dir)
         env_vars.ROCK_LOGGING_PATH = log_dir
 
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 
 @pytest.fixture(name="container_name")
 def random_container_name() -> str:

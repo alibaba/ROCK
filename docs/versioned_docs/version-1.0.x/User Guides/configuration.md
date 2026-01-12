@@ -6,13 +6,6 @@ sidebar_position: 4
 
 This guide provides detailed instructions on how to configure the ROCK environment to meet different usage requirements, including local development, testing, and production deployment.
 
-## Table of Contents
-
-- [Environment Variable Configuration](#1-environment-variable-configuration)
-  - [Runtime Environments](#11-runtime-environments)
-  - [Logging Configuration](#12-logging-configuration)
-- [Distributed Deployment Requirements](#2-distributed-deployment-requirements)
-
 ## 1. Environment Variable Configuration
 
 ROCK supports configuring key parameters through environment variables. The main environment variables are as follows:

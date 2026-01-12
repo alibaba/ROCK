@@ -6,19 +6,6 @@ sidebar_position: 2
 
 This guide provides detailed information on how to use the ROCK SDK for development, including sandbox environment management and GEM environment interaction.
 
-## Table of Contents
-
-- [Python SDK Reference](#python-sdk-reference)
-  - [Table of Contents](#table-of-contents)
-  - [1. Overview](#1-overview)
-  - [2. Sandbox SDK](#2-sandbox-sdk)
-    - [2.1 Basic Sandbox Operations](#21-basic-sandbox-operations)
-    - [3.2 Sandbox Group Management](#32-sandbox-group-management)
-    - [3.4 Configuration Example](#34-configuration-example)
-  - [Related Documents](#related-documents)
-  - [3. GEM SDK](#3-gem-sdk)
-    - [3.1 Python SDK Approach](#31-python-sdk-approach)
-
 ## 1. Overview
 
 ROCK SDK provides developers with convenient Python interfaces to use ROCK platform features, including sandbox environment management and GEM environment interaction.

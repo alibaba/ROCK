@@ -6,19 +6,6 @@ sidebar_position: 2
 
 This guide provides detailed information on how to use the ROCK SDK for development, including sandbox environment management and GEM environment interaction.
 
-## Table of Contents
-
-- [Python SDK Reference](#python-sdk-reference)
-  - [Table of Contents](#table-of-contents)
-  - [1. Overview](#1-overview)
-  - [2. Sandbox SDK](#2-sandbox-sdk)
-    - [2.1 Basic Sandbox Operations](#21-basic-sandbox-operations)
-    - [3.2 Sandbox Group Management](#32-sandbox-group-management)
-    - [3.4 Configuration Example](#34-configuration-example)
-  - [Related Documents](#related-documents)
-  - [3. GEM SDK](#3-gem-sdk)
-    - [3.1 Python SDK Approach](#31-python-sdk-approach)
-
 ## 1. Overview
 
 ROCK SDK provides developers with convenient Python interfaces to use ROCK platform features, including sandbox environment management and GEM environment interaction.
@@ -72,7 +59,7 @@ if __name__ == "__main__":
     asyncio.run(run_sandbox())
 ```
 
-### 3.2 Sandbox Group Management
+### 2.2 Sandbox Group Management
 
 ```python
 from rock.sdk.sandbox.config import SandboxGroupConfig
@@ -96,7 +83,7 @@ for sandbox in sandbox_group.sandbox_list:
 await sandbox_group.stop()
 ```
 
-### 3.4 Configuration Example
+### 2.3 Configuration Example
 
 ```python
 config = SandboxConfig(
@@ -105,13 +92,6 @@ config = SandboxConfig(
     experiment_id="test",
 )
 ```
-
-## Related Documents
-
-- [Quick Start Guide](../../Getting%20Started/quickstart.md) - Learn how to quickly get started with the ROCK SDK
-- [API Documentation](../api.md) - View the underlying API interfaces encapsulated by the SDK
-- [Configuration Guide](../../User%20Guides/configuration.md) - Learn about SDK-related configuration options
-- [Installation Guide](../../Getting%20Started/installation.md) - Detailed information about ROCK installation and setup
 
 ## 3. GEM SDK
 
@@ -181,3 +161,10 @@ if __name__ == "__main__":
     )
     main()
 ```
+
+## Related Documents
+
+- [Quick Start Guide](../../Getting%20Started/quickstart.md) - Learn how to quickly get started with the ROCK SDK
+- [API Documentation](../api.md) - View the underlying API interfaces encapsulated by the SDK
+- [Configuration Guide](../../User%20Guides/configuration.md) - Learn about SDK-related configuration options
+- [Installation Guide](../../Getting%20Started/installation.md) - Detailed information about ROCK installation and setup

@@ -65,8 +65,6 @@ class IFlowCliConfig(DefaultAgentConfig):
 
     agent_session: str = "iflow-cli-session"
 
-    pre_startup_bash_cmd_list: list[str] = env_vars.ROCK_AGENT_PRE_STARTUP_BASH_CMD_LIST
-
     npm_install_cmd: str = env_vars.ROCK_AGENT_NPM_INSTALL_CMD
 
     npm_install_timeout: int = 300

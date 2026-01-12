@@ -105,7 +105,7 @@ bash examples/agentic_demo/run_agentic_pipeline_sokoban_sandbox_single_node.sh
 
 为获得最佳兼容性，推荐使用 ROLL 官方提供的基础 Docker 镜像，因为它们已经预装了匹配的 CUDA、cuDNN 和其他基础库。
 
-> [ROLL 官方镜像列表](https://alibaba.github.io/ROLL/docs/English/QuickStart/)  
+> [ROLL 官方镜像列表](https://alibaba.github.io/ROLL/zh-Hans/docs/Getting%20Started/Installation/image_address/)  
 
 
 #### 注意
@@ -142,7 +142,7 @@ bash examples/agentic_demo/run_agentic_pipeline_sokoban_sandbox_single_node.sh
 
 ### 3.1 在机器 A 上部署 ROCK 服务
 
-在一台独立的机器（或容器）上，参照[ROCK快速指南](https://rock.io.alibaba-inc.com/docs/rock/CN/quickstart)部署并启动 ROCK 服务。
+在一台独立的机器（或容器）上，参照[ROCK快速指南](./quickstart.md)部署并启动 ROCK 服务。
 
 > **重要提示**  
 > 启动服务后，请记下ROCK服务的IP地址和端口，例如`http://192.168.1.10:8000`，后续步骤将需要这个地址。

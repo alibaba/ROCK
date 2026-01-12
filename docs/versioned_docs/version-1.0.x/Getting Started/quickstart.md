@@ -6,25 +6,6 @@ sidebar_position: 2
 
 This guide will demonstrate how to use ROCK to create and manage reinforcement learning environments through complete examples.
 
-## Table of Contents
-
-- [Getting Started](#getting-started)
-  - [Table of Contents](#table-of-contents)
-  - [1. Environment Preparation](#1-environment-preparation)
-    - [1.1 System Requirements](#11-system-requirements)
-    - [1.2 Verify Dependency Installation](#12-verify-dependency-installation)
-    - [1.3 Project Initialization](#13-project-initialization)
-  - [2. Activate Virtual Environment](#2-activate-virtual-environment)
-  - [3. Verify Environment Configuration](#3-verify-environment-configuration)
-  - [4. Start ROCK Service](#4-start-rock-service)
-  - [5. Run Example Environments](#5-run-example-environments)
-    - [5.1 Example Descriptions](#51-example-descriptions)
-  - [6. Distributed Environment Configuration (Optional)](#6-distributed-environment-configuration-optional)
-  - [7. MacOS Startup](#7-macos-startup)
-  - [8. Starting from Pip Source](#8-starting-from-pip-source)
-  - [Summary](#summary)
-  - [Next Steps](#next-steps)
-
 ## 1. Environment Preparation
 
 We recommend starting ROCK on Linux systems to maximize dependency reuse and improve environment startup speed. If you need to try on macOS, please refer to the [MacOS Startup](#7-macos-startup) section.
@@ -85,7 +66,7 @@ After activating the virtual environment, verify that dependencies are installed
 
 ```bash
 # Check key dependencies
-python -c "import rock; print("Hello ROCK")
+python -c "import rock; print(\"Hello ROCK\")"
 ```
 
 ## 4. Start ROCK Service
@@ -150,13 +131,13 @@ On macOS, if you need to start Linux image environments, you first need to set t
 export ROCK_WORKER_ENV_TYPE=uv
 ```
 
-During container startup, the corresponding uv environment will be installed. For details, please refer to the `rock/rocklet/docker_run_with_uv.sh` script.
+During container startup, the corresponding uv environment will be installed. For details, please refer to the `rock/rocklet/local_files/docker_run_with_uv.sh` script.
 
 > **Note**: Compared to Linux systems, the startup speed on macOS will be slower and more dependent on network conditions. You can adjust the script according to actual conditions.You can find detatils for ROCK_WORKER_ENV_TYPE in [Configuration Guide](../User%20Guides/configuration.md).
 
 ## 8. Starting from Pip Source
 
-If starting the Admin Server from Pip source, after completing the ROCK installation by referring to [installation.md](./installation.md), you need to set an additional environment variable:
+If starting the Admin Server from Pip source, after completing the ROCK installation by referring to [installation](./installation.md), you need to set an additional environment variable:
 
 ```bash
 export ROCK_WORKER_ENV_TYPE=pip

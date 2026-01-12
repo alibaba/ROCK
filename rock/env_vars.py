@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     ROCK_MODEL_SERVICE_DATA_DIR: str
 
     # Agentic
-    ROCK_AGENT_PRE_STARTUP_BASH_CMD_LIST: list[str] = []
+    ROCK_AGENT_PRE_INIT_BASH_CMD_LIST: list[str] = []
     ROCK_AGENT_PYTHON_INSTALL_CMD: str
 
     ROCK_AGENT_NPM_INSTALL_CMD: str
@@ -87,7 +87,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
         "ROCK_AGENT_PYTHON_INSTALL_CMD",
         "[ -f cpython31114.tar.gz ] && rm cpython31114.tar.gz; [ -d python ] && rm -rf python; wget -q -O cpython31114.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20251120/cpython-3.11.14+20251120-x86_64-unknown-linux-gnu-install_only.tar.gz && tar -xzf cpython31114.tar.gz",
     ),
-    "ROCK_AGENT_PRE_STARTUP_BASH_CMD_LIST": lambda: json.loads(os.getenv("ROCK_AGENT_PRE_STARTUP_BASH_CMD_LIST", "[]")),
+    "ROCK_AGENT_PRE_INIT_BASH_CMD_LIST": lambda: json.loads(os.getenv("ROCK_AGENT_PRE_INIT_BASH_CMD_LIST", "[]")),
     "ROCK_AGENT_NPM_INSTALL_CMD": lambda: os.getenv(
         "ROCK_AGENT_NPM_INSTALL_CMD",
         "wget --tries=10 --waitretry=2 https://npmmirror.com/mirrors/node/v22.18.0/node-v22.18.0-linux-x64.tar.xz && tar -xf node-v22.18.0-linux-x64.tar.xz -C /opt/ && mv /opt/node-v22.18.0-linux-x64 /opt/nodejs && ln -sf /opt/nodejs/bin/node /usr/local/bin/node && ln -sf /opt/nodejs/bin/npm /usr/local/bin/npm && ln -sf /opt/nodejs/bin/npx /usr/local/bin/npx && ln -sf /opt/nodejs/bin/corepack /usr/local/bin/corepack",
@@ -98,7 +98,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
     ),
     "ROCK_AGENT_MODEL_SERVICE_INSTALL_CMD": lambda: os.getenv(
         "ROCK_AGENT_MODEL_SERVICE_INSTALL_CMD",
-        "TO IMPL",
+        'pip install "rl_rock[model-service]==1.0.0" -i https://mirrors.aliyun.com/pypi/simple',
     ),
 }
 

@@ -85,7 +85,7 @@ After activating the virtual environment, verify that dependencies are installed
 
 ```bash
 # Check key dependencies
-python -c "import rock; print("Hello ROCK")
+python -c "import rock; print(\"Hello ROCK\")"
 ```
 
 ## 4. Start ROCK Service
@@ -150,13 +150,13 @@ On macOS, if you need to start Linux image environments, you first need to set t
 export ROCK_WORKER_ENV_TYPE=uv
 ```
 
-During container startup, the corresponding uv environment will be installed. For details, please refer to the `rock/rocklet/docker_run_with_uv.sh` script.
+During container startup, the corresponding uv environment will be installed. For details, please refer to the `rock/rocklet/local_files/docker_run_with_uv.sh` script.
 
 > **Note**: Compared to Linux systems, the startup speed on macOS will be slower and more dependent on network conditions. You can adjust the script according to actual conditions.You can find detatils for ROCK_WORKER_ENV_TYPE in [Configuration Guide](../User%20Guides/configuration.md).
 
 ## 8. Starting from Pip Source
 
-If starting the Admin Server from Pip source, after completing the ROCK installation by referring to [installation.md](./installation.md), you need to set an additional environment variable:
+If starting the Admin Server from Pip source, after completing the ROCK installation by referring to [installation](./installation.md), you need to set an additional environment variable:
 
 ```bash
 export ROCK_WORKER_ENV_TYPE=pip
