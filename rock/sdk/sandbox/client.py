@@ -43,6 +43,7 @@ from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
 from rock.sdk.sandbox.model_service.base import ModelService
 from rock.sdk.sandbox.remote_user import LinuxRemoteUser, RemoteUser
+from rock.sdk.sandbox.speedup import SpeedupExecutor, SpeedupType
 from rock.utils import HttpUtils, extract_nohup_pid, retry_async
 
 logger = logging.getLogger(__name__)
@@ -734,6 +735,129 @@ class Sandbox(AbstractSandbox):
 
         result = ReadFileResponse(content=result)
         return result
+
+    async def execute_script(
+        self,
+        script_content: str,
+        script_name: str = None,
+        wait_timeout: int = 300,
+        wait_interval: int = 10,
+        cleanup: bool = True,
+    ) -> Observation:
+        """
+        Execute a script in the sandbox.
+
+        This is a general-purpose method that:
+        1. Uploads the script to /tmp
+        2. Executes it using nohup mode
+        3. Optionally cleans up the script file
+
+        Args:
+            script_content: The script content to execute
+            script_name: Optional custom script name. If None, generates timestamp-based name
+            wait_timeout: Maximum time to wait for script completion (seconds)
+            wait_interval: Interval between process checks (seconds)
+            cleanup: Whether to delete the script file after execution
+
+        Returns:
+            Observation: Execution result
+
+        Examples:
+            # Execute a simple script
+            result = await sandbox.execute_script(
+                script_content="#!/bin/bash\\necho 'Hello World'",
+                wait_timeout=60
+            )
+
+            # Execute with custom name and keep the script
+            result = await sandbox.execute_script(
+                script_content=my_script,
+                script_name="my_custom_script.sh",
+                cleanup=False
+            )
+        """
+        # Generate script path
+        if script_name is None:
+            timestamp = str(time.time_ns())
+            script_name = f"script_{timestamp}.sh"
+
+        script_path = f"/tmp/{script_name}"
+
+        try:
+            # Upload script
+            logger.info(f"Uploading script to {script_path}")
+            write_result = await self.write_file_by_path(script_content, script_path)
+
+            if not write_result.success:
+                error_msg = f"Failed to upload script: {write_result.message}"
+                logger.error(error_msg)
+                return Observation(output=error_msg, exit_code=1, failure_reason="Script upload failed")
+
+            # Execute script
+            logger.info(f"Executing script: {script_path} (timeout={wait_timeout}s)")
+            result = await self.arun(
+                cmd=f"bash {script_path}",
+                mode=RunMode.NOHUP,
+                wait_timeout=wait_timeout,
+                wait_interval=wait_interval,
+            )
+
+            return result
+
+        except Exception as e:
+            error_msg = f"Script execution failed: {str(e)}"
+            logger.error(error_msg)
+            return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
+
+        finally:
+            # Cleanup script if requested
+            if cleanup:
+                try:
+                    logger.info(f"Cleaning up script: {script_path}")
+                    await self.execute(Command(command=["rm", "-f", script_path]))
+                    logger.debug(f"Script cleaned up successfully: {script_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to cleanup script {script_path}: {e}")
+
+    async def speedup(self, speedup_type: SpeedupType, speedup_value: str, timeout: int = 300) -> Observation:
+        """
+        Configure acceleration for package managers or network resources
+
+        Args:
+            speedup_type: Type of speedup configuration (SpeedupType.APT, SpeedupType.PIP, SpeedupType.GITHUB)
+            speedup_value: Speedup value, format depends on speedup_type:
+                - APT: Mirror URL with protocol
+                    Examples: "http://mirrors.cloud.aliyuncs.com", "https://mirrors.aliyun.com"
+                - PIP: Mirror URL with protocol
+                    Examples: "http://mirrors.cloud.aliyuncs.com", "https://mirrors.aliyun.com"
+                - GITHUB: IP address for github.com
+                    Examples: "20.205.243.166"
+            timeout: Execution timeout in seconds, default 300
+
+        Returns:
+            Observation: Execution result containing output and exit code
+
+        Examples:
+            # Configure APT mirror
+            result = await sandbox.speedup(
+                speedup_type=SpeedupType.APT,
+                speedup_value="http://mirrors.cloud.aliyuncs.com"
+            )
+
+            # Configure PIP mirror with custom path
+            result = await sandbox.speedup(
+                speedup_type=SpeedupType.PIP,
+                speedup_value="https://mirrors.aliyun.com"
+            )
+
+            # Configure GitHub acceleration
+            result = await sandbox.speedup(
+                speedup_type=SpeedupType.GITHUB,
+                speedup_value="20.205.243.166"
+            )
+        """
+        executor = SpeedupExecutor(self)
+        return await executor.execute(speedup_type, speedup_value, timeout)
 
     async def _generate_tmp_session_name(self) -> str:
         timestamp = str(time.time_ns())
