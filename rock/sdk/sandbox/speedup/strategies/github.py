@@ -36,8 +36,8 @@ class GithubSpeedupStrategy(SpeedupStrategy):
             speedup_value: IP address for github.com
 
         Examples:
-            "20.205.243.166" -> {
-                "hosts_entry": "20.205.243.166 github.com"
+            "11.11.11.11" -> {
+                "hosts_entry": "11.11.11.11 github.com"
             }
         """
         # Trim whitespace
