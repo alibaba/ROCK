@@ -3,9 +3,9 @@ import json
 import logging
 import time
 import traceback
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-import uuid
 
 import uvicorn
 from fastapi import FastAPI, Request

@@ -11,6 +11,10 @@ from rock.utils import sandbox_id_ctx_var, trace_id_ctx_var
 class StandardFormatter(logging.Formatter):
     """Custom log formatter with color support"""
 
+    def __init__(self, *args, log_color_enable: bool = True, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.log_color_enable = log_color_enable
+
     def format(self, record):
         # ANSI color codes for different log levels
         COLORS = {
@@ -41,7 +45,10 @@ class StandardFormatter(logging.Formatter):
         header_str = f"{time_str} {level_str}:{file_str} [{logger_str}] [{sandbox_id}] [{trace_id}] --"
 
         # Color the header part and keep message in default color
-        return f"{log_color}{header_str}{RESET} {record.getMessage()}"
+        if self.log_color_enable:
+            return f"{log_color}{header_str}{RESET} {record.getMessage()}"
+        return f"{header_str} {record.getMessage()}"
+
 
 @cache
 def init_file_handler(log_name: str):
@@ -53,8 +60,10 @@ def init_file_handler(log_name: str):
         os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
 
         handler = logging.FileHandler(log_file_path, mode="w+", encoding="utf-8")
+        handler.setFormatter(StandardFormatter(log_color_enable=False))
         return handler
     return None
+
 
 def init_logger(name: str | None = None, handler: logging.Handler | None = None):
     """Initialize and return a logger instance with custom handler and formatter
@@ -80,8 +89,7 @@ def init_logger(name: str | None = None, handler: logging.Handler | None = None)
             else:
                 # Use stdout handler
                 handler = logging.StreamHandler(sys.stdout)
-
-        handler.setFormatter(StandardFormatter())
+                handler.setFormatter(StandardFormatter())
 
         # Apply logging level from environment variable
         log_level = env_vars.ROCK_LOGGING_LEVEL
