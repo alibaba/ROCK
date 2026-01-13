@@ -25,7 +25,7 @@ export default ({ currentLocale }) => {
     const observerOptions = {
       root: null,
       rootMargin: '0px',
-      threshold: 0.5
+      threshold: 0.2
     };
 
     const observer = new IntersectionObserver((entries) => {
@@ -60,6 +60,59 @@ export default ({ currentLocale }) => {
           observer.unobserve(section);
         }
       });
+    };
+  }, []);
+
+  useEffect(() => {
+    const childObserverOptions = {
+      root: null,
+      rootMargin: '0px',
+      threshold: 0.1
+    };
+
+    const childObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const index = parseInt(entry.target.dataset.index);
+          entry.target.style.transitionDelay = `${index * 0.15}s`;
+          entry.target.classList.add(styles.childVisible);
+        }
+      });
+    }, childObserverOptions);
+
+    // 监听.images模块的子元素
+    const aboutImages = aboutRef.current?.querySelectorAll(`.${styles.images} .${styles.sub}`);
+    aboutImages?.forEach((element, index) => {
+      element.dataset.index = index;
+      childObserver.observe(element);
+    });
+
+    // 监听.features模块的子元素
+    const featuresCards = featuresRef.current?.querySelectorAll(`.${styles.card}`);
+    featuresCards?.forEach((element, index) => {
+      element.dataset.index = index;
+      childObserver.observe(element);
+    });
+
+    // 监听.opensource模块的统计项
+    const opensourceStats = opensourceRef.current?.querySelectorAll(`.${styles.statItem}`);
+    opensourceStats?.forEach((element, index) => {
+      element.dataset.index = index;
+      childObserver.observe(element);
+    });
+
+    // 监听.community模块的子元素
+    const communityElements = communityRef.current?.querySelectorAll(`.${styles.content} > div`);
+    communityElements?.forEach((element, index) => {
+      element.dataset.index = index;
+      childObserver.observe(element);
+    });
+
+    return () => {
+      aboutImages?.forEach(element => childObserver.unobserve(element));
+      featuresCards?.forEach(element => childObserver.unobserve(element));
+      opensourceStats?.forEach(element => childObserver.unobserve(element));
+      communityElements?.forEach(element => childObserver.unobserve(element));
     };
   }, []);
 
