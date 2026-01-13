@@ -831,7 +831,7 @@ class Sandbox(AbstractSandbox):
                 - PIP: Mirror URL with protocol
                     Examples: "http://mirrors.cloud.aliyuncs.com", "https://mirrors.aliyun.com"
                 - GITHUB: IP address for github.com
-                    Examples: "20.205.243.166"
+                    Examples: "11.11.11.11"
             timeout: Execution timeout in seconds, default 300
 
         Returns:
@@ -853,7 +853,7 @@ class Sandbox(AbstractSandbox):
             # Configure GitHub acceleration
             result = await sandbox.speedup(
                 speedup_type=SpeedupType.GITHUB,
-                speedup_value="20.205.243.166"
+                speedup_value="11.11.11.11"
             )
         """
         executor = SpeedupExecutor(self)
