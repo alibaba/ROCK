@@ -66,7 +66,3 @@ class GithubSpeedupStrategy(SpeedupStrategy):
         params = self.parse_value(speedup_value)
         logger.info(f"Generating GitHub speedup script with hosts entry: {params['hosts_entry']}")
         return setup_github_hosts_template.format(**params)
-
-    def get_nohup_wait_timeout(self) -> int:
-        """GitHub hosts configuration is very fast"""
-        return 30

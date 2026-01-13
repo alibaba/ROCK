@@ -52,4 +52,4 @@ class SpeedupStrategy(ABC):
         Returns:
             int: Timeout value
         """
-        return 300
+        return 30

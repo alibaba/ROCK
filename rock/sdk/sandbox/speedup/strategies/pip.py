@@ -63,7 +63,3 @@ class PipSpeedupStrategy(SpeedupStrategy):
         params = self.parse_value(speedup_value)
         logger.info(f"Generating PIP speedup script with mirror: {params['pip_index_url']}")
         return setup_pip_source_template.format(**params)
-
-    def get_nohup_wait_timeout(self) -> int:
-        """PIP configuration is usually fast"""
-        return 60

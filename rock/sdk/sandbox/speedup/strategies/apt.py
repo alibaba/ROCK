@@ -52,7 +52,3 @@ class AptSpeedupStrategy(SpeedupStrategy):
         params = self.parse_value(speedup_value)
         logger.info(f"Generating APT speedup script with mirror: {params['mirror_base']}")
         return setup_apt_source_template.format(**params)
-
-    def get_nohup_wait_timeout(self) -> int:
-        """APT update may take longer time"""
-        return 300
