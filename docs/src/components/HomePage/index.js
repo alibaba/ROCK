@@ -108,11 +108,19 @@ export default ({ currentLocale }) => {
       childObserver.observe(element);
     });
 
+    // 监听.rock模块的子元素
+    const rockElements = document.querySelector(`.${styles.rock}`)?.children;
+    Array.from(rockElements || []).forEach((element, index) => {
+      element.dataset.index = index;
+      childObserver.observe(element);
+    });
+
     return () => {
       aboutImages?.forEach(element => childObserver.unobserve(element));
       featuresCards?.forEach(element => childObserver.unobserve(element));
       opensourceStats?.forEach(element => childObserver.unobserve(element));
       communityElements?.forEach(element => childObserver.unobserve(element));
+      Array.from(rockElements || []).forEach(element => childObserver.unobserve(element));
     };
   }, []);
 

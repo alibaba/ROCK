@@ -154,7 +154,8 @@
   .images .sub,
   .features .card,
   .opensource .statItem,
-  .community .content > div {
+  .community .content > div,
+  .rock > * {
     opacity: 0;
     transform: translateY(40px);
     transition: opacity 0.6s ease-out, transform 0.6s ease-out;
@@ -162,7 +163,8 @@
   .images .sub.childVisible,
   .features .card.childVisible,
   .opensource .statItem.childVisible,
-  .community .content > div.childVisible {
+  .community .content > div.childVisible,
+  .rock > *.childVisible {
     opacity: 1;
     transform: translateY(0);
   }
