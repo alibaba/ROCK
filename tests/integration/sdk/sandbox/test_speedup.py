@@ -13,7 +13,7 @@ logger = init_logger(__name__)
 
 async def _assert_speedup_apt(sandbox: Sandbox):
     logger.info("Testing APT public mirror configuration...")
-    result = await sandbox.speedup(
+    result = await sandbox.network.speedup(
         speedup_type=SpeedupType.APT,
         speedup_value="http://mirrors.cloud.aliyuncs.com",
     )
@@ -36,7 +36,7 @@ async def _assert_speedup_apt(sandbox: Sandbox):
 
 async def _assert_speedup_pip(sandbox: Sandbox):
     logger.info("Testing PIP mirror (http)...")
-    result = await sandbox.speedup(
+    result = await sandbox.network.speedup(
         speedup_type=SpeedupType.PIP,
         speedup_value="http://mirrors.cloud.aliyuncs.com",
     )
@@ -57,7 +57,7 @@ async def _assert_speedup_pip(sandbox: Sandbox):
     logger.info(f"PIP config verified successfully:\n{pip_config_content}")
 
     logger.info("Testing PIP mirror (https)...")
-    result = await sandbox.speedup(
+    result = await sandbox.network.speedup(
         speedup_type=SpeedupType.PIP,
         speedup_value="https://mirrors.aliyun.com",
     )
@@ -74,7 +74,7 @@ async def _assert_speedup_pip(sandbox: Sandbox):
 
 async def _assert_speedup_github(sandbox: Sandbox):
     logger.info("Testing GitHub acceleration...")
-    result = await sandbox.speedup(
+    result = await sandbox.network.speedup(
         speedup_type=SpeedupType.GITHUB,
         speedup_value="11.11.11.11",
     )

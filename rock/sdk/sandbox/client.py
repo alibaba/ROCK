@@ -42,8 +42,9 @@ from rock.sdk.common.exceptions import InvalidParameterRockException
 from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
 from rock.sdk.sandbox.model_service.base import ModelService
+from rock.sdk.sandbox.network import Network
+from rock.sdk.sandbox.process import Process
 from rock.sdk.sandbox.remote_user import LinuxRemoteUser, RemoteUser
-from rock.sdk.sandbox.speedup import SpeedupExecutor, SpeedupType
 from rock.utils import HttpUtils, extract_nohup_pid, retry_async
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,8 @@ class Sandbox(AbstractSandbox):
     agent: Agent | None = None
     model_service: ModelService | None = None
     remote_user: RemoteUser | None = None
+    process: Process | None = None
+    network: Network | None = None
 
     def __init__(self, config: SandboxConfig):
         self._pod_name = None
@@ -81,6 +84,8 @@ class Sandbox(AbstractSandbox):
         self._oss_token_expire_time = self._generate_utc_iso_time()
         self._cluster = self.config.cluster
         self.remote_user = LinuxRemoteUser(self)
+        self.process = Process(self)
+        self.network = Network(self)
 
     @property
     def sandbox_id(self) -> str:
@@ -735,46 +740,6 @@ class Sandbox(AbstractSandbox):
 
         result = ReadFileResponse(content=result)
         return result
-
-    async def speedup(self, speedup_type: SpeedupType, speedup_value: str, timeout: int = 300) -> Observation:
-        """
-        Configure acceleration for package managers or network resources
-
-        Args:
-            speedup_type: Type of speedup configuration (SpeedupType.APT, SpeedupType.PIP, SpeedupType.GITHUB)
-            speedup_value: Speedup value, format depends on speedup_type:
-                - APT: Mirror URL with protocol
-                    Examples: "http://mirrors.cloud.aliyuncs.com", "https://mirrors.aliyun.com"
-                - PIP: Mirror URL with protocol
-                    Examples: "http://mirrors.cloud.aliyuncs.com", "https://mirrors.aliyun.com"
-                - GITHUB: IP address for github.com
-                    Examples: "11.11.11.11"
-            timeout: Execution timeout in seconds, default 300
-
-        Returns:
-            Observation: Execution result containing output and exit code
-
-        Examples:
-            # Configure APT mirror
-            result = await sandbox.speedup(
-                speedup_type=SpeedupType.APT,
-                speedup_value="http://mirrors.cloud.aliyuncs.com"
-            )
-
-            # Configure PIP mirror with custom path
-            result = await sandbox.speedup(
-                speedup_type=SpeedupType.PIP,
-                speedup_value="https://mirrors.aliyun.com"
-            )
-
-            # Configure GitHub acceleration
-            result = await sandbox.speedup(
-                speedup_type=SpeedupType.GITHUB,
-                speedup_value="11.11.11.11"
-            )
-        """
-        executor = SpeedupExecutor(self)
-        return await executor.execute(speedup_type, speedup_value, timeout)
 
     async def _generate_tmp_session_name(self) -> str:
         timestamp = str(time.time_ns())

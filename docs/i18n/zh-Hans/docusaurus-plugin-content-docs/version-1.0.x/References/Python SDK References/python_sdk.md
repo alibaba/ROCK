@@ -107,7 +107,7 @@ ROCK 提供沙箱网络加速功能，支持配置 APT、PIP 和 GitHub 镜像�
 from rock.sdk.sandbox.speedup import SpeedupType
 
 # 配置 APT 镜像
-await sandbox.speedup(
+await sandbox.network.speedup(
     speedup_type=SpeedupType.APT,
     speedup_value="http://mirrors.cloud.aliyuncs.com"
 )
@@ -119,13 +119,13 @@ await sandbox.speedup(
 
 ```python
 # HTTP 镜像
-await sandbox.speedup(
+await sandbox.network.speedup(
     speedup_type=SpeedupType.PIP,
     speedup_value="http://mirrors.cloud.aliyuncs.com"
 )
 
 # HTTPS 镜像
-await sandbox.speedup(
+await sandbox.network.speedup(
     speedup_type=SpeedupType.PIP,
     speedup_value="https://mirrors.aliyun.com"
 )
@@ -136,7 +136,7 @@ await sandbox.speedup(
 通过添加自定义 DNS 解析条目加速 GitHub 访问。
 
 ```python
-await sandbox.speedup(
+await sandbox.network.speedup(
     speedup_type=SpeedupType.GITHUB,
     speedup_value="11.11.11.11"
 )
@@ -156,14 +156,14 @@ async def setup_sandbox_with_speedup():
     await sandbox.start()
     
     # 配置加速（在安装包之前配置）
-    await sandbox.speedup(
+    await sandbox.network.speedup(
         speedup_type=SpeedupType.APT,
         speedup_value="http://mirrors.cloud.aliyuncs.com"
     )
     
     await sandbox.arun(cmd="apt-get update && apt-get install -y git", mode=RunMode.NOHUP)
 
-    await sandbox.speedup(
+    await sandbox.network.speedup(
         speedup_type=SpeedupType.PIP,
         speedup_value="https://mirrors.aliyun.com"
     )
@@ -172,7 +172,7 @@ async def setup_sandbox_with_speedup():
     await sandbox.arun(cmd="pip install numpy", mode=RunMode.NOHUP)
 
     # 可以通过镜像 IP 加速 GitHub 访问
-    await sandbox.speedup(
+    await sandbox.network.speedup(
         speedup_type=SpeedupType.GITHUB,
         speedup_value="11.11.11.11"
     )

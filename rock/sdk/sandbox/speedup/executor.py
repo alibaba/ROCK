@@ -86,7 +86,7 @@ class SpeedupExecutor:
             return Observation(output=error_msg, exit_code=1, failure_reason="Script generation failed")
 
         # 4. Execute script using the general execute_script method
-        result = await self.sandbox.execute_script(
+        result = await self.sandbox.process.execute_script(
             script_content=script_content,
             wait_timeout=strategy.get_nohup_wait_timeout(),
             cleanup=True,

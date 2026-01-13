@@ -107,7 +107,7 @@ Configure APT package manager mirror sources for faster Debian/Ubuntu package do
 from rock.sdk.sandbox.speedup import SpeedupType
 
 # Configure APT mirror
-await sandbox.speedup(
+await sandbox.network.speedup(
     speedup_type=SpeedupType.APT,
     speedup_value="http://mirrors.cloud.aliyuncs.com"
 )
@@ -119,13 +119,13 @@ Configure Python package index mirrors for faster pip installations.
 
 ```python
 # HTTP mirror
-await sandbox.speedup(
+await sandbox.network.speedup(
     speedup_type=SpeedupType.PIP,
     speedup_value="http://mirrors.cloud.aliyuncs.com"
 )
 
 # HTTPS mirror
-await sandbox.speedup(
+await sandbox.network.speedup(
     speedup_type=SpeedupType.PIP,
     speedup_value="https://mirrors.aliyun.com"
 )
@@ -136,7 +136,7 @@ await sandbox.speedup(
 Configure GitHub IP acceleration by adding custom DNS resolution entries.
 
 ```python
-await sandbox.speedup(
+await sandbox.network.speedup(
     speedup_type=SpeedupType.GITHUB,
     speedup_value="11.11.11.11"
 )
@@ -156,14 +156,14 @@ async def setup_sandbox_with_speedup():
     await sandbox.start()
     
     # Configure acceleration (before installing packages)
-    await sandbox.speedup(
+    await sandbox.network.speedup(
         speedup_type=SpeedupType.APT,
         speedup_value="http://mirrors.cloud.aliyuncs.com"
     )
     
     await sandbox.arun(cmd="apt-get update && apt-get install -y git", mode=RunMode.NOHUP)
 
-    await sandbox.speedup(
+    await sandbox.network.speedup(
         speedup_type=SpeedupType.PIP,
         speedup_value="https://mirrors.aliyun.com"
     )
@@ -172,7 +172,7 @@ async def setup_sandbox_with_speedup():
     await sandbox.arun(cmd="pip install numpy", mode=RunMode.NOHUP)
 
     # GitHub can be accelerated through mirror IP
-    await sandbox.speedup(
+    await sandbox.network.speedup(
         speedup_type=SpeedupType.GITHUB,
         speedup_value="11.11.11.11"
     )
