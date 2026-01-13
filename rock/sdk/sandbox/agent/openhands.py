@@ -1,20 +1,15 @@
 """
-Solving software engineering(SWE) problem with [Openhands Benchmarks SDK](https://github.com/OpenHands/benchmarks).
+Solving software engineering(SWE) problem with [Openhands Benchmarks SDK](https://github.com/OpenHands/benchmarks.git).
 Implementation framework reference: `rock/sdk/sandbox/agent/swe_agent.py`
-
-This code is composed with following parts:
-    1. Install openhands-benchmarks into Sandbox
-    2. Modify launch entry code which is modified from [run_infer.py](https://github.com/OpenHands/benchmarks/blob/main/benchmarks/swebench/run_infer.py)
-        into Sandbox
-    3. Upload LLM service configuration into Sandbox
-    4. Execute rollout command
 """
 from __future__ import annotations
 
-import json
 import os
 import time
+import json
+import copy
 import shlex
+import tempfile
 from pathlib import Path
 from contextlib import contextmanager
 
@@ -24,8 +19,7 @@ from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.sandbox.utils import arun_with_retry
 from rock.sdk.sandbox.agent.base import DefaultAgent
 from rock.sdk.sandbox.agent.config import DefaultAgentConfig
-from rock.sdk.sandbox.model_service.base import ModelServiceConfig
-from rock.actions import CreateBashSessionRequest, UploadRequest, Observation, WriteFileRequest
+from rock.actions import UploadRequest, Observation, WriteFileRequest
 
 from typing import Any, Literal
 
@@ -148,34 +142,24 @@ class OpenhandsConfig(DefaultAgentConfig):
 
     Attributes:
         agent_type: Fixed identifier for this agent type ("openhands")
-        default_run_single_config: Default configuration object for a single run
         agent_session: Name of the bash session used for Openhands execution
-        pre_startup_bash_cmd_list: Commands executed before agent initialization
-        post_startup_bash_cmd_list: Commands executed after agent initialization
         agent_workdir: Working directory for agent installation and execution
         python_install_cmd: Command to install Python environment
         openhands_sdk_install_cmd_list: Commands to clone and install Openhands/benchmarks repository
         python_install_timeout: Maximum seconds to wait for Python installation
         agent_install_timeout: Maximum seconds to wait for Openhands installation
-        model_service_config: Configuration for ModelService (optional)
+        default_run_single_config: Default configuration object for a single run
+        agent_prompt: user prompt
+        max_iteration: max interactive turns with model service
     """
 
     agent_type: Literal["openhands"] = "openhands"
 
     agent_session: str = "openhands-rollout-session"
 
-    agent_prompt: str = DEFAULT_PROMPT
-
-    # Commands to execute before agent initialization (e.g., bashrc setup, hosts config)
-    pre_startup_bash_cmd_list: list[str] = env_vars.ROCK_AGENT_PRE_STARTUP_BASH_CMD_LIST
-
-    # Commands to execute after agent initialization
-    post_startup_bash_cmd_list: list[str] = []
-
-    # Working directory where Openhands will be installed and executed
+    # directory where Openhands will be installed
     agent_workdir: str = "/openhands"
 
-    # Command to download and set up Python environment
     python_install_cmd: str = env_vars.ROCK_AGENT_PYTHON_v12_INSTALL_CMD
 
     # Command to clone Openhands/benchmarks repository and install dependencies
@@ -195,11 +179,11 @@ class OpenhandsConfig(DefaultAgentConfig):
 
     default_run_single_config: dict[str, Any] = DEFAULT_RUN_SINGLE_CONFIG
 
-    max_iteration: int = 300
-
     session_envs: dict[str, str] = {}
 
-    model_service_config: ModelServiceConfig | None = None
+    agent_prompt: str = DEFAULT_PROMPT
+
+    max_iteration: int = 300
 
 
 class Openhands(DefaultAgent):
@@ -210,11 +194,6 @@ class Openhands(DefaultAgent):
     and modifies file [run_infer.py](https://github.com/OpenHands/benchmarks/tree/main/benchmarks/swebench/run_infer.py)
     to be compatible with SWE tasks other than SWE-Bench. It orchestrates rollout generation, patch retrieval,
     and result validation.
-
-    Attributes:
-        config: Configuration parameters for agent setup and execution
-        agent_session: Name of the bash session used for agent operations
-        model_service: ModelService instance (created if configured)
     """
     sandbox: Sandbox
     config: OpenhandsConfig
@@ -225,11 +204,9 @@ class Openhands(DefaultAgent):
         Args:
             sandbox: Sandbox instance for isolated agent execution
             config: Configuration parameters for agent setup
-
-        Raises:
-            AssertionError: If sandbox is not an instance of Sandbox class
         """
         super().__init__(sandbox, config)
+
         self.agent_prompt_path = f"{self.config.agent_workdir}/benchmarks/benchmarks/swebench/prompts/custom.j2"
 
     async def _install(self):
@@ -241,43 +218,15 @@ class Openhands(DefaultAgent):
         logger.info(f"[{sandbox_id}] Starting Openhands initialization")
 
         try:
-            # Step 1: Create dedicated bash session
-            step_start = time.time()
-            logger.debug(f"[{sandbox_id}] Creating bash session: {self.agent_session}")
-            await self._sandbox.create_session(
-                CreateBashSessionRequest(
-                    session=self.agent_session,
-                    env_enable=True,
-                    env=self.config.session_envs,
-                )
-            )
-            elapsed_step = time.time() - step_start
-            logger.info(f"[{sandbox_id}] Step 1 completed: Bash session created (elapsed: {elapsed_step:.2f}s)")
-
-            # Step 2: Execute pre-startup commands
-            step_start = time.time()
-            for cmd in self.config.pre_startup_bash_cmd_list:
-                await self._sandbox.arun(
-                    cmd=cmd,
-                    session=self.agent_session,
-                )
-            elapsed_step = time.time() - step_start
-            logger.info(
-                f"[{sandbox_id}] Step 2 completed: Pre-startup commands executed (elapsed: {elapsed_step:.2f}s)"
-            )
-
-            # Step 3: Create working directory
+            # Step 1: Create working directory
             step_start = time.time()
             mkdir_cmd = f"mkdir -p {self.config.agent_workdir}"
             logger.debug(f"[{sandbox_id}] Command: {mkdir_cmd}")
-            await self._sandbox.arun(
-                cmd=mkdir_cmd,
-                session=self.agent_session,
-            )
+            await self._sandbox.arun(cmd=mkdir_cmd, session=self.agent_session)
             elapsed_step = time.time() - step_start
-            logger.info(f"[{sandbox_id}] Step 3 completed: Working directory created (elapsed: {elapsed_step:.2f}s)")
+            logger.info(f"[{sandbox_id}] Step 1 completed: Working directory created (elapsed: {elapsed_step:.2f}s)")
 
-            # Step 4: Install Python
+            # Step 2: Install Python
             step_start = time.time()
             python_install_cmd = f"cd {self.config.agent_workdir} && {self.config.python_install_cmd}"
             full_cmd = f"bash -c {shlex.quote(python_install_cmd)}"
@@ -292,9 +241,9 @@ class Openhands(DefaultAgent):
                 error_msg="Python installation failed",
             )
             elapsed_step = time.time() - step_start
-            logger.info(f"[{sandbox_id}] Step 4 completed: Python environment installed (elapsed: {elapsed_step:.2f}s)")
+            logger.info(f"[{sandbox_id}] Step 2 completed: Python environment installed (elapsed: {elapsed_step:.2f}s)")
 
-            # Step 5: Install Openhands/benchmarks
+            # Step 3: Install Openhands/benchmarks
             step_start = time.time()
             full_cmd = f"bash -c {shlex.quote(' && '.join(self.config.openhands_sdk_install_cmd_list))}"
             logger.debug(f"[{sandbox_id}] Command: {full_cmd}")
@@ -309,11 +258,12 @@ class Openhands(DefaultAgent):
             )
             elapsed_step = time.time() - step_start
             logger.info(
-                f"[{sandbox_id}] Step 5 completed: Openhands/benchmarks repository installed (elapsed: {elapsed_step:.2f}s)"
+                f"[{sandbox_id}] Step 3 completed: Openhands/benchmarks installed (elapsed: {elapsed_step:.2f}s)"
             )
 
-            # Step 6: Prepare configs
-            await self.upload_config()
+            # Step 4: Prepare configs
+            await self._upload_config()
+            logger.info(f"[{sandbox_id}] Step 4 completed: Done configuration (elapsed: {elapsed_step:.2f}s)")
 
         except Exception as e:
             elapsed_total = time.time() - start_time
@@ -324,7 +274,7 @@ class Openhands(DefaultAgent):
             )
             raise
 
-    async def upload_config(self):
+    async def _upload_config(self):
         # Hijack Openhands/benchmarks
         sandbox_id = self._sandbox.sandbox_id
 
@@ -367,8 +317,6 @@ class Openhands(DefaultAgent):
         Yields:
             Path to the temporary config file
         """
-        import copy
-        import tempfile
 
         # Get the default template config from the config attribute
         template = self.config.default_run_single_config
