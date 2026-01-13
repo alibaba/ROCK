@@ -30,6 +30,7 @@ from .sandbox.response import (
     Observation,
     OssSetupResponse,
     ReadFileResponse,
+    SandboxResponse,
     SandboxStatusResponse,
     UploadResponse,
     WriteFileResponse,
@@ -79,5 +80,6 @@ __all__ = [
     "CloseResponse",
     "LocalSandboxRuntimeConfig",
     "RemoteSandboxRuntimeConfig",
+    "SandboxResponse",
     "SandboxRuntimeConfig",
 ]

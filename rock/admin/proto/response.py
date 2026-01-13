@@ -1,7 +1,9 @@
 from pydantic import BaseModel
 
+from rock.actions import SandboxResponse
 
-class SandboxStartResponse(BaseModel):
+
+class SandboxStartResponse(SandboxResponse):
     sandbox_id: str | None = None
     host_name: str | None = None
     host_ip: str | None = None

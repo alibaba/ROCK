@@ -38,6 +38,7 @@ from rock.actions import (
     WriteFileRequest,
     WriteFileResponse,
 )
+from rock.actions import SandboxResponse
 from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX, RunModeType
 from rock.sdk.common.exceptions import InternalServerRockError, InvalidParameterRockException, raise_for_code
 from rock.sdk.sandbox.agent.base import Agent
@@ -138,9 +139,10 @@ class Sandbox(AbstractSandbox):
 
         logging.debug(f"Start sandbox response: {response}")
         if "Success" != response.get("status"):
-            code: rock.codes = response.get("code", None)
-            if code is not None:
-                raise_for_code(code, f"Failed to start container: {response}")
+            result = response.get("result", None)
+            if result is not None:
+                rock_response = SandboxResponse(**result)
+                raise_for_code(rock_response.code, f"Failed to start container: {response}")
             raise Exception(f"Failed to start sandbox: {response}")
         self._sandbox_id = response.get("result").get("sandbox_id")
         self._host_name = response.get("result").get("host_name")
