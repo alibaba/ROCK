@@ -1,18 +1,16 @@
-"""Network management for sandbox."""
-
 from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
 
-import logging
 from typing import TYPE_CHECKING
 
 from rock.actions import Observation
+from rock.logger import init_logger
 from rock.sdk.sandbox.speedup.executor import SpeedupExecutor
 from rock.sdk.sandbox.speedup.types import SpeedupType
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
 
-logger = logging.getLogger(__name__)
+logger = init_logger(__name__)
 
 
 class Network:

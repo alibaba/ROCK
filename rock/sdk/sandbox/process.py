@@ -1,17 +1,21 @@
-# rock/sdk/sandbox/process.py
-import logging
+from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
+
 import time
+from typing import TYPE_CHECKING
 
 from rock.actions import Command, Observation
-from rock.actions.sandbox.base import AbstractSandbox
+from rock.logger import init_logger
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from rock.sdk.sandbox.client import Sandbox
+
+logger = init_logger(__name__)
 
 
 class Process:
     """Process management for sandbox execution"""
 
-    def __init__(self, sandbox: AbstractSandbox):
+    def __init__(self, sandbox: Sandbox):
         self.sandbox = sandbox
 
     async def execute_script(
