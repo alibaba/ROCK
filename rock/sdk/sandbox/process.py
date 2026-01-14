@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from rock.actions import Command, CreateBashSessionRequest, Observation
 from rock.logger import init_logger
+from rock.sdk.sandbox.client import RunMode
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
@@ -146,28 +147,30 @@ class Process:
             remote_tar_path = f"/tmp/rock_upload_{ts}.tar.gz"
             session = f"bash-{ts}"
 
-            # 1) pack locally
-            try:
-                with tarfile.open(local_tar_path, "w:gz") as tf:
-                    tf.add(str(src), arcname=".")
-            except Exception as e:
-                return Observation(exit_code=1, failure_reason=f"failed to create tar.gz: {e}")
-
-            # 2) upload tarball
-            up = await self.sandbox.upload_by_path(file_path=str(local_tar_path), target_path=remote_tar_path)
-            if not getattr(up, "success", False):
-                return Observation(exit_code=1, failure_reason=f"tar upload failed: {getattr(up, 'message', up)}")
-
-            # 3) create bash session
-            await self.sandbox.create_session(CreateBashSessionRequest(session=session))
-
-            # 4) check tar exists
+            # 1) check tar exists
             check = await self.sandbox.arun(
-                cmd="bash -c 'command -v tar >/dev/null 2>&1'",
+                cmd="command -v tar >/dev/null 2>&1",
                 session=session,
             )
             if check.exit_code != 0:
                 return Observation(exit_code=1, failure_reason="sandbox has no tar command; cannot extract tarball")
+
+            # 2) pack locally
+            try:
+                with tarfile.open(local_tar_path, "w:gz") as tf:
+                    tf.add(str(src), arcname=".")
+            except Exception as e:
+                raise Exception(f"tar pack failed: {e}")
+
+            # 3) upload tarball
+            upload_response = await self.sandbox.upload_by_path(
+                file_path=str(local_tar_path), target_path=remote_tar_path
+            )
+            if not upload_response.success:
+                return Observation(exit_code=1, failure_reason=f"tar upload failed: {upload_response.message}")
+
+            # 4) create bash session
+            await self.sandbox.create_session(CreateBashSessionRequest(session=session))
 
             # 5) extract
             extract_cmd = (
@@ -177,7 +180,7 @@ class Process:
             res = await self.sandbox.arun(
                 cmd=f"bash -c {shlex.quote(extract_cmd)}",
                 session=session,
-                mode="nohup",
+                mode=RunMode.NOHUP,
                 wait_timeout=extract_timeout,
             )
             if res.exit_code != 0:
