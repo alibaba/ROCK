@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 
 from rock.actions import Command, CreateBashSessionRequest, Observation
 from rock.logger import init_logger
-from rock.sdk.sandbox.client import RunMode
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
@@ -119,10 +118,10 @@ class Process:
     ) -> Observation:
         """Upload local directory to sandbox using tar.gz (simple version).
 
+        - Check 'tar' exists; if not, return Observation with exit_code != 0
         - Pack source_dir fully into a tar.gz locally (no symlink filtering)
         - Upload to sandbox /tmp
         - Create a random bash session internally
-        - Check 'tar' exists; if not, return Observation with exit_code != 0
         - Extract into target_dir
         - Always cleanup local tar.gz
 
@@ -147,7 +146,10 @@ class Process:
             remote_tar_path = f"/tmp/rock_upload_{ts}.tar.gz"
             session = f"bash-{ts}"
 
-            # 1) check tar exists
+            # create bash session
+            await self.sandbox.create_session(CreateBashSessionRequest(session=session))
+
+            # check tar exists
             check = await self.sandbox.arun(
                 cmd="command -v tar >/dev/null 2>&1",
                 session=session,
@@ -155,38 +157,36 @@ class Process:
             if check.exit_code != 0:
                 return Observation(exit_code=1, failure_reason="sandbox has no tar command; cannot extract tarball")
 
-            # 2) pack locally
+            # pack locally
             try:
                 with tarfile.open(local_tar_path, "w:gz") as tf:
                     tf.add(str(src), arcname=".")
             except Exception as e:
                 raise Exception(f"tar pack failed: {e}")
 
-            # 3) upload tarball
+            # upload tarball
             upload_response = await self.sandbox.upload_by_path(
                 file_path=str(local_tar_path), target_path=remote_tar_path
             )
             if not upload_response.success:
                 return Observation(exit_code=1, failure_reason=f"tar upload failed: {upload_response.message}")
 
-            # 4) create bash session
-            await self.sandbox.create_session(CreateBashSessionRequest(session=session))
-
-            # 5) extract
+            # extract
             extract_cmd = (
                 f"rm -rf {shlex.quote(target_dir)} && mkdir -p {shlex.quote(target_dir)} && "
                 f"tar -xzf {shlex.quote(remote_tar_path)} -C {shlex.quote(target_dir)}"
             )
+            from rock.sdk.sandbox.client import RunMode
+
             res = await self.sandbox.arun(
                 cmd=f"bash -c {shlex.quote(extract_cmd)}",
-                session=session,
                 mode=RunMode.NOHUP,
                 wait_timeout=extract_timeout,
             )
             if res.exit_code != 0:
                 return Observation(exit_code=1, failure_reason=f"tar extract failed: {res.output}")
 
-            # 6) cleanup remote tarball (best-effort)
+            # cleanup remote tarball
             try:
                 await self.sandbox.execute(Command(command=["rm", "-f", remote_tar_path]))
             except Exception:
