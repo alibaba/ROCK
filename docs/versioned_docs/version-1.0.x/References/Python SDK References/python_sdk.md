@@ -93,6 +93,102 @@ config = SandboxConfig(
 )
 ```
 
+### 2.4 Sandbox Speedup Configuration
+
+ROCK provides sandbox network acceleration capabilities, supporting configuration of APT, PIP, and GitHub mirror sources to improve package download speeds in restricted network environments.
+
+#### Supported Speedup Types
+
+**APT Mirror Configuration**
+
+Configure APT package manager mirror sources for faster Debian/Ubuntu package downloads.
+
+```python
+from rock.sdk.sandbox.speedup import SpeedupType
+
+# Configure APT mirror
+await sandbox.network.speedup(
+    speedup_type=SpeedupType.APT,
+    speedup_value="http://mirrors.cloud.aliyuncs.com"
+)
+```
+
+**PIP Mirror Configuration**
+
+Configure Python package index mirrors for faster pip installations.
+
+```python
+# HTTP mirror
+await sandbox.network.speedup(
+    speedup_type=SpeedupType.PIP,
+    speedup_value="http://mirrors.cloud.aliyuncs.com"
+)
+
+# HTTPS mirror
+await sandbox.network.speedup(
+    speedup_type=SpeedupType.PIP,
+    speedup_value="https://mirrors.aliyun.com"
+)
+```
+
+**GitHub Acceleration**
+
+Configure GitHub IP acceleration by adding custom DNS resolution entries.
+
+```python
+await sandbox.network.speedup(
+    speedup_type=SpeedupType.GITHUB,
+    speedup_value="11.11.11.11"
+)
+```
+
+#### Complete Example
+
+```python
+from rock.sdk.sandbox.speedup import SpeedupType
+from rock.actions import RunMode
+
+async def setup_sandbox_with_speedup():
+    """Create sandbox and configure acceleration"""
+    config = SandboxConfig(image="python:3.11")
+    sandbox = Sandbox(config)
+    
+    await sandbox.start()
+    
+    # Configure acceleration (before installing packages)
+    await sandbox.network.speedup(
+        speedup_type=SpeedupType.APT,
+        speedup_value="http://mirrors.cloud.aliyuncs.com"
+    )
+    
+    await sandbox.arun(cmd="apt-get update && apt-get install -y git", mode=RunMode.NOHUP)
+
+    await sandbox.network.speedup(
+        speedup_type=SpeedupType.PIP,
+        speedup_value="https://mirrors.aliyun.com"
+    )
+
+    # Speedup does not automatically install PIP, it only configures mirror sources for acceleration
+    await sandbox.arun(cmd="pip install numpy", mode=RunMode.NOHUP)
+
+    # GitHub can be accelerated through mirror IP
+    await sandbox.network.speedup(
+        speedup_type=SpeedupType.GITHUB,
+        speedup_value="11.11.11.11"
+    )
+
+    return sandbox
+```
+
+#### Important Notes
+
+1. **Configuration Order**: Configure speedup before installing packages
+2. **HTTPS vs HTTP**: HTTPS mirrors don't require trusted-host configuration for PIP
+3. **GitHub IP**: Different regions may require different IPs for optimal performance
+4. **Persistence**: Configurations persist within the sandbox lifecycle
+5. **Multiple Calls**: Subsequent speedup calls will override previous configurations
+6. **PIP Installation**: The speedup feature only configures mirror sources and does not automatically install PIP
+
 ## 3. GEM SDK
 
 ### 3.1 Python SDK Approach
@@ -163,7 +259,6 @@ if __name__ == "__main__":
 ```
 
 ## Related Documents
-
 - [Quick Start Guide](../../Getting%20Started/quickstart.md) - Learn how to quickly get started with the ROCK SDK
 - [API Documentation](../api.md) - View the underlying API interfaces encapsulated by the SDK
 - [Configuration Guide](../../User%20Guides/configuration.md) - Learn about SDK-related configuration options

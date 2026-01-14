@@ -182,4 +182,4 @@ For a deeper understanding of ROCK's additional features, please refer to the fo
 - [API Documentation](../References/api.md) - View complete API interfaces
 - [Python SDK Documentation](../References/Python%20SDK%20References/python_sdk.md) - Learn how to use the Python SDK for development
 - [Installation Guide](./installation.md) - Detailed information about ROCK installation and setup
-- [Overview](../overview.md) - Understand ROCK's overall architecture and design philosophy
+- [Overview](../overview.md) - Understand ROCK's design philosophy

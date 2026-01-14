@@ -93,6 +93,102 @@ config = SandboxConfig(
 )
 ```
 
+### 2.4 沙箱加速配置
+
+ROCK 提供沙箱网络加速功能，支持配置 APT、PIP 和 GitHub 镜像源，提升受限网络环境下的包下载速度。
+
+#### 支持的加速类型
+
+**APT 镜像配置**
+
+配置 APT 包管理器镜像源，加速 Debian/Ubuntu 软件包下载。
+
+```python
+from rock.sdk.sandbox.speedup import SpeedupType
+
+# 配置 APT 镜像
+await sandbox.network.speedup(
+    speedup_type=SpeedupType.APT,
+    speedup_value="http://mirrors.cloud.aliyuncs.com"
+)
+```
+
+**PIP 镜像配置**
+
+配置 Python 包索引镜像，加速 pip 安装。
+
+```python
+# HTTP 镜像
+await sandbox.network.speedup(
+    speedup_type=SpeedupType.PIP,
+    speedup_value="http://mirrors.cloud.aliyuncs.com"
+)
+
+# HTTPS 镜像
+await sandbox.network.speedup(
+    speedup_type=SpeedupType.PIP,
+    speedup_value="https://mirrors.aliyun.com"
+)
+```
+
+**GitHub 加速**
+
+通过添加自定义 DNS 解析条目加速 GitHub 访问。
+
+```python
+await sandbox.network.speedup(
+    speedup_type=SpeedupType.GITHUB,
+    speedup_value="11.11.11.11"
+)
+```
+
+#### 完整示例
+
+```python
+from rock.sdk.sandbox.speedup import SpeedupType
+from rock.actions import RunMode
+
+async def setup_sandbox_with_speedup():
+    """创建沙箱并配置加速"""
+    config = SandboxConfig(image="python:3.11")
+    sandbox = Sandbox(config)
+    
+    await sandbox.start()
+    
+    # 配置加速（在安装包之前配置）
+    await sandbox.network.speedup(
+        speedup_type=SpeedupType.APT,
+        speedup_value="http://mirrors.cloud.aliyuncs.com"
+    )
+    
+    await sandbox.arun(cmd="apt-get update && apt-get install -y git", mode=RunMode.NOHUP)
+
+    await sandbox.network.speedup(
+        speedup_type=SpeedupType.PIP,
+        speedup_value="https://mirrors.aliyun.com"
+    )
+
+    # speedup 不会主动安装 PIP，仅配置镜像源进行加速
+    await sandbox.arun(cmd="pip install numpy", mode=RunMode.NOHUP)
+
+    # 可以通过镜像 IP 加速 GitHub 访问
+    await sandbox.network.speedup(
+        speedup_type=SpeedupType.GITHUB,
+        speedup_value="11.11.11.11"
+    )
+
+    return sandbox
+```
+
+#### 注意事项
+
+1. **配置顺序**: 在安装包之前配置加速
+2. **HTTPS vs HTTP**: HTTPS 镜像不需要为 PIP 配置 trusted-host
+3. **GitHub IP**: 不同区域可能需要不同的 IP 以获得最佳性能
+4. **持久性**: 配置在沙箱生命周期内持久有效
+5. **多次调用**: 后续的加速调用会覆盖之前的配置
+6. **PIP 安装**: speedup 功能仅配置镜像源，不会自动安装 PIP
+
 ## 3. GEM SDK
 
 ### 3.1 Python SDK 方式
@@ -163,7 +259,6 @@ if __name__ == "__main__":
 ```
 
 ## 相关文档
-
 - [快速开始指南](../../Getting%20Started/quickstart.md) - 了解如何快速开始使用 ROCK SDK
 - [API 文档](../api.md) - 查看 SDK 封装的底层 API 接口
 - [配置指南](../../User%20Guides/configuration.md) - 了解 SDK 相关的配置选项

@@ -60,6 +60,18 @@
         }
       }
     }
+    
+    &::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 150px;
+      background: linear-gradient(to top, #000 0%, transparent 100%);
+      z-index: 1;
+      pointer-events: none;
+    }
   }
   .about, .features, .opensource, .rock_roll {
     width: 1240px;

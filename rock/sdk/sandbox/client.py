@@ -38,11 +38,14 @@ from rock.actions import (
     WriteFileRequest,
     WriteFileResponse,
 )
+from rock.actions import SandboxResponse
 from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX, RunModeType
 from rock.sdk.common.exceptions import InternalServerRockError, InvalidParameterRockException, raise_for_code
 from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
 from rock.sdk.sandbox.model_service.base import ModelService
+from rock.sdk.sandbox.network import Network
+from rock.sdk.sandbox.process import Process
 from rock.sdk.sandbox.remote_user import LinuxRemoteUser, RemoteUser
 from rock.utils import HttpUtils, extract_nohup_pid, retry_async
 
@@ -66,6 +69,8 @@ class Sandbox(AbstractSandbox):
     agent: Agent | None = None
     model_service: ModelService | None = None
     remote_user: RemoteUser | None = None
+    process: Process | None = None
+    network: Network | None = None
 
     def __init__(self, config: SandboxConfig):
         self._pod_name = None
@@ -81,6 +86,8 @@ class Sandbox(AbstractSandbox):
         self._oss_token_expire_time = self._generate_utc_iso_time()
         self._cluster = self.config.cluster
         self.remote_user = LinuxRemoteUser(self)
+        self.process = Process(self)
+        self.network = Network(self)
 
     @property
     def sandbox_id(self) -> str:
@@ -138,9 +145,10 @@ class Sandbox(AbstractSandbox):
 
         logging.debug(f"Start sandbox response: {response}")
         if "Success" != response.get("status"):
-            code: rock.codes = response.get("code", None)
-            if code is not None:
-                raise_for_code(code, f"Failed to start container: {response}")
+            result = response.get("result", None)
+            if result is not None:
+                rock_response = SandboxResponse(**result)
+                raise_for_code(rock_response.code, f"Failed to start container: {response}")
             raise Exception(f"Failed to start sandbox: {response}")
         self._sandbox_id = response.get("result").get("sandbox_id")
         self._host_name = response.get("result").get("host_name")
