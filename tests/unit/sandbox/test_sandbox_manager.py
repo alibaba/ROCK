@@ -148,3 +148,13 @@ async def test_resource_limit_exception_memory(sandbox_manager, docker_deploymen
     with pytest.raises(BadRequestRockError) as e:
         await sandbox_manager.start_async(docker_deployment_config)
     logger.warning(f"Resource limit exception: {str(e)}", exc_info=True)
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_get_system_resource_info(sandbox_manager):
+    total_cpu, total_mem, ava_cpu, ava_mem = await sandbox_manager._collect_system_resource_metrics()
+    assert total_cpu > 0
+    assert total_mem > 0
+    assert ava_cpu > 0
+    assert ava_mem > 0

@@ -59,11 +59,17 @@ class MetricsMonitor:
             "total execution time for request",
             "ms",
         )
-        # System resource metrics
-        self._register_gauge(MetricsConstants.SANDBOX_CPU, "CPU usage")
-        self._register_gauge(MetricsConstants.SANDBOX_MEM, "Memory usage")
-        self._register_gauge(MetricsConstants.SANDBOX_DISK, "Disk usage")
-        self._register_gauge(MetricsConstants.SANDBOX_NET, "Network usage")
+        # Single sandbox resource utilization metrics (percentage of allocated resources)
+        self._register_gauge(MetricsConstants.SANDBOX_CPU, "Single sandbox CPU usage percentage of allocated resources")
+        self._register_gauge(MetricsConstants.SANDBOX_MEM, "Single sandbox memory usage percentage of allocated resources")
+        self._register_gauge(MetricsConstants.SANDBOX_DISK, "Single sandbox disk usage percentage of allocated resources")
+        self._register_gauge(MetricsConstants.SANDBOX_NET, "Single sandbox network usage percentage of allocated resources")
+
+        # Ray cluster resource metrics (total and available resources)
+        self._register_gauge(MetricsConstants.TOTAL_CPU_RESOURCE, "Total CPU resource in Ray cluster")
+        self._register_gauge(MetricsConstants.TOTAL_MEM_RESOURCE, "Total memory resource in Ray cluster")
+        self._register_gauge(MetricsConstants.AVAILABLE_CPU_RESOURCE, "Available CPU resource in Ray cluster")
+        self._register_gauge(MetricsConstants.AVAILABLE_MEM_RESOURCE, "Available memory resource in Ray cluster")
 
     def _register_counter(self, name: str, description: str, unit: str = "1"):
         self.counters[name] = self.create_counter(name, description, unit)
