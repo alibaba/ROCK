@@ -82,17 +82,14 @@ def init_logger(name: str | None = None, file_name: str | None = None):
         # Determine if we should log to file based on ROCK_LOGGING_PATH
         # Only log to file if ROCK_LOGGING_PATH has been explicitly set by the user
         # (not just the default value), which means it should be in os.environ
-        if file_name is None:
-            if env_vars.ROCK_LOGGING_PATH and env_vars.ROCK_LOGGING_FILE_NAME:
-                # Use default file handler
-                handler = init_file_handler(env_vars.ROCK_LOGGING_FILE_NAME)
-            else:
-                # Use stdout handler
-                handler = logging.StreamHandler(sys.stdout)
-                handler.setFormatter(StandardFormatter())
+        file_name = file_name if file_name else env_vars.ROCK_LOGGING_FILE_NAME
+        if env_vars.ROCK_LOGGING_PATH and file_name:
+            # Use file handler
+            handler = init_file_handler(env_vars.ROCK_LOGGING_FILE_NAME)
         else:
-            # Use custom file handler
-            handler = init_file_handler(file_name)
+            # Use stdout handler
+            handler = logging.StreamHandler(sys.stdout)
+            handler.setFormatter(StandardFormatter())
 
         # Apply logging level from environment variable
         log_level = env_vars.ROCK_LOGGING_LEVEL
