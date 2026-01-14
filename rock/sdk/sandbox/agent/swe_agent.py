@@ -186,9 +186,7 @@ class SweAgent(BaseAgent):
         if not self.agent_runtime_env.prepared:
             raise RuntimeError("Python runtime env is not prepared. Call python_env.prepare() before installation.")
 
-        swe_agent_install_cmd = (
-            f"cd {self.config.agent_installed_dir} && {shlex.quote(self.config.swe_agent_install_cmd)}"
-        )
+        swe_agent_install_cmd = f"cd {self.config.agent_installed_dir} && {self.config.swe_agent_install_cmd}"
 
         await self.agent_runtime_env.run(
             cmd=swe_agent_install_cmd,
