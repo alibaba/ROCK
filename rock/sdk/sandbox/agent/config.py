@@ -52,4 +52,4 @@ class BaseAgentConfig(AgentConfig):
 
     agent_run_check_interval: int = 30  # seconds
 
-    local_workdir: str | None = None  # upload local_workdir if needed
+    local_workdir: str | None = None  #  if set, upload local_workdir to sandbox /tmp/<random>

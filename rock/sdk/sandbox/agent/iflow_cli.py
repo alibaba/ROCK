@@ -15,7 +15,6 @@ from rock.logger import init_logger
 from rock.sdk.sandbox.agent.base import BaseAgent
 from rock.sdk.sandbox.agent.config import BaseAgentConfig
 from rock.sdk.sandbox.agent.runtime_env import NodeAgentRuntimeEnv
-from rock.sdk.sandbox.client import RunMode
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
@@ -156,7 +155,7 @@ class IFlowCli(BaseAgent):
         await self.agent_runtime_env.ensure_session()
         result = await self._sandbox.arun(
             cmd="npm config set registry https://registry.npmmirror.com",
-            session=self.agent_runtime_env.session,
+            session=self.agent_session,
         )
 
         if result.exit_code != 0:
@@ -177,7 +176,6 @@ class IFlowCli(BaseAgent):
         # Use node runtime env to run install cmd (wrap is currently bash -c, but uses node_env session)
         await self.agent_runtime_env.run(
             cmd=self.config.iflow_cli_install_cmd,
-            mode=RunMode.NOHUP,
             wait_timeout=self.config.agent_install_timeout,
             error_msg="iflow-cli installation failed",
         )
@@ -295,10 +293,6 @@ class IFlowCli(BaseAgent):
         """Create IFlow run command (NOT wrapped by bash -c)."""
         sandbox_id = self._sandbox.sandbox_id
 
-        workdir = self.config.workdir
-        if not workdir:
-            raise ValueError("IFlowCliConfig.project_path is required (moved from run() args into config).")
-
         session_id = await self._get_session_id_from_sandbox()
         if session_id:
             logger.info(f"[{sandbox_id}] Using existing session ID: {session_id}")
@@ -311,5 +305,4 @@ class IFlowCli(BaseAgent):
             iflow_log_file=self.config.iflow_log_file,
         )
 
-        cmd = f"cd {shlex.quote(workdir)} && {iflow_run_cmd}"
-        return cmd
+        return f"cd {shlex.quote(self.config.workdir)} && {iflow_run_cmd}"

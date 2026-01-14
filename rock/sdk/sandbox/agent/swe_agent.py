@@ -16,7 +16,6 @@ from rock.logger import init_logger
 from rock.sdk.sandbox.agent.base import BaseAgent
 from rock.sdk.sandbox.agent.config import BaseAgentConfig
 from rock.sdk.sandbox.agent.runtime_env.python_env import PythonAgentRuntimeEnv
-from rock.sdk.sandbox.client import RunMode
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
@@ -150,7 +149,6 @@ class SweAgent(BaseAgent):
         super().__init__(sandbox, config)
         self.config: SweAgentConfig = config
 
-        # runtime env maintains its own session
         self.agent_runtime_env = PythonAgentRuntimeEnv(
             sandbox=self._sandbox,
             workdir=self.config.agent_installed_dir,
@@ -189,12 +187,11 @@ class SweAgent(BaseAgent):
             raise RuntimeError("Python runtime env is not prepared. Call python_env.prepare() before installation.")
 
         swe_agent_install_cmd = (
-            f"cd {shlex.quote(self.config.agent_installed_dir)} && {self.config.swe_agent_install_cmd}"
+            f"cd {self.config.agent_installed_dir} && {shlex.quote(self.config.swe_agent_install_cmd)}"
         )
 
         await self.agent_runtime_env.run(
             cmd=swe_agent_install_cmd,
-            mode=RunMode.NOHUP,
             wait_timeout=self.config.agent_install_timeout,
             error_msg="SWE-agent installation failed",
         )
@@ -289,13 +286,8 @@ class SweAgent(BaseAgent):
         if not self.agent_runtime_env.prepared:
             raise RuntimeError("Python runtime env is not prepared. Ensure agent.init() completed successfully.")
 
-        prompt_arg = shlex.quote(prompt)
-        sweagent_bin = f"{self.agent_runtime_env.bin_dir}/sweagent"
+        swe_agent = f"{self.agent_runtime_env.bin_dir}/sweagent"
+        config_path = f"{self.config.agent_installed_dir}/{self.GENERATED_CONFIG_NAME}"
 
-        cmd = (
-            f"cd {shlex.quote(self.config.agent_installed_dir)} && "
-            f"{shlex.quote(sweagent_bin)} run "
-            f"--config {shlex.quote(self.GENERATED_CONFIG_NAME)} "
-            f"--problem_statement.text {prompt_arg}"
-        )
+        cmd = f"{swe_agent} run --config {config_path} --problem_statement.text {shlex.quote(prompt)}"
         return cmd
