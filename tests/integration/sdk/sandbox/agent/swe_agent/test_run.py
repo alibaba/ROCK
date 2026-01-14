@@ -132,7 +132,7 @@ async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
             default_run_single_config=run_single_config,
             model_service_config=model_service_config,
             python_install_cmd=python_install_cmd,
-            project_path=project_path,
+            workdir=project_path,
             instance_id=test_instance_id,
         )
 
@@ -153,13 +153,7 @@ async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
         inference_gen = call_model_inference_generator()
 
         # Run agent and model service in parallel
-        agent_run_task = asyncio.create_task(
-            sandbox_instance.agent.run(
-                prompt="rename 1.txt to 2.txt",
-                agent_run_timeout=1800,
-                agent_run_check_interval=30,
-            )
-        )
+        agent_run_task = asyncio.create_task(sandbox_instance.agent.run(prompt="rename 1.txt to 2.txt"))
 
         whale_service_task = asyncio.create_task(model_service_loop(sandbox_instance.agent, inference_gen))
 
@@ -171,7 +165,7 @@ async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
                 logger.error(f"Task {i} failed: {type(result).__name__}: {str(result)}")
 
         patch_path = (
-            f"{swe_agent_config.swe_agent_workdir}/{test_instance_id}/{test_instance_id}/{test_instance_id}.patch"
+            f"{swe_agent_config.agent_installed_dir}/{test_instance_id}/{test_instance_id}/{test_instance_id}.patch"
         )
 
         file_content = await sandbox_instance.arun(cmd=f"cat {patch_path}", mode=RunMode.NOHUP)
