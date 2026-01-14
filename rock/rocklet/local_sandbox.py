@@ -49,7 +49,7 @@ from rock.admin.proto.request import SandboxCreateBashSessionRequest as CreateBa
 from rock.admin.proto.request import SandboxCreateSessionRequest as CreateSessionRequest
 from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
-from rock.logger import init_file_handler, init_logger
+from rock.logger import init_logger
 from rock.rocklet.exceptions import (
     BashIncorrectSyntaxError,
     CommandTimeoutError,
@@ -392,7 +392,7 @@ class LocalSandboxRuntime(AbstractSandbox):
         self._config = LocalSandboxRuntimeConfig(**kwargs)
         self._sessions: dict[str, Session] = {}
         # Set up logger
-        self.command_logger = init_logger("command", init_file_handler("command.log"))
+        self.command_logger = init_logger("command", "command.log")
         self._executor = executor
         self._gem_envs: dict[str, gem.Env] = {}
 

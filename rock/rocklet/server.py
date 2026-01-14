@@ -14,7 +14,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.status import HTTP_504_GATEWAY_TIMEOUT
 
 from rock.actions import _ExceptionTransfer
-from rock.logger import init_file_handler, init_logger
+from rock.logger import init_logger
 from rock.rocklet import __version__
 from rock.rocklet.local_api import local_router
 from rock.utils import EAGLE_EYE_TRACE_ID, REQUEST_TIMEOUT_SECONDS, sandbox_id_ctx_var, trace_id_ctx_var
@@ -30,7 +30,7 @@ async def log_requests_and_responses(request: Request, call_next):
     if request.url.path.startswith("/SandboxFusion"):
         return await call_next(request)
 
-    req_logger = init_logger("rocklet.accessLog", init_file_handler("access.log"))
+    req_logger = init_logger("rocklet.accessLog", "access.log")
     # Record request information
     request_json = dict(request.query_params)
     if request.headers.get("content-type", "").lower().startswith("application/json"):
