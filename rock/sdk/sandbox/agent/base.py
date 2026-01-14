@@ -1,8 +1,10 @@
 from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
 
 import asyncio
+import os
 import shlex
 import time
+import uuid
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
@@ -71,6 +73,8 @@ class BaseAgent(Agent):
 
             await self._setup_session()
 
+            await self._provision_local_workdir()
+
             # Parallel tasks: agent-specific install + ModelService init
             tasks = [self._install()]
 
@@ -91,6 +95,50 @@ class BaseAgent(Agent):
                 exc_info=True,
             )
             raise
+
+    async def _provision_local_workdir(self) -> None:
+        """If config.local_workdir is set, upload it into sandbox /tmp/<random>.
+
+        Assumes sandbox.upload_dir(source_dir, target_dir) exists.
+        """
+        local_workdir = self.config.local_workdir
+        if not local_workdir:
+            return
+
+        sandbox_id = self._sandbox.sandbox_id
+        local_abs = os.path.abspath(local_workdir)
+
+        if not os.path.exists(local_abs):
+            raise FileNotFoundError(f"config.local_workdir not found: {local_abs}")
+        if not os.path.isdir(local_abs):
+            raise ValueError(f"config.local_workdir must be a directory: {local_abs}")
+
+        target_dir = f"/tmp/rock_workdir_{uuid.uuid4().hex}"
+
+        logger.info(f"[{sandbox_id}] Provisioning local_workdir: {local_abs} -> {target_dir}")
+
+        # Clean & create
+        await self._sandbox.arun(
+            cmd=f"rm -rf {shlex.quote(target_dir)} && mkdir -p {shlex.quote(target_dir)}",
+            session=self.agent_session,
+        )
+
+        await self._sandbox.process.upload_dir(source_dir=local_abs, target_dir=target_dir)
+
+        self._sandbox_workdir = target_dir
+        logger.info(f"[{sandbox_id}] sandbox_workdir ready: {target_dir}")
+
+    def get_sandbox_workdir(self) -> str:
+        """Return sandbox workdir provisioned from config.local_workdir.
+
+        Raises if local_workdir was not configured or provisioning not completed.
+        """
+        if not self._sandbox_workdir:
+            raise RuntimeError(
+                "sandbox_workdir is not available. "
+                "Set config.local_workdir and ensure agent.init() completed successfully."
+            )
+        return self._sandbox_workdir
 
     async def run(
         self,

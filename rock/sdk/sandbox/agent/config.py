@@ -49,3 +49,5 @@ class BaseAgentConfig(AgentConfig):
     agent_run_timeout: int = 1800  # seconds
 
     agent_run_check_interval: int = 30  # seconds
+
+    local_workdir: str | None = None  # upload local_workdir if needed
