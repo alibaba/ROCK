@@ -2,6 +2,7 @@ import time
 
 import pytest
 
+from rock.actions.sandbox.request import ReadFileRequest
 from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.sandbox.config import SandboxConfig
 from tests.integration.conftest import SKIP_IF_NO_DOCKER
@@ -116,3 +117,32 @@ async def test_start_sandbox_upper_limit(sandbox_instance: Sandbox):
     from rock.actions import SandboxStatusResponse
     status: SandboxStatusResponse = await sandbox_instance.get_status()
     assert status.cpus == 4
+
+@pytest.mark.need_admin
+@SKIP_IF_NO_DOCKER
+@pytest.mark.asyncio
+async def test_arun_ignore_output(sandbox_instance: Sandbox):
+    cmd = """for i in {1..5}; do echo "Line $i"; done"""
+    output_file = "output"
+    error_resp = await sandbox_instance.arun(
+        cmd=f"bash -c '{cmd}'", session="default", mode="nohup", ignore_output=True, output_file=output_file
+    )
+    assert error_resp.exit_code == 1
+    assert f"Failed parse output file path: {output_file}" in error_resp.failure_reason
+    output_file = "tmp/file.txt"
+    file_output = await sandbox_instance.arun(
+        cmd=f"bash -c '{cmd}'", session="default", mode="nohup", ignore_output=True, output_file=output_file
+    )
+    assert output_file in file_output.output
+    output_file = "file.txt"
+    file_output = await sandbox_instance.arun(
+        cmd=f"bash -c '{cmd}'", session="default", mode="nohup", ignore_output=True, output_file=output_file
+    )
+    assert output_file in file_output.output
+    output_file = "/root/mydir/file.txt"
+    file_output = await sandbox_instance.arun(
+        cmd=f"bash -c '{cmd}'", session="default", mode="nohup", ignore_output=True, output_file=output_file
+    )
+    assert output_file in file_output.output
+    l4_resp = await sandbox_instance.read_file(ReadFileRequest(path=output_file))
+    assert "Line 4" in l4_resp.content
