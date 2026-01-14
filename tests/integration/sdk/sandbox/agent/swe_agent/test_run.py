@@ -132,6 +132,8 @@ async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
             default_run_single_config=run_single_config,
             model_service_config=model_service_config,
             python_install_cmd=python_install_cmd,
+            project_path=project_path,
+            instance_id=test_instance_id,
         )
 
         # Initialize and setup the agent
@@ -153,9 +155,7 @@ async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
         # Run agent and model service in parallel
         agent_run_task = asyncio.create_task(
             sandbox_instance.agent.run(
-                problem_statement="rename 1.txt to 2.txt",
-                project_path=project_path,
-                instance_id=test_instance_id,
+                prompt="rename 1.txt to 2.txt",
                 agent_run_timeout=1800,
                 agent_run_check_interval=30,
             )

@@ -11,7 +11,7 @@ from httpx import ReadTimeout
 from rock.actions import CreateBashSessionRequest, Observation
 from rock.actions.sandbox.base import AbstractSandbox
 from rock.logger import init_logger
-from rock.sdk.sandbox.agent.config import AgentBashCommand, DefaultAgentConfig
+from rock.sdk.sandbox.agent.config import AgentBashCommand, BaseAgentConfig
 from rock.sdk.sandbox.model_service.base import ModelService
 
 if TYPE_CHECKING:
@@ -34,22 +34,15 @@ class Agent(ABC):
         pass
 
 
-class DefaultAgent(Agent):
+class BaseAgent(Agent):
     """Base agent class with common initialization and execution logic.
 
-    Provides shared functionality for:
-    - Session management (create, setup)
-    - Pre/post startup command execution
-    - ModelService initialization
-    - Common error handling and logging
-    - Nohup process execution
-
     Subclasses must implement:
-    - _install() - specific installation logic
-    - run() - specific execution logic
+    - _install()
+    - _create_agent_run_cmd(prompt)
     """
 
-    def __init__(self, sandbox: Sandbox, config: DefaultAgentConfig):
+    def __init__(self, sandbox: Sandbox, config: BaseAgentConfig):
         super().__init__(sandbox)
 
         self._sandbox = sandbox
@@ -61,14 +54,11 @@ class DefaultAgent(Agent):
     async def init(self):
         """Initialize the agent environment.
 
-        Common flow:
-        1. Setup bash session
-        2. Execute pre-init commands
-        3. Install agent-specific dependencies (via _install)
+        Flow:
+        1. Execute pre-init commands
+        2. Setup bash session
+        3. Parallel: agent-specific install + ModelService install (if configured)
         4. Execute post-init commands
-        5. Initialize ModelService if configured
-
-        All installation and post-startup tasks run in parallel with ModelService init.
         """
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
@@ -102,19 +92,42 @@ class DefaultAgent(Agent):
             )
             raise
 
+    async def run(
+        self,
+        prompt: str,
+        agent_run_timeout: int = 1800,
+        agent_run_check_interval: int = 30,
+    ) -> Observation:
+        """Unified agent run entry.
+
+        Notes:
+        - BaseAgent only wraps the command with: bash -c <quoted>.
+        - Subclass is responsible for composing the full command content
+          (including `cd ... && ...` if needed).
+        - BaseAgent does NOT start ModelService; upper layer should call `start_model_service()` if needed.
+        """
+        cmd = await self._create_agent_run_cmd(prompt)
+        wrapped_cmd = f"bash -c {shlex.quote(cmd)}"
+        return await self._agent_run(
+            cmd=wrapped_cmd,
+            session=self.agent_session,
+            wait_timeout=agent_run_timeout,
+            wait_interval=agent_run_check_interval,
+        )
+
     @abstractmethod
     async def _install(self):
-        """Install agent-specific dependencies and tools.
+        """Install agent-specific dependencies and tools."""
+        raise NotImplementedError
 
-        This method must be implemented by subclasses to handle:
-        - Package installation (npm, pip, etc.)
-        - Tool setup and configuration
-        - Environment preparation
+    @abstractmethod
+    async def _create_agent_run_cmd(self, prompt: str) -> str:
+        """Create the command string for this agent run.
 
-        Raises:
-            Exception: If installation fails
+        Subclass should return a *shell command string* (NOT wrapped by `bash -c`).
+        If a working directory is needed, subclass should include `cd ... && ...` in the returned string.
         """
-        pass
+        raise NotImplementedError
 
     async def _setup_session(self):
         """Create and configure the bash session for agent operations."""
