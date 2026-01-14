@@ -14,8 +14,7 @@ from rock.actions import UploadRequest
 from rock.logger import init_logger
 from rock.sdk.sandbox.agent.base import BaseAgent
 from rock.sdk.sandbox.agent.config import BaseAgentConfig
-from rock.sdk.sandbox.client import Sandbox
-from rock.sdk.sandbox.utils import arun_with_retry
+from rock.sdk.sandbox.agent.runtime_env import NodeAgentRuntimeEnv
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
@@ -23,7 +22,6 @@ if TYPE_CHECKING:
 logger = init_logger(__name__)
 
 
-# Default IFlow settings
 DEFAULT_IFLOW_SETTINGS: dict[str, Any] = {
     "selectedAuthType": "openai-compatible",
     "apiKey": "",
@@ -56,26 +54,22 @@ DEFAULT_IFLOW_SETTINGS: dict[str, Any] = {
 
 
 class IFlowCliConfig(BaseAgentConfig):
-    """IFlow CLI Agent Configuration.
-
-    Inherits common agent configuration and adds IFlow-specific settings.
-    """
+    """IFlow CLI Agent Configuration."""
 
     agent_type: str = "iflow-cli"
-
     agent_session: str = "iflow-cli-session"
 
+    # Node runtime install
     npm_install_cmd: str = env_vars.ROCK_AGENT_NPM_INSTALL_CMD
-
     npm_install_timeout: int = 300
 
+    # iflow-cli install
     iflow_cli_install_cmd: str = env_vars.ROCK_AGENT_IFLOW_CLI_INSTALL_CMD
 
     iflow_settings: dict[str, Any] = DEFAULT_IFLOW_SETTINGS
 
     # NOTE: keep same template; _create_agent_run_cmd will fill session_id/prompt/log_file
     iflow_run_cmd: str = "iflow -r {session_id} -p {problem_statement} --yolo > {iflow_log_file} 2>&1"
-
     iflow_log_file: str = "~/.iflow/session_info.log"
 
     session_envs: dict[str, str] = {
@@ -85,33 +79,29 @@ class IFlowCliConfig(BaseAgentConfig):
 
 
 class IFlowCli(BaseAgent):
-    """IFlow CLI Agent implementation.
-
-    Subclass only implements:
-    - _install()
-    - _create_agent_run_cmd(prompt)
-    """
+    """IFlow CLI Agent implementation with NodeAgentRuntimeEnv."""
 
     def __init__(self, sandbox: Sandbox, config: IFlowCliConfig):
-        """Initialize IFlow CLI agent.
-
-        Args:
-            sandbox: Sandbox instance for executing commands
-            config: IFlowCliConfig instance with agent settings
-        """
         super().__init__(sandbox, config)
-
         self.config: IFlowCliConfig = config
+
+        # runtime env maintains its own session
+        self.node_env = NodeAgentRuntimeEnv(
+            sandbox=self._sandbox,
+            workdir="/tmp_iflow_node",  # internal runtime workdir (not project_path)
+            node_install_cmd=self.config.npm_install_cmd,
+            prepare_timeout=self.config.npm_install_timeout,
+        )
 
     async def _install(self):
         """Install IFlow CLI and configure the environment.
 
         Steps:
-        1. Install npm with retry
+        1. Prepare Node runtime (npm/node)
         2. Configure npm registry
-        3. Install iflow-cli with retry
+        3. Install iflow-cli
         4. Create iflow configuration directories
-        5. Generate and upload settings configuration file
+        5. Upload settings configuration file
         """
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
@@ -119,19 +109,19 @@ class IFlowCli(BaseAgent):
         logger.info(f"[{sandbox_id}] Starting IFlow CLI installation")
 
         try:
-            # Step 1: Install npm
-            await self._install_npm()
+            # Step 1: Node runtime
+            await self._prepare_node_runtime()
 
-            # Step 2: Configure npm registry
+            # Step 2: npm registry
             await self._configure_npm_registry()
 
-            # Step 3: Install iflow-cli
+            # Step 3: iflow-cli
             await self._install_iflow_cli_package()
 
-            # Step 4: Create configuration directories
+            # Step 4: config dirs
             await self._create_iflow_directories()
 
-            # Step 5: Upload settings configuration
+            # Step 5: upload settings
             await self._upload_iflow_settings()
 
             elapsed = time.time() - start_time
@@ -145,25 +135,14 @@ class IFlowCli(BaseAgent):
             )
             raise
 
-    async def _install_npm(self):
-        """Install npm with Node.js binary."""
-        sandbox_id = self._sandbox.sandbox_id
+    async def _prepare_node_runtime(self):
         step_start = time.time()
 
-        self._log_step("Installing npm", step_name="NPM Install")
-        logger.debug(f"[{sandbox_id}] NPM install command: {self.config.npm_install_cmd[:100]}...")
-
-        await arun_with_retry(
-            sandbox=self._sandbox,
-            cmd=f"bash -c {shlex.quote(self.config.npm_install_cmd)}",
-            session=self.agent_session,
-            mode="nohup",
-            wait_timeout=self.config.npm_install_timeout,
-            error_msg="npm installation failed",
-        )
+        self._log_step("Preparing Node runtime env (npm/node)", step_name="Node Runtime")
+        await self.node_env.prepare()
 
         elapsed_step = time.time() - step_start
-        self._log_step("NPM installation finished", step_name="NPM Install", is_complete=True, elapsed=elapsed_step)
+        self._log_step("Node runtime env prepared", step_name="Node Runtime", is_complete=True, elapsed=elapsed_step)
 
     async def _configure_npm_registry(self):
         """Configure npm to use mirror registry for faster downloads."""
@@ -172,9 +151,11 @@ class IFlowCli(BaseAgent):
 
         self._log_step("Configuring npm registry", step_name="NPM Registry")
 
+        # registry config doesn't strictly need runtime env, but running under node_env session is fine.
+        await self.node_env.ensure_session()
         result = await self._sandbox.arun(
             cmd="npm config set registry https://registry.npmmirror.com",
-            session=self.agent_session,
+            session=self.node_env.session,
         )
 
         if result.exit_code != 0:
@@ -192,10 +173,9 @@ class IFlowCli(BaseAgent):
         self._log_step("Installing iflow-cli", step_name="IFlow Install")
         logger.debug(f"[{sandbox_id}] IFlow CLI install command: {self.config.iflow_cli_install_cmd[:100]}...")
 
-        await arun_with_retry(
-            sandbox=self._sandbox,
-            cmd=f"bash -c {shlex.quote(self.config.iflow_cli_install_cmd)}",
-            session=self.agent_session,
+        # Use node runtime env to run install cmd (wrap is currently bash -c, but uses node_env session)
+        await self.node_env.run(
+            cmd=self.config.iflow_cli_install_cmd,
             mode="nohup",
             wait_timeout=self.config.npm_install_timeout,
             error_msg="iflow-cli installation failed",
@@ -311,10 +291,7 @@ class IFlowCli(BaseAgent):
             return ""
 
     async def _create_agent_run_cmd(self, prompt: str) -> str:
-        """Create IFlow run command (NOT wrapped by bash -c).
-
-        Subclass is responsible for including `cd ... && ...` if needed.
-        """
+        """Create IFlow run command (NOT wrapped by bash -c)."""
         sandbox_id = self._sandbox.sandbox_id
 
         project_path = self.config.project_path
@@ -333,6 +310,5 @@ class IFlowCli(BaseAgent):
             iflow_log_file=self.config.iflow_log_file,
         )
 
-        # Ensure we run within project_path
         cmd = f"cd {shlex.quote(project_path)} && {iflow_run_cmd}"
         return cmd

@@ -15,7 +15,7 @@ from rock.actions import UploadRequest
 from rock.logger import init_logger
 from rock.sdk.sandbox.agent.base import BaseAgent
 from rock.sdk.sandbox.agent.config import BaseAgentConfig
-from rock.sdk.sandbox.utils import arun_with_retry
+from rock.sdk.sandbox.agent.runtime_env.python_env import PythonAgentRuntimeEnv
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
@@ -149,7 +149,7 @@ class SweAgentConfig(BaseAgentConfig):
 
 
 class SweAgent(BaseAgent):
-    """SWE-agent implementation (subclass only implements _install and _create_agent_run_cmd)."""
+    """SWE-agent implementation (runtime env migrated)."""
 
     GENERATED_CONFIG_NAME = "generated_config.yaml"
 
@@ -157,16 +157,21 @@ class SweAgent(BaseAgent):
         super().__init__(sandbox, config)
         self.config: SweAgentConfig = config
 
+        # runtime env maintains its own session
+        self.python_env = PythonAgentRuntimeEnv(
+            sandbox=self._sandbox,
+            workdir=self.config.swe_agent_workdir,
+            python_install_cmd=self.config.python_install_cmd,
+            prepare_timeout=self.config.python_install_timeout,
+        )
+
     async def _install(self):
-        """Install SWE-agent and upload generated_config.yaml (static template)."""
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
-
         logger.info(f"[{sandbox_id}] Starting SWE-agent installation")
 
         try:
-            await self._create_working_directory()
-            await self._install_python()
+            await self.python_env.prepare()
             await self._install_swe_agent_package()
             await self._upload_generated_config_template()
 
@@ -181,65 +186,20 @@ class SweAgent(BaseAgent):
             )
             raise
 
-    async def _create_working_directory(self):
-        sandbox_id = self._sandbox.sandbox_id
-        step_start = time.time()
-
-        self._log_step(f"Creating working directory: {self.config.swe_agent_workdir}", step_name="Create Workdir")
-
-        mkdir_cmd = f"mkdir -p {self.config.swe_agent_workdir}"
-        logger.debug(f"[{sandbox_id}] Command: {mkdir_cmd}")
-
-        await self._sandbox.arun(
-            cmd=mkdir_cmd,
-            session=self.agent_session,
-        )
-
-        elapsed_step = time.time() - step_start
-        self._log_step("Working directory created", step_name="Create Workdir", is_complete=True, elapsed=elapsed_step)
-
-    async def _install_python(self):
-        sandbox_id = self._sandbox.sandbox_id
-        step_start = time.time()
-
-        self._log_step("Installing Python environment", step_name="Python Install")
-
-        python_install_cmd = f"cd {self.config.swe_agent_workdir} && {self.config.python_install_cmd}"
-        full_cmd = f"bash -c {shlex.quote(python_install_cmd)}"
-        logger.debug(f"[{sandbox_id}] Command: {full_cmd}")
-
-        await arun_with_retry(
-            sandbox=self._sandbox,
-            cmd=full_cmd,
-            session=self.agent_session,
-            mode="nohup",
-            wait_timeout=self.config.python_install_timeout,
-            error_msg="Python installation failed",
-        )
-
-        elapsed_step = time.time() - step_start
-        self._log_step(
-            "Python environment installed", step_name="Python Install", is_complete=True, elapsed=elapsed_step
-        )
-
     async def _install_swe_agent_package(self):
-        sandbox_id = self._sandbox.sandbox_id
         step_start = time.time()
 
         self._log_step("Installing SWE-agent repository", step_name="SWE-agent Install")
 
-        swe_agent_install_cmd = (
-            f"export PATH={self.config.swe_agent_workdir}/python/bin:$PATH && "
-            f"cd {self.config.swe_agent_workdir} && "
-            f"{self.config.swe_agent_install_cmd}"
-        )
-        full_cmd = f"bash -c {shlex.quote(swe_agent_install_cmd)}"
-        logger.debug(f"[{sandbox_id}] Command: {full_cmd}")
+        if not self.python_env.prepared:
+            raise RuntimeError("Python runtime env is not prepared. Call python_env.prepare() before installation.")
 
-        await arun_with_retry(
-            sandbox=self._sandbox,
-            cmd=full_cmd,
-            session=self.agent_session,
+        swe_agent_install_cmd = (
+            f"cd {shlex.quote(self.config.swe_agent_workdir)} && {self.config.swe_agent_install_cmd}"
+        )
+
+        await self.python_env.run(
+            cmd=swe_agent_install_cmd,
             mode="nohup",
             wait_timeout=self.config.swe_agent_install_timeout,
             error_msg="SWE-agent installation failed",
@@ -288,13 +248,13 @@ class SweAgent(BaseAgent):
         """Create a local temporary YAML config (template) for SWE-agent."""
         new_config = copy.deepcopy(self.config.default_run_single_config)
 
-        # output_dir uses instance_id from config (moved from run args)
+        # output_dir uses instance_id from config
         if self.config.instance_id:
             new_config["output_dir"] = f"{self.config.swe_agent_workdir}/{self.config.instance_id}"
         else:
             new_config["output_dir"] = f"{self.config.swe_agent_workdir}/generated_output"
 
-        # repo/project path uses project_path from config (moved from run args)
+        # repo/project path uses project_path from config
         project_path = self.config.project_path
         if "env" in new_config and "repo" in new_config["env"]:
             if project_path:
@@ -332,18 +292,16 @@ class SweAgent(BaseAgent):
                 logger.warning(f"Failed to clean up temporary config file {temp_file_path}: {str(e)}")
 
     async def _create_agent_run_cmd(self, prompt: str) -> str:
-        """Create SWE-agent run command.
+        if not self.python_env.prepared:
+            raise RuntimeError("Python runtime env is not prepared. Ensure agent.init() completed successfully.")
 
-        Returns a shell command string (NOT wrapped by bash -c).
-        Subclass is responsible for including cd ... && ...
-        """
-        # NOTE: CLI override syntax may need adjustment if sweagent uses a different flag format.
         prompt_arg = shlex.quote(prompt)
+        sweagent_bin = f"{self.python_env.bin_dir}/sweagent"
 
         cmd = (
-            f"cd {self.config.swe_agent_workdir} && "
-            f"{self.config.swe_agent_workdir}/python/bin/sweagent run "
-            f"--config {self.GENERATED_CONFIG_NAME} "
+            f"cd {shlex.quote(self.config.swe_agent_workdir)} && "
+            f"{shlex.quote(sweagent_bin)} run "
+            f"--config {shlex.quote(self.GENERATED_CONFIG_NAME)} "
             f"--problem_statement.text {prompt_arg}"
         )
         return cmd
