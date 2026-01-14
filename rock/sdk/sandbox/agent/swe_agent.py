@@ -138,10 +138,6 @@ class SweAgentConfig(BaseAgentConfig):
         "cd SWE-agent && pip install -e . -i https://mirrors.aliyun.com/pypi/simple/"
     )
 
-    python_env_install_timeout: int = 300
-
-    swe_agent_install_timeout: int = 600
-
     default_run_single_config: dict[str, Any] = DEFAULT_RUN_SINGLE_CONFIG
 
 
@@ -159,7 +155,7 @@ class SweAgent(BaseAgent):
             sandbox=self._sandbox,
             workdir=self.config.agent_installed_dir,
             python_install_cmd=self.config.python_install_cmd,
-            prepare_timeout=self.config.python_env_install_timeout,
+            prepare_timeout=self.config.runtime_env_prepare_timeout,
         )
 
     async def _install(self):
@@ -198,7 +194,7 @@ class SweAgent(BaseAgent):
         await self.agent_runtime_env.run(
             cmd=swe_agent_install_cmd,
             mode=RunMode.NOHUP,
-            wait_timeout=self.config.swe_agent_install_timeout,
+            wait_timeout=self.config.agent_install_timeout,
             error_msg="SWE-agent installation failed",
         )
 

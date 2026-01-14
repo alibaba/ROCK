@@ -62,8 +62,6 @@ class IFlowCliConfig(BaseAgentConfig):
     # Node runtime install
     npm_install_cmd: str = env_vars.ROCK_AGENT_NPM_INSTALL_CMD
 
-    npm_install_timeout: int = 300
-
     # iflow-cli install
     iflow_cli_install_cmd: str = env_vars.ROCK_AGENT_IFLOW_CLI_INSTALL_CMD
 
@@ -92,7 +90,7 @@ class IFlowCli(BaseAgent):
             sandbox=self._sandbox,
             workdir=self.config.agent_installed_dir,
             node_install_cmd=self.config.npm_install_cmd,
-            prepare_timeout=self.config.npm_install_timeout,
+            prepare_timeout=self.config.runtime_env_prepare_timeout,
         )
 
     async def _install(self):
@@ -179,7 +177,7 @@ class IFlowCli(BaseAgent):
         await self.agent_runtime_env.run(
             cmd=self.config.iflow_cli_install_cmd,
             mode=RunMode.NOHUP,
-            wait_timeout=self.config.npm_install_timeout,
+            wait_timeout=self.config.agent_install_timeout,
             error_msg="iflow-cli installation failed",
         )
 

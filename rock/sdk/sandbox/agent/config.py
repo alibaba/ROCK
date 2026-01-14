@@ -41,3 +41,11 @@ class BaseAgentConfig(AgentConfig):
 
     # Optional ModelService configuration
     model_service_config: ModelServiceConfig | None = None
+
+    runtime_env_prepare_timeout: int = 300  # seconds
+
+    agent_install_timeout: int = 600  # seconds
+
+    agent_run_timeout: int = 1800  # seconds
+
+    agent_run_check_interval: int = 30  # seconds

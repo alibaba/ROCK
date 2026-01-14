@@ -95,8 +95,6 @@ class BaseAgent(Agent):
     async def run(
         self,
         prompt: str,
-        agent_run_timeout: int = 1800,
-        agent_run_check_interval: int = 30,
     ) -> Observation:
         """Unified agent run entry.
 
@@ -111,8 +109,6 @@ class BaseAgent(Agent):
         return await self._agent_run(
             cmd=wrapped_cmd,
             session=self.agent_session,
-            wait_timeout=agent_run_timeout,
-            wait_interval=agent_run_check_interval,
         )
 
     @abstractmethod
@@ -236,13 +232,7 @@ class BaseAgent(Agent):
             logger.error(f"[{sandbox_id}] ModelService initialization failed: {str(e)}", exc_info=True)
             raise
 
-    async def _agent_run(
-        self,
-        cmd: str,
-        session: str,
-        wait_timeout: int,
-        wait_interval: int,
-    ) -> Observation:
+    async def _agent_run(self, cmd: str, session: str) -> Observation:
         """Execute agent command in nohup mode with optional ModelService watch.
 
         Args:
@@ -288,7 +278,10 @@ class BaseAgent(Agent):
             # Wait for agent process to complete
             logger.debug(f"[{sandbox_id}] Waiting for agent process completion (pid={pid})")
             success, message = await self._sandbox.wait_for_process_completion(
-                pid=pid, session=session, wait_timeout=wait_timeout, wait_interval=wait_interval
+                pid=pid,
+                session=session,
+                wait_timeout=self.config.agent_run_timeout,
+                wait_interval=self.config.agent_run_check_interval,
             )
 
             # Handle nohup output and return result
