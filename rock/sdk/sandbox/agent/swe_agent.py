@@ -155,7 +155,7 @@ class SweAgent(BaseAgent):
         self.config: SweAgentConfig = config
 
         # runtime env maintains its own session
-        self.python_env = PythonAgentRuntimeEnv(
+        self.agent_runtime_env = PythonAgentRuntimeEnv(
             sandbox=self._sandbox,
             workdir=self.config.agent_installed_dir,
             python_install_cmd=self.config.python_install_cmd,
@@ -168,7 +168,7 @@ class SweAgent(BaseAgent):
         logger.info(f"[{sandbox_id}] Starting SWE-agent installation")
 
         try:
-            await self.python_env.prepare()
+            await self.agent_runtime_env.prepare()
             await self._install_swe_agent_package()
             await self._upload_generated_config_template()
 
@@ -188,14 +188,14 @@ class SweAgent(BaseAgent):
 
         self._log_step("Installing SWE-agent repository", step_name="SWE-agent Install")
 
-        if not self.python_env.prepared:
+        if not self.agent_runtime_env.prepared:
             raise RuntimeError("Python runtime env is not prepared. Call python_env.prepare() before installation.")
 
         swe_agent_install_cmd = (
             f"cd {shlex.quote(self.config.agent_installed_dir)} && {self.config.swe_agent_install_cmd}"
         )
 
-        await self.python_env.run(
+        await self.agent_runtime_env.run(
             cmd=swe_agent_install_cmd,
             mode=RunMode.NOHUP,
             wait_timeout=self.config.swe_agent_install_timeout,
@@ -289,11 +289,11 @@ class SweAgent(BaseAgent):
                 logger.warning(f"Failed to clean up temporary config file {temp_file_path}: {str(e)}")
 
     async def _create_agent_run_cmd(self, prompt: str) -> str:
-        if not self.python_env.prepared:
+        if not self.agent_runtime_env.prepared:
             raise RuntimeError("Python runtime env is not prepared. Ensure agent.init() completed successfully.")
 
         prompt_arg = shlex.quote(prompt)
-        sweagent_bin = f"{self.python_env.bin_dir}/sweagent"
+        sweagent_bin = f"{self.agent_runtime_env.bin_dir}/sweagent"
 
         cmd = (
             f"cd {shlex.quote(self.config.agent_installed_dir)} && "

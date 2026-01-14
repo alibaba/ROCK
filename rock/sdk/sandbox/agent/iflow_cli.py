@@ -88,7 +88,7 @@ class IFlowCli(BaseAgent):
         self.config: IFlowCliConfig = config
 
         # runtime env maintains its own session
-        self.node_env = NodeAgentRuntimeEnv(
+        self.agent_runtime_env = NodeAgentRuntimeEnv(
             sandbox=self._sandbox,
             workdir=self.config.agent_installed_dir,
             node_install_cmd=self.config.npm_install_cmd,
@@ -141,7 +141,7 @@ class IFlowCli(BaseAgent):
         step_start = time.time()
 
         self._log_step("Preparing Node runtime env (npm/node)", step_name="Node Runtime")
-        await self.node_env.prepare()
+        await self.agent_runtime_env.prepare()
 
         elapsed_step = time.time() - step_start
         self._log_step("Node runtime env prepared", step_name="Node Runtime", is_complete=True, elapsed=elapsed_step)
@@ -154,10 +154,10 @@ class IFlowCli(BaseAgent):
         self._log_step("Configuring npm registry", step_name="NPM Registry")
 
         # registry config doesn't strictly need runtime env, but running under node_env session is fine.
-        await self.node_env.ensure_session()
+        await self.agent_runtime_env.ensure_session()
         result = await self._sandbox.arun(
             cmd="npm config set registry https://registry.npmmirror.com",
-            session=self.node_env.session,
+            session=self.agent_runtime_env.session,
         )
 
         if result.exit_code != 0:
@@ -176,7 +176,7 @@ class IFlowCli(BaseAgent):
         logger.debug(f"[{sandbox_id}] IFlow CLI install command: {self.config.iflow_cli_install_cmd[:100]}...")
 
         # Use node runtime env to run install cmd (wrap is currently bash -c, but uses node_env session)
-        await self.node_env.run(
+        await self.agent_runtime_env.run(
             cmd=self.config.iflow_cli_install_cmd,
             mode=RunMode.NOHUP,
             wait_timeout=self.config.npm_install_timeout,
