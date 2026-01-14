@@ -169,4 +169,4 @@ export ROCK_WORKER_ENV_TYPE=pip
 - [API 文档](../References/api.md) - 查看完整的 API 接口
 - [Python SDK 文档](../References/Python%20SDK%20References/python_sdk.md) - 学习如何使用 Python SDK 进行开发
 - [安装指南](./installation.md) - 详细了解 ROCK 安装和配置
-- [概述](../overview.md) - 了解 ROCK 的整体架构和设计理念
+- [概览](../overview.md) - 了解 ROCK 的设计理念

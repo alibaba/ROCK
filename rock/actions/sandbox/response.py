@@ -2,6 +2,13 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
+from rock._codes import codes
+
+class SandboxResponse(BaseModel):
+    code: codes | None = None
+    exit_code: int | None = None
+    failure_reason: str | None = None
+
 
 class IsAliveResponse(BaseModel):
     """Response to the is_alive request.
@@ -30,6 +37,8 @@ class SandboxStatusResponse(BaseModel):
     swe_rex_version: str | None = None
     user_id: str | None = None
     experiment_id: str | None = None
+    cpus: float | None = None
+    memory: str | None = None
 
 
 class CommandResponse(BaseModel):

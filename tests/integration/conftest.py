@@ -151,9 +151,11 @@ async def sandbox_instance(request, admin_remote_server):
     """Provides an independent sandbox instance for each test case, ensuring stop is always called after failure"""
     # Get the image parameter from the test function, use default value if not present
     image = getattr(request, "param", {}).get("image", "python:3.11")
+    cpus = getattr(request, "param", {}).get("cpus", 1.0)
+    memory = getattr(request, "param", {}).get("memory", "4g")
 
     config = SandboxConfig(
-        image=image, memory="8g", cpus=2.0, base_url=f"{admin_remote_server.endpoint}:{admin_remote_server.port}"
+        image=image, memory=memory, cpus=cpus, base_url=f"{admin_remote_server.endpoint}:{admin_remote_server.port}"
     )
     sandbox = Sandbox(config)
     try:

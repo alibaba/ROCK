@@ -12,11 +12,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Cleanup old files in /tmp/ray
+      run: |
+        [ -d /tmp/ray ] && find /tmp/ray -mindepth 1 -mmin +60 -delete || true
 
     - name: Set up project (install dependencies without building)
       run: |
         uv sync --all-extras --group test --python 3.11
-
 
     - name: Run fast tests
       run: |
