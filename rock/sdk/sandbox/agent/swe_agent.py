@@ -16,6 +16,7 @@ from rock.logger import init_logger
 from rock.sdk.sandbox.agent.base import BaseAgent
 from rock.sdk.sandbox.agent.config import BaseAgentConfig
 from rock.sdk.sandbox.agent.runtime_env.python_env import PythonAgentRuntimeEnv
+from rock.sdk.sandbox.client import RunMode
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
@@ -128,9 +129,6 @@ class SweAgentConfig(BaseAgentConfig):
     """SWE-agent configuration."""
 
     agent_type: Literal["swe-agent"] = "swe-agent"
-    agent_session: str = "swe-agent-session"
-
-    swe_agent_workdir: str = "/tmp_sweagent"
 
     python_install_cmd: str = env_vars.ROCK_AGENT_PYTHON_INSTALL_CMD
 
@@ -140,12 +138,11 @@ class SweAgentConfig(BaseAgentConfig):
         "cd SWE-agent && pip install -e . -i https://mirrors.aliyun.com/pypi/simple/"
     )
 
-    python_install_timeout: int = 300
+    python_env_install_timeout: int = 300
+
     swe_agent_install_timeout: int = 600
 
     default_run_single_config: dict[str, Any] = DEFAULT_RUN_SINGLE_CONFIG
-
-    session_envs: dict[str, str] = {}
 
 
 class SweAgent(BaseAgent):
@@ -160,9 +157,9 @@ class SweAgent(BaseAgent):
         # runtime env maintains its own session
         self.python_env = PythonAgentRuntimeEnv(
             sandbox=self._sandbox,
-            workdir=self.config.swe_agent_workdir,
+            workdir=self.config.agent_installed_dir,
             python_install_cmd=self.config.python_install_cmd,
-            prepare_timeout=self.config.python_install_timeout,
+            prepare_timeout=self.config.python_env_install_timeout,
         )
 
     async def _install(self):
@@ -195,12 +192,12 @@ class SweAgent(BaseAgent):
             raise RuntimeError("Python runtime env is not prepared. Call python_env.prepare() before installation.")
 
         swe_agent_install_cmd = (
-            f"cd {shlex.quote(self.config.swe_agent_workdir)} && {self.config.swe_agent_install_cmd}"
+            f"cd {shlex.quote(self.config.agent_installed_dir)} && {self.config.swe_agent_install_cmd}"
         )
 
         await self.python_env.run(
             cmd=swe_agent_install_cmd,
-            mode="nohup",
+            mode=RunMode.NOHUP,
             wait_timeout=self.config.swe_agent_install_timeout,
             error_msg="SWE-agent installation failed",
         )
@@ -214,7 +211,7 @@ class SweAgent(BaseAgent):
         )
 
     async def _upload_generated_config_template(self) -> None:
-        """Generate and upload a static template config to swe_agent_workdir/generated_config.yaml.
+        """Generate and upload a static template config to agent_installed_dir/generated_config.yaml.
 
         The prompt/problem_statement text will be injected at runtime via CLI args in _create_agent_run_cmd().
         """
@@ -224,7 +221,7 @@ class SweAgent(BaseAgent):
         self._log_step("Generating and uploading SWE-agent config template", step_name="Upload Config")
 
         with self._generated_config_template_context() as local_path:
-            target_path = f"{self.config.swe_agent_workdir}/{self.GENERATED_CONFIG_NAME}"
+            target_path = f"{self.config.agent_installed_dir}/{self.GENERATED_CONFIG_NAME}"
 
             await self._sandbox.upload(
                 UploadRequest(
@@ -250,12 +247,12 @@ class SweAgent(BaseAgent):
 
         # output_dir uses instance_id from config
         if self.config.instance_id:
-            new_config["output_dir"] = f"{self.config.swe_agent_workdir}/{self.config.instance_id}"
+            new_config["output_dir"] = f"{self.config.agent_installed_dir}/{self.config.instance_id}"
         else:
-            new_config["output_dir"] = f"{self.config.swe_agent_workdir}/generated_output"
+            new_config["output_dir"] = f"{self.config.agent_installed_dir}/generated_output"
 
         # repo/project path uses project_path from config
-        project_path = self.config.project_path
+        project_path = self.config.workdir
         if "env" in new_config and "repo" in new_config["env"]:
             if project_path:
                 is_root_level = os.path.dirname(project_path) == "/"
@@ -270,7 +267,7 @@ class SweAgent(BaseAgent):
         # problem_statement will be injected at runtime; keep empty here
         if "problem_statement" in new_config:
             new_config["problem_statement"]["text"] = ""
-            new_config["problem_statement"]["id"] = self.config.instance_id or "generated"
+            new_config["problem_statement"]["id"] = self.config.instance_id
 
         temp_config_file = tempfile.NamedTemporaryFile(
             mode="w",
@@ -299,7 +296,7 @@ class SweAgent(BaseAgent):
         sweagent_bin = f"{self.python_env.bin_dir}/sweagent"
 
         cmd = (
-            f"cd {shlex.quote(self.config.swe_agent_workdir)} && "
+            f"cd {shlex.quote(self.config.agent_installed_dir)} && "
             f"{shlex.quote(sweagent_bin)} run "
             f"--config {shlex.quote(self.GENERATED_CONFIG_NAME)} "
             f"--problem_statement.text {prompt_arg}"

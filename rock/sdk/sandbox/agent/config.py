@@ -23,11 +23,12 @@ class BaseAgentConfig(AgentConfig):
     """
 
     # Unified runtime identifiers (moved from run() args into config)
-    project_path: str = "./"
+    agent_installed_dir: str = "/installed_agent"
     instance_id: str = "default-instance-id"
 
     # Session management
     agent_session: str = "default-agent-session"
+    workdir: str = "./"
 
     # Startup/shutdown commands
     pre_init_bash_cmd_list: list[AgentBashCommand] = [

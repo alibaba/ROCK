@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from rock.actions import CreateBashSessionRequest
+from rock.sdk.sandbox.client import RunMode, RunModeType
 from rock.sdk.sandbox.utils import arun_with_retry
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
-
-RunMode = Literal["nohup", "normal"]
 
 
 class AgentRuntimeEnv(ABC):
@@ -72,7 +71,7 @@ class AgentRuntimeEnv(ABC):
         self,
         *,
         cmd: str,
-        mode: RunMode = "nohup",
+        mode: RunModeType = RunMode.NOHUP,
         wait_timeout: int = 600,
         error_msg: str = "runtime env command failed",
     ):

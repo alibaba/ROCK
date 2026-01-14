@@ -15,6 +15,7 @@ from rock.logger import init_logger
 from rock.sdk.sandbox.agent.base import BaseAgent
 from rock.sdk.sandbox.agent.config import BaseAgentConfig
 from rock.sdk.sandbox.agent.runtime_env import NodeAgentRuntimeEnv
+from rock.sdk.sandbox.client import RunMode
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
@@ -57,10 +58,10 @@ class IFlowCliConfig(BaseAgentConfig):
     """IFlow CLI Agent Configuration."""
 
     agent_type: str = "iflow-cli"
-    agent_session: str = "iflow-cli-session"
 
     # Node runtime install
     npm_install_cmd: str = env_vars.ROCK_AGENT_NPM_INSTALL_CMD
+
     npm_install_timeout: int = 300
 
     # iflow-cli install
@@ -70,6 +71,7 @@ class IFlowCliConfig(BaseAgentConfig):
 
     # NOTE: keep same template; _create_agent_run_cmd will fill session_id/prompt/log_file
     iflow_run_cmd: str = "iflow -r {session_id} -p {problem_statement} --yolo > {iflow_log_file} 2>&1"
+
     iflow_log_file: str = "~/.iflow/session_info.log"
 
     session_envs: dict[str, str] = {
@@ -88,7 +90,7 @@ class IFlowCli(BaseAgent):
         # runtime env maintains its own session
         self.node_env = NodeAgentRuntimeEnv(
             sandbox=self._sandbox,
-            workdir="/tmp_iflow_node",  # internal runtime workdir (not project_path)
+            workdir=self.config.agent_installed_dir,
             node_install_cmd=self.config.npm_install_cmd,
             prepare_timeout=self.config.npm_install_timeout,
         )
@@ -176,7 +178,7 @@ class IFlowCli(BaseAgent):
         # Use node runtime env to run install cmd (wrap is currently bash -c, but uses node_env session)
         await self.node_env.run(
             cmd=self.config.iflow_cli_install_cmd,
-            mode="nohup",
+            mode=RunMode.NOHUP,
             wait_timeout=self.config.npm_install_timeout,
             error_msg="iflow-cli installation failed",
         )
@@ -294,8 +296,8 @@ class IFlowCli(BaseAgent):
         """Create IFlow run command (NOT wrapped by bash -c)."""
         sandbox_id = self._sandbox.sandbox_id
 
-        project_path = self.config.project_path
-        if not project_path:
+        workdir = self.config.workdir
+        if not workdir:
             raise ValueError("IFlowCliConfig.project_path is required (moved from run() args into config).")
 
         session_id = await self._get_session_id_from_sandbox()
@@ -310,5 +312,5 @@ class IFlowCli(BaseAgent):
             iflow_log_file=self.config.iflow_log_file,
         )
 
-        cmd = f"cd {shlex.quote(project_path)} && {iflow_run_cmd}"
+        cmd = f"cd {shlex.quote(workdir)} && {iflow_run_cmd}"
         return cmd
