@@ -85,7 +85,7 @@ def init_logger(name: str | None = None, file_name: str | None = None):
         file_name = file_name if file_name else env_vars.ROCK_LOGGING_FILE_NAME
         if env_vars.ROCK_LOGGING_PATH and file_name:
             # Use file handler
-            handler = init_file_handler(env_vars.ROCK_LOGGING_FILE_NAME)
+            handler = init_file_handler(file_name)
         else:
             # Use stdout handler
             handler = logging.StreamHandler(sys.stdout)
