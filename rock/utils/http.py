@@ -1,10 +1,12 @@
 import asyncio
 import logging
 import mimetypes
+import ssl
 import time
 from collections.abc import Callable
 from typing import BinaryIO
 
+import certifi
 import httpx
 from httpx import Response
 
@@ -12,11 +14,15 @@ from httpx import Response
 class HttpUtils:
     """HTTP client utilities"""
 
+    # Use global ssl_context to avoid frequent creation.
+    _SHARED_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+
     @staticmethod
     async def post(url: str, headers: dict, data: dict, read_timeout: float = 300.0) -> dict:
         """Send POST request"""
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(timeout=300.0, connect=300.0, read=read_timeout if read_timeout else 300.0)
+            verify=HttpUtils._SHARED_SSL_CONTEXT,
+            timeout=httpx.Timeout(timeout=300.0, connect=300.0, read=read_timeout if read_timeout else 300.0),
         ) as client:
             try:
                 response: Response = await client.post(url, headers=headers, json=data)
@@ -29,7 +35,9 @@ class HttpUtils:
     @staticmethod
     async def get(url: str, headers: dict) -> dict:
         """Send GET request"""
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout=300.0, connect=300.0, read=300.0)) as client:
+        async with httpx.AsyncClient(
+            verify=HttpUtils._SHARED_SSL_CONTEXT, timeout=httpx.Timeout(timeout=300.0, connect=300.0, read=300.0)
+        ) as client:
             try:
                 response: Response = await client.get(url, headers=headers)
                 response.raise_for_status()
@@ -62,7 +70,9 @@ class HttpUtils:
         Returns:
             Response JSON data
         """
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout=300.0, connect=300.0, read=300.0)) as client:
+        async with httpx.AsyncClient(
+            verify=HttpUtils._SHARED_SSL_CONTEXT, timeout=httpx.Timeout(timeout=300.0, connect=300.0, read=300.0)
+        ) as client:
             try:
                 # Build multipart data
                 multipart_data = {}
