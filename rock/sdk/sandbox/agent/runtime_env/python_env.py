@@ -24,22 +24,26 @@ class PythonAgentRuntimeEnv(AgentRuntimeEnv):
 
     def __init__(
         self,
-        *,
         sandbox: Sandbox,
-        session: str = "python-runtime-env-session",
         workdir: str,
-        python_install_cmd: str | None = None,
+        session: str = "python-runtime-env-session",
+        install_cmd: str | None = None,
         prepare_timeout: int = 300,
         session_envs: dict[str, str] | None = None,
     ) -> None:
-        super().__init__(sandbox=sandbox, session=session, session_envs=session_envs)
-        self.workdir = workdir
-        self.python_install_cmd = python_install_cmd or env_vars.ROCK_AGENT_PYTHON_INSTALL_CMD
-        self.prepare_timeout = prepare_timeout
+        super().__init__(
+            sandbox=sandbox,
+            workdir=workdir,
+            session=session,
+            install_cmd=install_cmd,
+            prepare_timeout=prepare_timeout,
+            session_envs=session_envs,
+        )
+        self.python_install_cmd = install_cmd or env_vars.ROCK_AGENT_PYTHON_INSTALL_CMD
 
-        # fixed layout
-        self.path = f"{self.workdir}/python"
-        self.bin_dir = f"{self.path}/bin"
+    @property
+    def bin_dir(self) -> str:
+        return f"{self.workdir}/python/bin"
 
     def wrap(self, cmd: str) -> str:
         wrapped = f"export PATH={shlex.quote(self.bin_dir)}:$PATH && {cmd}"
@@ -57,13 +61,15 @@ class PythonAgentRuntimeEnv(AgentRuntimeEnv):
             session=self.session,
         )
 
+        from rock.sdk.sandbox.client import RunMode
+
         # 2) run install cmd in workdir (must create ./python)
         install_cmd = f"cd {shlex.quote(self.workdir)} && {self.python_install_cmd}"
         await arun_with_retry(
             sandbox=self._sandbox,
             cmd=f"bash -c {shlex.quote(install_cmd)}",
             session=self.session,
-            mode="nohup",
+            mode=RunMode.NOHUP,
             wait_timeout=self.prepare_timeout,
             error_msg="Python runtime installation failed",
         )
@@ -71,7 +77,7 @@ class PythonAgentRuntimeEnv(AgentRuntimeEnv):
         # 3) validate python exists
         check_cmd = f"test -x {shlex.quote(self.bin_dir)}/python"
         result = await self._sandbox.arun(
-            cmd=f"bash -c {shlex.quote(check_cmd)}",
+            cmd=check_cmd,
             session=self.session,
         )
         if result.exit_code != 0:
@@ -82,4 +88,4 @@ class PythonAgentRuntimeEnv(AgentRuntimeEnv):
             )
 
         self._prepared = True
-        logger.info(f"[{sandbox_id}] Python runtime env prepared: {self.path}")
+        logger.info(f"[{sandbox_id}] Python runtime env prepared")

@@ -1,3 +1,5 @@
+import time
+
 from pydantic import BaseModel, Field
 
 from rock import env_vars
@@ -24,10 +26,10 @@ class BaseAgentConfig(AgentConfig):
 
     # Unified runtime identifiers (moved from run() args into config)
     agent_installed_dir: str = "/installed_agent"
-    instance_id: str = "default-instance-id"
+    instance_id: str = f"instance-id-{int(time.time())}"
 
     # Session management
-    agent_session: str = "default-agent-session"
+    agent_session: str = f"agent-session-{int(time.time())}"
     workdir: str = "./"
 
     # Startup/shutdown commands

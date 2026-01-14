@@ -25,18 +25,22 @@ class NodeAgentRuntimeEnv(AgentRuntimeEnv):
 
     def __init__(
         self,
-        *,
         sandbox: Sandbox,
         workdir: str,
         session: str = "node-runtime-env-session",
-        node_install_cmd: str | None = None,
+        install_cmd: str | None = None,
         prepare_timeout: int = 300,
         session_envs: dict[str, str] | None = None,
     ) -> None:
-        super().__init__(sandbox=sandbox, session=session, session_envs=session_envs)
-        self.workdir = workdir
-        self.node_install_cmd = node_install_cmd or env_vars.ROCK_AGENT_NPM_INSTALL_CMD
-        self.prepare_timeout = prepare_timeout
+        super().__init__(
+            sandbox=sandbox,
+            workdir=workdir,
+            session=session,
+            install_cmd=install_cmd,
+            prepare_timeout=prepare_timeout,
+            session_envs=session_envs,
+        )
+        self.node_install_cmd = install_cmd or env_vars.ROCK_AGENT_NPM_INSTALL_CMD
 
     def wrap(self, cmd: str) -> str:
         return f"bash -c {shlex.quote(cmd)}"
@@ -53,13 +57,15 @@ class NodeAgentRuntimeEnv(AgentRuntimeEnv):
             session=self.session,
         )
 
+        from rock.sdk.sandbox.client import RunMode
+
         # 2) install node/npm (script may install globally)
         install_cmd = f"cd {shlex.quote(self.workdir)} && {self.node_install_cmd}"
         await arun_with_retry(
             sandbox=self._sandbox,
             cmd=f"bash -c {shlex.quote(install_cmd)}",
             session=self.session,
-            mode="nohup",
+            mode=RunMode.NOHUP,
             wait_timeout=self.prepare_timeout,
             error_msg="Node runtime installation failed",
         )
@@ -67,10 +73,13 @@ class NodeAgentRuntimeEnv(AgentRuntimeEnv):
         # 3) lightweight validation (best-effort)
         # Some images may not have node in PATH immediately; treat failure as warning.
         res = await self._sandbox.arun(
-            cmd="bash -c 'command -v node >/dev/null 2>&1 && node --version || true'",
+            cmd="command -v node >/dev/null 2>&1 && node --version || true",
             session=self.session,
         )
         logger.debug(f"[{sandbox_id}] Node validation output: {res.output[:200]}")
+
+        if res.exit_code != 0:
+            raise RuntimeError("Node runtime validation failed")
 
         self._prepared = True
         logger.info(f"[{sandbox_id}] Node runtime env prepared")

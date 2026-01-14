@@ -89,7 +89,8 @@ class IFlowCli(BaseAgent):
         self.agent_runtime_env = NodeAgentRuntimeEnv(
             sandbox=self._sandbox,
             workdir=self.config.agent_installed_dir,
-            node_install_cmd=self.config.npm_install_cmd,
+            session=self.agent_session,
+            install_cmd=self.config.npm_install_cmd,
             prepare_timeout=self.config.runtime_env_prepare_timeout,
         )
 

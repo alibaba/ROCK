@@ -22,9 +22,11 @@ class AgentRuntimeEnv(ABC):
 
     def __init__(
         self,
-        *,
         sandbox: Sandbox,
-        session: str,
+        workdir: str,
+        session: str = "agent-runtime-env-session",
+        install_cmd: str | None = None,
+        prepare_timeout: int = 300,
         session_envs: dict[str, str] | None = None,
     ) -> None:
         self._sandbox = sandbox
@@ -32,6 +34,9 @@ class AgentRuntimeEnv(ABC):
         self.session_envs = session_envs or {}
         self._prepared: bool = False
         self._session_ready: bool = False
+        self.workdir = workdir
+        self.install_cmd = install_cmd
+        self.prepare_timeout = prepare_timeout
 
     @property
     def prepared(self) -> bool:
@@ -52,7 +57,6 @@ class AgentRuntimeEnv(ABC):
                 )
             )
         except Exception:
-            # Best-effort: session may already exist. We intentionally do not fail here.
             pass
 
         self._session_ready = True
@@ -69,7 +73,6 @@ class AgentRuntimeEnv(ABC):
 
     async def run(
         self,
-        *,
         cmd: str,
         mode: RunModeType = RunMode.NOHUP,
         wait_timeout: int = 600,

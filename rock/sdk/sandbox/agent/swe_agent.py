@@ -154,7 +154,8 @@ class SweAgent(BaseAgent):
         self.agent_runtime_env = PythonAgentRuntimeEnv(
             sandbox=self._sandbox,
             workdir=self.config.agent_installed_dir,
-            python_install_cmd=self.config.python_install_cmd,
+            install_cmd=self.config.python_install_cmd,
+            session=self.agent_session,
             prepare_timeout=self.config.runtime_env_prepare_timeout,
         )
 
