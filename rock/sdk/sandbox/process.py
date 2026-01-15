@@ -111,7 +111,6 @@ class Process:
 
     async def upload_dir(
         self,
-        *,
         source_dir: str | Path,
         target_dir: str,
         extract_timeout: int = 600,
