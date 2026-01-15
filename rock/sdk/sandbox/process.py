@@ -117,10 +117,10 @@ class Process:
     ) -> Observation:
         """Upload local directory to sandbox using tar.gz (simple version).
 
-        - Check 'tar' exists; if not, return Observation with exit_code != 0
-        - Pack source_dir fully into a tar.gz locally (no symlink filtering)
-        - Upload to sandbox /tmp
         - Create a random bash session internally
+        - Check 'tar' exists; if not, return Observation with exit_code != 0
+        - Pack source_dir fully into a tar.gz locally
+        - Upload to sandbox /tmp
         - Extract into target_dir
         - Always cleanup local tar.gz
 
