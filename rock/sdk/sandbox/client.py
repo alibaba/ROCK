@@ -14,6 +14,7 @@ from httpx import ReadTimeout
 from typing_extensions import deprecated
 
 from rock import env_vars
+import rock
 from rock.actions import (
     AbstractSandbox,
     Action,
@@ -37,14 +38,16 @@ from rock.actions import (
     WriteFileRequest,
     WriteFileResponse,
 )
+from rock.actions import SandboxResponse
 from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX, RunModeType
-from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError, InvalidParameterRockException
+from rock.sdk.common.exceptions import InternalServerRockError, BadRequestRockError, InternalServerRockError, InvalidParameterRockException, raise_for_code
 from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
 from rock.sdk.sandbox.model_service.base import ModelService
 from rock.sdk.sandbox.network import Network
 from rock.sdk.sandbox.process import Process
 from rock.sdk.sandbox.remote_user import LinuxRemoteUser, RemoteUser
+from rock.sdk.sandbox.file_system import FileSystem, LinuxFileSystem
 from rock.utils import HttpUtils, extract_nohup_pid, retry_async
 
 logger = logging.getLogger(__name__)
@@ -69,6 +72,7 @@ class Sandbox(AbstractSandbox):
     remote_user: RemoteUser | None = None
     process: Process | None = None
     network: Network | None = None
+    fs: FileSystem | None = None
 
     def __init__(self, config: SandboxConfig):
         self._pod_name = None
@@ -86,6 +90,7 @@ class Sandbox(AbstractSandbox):
         self.remote_user = LinuxRemoteUser(self)
         self.process = Process(self)
         self.network = Network(self)
+        self.fs = LinuxFileSystem(self)
 
     @property
     def sandbox_id(self) -> str:
@@ -143,6 +148,10 @@ class Sandbox(AbstractSandbox):
 
         logging.debug(f"Start sandbox response: {response}")
         if "Success" != response.get("status"):
+            result = response.get("result", None)
+            if result is not None:
+                rock_response = SandboxResponse(**result)
+                raise_for_code(rock_response.code, f"Failed to start container: {response}")
             raise Exception(f"Failed to start sandbox: {response}")
         self._sandbox_id = response.get("result").get("sandbox_id")
         self._host_name = response.get("result").get("host_name")
@@ -158,7 +167,9 @@ class Sandbox(AbstractSandbox):
             except Exception as e:
                 logging.warning(f"Failed to get status, {str(e)}")
             await asyncio.sleep(3)
-        raise Exception(f"Failed to start sandbox within {self.config.startup_timeout}s, sandbox: {str(self)}")
+        raise InternalServerRockError(
+            f"Failed to start sandbox within {self.config.startup_timeout}s, sandbox: {str(self)}"
+        )
 
     async def is_alive(self) -> IsAliveResponse:
         try:
@@ -708,6 +719,13 @@ class Sandbox(AbstractSandbox):
         lines_per_request: int = 1000,
         session: str | None = None,
     ) -> ReadFileResponse:
+        if session is not None:
+            warnings.warn(
+                "The 'session' parameter is deprecated and will be removed in a future version.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         # Pre check
         if start_line is None:
             start_line = 1
@@ -718,22 +736,14 @@ class Sandbox(AbstractSandbox):
         if lines_per_request < 1 or lines_per_request > 10000:
             raise Exception(f"lines_per_request({lines_per_request}) must be between 1 and 10000")
 
-        if session is None:
-
-            @retry_async(max_attempts=3, delay_seconds=1.0)
-            async def _create_tmp_session() -> str:
-                session = await self._generate_tmp_session_name()
-                await self.create_session(CreateBashSessionRequest(session=session))
-                return session
-
-            session = await _create_tmp_session()
-
         if end_line is None:
 
             @retry_async(max_attempts=3, delay_seconds=1.0)
             async def _count_lines() -> int:
-                result = await self.arun(f"wc -l < {file_path}", session=session)
-                return int(result.output)
+                result = await self.execute(Command(command=["wc", "-l", file_path]))
+                if result.exit_code != 0:
+                    raise Exception(f"Failed to count lines of file {file_path}, wc result: {result}")
+                return int(result.stdout.strip().split()[0])
 
             end_line = await _count_lines()
             logger.info(f"file {file_path} has {end_line} lines")

@@ -1,4 +1,3 @@
-import logging
 from collections import Counter as CollectionsCounter
 
 from opentelemetry import metrics
@@ -10,7 +9,10 @@ from opentelemetry.sdk.metrics.export import InMemoryMetricReader, PeriodicExpor
 from rock import env_vars
 from rock.admin.metrics.constants import MetricsConstants
 from rock.admin.metrics.gc_view_instrument_match import patch_view_instrument_match
-from rock.utils import get_uniagent_endpoint
+from rock.logger import init_logger
+from rock.utils import get_instance_id, get_uniagent_endpoint
+
+logger = init_logger(__name__)
 
 
 class MetricsMonitor:
@@ -18,24 +20,29 @@ class MetricsMonitor:
         self,
         host: str,
         port: str,
+        pod: str,
         env: str = "daily",
         role: str = "test",
         export_interval_millis: int = 10000,
     ):
         patch_view_instrument_match()
-        self._init_basic_attributes(host, port, env, role)
+        self._init_basic_attributes(host, port, pod, env, role)
         self._init_telemetry(export_interval_millis)
         self.counters: dict[str, Counter] = {}
         self.gauges: dict[str, _Gauge] = {}
         self._register_metrics()
+        logger.info(
+            f"Initializing MetricsCollector with host={host}, port={port}, pod={pod}, " f"env={env}, role={role}"
+        )
 
     @classmethod
     def create(cls, export_interval_millis: int = 20000) -> "MetricsMonitor":
         host, port = get_uniagent_endpoint()
+        pod = get_instance_id()
         env = env_vars.ROCK_ADMIN_ENV
         role = env_vars.ROCK_ADMIN_ROLE
-        logging.info(f"Initializing MetricsCollector with host={host}, port={port}, " f"env={env}, role={role}")
-        return cls(host=host, port=port, env=env, role=role, export_interval_millis=export_interval_millis)
+        logger.info(f"Initializing MetricsCollector with host={host}, port={port}, " f"env={env}, role={role}")
+        return cls(host=host, port=port, pod=pod, env=env, role=role, export_interval_millis=export_interval_millis)
 
     def _register_metrics(self):
         """Register all monitoring metrics"""
@@ -52,11 +59,17 @@ class MetricsMonitor:
             "total execution time for request",
             "ms",
         )
-        # System resource metrics
-        self._register_gauge(MetricsConstants.SANDBOX_CPU, "CPU usage")
-        self._register_gauge(MetricsConstants.SANDBOX_MEM, "Memory usage")
-        self._register_gauge(MetricsConstants.SANDBOX_DISK, "Disk usage")
-        self._register_gauge(MetricsConstants.SANDBOX_NET, "Network usage")
+        # Single sandbox resource utilization metrics (percentage of allocated resources)
+        self._register_gauge(MetricsConstants.SANDBOX_CPU, "Single sandbox CPU usage percentage of allocated resources")
+        self._register_gauge(MetricsConstants.SANDBOX_MEM, "Single sandbox memory usage percentage of allocated resources")
+        self._register_gauge(MetricsConstants.SANDBOX_DISK, "Single sandbox disk usage percentage of allocated resources")
+        self._register_gauge(MetricsConstants.SANDBOX_NET, "Single sandbox network usage percentage of allocated resources")
+
+        # Ray cluster resource metrics (total and available resources)
+        self._register_gauge(MetricsConstants.TOTAL_CPU_RESOURCE, "Total CPU resource in Ray cluster")
+        self._register_gauge(MetricsConstants.TOTAL_MEM_RESOURCE, "Total memory resource in Ray cluster")
+        self._register_gauge(MetricsConstants.AVAILABLE_CPU_RESOURCE, "Available CPU resource in Ray cluster")
+        self._register_gauge(MetricsConstants.AVAILABLE_MEM_RESOURCE, "Available memory resource in Ray cluster")
 
     def _register_counter(self, name: str, description: str, unit: str = "1"):
         self.counters[name] = self.create_counter(name, description, unit)
@@ -64,13 +77,14 @@ class MetricsMonitor:
     def _register_gauge(self, name: str, description: str, unit: str = "1"):
         self.gauges[name] = self.create_gauge(name, description, unit)
 
-    def _init_basic_attributes(self, host: str, port: str, env: str, role: str):
+    def _init_basic_attributes(self, host: str, port: str, pod: str, env: str, role: str):
         self.host = host
         self.port = port
         self.env = env
         self.role = role
         self.base_attributes = {
             "host": self.host,
+            "pod": pod,
             "env": self.env,
             "role": self.role,
         }
@@ -94,20 +108,20 @@ class MetricsMonitor:
         self.meter_provider = MeterProvider(metric_readers=[self.metric_reader])
         metrics.set_meter_provider(self.meter_provider)
         self.meter = metrics.get_meter(MetricsConstants.METRICS_METER_NAME)
-        logging.info("init telemetry success")
+        logger.info("init telemetry success")
 
     def create_counter(self, name: str, description: str, unit: str = "1") -> Counter:
         """Create counter"""
         if self._should_skip():
             return
-        logging.info(f"Creating counter {name}")
+        logger.info(f"Creating counter {name}")
         return self.meter.create_counter(name=f"xrl_gateway.{name}", description=description, unit=unit)
 
     def create_gauge(self, name: str, description: str, unit: str = "1") -> _Gauge:
         """Create gauge"""
         if self._should_skip():
             return
-        logging.info(f"Creating gauge {name}")
+        logger.info(f"Creating gauge {name}")
         return self.meter.create_gauge(name=f"xrl_gateway.{name}", description=description, unit=unit)
 
     def record_counter(self, counter: Counter, value: int = 1, attributes: dict[str, str] | None = None):

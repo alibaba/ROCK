@@ -6,6 +6,7 @@ import ray
 from ray.util.state import list_actors
 
 from rock.config import RockConfig
+from rock.deployments.config import DockerDeploymentConfig
 from rock.logger import init_logger
 
 logger = init_logger(__name__)
@@ -15,6 +16,11 @@ logger = init_logger(__name__)
 def rock_config():
     config_path = Path(__file__).parent.parent.parent / "rock-conf" / "rock-test.yml"
     return RockConfig.from_env(config_path=config_path)
+
+@pytest.fixture
+def docker_deployment_config():
+    image = "python:3.11"
+    return DockerDeploymentConfig(image=image)
 
 
 @pytest.fixture(scope="session")

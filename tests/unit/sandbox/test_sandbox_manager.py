@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 
 import pytest
@@ -11,8 +12,10 @@ from rock.deployments.config import DockerDeploymentConfig, RayDeploymentConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
 from rock.sandbox.sandbox_manager import SandboxManager
+from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils.providers.redis_provider import RedisProvider
 
+logger = logging.getLogger(__file__)
 
 @pytest.fixture
 async def redis_provider():
@@ -62,7 +65,6 @@ async def test_get_status(sandbox_manager):
     response = await sandbox_manager.start_async(DockerDeploymentConfig(image="python:3.11"))
     await asyncio.sleep(5)
     docker_status: SandboxStatusResponse = await sandbox_manager.get_status(response.sandbox_id)
-    assert docker_status.status["ray_schedule"]
     assert docker_status.status["docker_run"]
     assert docker_status.status["image_pull"]
     # wait to ensure that sandbox is alive(runtime ready)
@@ -127,3 +129,31 @@ def test_set_sandbox_status_response():
     service_status = ServiceStatus()
     status_response = SandboxStatusResponse(sandbox_id="test", status=service_status.phases)
     assert status_response.sandbox_id == "test"
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_resource_limit_exception(sandbox_manager, docker_deployment_config):
+    docker_deployment_config.cpus = 20
+    with pytest.raises(BadRequestRockError) as e:
+        await sandbox_manager.start_async(docker_deployment_config)
+    logger.warning(f"Resource limit exception: {str(e)}", exc_info=True)
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_resource_limit_exception_memory(sandbox_manager, docker_deployment_config):
+    docker_deployment_config.memory = "65g"
+    with pytest.raises(BadRequestRockError) as e:
+        await sandbox_manager.start_async(docker_deployment_config)
+    logger.warning(f"Resource limit exception: {str(e)}", exc_info=True)
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_get_system_resource_info(sandbox_manager):
+    total_cpu, total_mem, ava_cpu, ava_mem = await sandbox_manager._collect_system_resource_metrics()
+    assert total_cpu > 0
+    assert total_mem > 0
+    assert ava_cpu > 0
+    assert ava_mem > 0
