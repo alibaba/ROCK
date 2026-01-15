@@ -13,7 +13,6 @@ import oss2
 from httpx import ReadTimeout
 from typing_extensions import deprecated
 
-import rock
 from rock import env_vars
 from rock.actions import (
     AbstractSandbox,
@@ -41,9 +40,15 @@ from rock.actions import (
 )
 from rock.deployments.constants import Status
 from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX, RunModeType
-from rock.sdk.common.exceptions import InternalServerRockError, InvalidParameterRockException, raise_for_code
+from rock.sdk.common.exceptions import (
+    BadRequestRockError,
+    InternalServerRockError,
+    InvalidParameterRockException,
+    raise_for_code,
+)
 from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
+from rock.sdk.sandbox.file_system import FileSystem, LinuxFileSystem
 from rock.sdk.sandbox.model_service.base import ModelService
 from rock.sdk.sandbox.network import Network
 from rock.sdk.sandbox.process import Process
@@ -72,6 +77,7 @@ class Sandbox(AbstractSandbox):
     remote_user: RemoteUser | None = None
     process: Process | None = None
     network: Network | None = None
+    fs: FileSystem | None = None
 
     def __init__(self, config: SandboxConfig):
         self._pod_name = None
@@ -89,6 +95,7 @@ class Sandbox(AbstractSandbox):
         self.remote_user = LinuxRemoteUser(self)
         self.process = Process(self)
         self.network = Network(self)
+        self.fs = LinuxFileSystem(self)
 
     @property
     def sandbox_id(self) -> str:
@@ -352,6 +359,7 @@ class Sandbox(AbstractSandbox):
         mode: RunModeType = RunMode.NORMAL,
         response_limited_bytes_in_nohup: int | None = None,
         ignore_output: bool = False,
+        output_file: str | None = None,
     ) -> Observation:
         """
         Asynchronously run a command in the sandbox environment.
@@ -372,6 +380,10 @@ class Sandbox(AbstractSandbox):
                 If None, reads entire output. Only applies to nohup mode. Defaults to None.
             nohup_command_timeout (int, optional): Timeout in seconds for the nohup command submission itself.
                 Defaults to 60.
+            ignore_output (bool, optional): Whether to ignore command output.If set to True, save the output content to 'output_file' and return it; if False, return the original content.
+                Defaults to False.
+            output_file (str, optional): The file path where the command output will be saved. Used in conjunction with the ignore_output field. '
+                Defaults to None.
         Returns:
             Observation: Command execution result containing output, exit code, and failure reason if any.
                 - For normal mode: Returns immediate execution result
@@ -409,6 +421,7 @@ class Sandbox(AbstractSandbox):
                 wait_interval=wait_interval,
                 response_limited_bytes_in_nohup=response_limited_bytes_in_nohup,
                 ignore_output=ignore_output,
+                output_file=output_file
             )
 
     async def _arun_with_nohup(
@@ -419,6 +432,7 @@ class Sandbox(AbstractSandbox):
         wait_interval: int,
         response_limited_bytes_in_nohup: int | None,
         ignore_output: bool,
+        output_file: str | None = None,
     ) -> Observation:
         """Execute command in nohup mode with process monitoring."""
         try:
@@ -429,7 +443,21 @@ class Sandbox(AbstractSandbox):
                 await self.create_session(CreateBashSessionRequest(session=temp_session))
                 session = temp_session
 
-            tmp_file = f"/tmp/tmp_{timestamp}.out"
+            if output_file:
+                dir_path, file_name = os.path.split(output_file)
+                if file_name is None or not file_name.__contains__("."):
+                    error_msg = f"Failed parse output file path: {output_file}"
+                    raise BadRequestRockError(error_msg)
+                dir_path = dir_path if dir_path else "."
+                create_file_cmd = f"mkdir -p {dir_path}"
+                response: Observation = await self._run_in_session(Action(command=create_file_cmd, session=session))
+                if response.exit_code != 0:
+                    error_msg = (
+                        f"Failed mkdir for output file path: {output_file}, because {response.failure_reason}"
+                    )
+                    raise InternalServerRockError(error_msg)
+
+            tmp_file = output_file if output_file else f"/tmp/tmp_{timestamp}.out"
 
             # Start nohup process and get PID
             pid, error_response = await self.start_nohup_process(cmd=cmd, tmp_file=tmp_file, session=session)

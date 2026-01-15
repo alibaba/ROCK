@@ -1,14 +1,16 @@
 import argparse
+import json
 import logging
 import time
 import traceback
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, Request
 from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from rock import env_vars
 from rock.admin.core.ray_service import RayService
@@ -21,7 +23,7 @@ from rock.logger import init_logger
 from rock.sandbox.gem_manager import GemManager
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sandbox.service.warmup_service import WarmupService
-from rock.utils import sandbox_id_ctx_var
+from rock.utils import EAGLE_EYE_TRACE_ID, sandbox_id_ctx_var, trace_id_ctx_var
 from rock.utils.providers import RedisProvider
 
 parser = argparse.ArgumentParser()
@@ -129,34 +131,41 @@ async def root():
 async def log_requests_and_responses(request: Request, call_next):
     req_logger = init_logger("accessLog")
 
-    body_json = dict(request.query_params)
+    request_json = dict(request.query_params)
     if request.headers.get("content-type", "").lower().startswith("application/json"):
         try:
-            body_json = await request.json()
+            request_json = await request.json()
         except Exception as e:
-            req_logger.error(f"Could not decode request body:{body_json}, error:{e}")
-            body_json = {}
+            req_logger.error(f"Could not decode request body:{request_json}, error:{e}")
+            request_json = {}
 
         # Get SANDBOX_ID from JSON field
-        sandbox_id = body_json.get("sandbox_id")
-        if sandbox_id is not None:
-            sandbox_id_ctx_var.set(sandbox_id)
+    sandbox_id = request_json.get("sandbox_id")
+    if sandbox_id is not None:
+        sandbox_id_ctx_var.set(sandbox_id)
 
-    req_logger.info(
-        f"request method={request.method} url={request.url} "
-        f"sandbox_id={sandbox_id_ctx_var.get()} "
-        f"trace_id={request.headers.get('EagleEye-TraceId')} "
-        f"headers={dict(request.headers)} request={body_json}"
-    )
+    trace_id = request.headers.get(EAGLE_EYE_TRACE_ID) if request.headers.get(EAGLE_EYE_TRACE_ID) else uuid.uuid4().hex
+    trace_id_ctx_var.set(trace_id)
+    request_data = {
+        "access_type": "request",
+        "method": request.method,
+        "url": str(request.url),
+        "headers": dict(request.headers),
+        "request_content": request_json,
+    }
+    req_logger.info(json.dumps(request_data, indent=2))
 
     # Process request and log response
     start_time = time.perf_counter()
     response = await call_next(request)
     process_time = f"{(time.perf_counter() - start_time) * 1000:.2f}ms"
 
-    req_logger.info(
-        f"response status_code={response.status_code} process_time={process_time} sandbox_id={sandbox_id_ctx_var.get()}"
-    )
+    response_data = {
+        "access_type": "response",
+        "status_code": response.status_code,
+        "process_time": process_time,
+    }
+    req_logger.info(json.dumps(response_data, indent=2))
 
     return response
 

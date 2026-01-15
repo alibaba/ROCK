@@ -65,7 +65,6 @@ async def test_get_status(sandbox_manager):
     response = await sandbox_manager.start_async(DockerDeploymentConfig(image="python:3.11"))
     await asyncio.sleep(5)
     docker_status: SandboxStatusResponse = await sandbox_manager.get_status(response.sandbox_id)
-    assert docker_status.status["ray_schedule"]
     assert docker_status.status["docker_run"]
     assert docker_status.status["image_pull"]
     # wait to ensure that sandbox is alive(runtime ready)

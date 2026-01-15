@@ -101,12 +101,12 @@ class BaseManager:
         for image, count in aggregated_metrics.items():
             self.metrics_monitor.record_gauge_by_name(MetricsConstants.SANDBOX_COUNT_IMAGE, count, {"image": image})
 
-        logger.info(f"Collecting metrics for {sandbox_cnt} sandboxes")
+        logger.debug(f"Collecting metrics for {sandbox_cnt} sandboxes")
 
         self.metrics_monitor.record_gauge_by_name(MetricsConstants.SANDBOX_TOTAL_COUNT, sandbox_cnt)
 
         overall_duration = time.perf_counter() - overall_start
-        logger.info(f"Metrics overall report rt:{overall_duration:.4f}s")
+        logger.debug(f"Metrics overall report rt:{overall_duration:.4f}s")
 
     async def _report_system_resource_metrics(self):
         """汇报系统资源指标"""

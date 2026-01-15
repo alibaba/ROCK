@@ -33,6 +33,7 @@ from rock.config import OssConfig, ProxyServiceConfig, RockConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
+from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var
 from rock.utils.providers import RedisProvider
 
 logger = init_logger(__name__)
@@ -210,7 +211,7 @@ class SandboxProxyService:
             raise Exception("Service unavailable: Upstream server is not reachable.")
 
     def _headers(self, sandbox_id: str) -> dict[str, str]:
-        headers = {"sandbox_id": sandbox_id}
+        headers = {"sandbox_id": sandbox_id, EAGLE_EYE_TRACE_ID: trace_id_ctx_var.get()}
         return headers
 
     def _api_url(self, host_ip: str, service_status: ServiceStatus) -> str:

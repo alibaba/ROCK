@@ -392,7 +392,7 @@ class LocalSandboxRuntime(AbstractSandbox):
         self._config = LocalSandboxRuntimeConfig(**kwargs)
         self._sessions: dict[str, Session] = {}
         # Set up logger
-        self.command_logger = init_logger("rock.actions.local.command")
+        self.command_logger = init_logger("command", "command.log")
         self._executor = executor
         self._gem_envs: dict[str, gem.Env] = {}
 
@@ -419,6 +419,7 @@ class LocalSandboxRuntime(AbstractSandbox):
             msg = f"unknown session type: {request!r}"
             raise ValueError(msg)
         self.sessions[request.session] = session
+        self.command_logger.info(f"[create_session]:{request.session}")
         return await session.start()
 
     async def run_in_session(self, action: Action) -> Observation:
@@ -426,14 +427,14 @@ class LocalSandboxRuntime(AbstractSandbox):
         if action.session not in self.sessions:
             msg = f"session {action.session!r} does not exist"
             raise SessionDoesNotExistError(msg)
-        self.command_logger.info(f"[run_in_session input]:{action.command}")
+        self.command_logger.info(f"[run_in_session input][{action.session}]:{action.command}")
         observation = await self.sessions[action.session].run(action)
         if observation.output:
-            self.command_logger.info(f"[run_in_session output]:{observation.output}")
+            self.command_logger.info(f"[run_in_session output][{action.session}]:{observation.output}")
         if observation.exit_code:
-            self.command_logger.info(f"[run_in_session exit_code]:{observation.exit_code}")
+            self.command_logger.info(f"[run_in_session exit_code][{action.session}]:{observation.exit_code}")
         if observation.failure_reason:
-            self.command_logger.info(f"[run_in_session failure_reason]:{observation.failure_reason}")
+            self.command_logger.info(f"[run_in_session failure_reason][{action.session}]:{observation.failure_reason}")
         return observation
 
     async def close_session(self, request: CloseSessionRequest) -> CloseSessionResponse:
@@ -443,6 +444,7 @@ class LocalSandboxRuntime(AbstractSandbox):
             raise SessionDoesNotExistError(msg)
         out = await self.sessions[request.session].close()
         del self.sessions[request.session]
+        self.command_logger.info(f"[close_session]:{request.session}")
         return out
 
     async def execute(self, command: Command) -> CommandResponse:
@@ -493,15 +495,15 @@ class LocalSandboxRuntime(AbstractSandbox):
         """Reads a file"""
         self.command_logger.info(f"[read_file input]: {request.path}")
         content = Path(request.path).read_text(encoding=request.encoding, errors=request.errors)
-        self.command_logger.info("[read_file output]: read success!")
+        self.command_logger.info(f"[read_file output]: {content[:1000]}")
         return ReadFileResponse(content=content)
 
     async def write_file(self, request: WriteFileRequest) -> WriteFileResponse:
         """Writes a file"""
         self.command_logger.info(f"[write_file input]: {request.path}")
+        self.command_logger.info(f"[write_file content]: {request.content[:1000]}")
         Path(request.path).parent.mkdir(parents=True, exist_ok=True)
         Path(request.path).write_text(request.content)
-        self.command_logger.info("[write_file input]: write success!")
         return WriteFileResponse()
 
     async def upload(self, request: UploadRequest) -> UploadResponse:
