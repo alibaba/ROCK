@@ -47,14 +47,14 @@ async def test_swe_agent_initialization(sandbox_instance: Sandbox):
     await sandbox_instance.agent.init()
 
     # 3. Verify agent directory exists in root
-    agent_dir_name = os.path.basename(swe_agent_config.swe_agent_workdir)
+    agent_dir_name = os.path.basename(swe_agent_config.agent_installed_dir)
     await _verify_exists(sandbox_instance, "/", {agent_dir_name})
 
     # 4. Verify agent installation directories
-    await _verify_exists(sandbox_instance, swe_agent_config.swe_agent_workdir, {"python", "SWE-agent"})
+    await _verify_exists(sandbox_instance, swe_agent_config.agent_installed_dir, {"python", "SWE-agent"})
 
     # 5. Verify Python executables
-    python_bin_path = f"{swe_agent_config.swe_agent_workdir}/python/bin"
+    python_bin_path = f"{swe_agent_config.agent_installed_dir}/python/bin"
     await _verify_exists(sandbox_instance, python_bin_path, {"sweagent"})
 
 
@@ -80,13 +80,13 @@ async def test_swe_agent_with_model_service(sandbox_instance: Sandbox):
     await sandbox_instance.agent.init()
 
     # 3. Verify both agent and model service directories exist in root
-    agent_dir_name = os.path.basename(swe_agent_config.swe_agent_workdir)
+    agent_dir_name = os.path.basename(swe_agent_config.agent_installed_dir)
     model_service_dir_name = os.path.basename(model_service_config.workdir)
     await _verify_exists(sandbox_instance, "/", {agent_dir_name, model_service_dir_name})
 
     # 4. Verify agent installation directories
-    await _verify_exists(sandbox_instance, swe_agent_config.swe_agent_workdir, {"python", "SWE-agent"})
+    await _verify_exists(sandbox_instance, swe_agent_config.agent_installed_dir, {"python", "SWE-agent"})
 
     # 5. Verify Python executables
-    python_bin_path = f"{swe_agent_config.swe_agent_workdir}/python/bin"
+    python_bin_path = f"{swe_agent_config.agent_installed_dir}/python/bin"
     await _verify_exists(sandbox_instance, python_bin_path, {"sweagent"})

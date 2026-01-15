@@ -14,7 +14,6 @@ from httpx import ReadTimeout
 from typing_extensions import deprecated
 
 from rock import env_vars
-import rock
 from rock.actions import (
     AbstractSandbox,
     Action,
@@ -32,13 +31,13 @@ from rock.actions import (
     OssSetupResponse,
     ReadFileRequest,
     ReadFileResponse,
+    SandboxResponse,
     SandboxStatusResponse,
     UploadRequest,
     UploadResponse,
     WriteFileRequest,
     WriteFileResponse,
 )
-from rock.actions import SandboxResponse
 from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX, RunModeType
 from rock.sdk.common.exceptions import InternalServerRockError, InvalidParameterRockException, raise_for_code
 from rock.sdk.sandbox.agent.base import Agent

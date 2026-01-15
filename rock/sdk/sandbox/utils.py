@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from rock.utils import retry_async
 
 if TYPE_CHECKING:
-    from rock.sdk.sandbox.client import Sandbox
+    from rock.sdk.sandbox.client import RunModeType, Sandbox
 
 
 @retry_async(max_attempts=3, delay_seconds=5.0, backoff=2.0)
@@ -13,7 +13,7 @@ async def arun_with_retry(
     sandbox: Sandbox,
     cmd: str,
     session: str,
-    mode: str = "nohup",
+    mode: RunModeType,
     wait_timeout: int = 300,
     wait_interval: int = 10,
     error_msg: str = "Command failed",

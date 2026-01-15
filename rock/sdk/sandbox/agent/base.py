@@ -1,8 +1,10 @@
 from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
 
 import asyncio
+import os
 import shlex
 import time
+import uuid
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
@@ -11,7 +13,7 @@ from httpx import ReadTimeout
 from rock.actions import CreateBashSessionRequest, Observation
 from rock.actions.sandbox.base import AbstractSandbox
 from rock.logger import init_logger
-from rock.sdk.sandbox.agent.config import AgentBashCommand, DefaultAgentConfig
+from rock.sdk.sandbox.agent.config import AgentBashCommand, BaseAgentConfig
 from rock.sdk.sandbox.model_service.base import ModelService
 
 if TYPE_CHECKING:
@@ -34,22 +36,15 @@ class Agent(ABC):
         pass
 
 
-class DefaultAgent(Agent):
+class BaseAgent(Agent):
     """Base agent class with common initialization and execution logic.
 
-    Provides shared functionality for:
-    - Session management (create, setup)
-    - Pre/post startup command execution
-    - ModelService initialization
-    - Common error handling and logging
-    - Nohup process execution
-
     Subclasses must implement:
-    - _install() - specific installation logic
-    - run() - specific execution logic
+    - install()
+    - create_agent_run_cmd(prompt)
     """
 
-    def __init__(self, sandbox: Sandbox, config: DefaultAgentConfig):
+    def __init__(self, sandbox: Sandbox, config: BaseAgentConfig):
         super().__init__(sandbox)
 
         self._sandbox = sandbox
@@ -61,14 +56,11 @@ class DefaultAgent(Agent):
     async def init(self):
         """Initialize the agent environment.
 
-        Common flow:
-        1. Setup bash session
-        2. Execute pre-init commands
-        3. Install agent-specific dependencies (via _install)
+        Flow:
+        1. Execute pre-init commands
+        2. Setup bash session
+        3. Parallel: agent-specific install + ModelService install (if configured)
         4. Execute post-init commands
-        5. Initialize ModelService if configured
-
-        All installation and post-startup tasks run in parallel with ModelService init.
         """
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
@@ -81,8 +73,10 @@ class DefaultAgent(Agent):
 
             await self._setup_session()
 
+            await self._provision_local_workdir()
+
             # Parallel tasks: agent-specific install + ModelService init
-            tasks = [self._install()]
+            tasks = [self.install()]
 
             if self.config.model_service_config:
                 tasks.append(self._init_model_service())
@@ -102,19 +96,82 @@ class DefaultAgent(Agent):
             )
             raise
 
-    @abstractmethod
-    async def _install(self):
-        """Install agent-specific dependencies and tools.
+    async def _provision_local_workdir(self) -> None:
+        """If config.local_workdir is set, upload it into sandbox /tmp/<random>.
 
-        This method must be implemented by subclasses to handle:
-        - Package installation (npm, pip, etc.)
-        - Tool setup and configuration
-        - Environment preparation
-
-        Raises:
-            Exception: If installation fails
+        Assumes sandbox.upload_dir(source_dir, target_dir) exists.
         """
-        pass
+        local_workdir = self.config.local_workdir
+        if not local_workdir:
+            return
+
+        sandbox_id = self._sandbox.sandbox_id
+        local_abs = os.path.abspath(local_workdir)
+
+        if not os.path.exists(local_abs):
+            raise FileNotFoundError(f"config.local_workdir not found: {local_abs}")
+        if not os.path.isdir(local_abs):
+            raise ValueError(f"config.local_workdir must be a directory: {local_abs}")
+
+        target_dir = f"/tmp/rock_workdir_{uuid.uuid4().hex}"
+
+        logger.info(f"[{sandbox_id}] Provisioning local_workdir: {local_abs} -> {target_dir}")
+
+        # Clean & create
+        await self._sandbox.arun(
+            cmd=f"rm -rf {shlex.quote(target_dir)} && mkdir -p {shlex.quote(target_dir)}",
+            session=self.agent_session,
+        )
+
+        await self._sandbox.process.upload_dir(source_dir=local_abs, target_dir=target_dir)
+
+        self._sandbox_workdir = target_dir
+        logger.info(f"[{sandbox_id}] sandbox_workdir ready: {target_dir}")
+
+    def get_sandbox_workdir(self) -> str:
+        """Return sandbox workdir provisioned from config.local_workdir.
+
+        Raises if local_workdir was not configured or provisioning not completed.
+        """
+        if not self._sandbox_workdir:
+            raise RuntimeError(
+                "sandbox_workdir is not available. "
+                "Set config.local_workdir and ensure agent.init() completed successfully."
+            )
+        return self._sandbox_workdir
+
+    async def run(
+        self,
+        prompt: str,
+    ) -> Observation:
+        """Unified agent run entry.
+
+        Notes:
+        - BaseAgent only wraps the command with: bash -c <quoted>.
+        - Subclass is responsible for composing the full command content
+          (including `cd ... && ...` if needed).
+        - BaseAgent does NOT start ModelService; upper layer should call `start_model_service()` if needed.
+        """
+        cmd = await self.create_agent_run_cmd(prompt)
+        wrapped_cmd = f"bash -c {shlex.quote(cmd)}"
+        return await self._agent_run(
+            cmd=wrapped_cmd,
+            session=self.agent_session,
+        )
+
+    @abstractmethod
+    async def install(self):
+        """Install agent-specific dependencies and tools."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def create_agent_run_cmd(self, prompt: str) -> str:
+        """Create the command string for this agent run.
+
+        Subclass should return a *shell command string* (NOT wrapped by `bash -c`).
+        If a working directory is needed, subclass should include `cd ... && ...` in the returned string.
+        """
+        raise NotImplementedError
 
     async def _setup_session(self):
         """Create and configure the bash session for agent operations."""
@@ -223,13 +280,7 @@ class DefaultAgent(Agent):
             logger.error(f"[{sandbox_id}] ModelService initialization failed: {str(e)}", exc_info=True)
             raise
 
-    async def _agent_run(
-        self,
-        cmd: str,
-        session: str,
-        wait_timeout: int,
-        wait_interval: int,
-    ) -> Observation:
+    async def _agent_run(self, cmd: str, session: str) -> Observation:
         """Execute agent command in nohup mode with optional ModelService watch.
 
         Args:
@@ -275,7 +326,10 @@ class DefaultAgent(Agent):
             # Wait for agent process to complete
             logger.debug(f"[{sandbox_id}] Waiting for agent process completion (pid={pid})")
             success, message = await self._sandbox.wait_for_process_completion(
-                pid=pid, session=session, wait_timeout=wait_timeout, wait_interval=wait_interval
+                pid=pid,
+                session=session,
+                wait_timeout=self.config.agent_run_timeout,
+                wait_interval=self.config.agent_run_check_interval,
             )
 
             # Handle nohup output and return result

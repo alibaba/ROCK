@@ -99,6 +99,8 @@ class ModelService:
         Raises:
             Exception: If any installation step fails.
         """
+        from rock.sdk.sandbox.client import RunMode
+
         sandbox_id = self._sandbox.sandbox_id
         install_start_time = time.time()
 
@@ -152,7 +154,7 @@ class ModelService:
                 sandbox=self._sandbox,
                 cmd=bash_python_cmd,
                 session=self.config.model_service_session,
-                mode="nohup",
+                mode=RunMode.NOHUP,
                 wait_timeout=self.config.python_install_timeout,
                 error_msg="Python installation failed",
             )
@@ -174,7 +176,7 @@ class ModelService:
                 sandbox=self._sandbox,
                 cmd=bash_service_cmd,
                 session=self.config.model_service_session,
-                mode="nohup",
+                mode=RunMode.NOHUP,
                 wait_timeout=self.config.model_service_install_timeout,
                 error_msg="Model service installation failed",
             )
