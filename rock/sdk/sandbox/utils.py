@@ -13,7 +13,7 @@ async def arun_with_retry(
     sandbox: Sandbox,
     cmd: str,
     session: str,
-    mode: str = "nohup",
+    mode: str = "normal",
     wait_timeout: int = 300,
     wait_interval: int = 10,
     error_msg: str = "Command failed",
