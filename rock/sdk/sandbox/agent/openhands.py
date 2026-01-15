@@ -16,6 +16,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Literal
 
+from typing_extensions import override
+
 from rock import env_vars
 from rock.actions import Observation, UploadRequest, WriteFileRequest
 from rock.logger import init_logger
@@ -205,7 +207,8 @@ class Openhands(BaseAgent):
 
         self.agent_prompt_path = f"{self.config.workdir}/benchmarks/benchmarks/swebench/prompts/custom.j2"
 
-    async def _install(self):
+    @override
+    async def install(self):
         """Install Openhands/benchmarks and configure the environment."""
 
         sandbox_id = self._sandbox.sandbox_id

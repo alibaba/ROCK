@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
+from typing_extensions import override
 
 from rock import env_vars
 from rock.actions import UploadRequest
@@ -156,7 +157,8 @@ class SweAgent(BaseAgent):
             prepare_timeout=self.config.runtime_env_prepare_timeout,
         )
 
-    async def _install(self):
+    @override
+    async def install(self):
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
         logger.info(f"[{sandbox_id}] Starting SWE-agent installation")
@@ -278,7 +280,8 @@ class SweAgent(BaseAgent):
             except OSError as e:
                 logger.warning(f"Failed to clean up temporary config file {temp_file_path}: {str(e)}")
 
-    async def _create_agent_run_cmd(self, prompt: str) -> str:
+    @override
+    async def create_agent_run_cmd(self, prompt: str) -> str:
         if not self.agent_runtime_env.prepared:
             raise RuntimeError("Python runtime env is not prepared. Ensure agent.init() completed successfully.")
 

@@ -9,6 +9,8 @@ import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
+from typing_extensions import override
+
 from rock import env_vars
 from rock.actions import UploadRequest
 from rock.logger import init_logger
@@ -93,7 +95,8 @@ class IFlowCli(BaseAgent):
             prepare_timeout=self.config.runtime_env_prepare_timeout,
         )
 
-    async def _install(self):
+    @override
+    async def install(self):
         """Install IFlow CLI and configure the environment.
 
         Steps:
@@ -289,7 +292,8 @@ class IFlowCli(BaseAgent):
             logger.warning(f"[{sandbox_id}] Error extracting session-id: {str(e)}")
             return ""
 
-    async def _create_agent_run_cmd(self, prompt: str) -> str:
+    @override
+    async def create_agent_run_cmd(self, prompt: str) -> str:
         """Create IFlow run command (NOT wrapped by bash -c)."""
         sandbox_id = self._sandbox.sandbox_id
 

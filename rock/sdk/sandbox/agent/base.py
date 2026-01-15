@@ -40,8 +40,8 @@ class BaseAgent(Agent):
     """Base agent class with common initialization and execution logic.
 
     Subclasses must implement:
-    - _install()
-    - _create_agent_run_cmd(prompt)
+    - install()
+    - create_agent_run_cmd(prompt)
     """
 
     def __init__(self, sandbox: Sandbox, config: BaseAgentConfig):
@@ -76,7 +76,7 @@ class BaseAgent(Agent):
             await self._provision_local_workdir()
 
             # Parallel tasks: agent-specific install + ModelService init
-            tasks = [self._install()]
+            tasks = [self.install()]
 
             if self.config.model_service_config:
                 tasks.append(self._init_model_service())
@@ -152,7 +152,7 @@ class BaseAgent(Agent):
           (including `cd ... && ...` if needed).
         - BaseAgent does NOT start ModelService; upper layer should call `start_model_service()` if needed.
         """
-        cmd = await self._create_agent_run_cmd(prompt)
+        cmd = await self.create_agent_run_cmd(prompt)
         wrapped_cmd = f"bash -c {shlex.quote(cmd)}"
         return await self._agent_run(
             cmd=wrapped_cmd,
@@ -160,12 +160,12 @@ class BaseAgent(Agent):
         )
 
     @abstractmethod
-    async def _install(self):
+    async def install(self):
         """Install agent-specific dependencies and tools."""
         raise NotImplementedError
 
     @abstractmethod
-    async def _create_agent_run_cmd(self, prompt: str) -> str:
+    async def create_agent_run_cmd(self, prompt: str) -> str:
         """Create the command string for this agent run.
 
         Subclass should return a *shell command string* (NOT wrapped by `bash -c`).
