@@ -245,15 +245,14 @@ class SweAgent(BaseAgent):
         # repo/project path uses project_path from config
         project_path = self.config.workdir
         if "env" in new_config and "repo" in new_config["env"]:
-            if project_path:
-                is_root_level = os.path.dirname(project_path) == "/"
-                if is_root_level:
-                    repo_name = os.path.basename(project_path)
-                    new_config["env"]["repo"]["repo_name"] = repo_name
-                    new_config["env"]["repo"]["type"] = "preexisting"
-                else:
-                    new_config["env"]["repo"]["path"] = project_path
-                    new_config["env"]["repo"]["type"] = "local"
+            is_root_level = os.path.dirname(project_path) == "/"
+            if is_root_level:
+                repo_name = os.path.basename(project_path)
+                new_config["env"]["repo"]["repo_name"] = repo_name
+                new_config["env"]["repo"]["type"] = "preexisting"
+            else:
+                new_config["env"]["repo"]["path"] = project_path
+                new_config["env"]["repo"]["type"] = "local"
 
         # problem_statement will be injected at runtime; keep empty here
         if "problem_statement" in new_config:
