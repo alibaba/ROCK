@@ -3,6 +3,7 @@ import time
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+import ray
 
 from rock.admin.core.redis_key import ALIVE_PREFIX
 from rock.admin.metrics.constants import MetricsConstants
@@ -88,6 +89,8 @@ class BaseManager:
         overall_start = time.perf_counter()
         if not self._redis_provider:
             return
+        await self._report_system_resource_metrics()
+
         if not await self._redis_provider.pattern_exists(f"{ALIVE_PREFIX}*"):
             logger.debug("No sandboxes to monitor")
             self.metrics_monitor.record_gauge_by_name(MetricsConstants.SANDBOX_TOTAL_COUNT, 0)
@@ -98,13 +101,31 @@ class BaseManager:
         for image, count in aggregated_metrics.items():
             self.metrics_monitor.record_gauge_by_name(MetricsConstants.SANDBOX_COUNT_IMAGE, count, {"image": image})
 
-        logger.info(f"Collecting metrics for {sandbox_cnt} sandboxes")
+        logger.debug(f"Collecting metrics for {sandbox_cnt} sandboxes")
 
         self.metrics_monitor.record_gauge_by_name(MetricsConstants.SANDBOX_TOTAL_COUNT, sandbox_cnt)
 
         overall_duration = time.perf_counter() - overall_start
-        logger.info(f"Metrics overall report rt:{overall_duration:.4f}s")
+        logger.debug(f"Metrics overall report rt:{overall_duration:.4f}s")
 
+    async def _report_system_resource_metrics(self):
+        """汇报系统资源指标"""
+        total_cpu, total_mem, available_cpu, available_mem = await self._collect_system_resource_metrics()
+        self.metrics_monitor.record_gauge_by_name(MetricsConstants.TOTAL_CPU_RESOURCE, total_cpu)
+        self.metrics_monitor.record_gauge_by_name(MetricsConstants.TOTAL_MEM_RESOURCE, total_mem)
+        self.metrics_monitor.record_gauge_by_name(MetricsConstants.AVAILABLE_CPU_RESOURCE, available_cpu)
+        self.metrics_monitor.record_gauge_by_name(MetricsConstants.AVAILABLE_MEM_RESOURCE, available_mem)
+
+    async def _collect_system_resource_metrics(self):
+        """收集系统资源指标"""
+        cluster_resources = ray.cluster_resources()
+        available_resources = ray.available_resources()
+        total_cpu = cluster_resources.get("CPU", 0)
+        total_mem = cluster_resources.get("memory", 0) / 1024**3
+        available_cpu = available_resources.get("CPU", 0)
+        available_mem = available_resources.get("memory", 0) / 1024**3
+        return total_cpu, total_mem, available_cpu, available_mem
+    
     async def _collect_sandbox_meta(self) -> tuple[int, dict[str, dict[str, str]]]:
         meta: dict = {}
         cnt = 0

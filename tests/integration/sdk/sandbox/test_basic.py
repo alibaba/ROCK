@@ -106,6 +106,15 @@ async def test_sandbox_file_operations(admin_remote_server: RemoteServer):
 @pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
+async def test_read_file_by_line_range_non_exist_file(sandbox_instance: Sandbox):
+    file_path = "non_exist_file.txt"
+    with pytest.raises(Exception):
+        await sandbox_instance.read_file_by_line_range(file_path, start_line=1, end_line=10)
+
+
+@pytest.mark.need_admin
+@SKIP_IF_NO_DOCKER
+@pytest.mark.asyncio
 async def test_sandbox(sandbox_instance: Sandbox):
     result = await sandbox_instance.arun(cmd="echo Hello ROCK", session="default")
 

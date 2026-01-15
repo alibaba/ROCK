@@ -1,4 +1,4 @@
-## Here's my code: 
+## Here's my code:
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -45,6 +45,7 @@ admin = [
     "boto3",
     "ray[default]==2.43.0",
     "pip",
+    "cryptography==39.0.1"
 ]
 
 rocklet = [

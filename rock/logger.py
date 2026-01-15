@@ -1,14 +1,19 @@
 import logging
 import os
 import sys
+from functools import cache
 
 from rock import env_vars
-from rock.utils import sandbox_id_ctx_var
+from rock.utils import sandbox_id_ctx_var, trace_id_ctx_var
 
 
 # Define the formatter class at module level since it doesn't need configuration state
 class StandardFormatter(logging.Formatter):
     """Custom log formatter with color support"""
+
+    def __init__(self, *args, log_color_enable: bool = True, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.log_color_enable = log_color_enable
 
     def format(self, record):
         # ANSI color codes for different log levels
@@ -27,23 +32,40 @@ class StandardFormatter(logging.Formatter):
         # Get sandbox_id from context variable
         sandbox_id = sandbox_id_ctx_var.get()
 
+        # Get trace_id from context variable
+        trace_id = trace_id_ctx_var.get()
+
         # Format basic elements manually
         level_str = record.levelname
         time_str = self.formatTime(record)
         file_str = f"{record.filename}:{record.lineno}"
         logger_str = record.name  # This will be the logger name like 'myapp.utils'
 
-        # Build header part with or without sandbox_id
-        if sandbox_id:
-            header_str = f"{time_str} {level_str}:{file_str} [{logger_str}] [{sandbox_id}] --"
-        else:
-            header_str = f"{time_str} {level_str}:{file_str} [{logger_str}] -- "
+        # Build header part
+        header_str = f"{time_str} {level_str}:{file_str} [{logger_str}] [{sandbox_id}] [{trace_id}] --"
 
         # Color the header part and keep message in default color
-        return f"{log_color}{header_str}{RESET} {record.getMessage()}"
+        if self.log_color_enable:
+            return f"{log_color}{header_str}{RESET} {record.getMessage()}"
+        return f"{header_str} {record.getMessage()}"
 
 
-def init_logger(name: str | None = None):
+@cache
+def init_file_handler(log_name: str):
+    if env_vars.ROCK_LOGGING_PATH:
+        # Create file handler
+        log_file_path = os.path.join(env_vars.ROCK_LOGGING_PATH, log_name)
+
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+
+        handler = logging.FileHandler(log_file_path, mode="w+", encoding="utf-8")
+        handler.setFormatter(StandardFormatter(log_color_enable=False))
+        return handler
+    return None
+
+
+def init_logger(name: str | None = None, file_name: str | None = None):
     """Initialize and return a logger instance with custom handler and formatter
 
     Args:
@@ -60,17 +82,14 @@ def init_logger(name: str | None = None):
         # Determine if we should log to file based on ROCK_LOGGING_PATH
         # Only log to file if ROCK_LOGGING_PATH has been explicitly set by the user
         # (not just the default value), which means it should be in os.environ
-        if env_vars.ROCK_LOGGING_PATH and env_vars.ROCK_LOGGING_FILE_NAME:
-            # Create file handler
-            log_file_path = os.path.join(env_vars.ROCK_LOGGING_PATH, env_vars.ROCK_LOGGING_FILE_NAME)
-            # Ensure directory exists
-            os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
-            handler = logging.FileHandler(log_file_path)
+        file_name = file_name if file_name else env_vars.ROCK_LOGGING_FILE_NAME
+        if env_vars.ROCK_LOGGING_PATH and file_name:
+            # Use file handler
+            handler = init_file_handler(file_name)
         else:
             # Use stdout handler
             handler = logging.StreamHandler(sys.stdout)
-
-        handler.setFormatter(StandardFormatter())
+            handler.setFormatter(StandardFormatter())
 
         # Apply logging level from environment variable
         log_level = env_vars.ROCK_LOGGING_LEVEL

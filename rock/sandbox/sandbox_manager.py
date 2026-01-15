@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 
 import ray
@@ -26,8 +27,7 @@ from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
 from rock.config import RockConfig, RuntimeConfig
 from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
-from rock.deployments.constants import Status
-from rock.deployments.status import PhaseStatus, ServiceStatus
+from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
 from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
@@ -54,7 +54,6 @@ class SandboxManager(BaseManager):
             rock_config, redis_provider=redis_provider, enable_runtime_auto_clear=enable_runtime_auto_clear
         )
 
-        self.init_service_status()
         self._ray_namespace = ray_namespace
         logger.info("sandbox service init success")
 
@@ -64,7 +63,6 @@ class SandboxManager(BaseManager):
             result = await loop.run_in_executor(self._executor, lambda r: ray.get(r, timeout=60), ray_future)
         except Exception as e:
             logger.error("ray get failed", exc_info=e)
-            self._service_status.update_status("ray_schedule", Status.FAILED, message="ray get failed")
             error_msg = str(e.args[0]) if len(e.args) > 0 else f"ray get failed, {str(e)}"
             raise Exception(error_msg)
         return result
@@ -77,7 +75,6 @@ class SandboxManager(BaseManager):
             )
         except Exception as e:
             logger.error("ray get actor failed", exc_info=e)
-            self._service_status.update_status("ray_schedule", Status.FAILED, message="ray get actor failed")
             error_msg = str(e.args[0]) if len(e.args) > 0 else f"ray get actor failed, {str(e)}"
             raise Exception(error_msg)
         return result
@@ -85,8 +82,8 @@ class SandboxManager(BaseManager):
     @monitor_sandbox_operation()
     async def start_async(self, config: DeploymentConfig, user_info: dict = {}) -> SandboxStartResponse:
         docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(config)
-
         sandbox_id = docker_deployment_config.container_name
+        logger.info(f"[{sandbox_id}] start_async params:{json.dumps(docker_deployment_config.model_dump(), indent=2)}")
         actor_name = self.deployment_manager.get_actor_name(sandbox_id)
 
         deployment = docker_deployment_config.get_deployment()
@@ -207,7 +204,6 @@ class SandboxManager(BaseManager):
             raise Exception(f"sandbox {sandbox_id} not found to get status")
         else:
             remote_status: ServiceStatus = await self.async_ray_get(sandbox_actor.get_status.remote())
-            self.update_service_status(remote_status.phases)
             sandbox_info: SandboxInfo = None
             if self._redis_provider:
                 sandbox_info = await self.build_sandbox_from_redis(sandbox_id)
@@ -224,7 +220,7 @@ class SandboxManager(BaseManager):
             alive = await self.async_ray_get(sandbox_actor.is_alive.remote())
             return SandboxStatusResponse(
                 sandbox_id=sandbox_id,
-                status=self._service_status.phases,
+                status=remote_status.phases,
                 port_mapping=remote_status.get_port_mapping(),
                 host_name=sandbox_info.get("host_name"),
                 host_ip=sandbox_info.get("host_ip"),
@@ -317,7 +313,7 @@ class SandboxManager(BaseManager):
     async def _check_job_background(self):
         if not self._redis_provider:
             return
-        logger.info("check job background")
+        logger.debug("check job background")
         async for key in self._redis_provider.client.scan_iter(match=f"{ALIVE_PREFIX}*", count=100):
             sandbox_id = key.removeprefix(ALIVE_PREFIX)
             if not await self._is_actor_alive(sandbox_id):
@@ -336,17 +332,6 @@ class SandboxManager(BaseManager):
             except Exception as e:
                 logger.error("check_job_background Exception", exc_info=e)
                 continue
-
-    def init_service_status(self) -> None:
-        self._service_status = ServiceStatus()
-        self._service_status.add_phase(
-            "ray_schedule", PhaseStatus(status=Status.RUNNING, message="ray schedule running")
-        )
-
-    def update_service_status(self, remote_status: dict) -> dict:
-        for key, value in remote_status.items():
-            self._service_status.update_status(key, value.status, value.message)
-        return self._service_status
 
     async def get_sandbox_statistics(self, sandbox_id):
         sandbox_actor = await self.async_ray_get_actor(sandbox_id)

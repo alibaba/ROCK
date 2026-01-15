@@ -2,8 +2,10 @@
 
 import argparse
 import asyncio
+import json
 import time
 import traceback
+import uuid
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
@@ -15,7 +17,7 @@ from rock.actions import _ExceptionTransfer
 from rock.logger import init_logger
 from rock.rocklet import __version__
 from rock.rocklet.local_api import local_router
-from rock.utils import REQUEST_TIMEOUT_SECONDS, ROUTE_KEY, SANDBOX_ID, sandbox_id_ctx_var
+from rock.utils import EAGLE_EYE_TRACE_ID, REQUEST_TIMEOUT_SECONDS, sandbox_id_ctx_var, trace_id_ctx_var
 
 logger = init_logger("rocklet.server")
 app = FastAPI()
@@ -28,34 +30,42 @@ async def log_requests_and_responses(request: Request, call_next):
     if request.url.path.startswith("/SandboxFusion"):
         return await call_next(request)
 
-    if sandbox_id := (request.headers.get(SANDBOX_ID) or request.headers.get(ROUTE_KEY)):
-        sandbox_id_ctx_var.set(sandbox_id)
-
-    req_logger = init_logger("rocklet.accessLog")
+    req_logger = init_logger("rocklet.accessLog", "access.log")
     # Record request information
-    req_logger.info(
-        "request",
-        extra={
-            "method": request.method,
-            "url": str(request.url),
-            "headers": dict(request.headers),
-            "sandbox_id": sandbox_id_ctx_var.get(),
-        },
-    )
+    request_json = dict(request.query_params)
+    if request.headers.get("content-type", "").lower().startswith("application/json"):
+        try:
+            request_json = await request.json()
+        except Exception as e:
+            req_logger.error(f"Could not decode request body:{request_json}, error:{e}")
+            request_json = {}
+
+    # Extract sandbox_id
+    sandbox_id = request_json.get("sandbox_id")
+    if sandbox_id is not None:
+        sandbox_id_ctx_var.set(sandbox_id)
+    trace_id = request.headers.get(EAGLE_EYE_TRACE_ID) if request.headers.get(EAGLE_EYE_TRACE_ID) else uuid.uuid4().hex
+    trace_id_ctx_var.set(trace_id)
+    request_data = {
+        "access_type": "request",
+        "method": request.method,
+        "url": str(request.url),
+        "headers": dict(request.headers),
+        "request_content": request_json,
+    }
+    req_logger.info(json.dumps(request_data, indent=2))
 
     # Process request and record response
     start_time = time.perf_counter()
     response = await call_next(request)
     process_time = f"{(time.perf_counter() - start_time) * 1000:.2f}ms"
 
-    req_logger.info(
-        "response",
-        extra={
-            "status_code": response.status_code,
-            "process_time": process_time,
-            "sandbox_id": sandbox_id_ctx_var.get(),
-        },
-    )
+    response_data = {
+        "access_type": "response",
+        "status_code": response.status_code,
+        "process_time": process_time,
+    }
+    req_logger.info(json.dumps(response_data, indent=2))
 
     return response
 

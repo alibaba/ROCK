@@ -33,7 +33,6 @@ class DeploymentManager:
         await self.rock_config.update()
         docker_deployment_config.actor_resource = self.rock_config.sandbox_config.actor_resource
         docker_deployment_config.actor_resource_num = self.rock_config.sandbox_config.actor_resource_num
-        logger.info(f"docker_deployment_config: {docker_deployment_config}")
         return docker_deployment_config
 
     def get_deployment(self, config: DeploymentConfig) -> AbstractDeployment:

@@ -26,6 +26,7 @@ from .retry import (
 from .system import (
     extract_nohup_pid,
     find_free_port,
+    get_instance_id,
     get_host_ip,
     get_uniagent_endpoint,
     release_port,
@@ -35,11 +36,14 @@ from .system import (
 
 ENV_POOL = {}
 SANDBOX_ID = "sandbox_id"
+TRACE_ID = "trace_id"
 ROUTE_KEY = "ROUTE-KEY"
 COMMAND_LOG = "command.log"
-REQUEST_TIMEOUT_SECONDS = 180
+EAGLE_EYE_TRACE_ID = "eagleeye-traceid"
+REQUEST_TIMEOUT_SECONDS = 85
 
 sandbox_id_ctx_var = ContextVar(SANDBOX_ID, default="")
+trace_id_ctx_var = ContextVar(TRACE_ID, default="")
 
 __all__ = [
     # System utilities
@@ -48,6 +52,7 @@ __all__ = [
     "extract_nohup_pid",
     "find_free_port",
     "release_port",
+    "get_instance_id",
     "get_host_ip",
     "get_uniagent_endpoint",
     # Concurrent utilities
@@ -77,6 +82,8 @@ __all__ = [
     # Constants
     "ENV_POOL",
     "sandbox_id_ctx_var",
+    "trace_id_ctx_var",
+    "EAGLE_EYE_TRACE_ID",
     "SANDBOX_ID",
     "ROUTE_KEY",
     "COMMAND_LOG",

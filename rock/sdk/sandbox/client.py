@@ -31,6 +31,7 @@ from rock.actions import (
     OssSetupResponse,
     ReadFileRequest,
     ReadFileResponse,
+    SandboxResponse,
     SandboxStatusResponse,
     UploadRequest,
     UploadResponse,
@@ -38,9 +39,15 @@ from rock.actions import (
     WriteFileResponse,
 )
 from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX, RunModeType
-from rock.sdk.common.exceptions import InvalidParameterRockException
+from rock.sdk.common.exceptions import (
+    BadRequestRockError,
+    InternalServerRockError,
+    InvalidParameterRockException,
+    raise_for_code,
+)
 from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
+from rock.sdk.sandbox.file_system import FileSystem, LinuxFileSystem
 from rock.sdk.sandbox.model_service.base import ModelService
 from rock.sdk.sandbox.network import Network
 from rock.sdk.sandbox.process import Process
@@ -69,6 +76,7 @@ class Sandbox(AbstractSandbox):
     remote_user: RemoteUser | None = None
     process: Process | None = None
     network: Network | None = None
+    fs: FileSystem | None = None
 
     def __init__(self, config: SandboxConfig):
         self._pod_name = None
@@ -86,6 +94,7 @@ class Sandbox(AbstractSandbox):
         self.remote_user = LinuxRemoteUser(self)
         self.process = Process(self)
         self.network = Network(self)
+        self.fs = LinuxFileSystem(self)
 
     @property
     def sandbox_id(self) -> str:
@@ -143,6 +152,10 @@ class Sandbox(AbstractSandbox):
 
         logging.debug(f"Start sandbox response: {response}")
         if "Success" != response.get("status"):
+            result = response.get("result", None)
+            if result is not None:
+                rock_response = SandboxResponse(**result)
+                raise_for_code(rock_response.code, f"Failed to start container: {response}")
             raise Exception(f"Failed to start sandbox: {response}")
         self._sandbox_id = response.get("result").get("sandbox_id")
         self._host_name = response.get("result").get("host_name")
@@ -158,7 +171,9 @@ class Sandbox(AbstractSandbox):
             except Exception as e:
                 logging.warning(f"Failed to get status, {str(e)}")
             await asyncio.sleep(3)
-        raise Exception(f"Failed to start sandbox within {self.config.startup_timeout}s, sandbox: {str(self)}")
+        raise InternalServerRockError(
+            f"Failed to start sandbox within {self.config.startup_timeout}s, sandbox: {str(self)}"
+        )
 
     async def is_alive(self) -> IsAliveResponse:
         try:
@@ -333,6 +348,7 @@ class Sandbox(AbstractSandbox):
         mode: RunModeType = RunMode.NORMAL,
         response_limited_bytes_in_nohup: int | None = None,
         ignore_output: bool = False,
+        output_file: str | None = None,
     ) -> Observation:
         """
         Asynchronously run a command in the sandbox environment.
@@ -353,6 +369,10 @@ class Sandbox(AbstractSandbox):
                 If None, reads entire output. Only applies to nohup mode. Defaults to None.
             nohup_command_timeout (int, optional): Timeout in seconds for the nohup command submission itself.
                 Defaults to 60.
+            ignore_output (bool, optional): Whether to ignore command output.If set to True, save the output content to 'output_file' and return it; if False, return the original content.
+                Defaults to False.
+            output_file (str, optional): The file path where the command output will be saved. Used in conjunction with the ignore_output field. '
+                Defaults to None.
         Returns:
             Observation: Command execution result containing output, exit code, and failure reason if any.
                 - For normal mode: Returns immediate execution result
@@ -390,6 +410,7 @@ class Sandbox(AbstractSandbox):
                 wait_interval=wait_interval,
                 response_limited_bytes_in_nohup=response_limited_bytes_in_nohup,
                 ignore_output=ignore_output,
+                output_file=output_file
             )
 
     async def _arun_with_nohup(
@@ -400,6 +421,7 @@ class Sandbox(AbstractSandbox):
         wait_interval: int,
         response_limited_bytes_in_nohup: int | None,
         ignore_output: bool,
+        output_file: str | None = None,
     ) -> Observation:
         """Execute command in nohup mode with process monitoring."""
         try:
@@ -410,7 +432,21 @@ class Sandbox(AbstractSandbox):
                 await self.create_session(CreateBashSessionRequest(session=temp_session))
                 session = temp_session
 
-            tmp_file = f"/tmp/tmp_{timestamp}.out"
+            if output_file:
+                dir_path, file_name = os.path.split(output_file)
+                if file_name is None or not file_name.__contains__("."):
+                    error_msg = f"Failed parse output file path: {output_file}"
+                    raise BadRequestRockError(error_msg)
+                dir_path = dir_path if dir_path else "."
+                create_file_cmd = f"mkdir -p {dir_path}"
+                response: Observation = await self._run_in_session(Action(command=create_file_cmd, session=session))
+                if response.exit_code != 0:
+                    error_msg = (
+                        f"Failed mkdir for output file path: {output_file}, because {response.failure_reason}"
+                    )
+                    raise InternalServerRockError(error_msg)
+
+            tmp_file = output_file if output_file else f"/tmp/tmp_{timestamp}.out"
 
             # Start nohup process and get PID
             pid, error_response = await self.start_nohup_process(cmd=cmd, tmp_file=tmp_file, session=session)
@@ -687,6 +723,13 @@ class Sandbox(AbstractSandbox):
         lines_per_request: int = 1000,
         session: str | None = None,
     ) -> ReadFileResponse:
+        if session is not None:
+            warnings.warn(
+                "The 'session' parameter is deprecated and will be removed in a future version.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         # Pre check
         if start_line is None:
             start_line = 1
@@ -697,22 +740,14 @@ class Sandbox(AbstractSandbox):
         if lines_per_request < 1 or lines_per_request > 10000:
             raise Exception(f"lines_per_request({lines_per_request}) must be between 1 and 10000")
 
-        if session is None:
-
-            @retry_async(max_attempts=3, delay_seconds=1.0)
-            async def _create_tmp_session() -> str:
-                session = await self._generate_tmp_session_name()
-                await self.create_session(CreateBashSessionRequest(session=session))
-                return session
-
-            session = await _create_tmp_session()
-
         if end_line is None:
 
             @retry_async(max_attempts=3, delay_seconds=1.0)
             async def _count_lines() -> int:
-                result = await self.arun(f"wc -l < {file_path}", session=session)
-                return int(result.output)
+                result = await self.execute(Command(command=["wc", "-l", file_path]))
+                if result.exit_code != 0:
+                    raise Exception(f"Failed to count lines of file {file_path}, wc result: {result}")
+                return int(result.stdout.strip().split()[0])
 
             end_line = await _count_lines()
             logger.info(f"file {file_path} has {end_line} lines")
