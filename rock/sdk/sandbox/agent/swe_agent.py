@@ -62,7 +62,6 @@ Here is a list of all of your changes:
 </diff>"""
 ]
 
-DEFAULT_PARSE_FUNCTION_TYPE = "function_calling"
 DEFAULT_NEXT_STEP_TEMPLATE = "OBSERVATION:\n{{observation}}"
 DEFAULT_NEXT_STEP_NO_OUTPUT_TEMPLATE = "Your command ran successfully and did not produce any output."
 
