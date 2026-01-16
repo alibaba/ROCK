@@ -25,6 +25,13 @@ ROCK (Reinforcement Open Construction Kit) is a easy-to-use, and scalable sandbo
 
 ROCK adopts a client-server architecture, supports different levels of isolation mechanisms to ensure stable environment operation, and supports integration with various reinforcement learning training frameworks through SDK. ROCK not only supports traditional sandbox management functions but also is compatible with GEM-like protocols, providing standardized interfaces for reinforcement learning environments.
 
+---
+## 📢 News
+| 📣 Update |
+|:--|
+| **[01/01/2026]** 🎉 Our [Let It Flow: Agentic Crafting on Rock and Roll](https://arxiv.org/abs/2512.24873) report released! Introducing ALE ecosystem and ROME, an open-source agentic model with novel IPA algorithm. |
+---
+
 ## 🚀 Get Started
 [Documents](https://alibaba.github.io/ROCK/)
 
