@@ -1,5 +1,6 @@
 from typing import TypedDict
 
+from rock.actions.sandbox.response import State
 from rock.deployments.status import PhaseStatus
 
 
@@ -13,6 +14,7 @@ class SandboxInfo(TypedDict, total=False):
     sandbox_id: str
     auth_token: str
     phases: dict[str, PhaseStatus]
+    state: State
     port_mapping: dict[int, int]
     create_user_gray_flag: bool
     cpus: float

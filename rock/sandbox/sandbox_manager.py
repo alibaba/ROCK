@@ -15,6 +15,7 @@ from rock.actions import (
     UploadResponse,
     WriteFileResponse,
 )
+from rock.actions.sandbox.response import State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.core.redis_key import ALIVE_PREFIX, alive_sandbox_key, timeout_sandbox_key
 from rock.admin.metrics.decorator import monitor_sandbox_operation
@@ -109,6 +110,7 @@ class SandboxManager(BaseManager):
         sandbox_info["user_id"] = user_id
         sandbox_info["experiment_id"] = experiment_id
         sandbox_info["namespace"] = namespace
+        sandbox_info["state"] = State.PENDING
         if self._redis_provider:
             await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
             await self._redis_provider.json_set(timeout_sandbox_key(sandbox_id), "$", auto_clear_time_dict)
@@ -204,6 +206,7 @@ class SandboxManager(BaseManager):
             raise Exception(f"sandbox {sandbox_id} not found to get status")
         else:
             remote_status: ServiceStatus = await self.async_ray_get(sandbox_actor.get_status.remote())
+            alive = await self.async_ray_get(sandbox_actor.is_alive.remote())
             sandbox_info: SandboxInfo = None
             if self._redis_provider:
                 sandbox_info = await self.build_sandbox_from_redis(sandbox_id)
@@ -211,16 +214,18 @@ class SandboxManager(BaseManager):
                     # The start() method will write to redis on the first call to get_status()
                     sandbox_info = await self.async_ray_get(sandbox_actor.sandbox_info.remote())
                 sandbox_info.update(remote_status.to_dict())
+                if alive.is_alive:
+                    sandbox_info["state"] = State.RUNNING
                 await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
                 await self._update_expire_time(sandbox_id)
-                logger.info(f"sandbox {sandbox_id} status is {remote_status}, write to redis")
+                logger.info(f"sandbox {sandbox_id} status is {sandbox_info}, write to redis")
             else:
                 sandbox_info = await self.async_ray_get(sandbox_actor.sandbox_info.remote())
 
-            alive = await self.async_ray_get(sandbox_actor.is_alive.remote())
             return SandboxStatusResponse(
                 sandbox_id=sandbox_id,
                 status=remote_status.phases,
+                state=sandbox_info.get("state"),
                 port_mapping=remote_status.get_port_mapping(),
                 host_name=sandbox_info.get("host_name"),
                 host_ip=sandbox_info.get("host_ip"),

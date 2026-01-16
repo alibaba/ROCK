@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 
 from rock.actions import SandboxResponse
+from rock.actions.sandbox.response import State
 
 
 class SandboxStartResponse(SandboxResponse):
@@ -15,6 +16,7 @@ class SandboxStartResponse(SandboxResponse):
 class SandboxStatusResponse(BaseModel):
     sandbox_id: str = None
     status: dict = None
+    state: State | None = None
     port_mapping: dict = None
     host_name: str | None = None
     host_ip: str | None = None
