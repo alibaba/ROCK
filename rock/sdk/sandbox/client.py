@@ -38,7 +38,6 @@ from rock.actions import (
     WriteFileRequest,
     WriteFileResponse,
 )
-from rock.deployments.constants import Status
 from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX, RunModeType
 from rock.sdk.common.exceptions import (
     BadRequestRockError,
@@ -139,7 +138,7 @@ class Sandbox(AbstractSandbox):
         # Traverse each stage in the status dictionary
         for stage, details in status.items():
             # Check if the status of the current stage is "failed" or "timeout"
-            if details.get("status") == Status.FAILED.value or details.get("status") == Status.TIMEOUT.value:
+            if details.get("status") == "failed" or details.get("status") == "timeout":
                 # Return error message, including stage name and specific error message
                 return f"{stage}: {details.get('message', 'No message provided')}"
         # If no failed stage is found, return None
