@@ -4,15 +4,14 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 from rock.actions import CreateBashSessionRequest
-from rock.sdk.sandbox.client import RunMode, RunModeType
 from rock.sdk.sandbox.utils import arun_with_retry
 
 if TYPE_CHECKING:
-    from rock.sdk.sandbox.client import Sandbox
+    from rock.sdk.sandbox.client import RunModeType, Sandbox
 
 
-class AgentRuntimeEnv(ABC):
-    """Runtime environment for agents (e.g., Python/Node).
+class RuntimeEnv(ABC):
+    """Runtime environment (e.g., Python/Node).
 
     Key points:
     - Runtime env maintains its own bash session.
@@ -25,8 +24,9 @@ class AgentRuntimeEnv(ABC):
         sandbox: Sandbox,
         workdir: str,
         session: str = "agent-runtime-env-session",
-        install_cmd: str | None = None,
-        prepare_timeout: int = 300,
+        version: str | None = None,
+        add_to_sys_path: bool = False,
+        init_timeout: int = 300,
         session_envs: dict[str, str] | None = None,
     ) -> None:
         self._sandbox = sandbox
@@ -35,8 +35,9 @@ class AgentRuntimeEnv(ABC):
         self._prepared: bool = False
         self._session_ready: bool = False
         self.workdir = workdir
-        self.install_cmd = install_cmd
-        self.prepare_timeout = prepare_timeout
+        self.version = version
+        self.add_to_sys_path = add_to_sys_path
+        self.init_timeout = init_timeout
 
     @property
     def prepared(self) -> bool:
@@ -62,8 +63,8 @@ class AgentRuntimeEnv(ABC):
         self._session_ready = True
 
     @abstractmethod
-    async def prepare(self) -> None:
-        """Prepare the runtime in the sandbox (install/unpack, validate)."""
+    async def init(self) -> None:
+        """Initialize the runtime in the sandbox (install/unpack, validate)."""
         raise NotImplementedError
 
     @abstractmethod
@@ -74,11 +75,17 @@ class AgentRuntimeEnv(ABC):
     async def run(
         self,
         cmd: str,
-        mode: RunModeType = RunMode.NOHUP,
+        mode: RunModeType | None = None,
         wait_timeout: int = 600,
         error_msg: str = "runtime env command failed",
     ):
         """Run a command under this runtime via arun_with_retry."""
+        # Import here to avoid circular import
+        from rock.sdk.sandbox.client import RunMode
+
+        if mode is None:
+            mode = RunMode.NOHUP
+
         await self.ensure_session()
         wrapped = self.wrap(cmd)
         return await arun_with_retry(

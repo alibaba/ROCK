@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from rock import env_vars
 from rock.logger import init_logger
-from rock.sdk.sandbox.agent.runtime_env.base import AgentRuntimeEnv
+from rock.sdk.sandbox.runtime_env.base import RuntimeEnv
 from rock.sdk.sandbox.utils import arun_with_retry
 
 if TYPE_CHECKING:
@@ -14,11 +14,11 @@ if TYPE_CHECKING:
 logger = init_logger(__name__)
 
 
-class NodeAgentRuntimeEnv(AgentRuntimeEnv):
+class NodeRuntimeEnv(RuntimeEnv):
     """Node runtime env.
 
     This is a minimal runtime env:
-    - prepare(): ensures workdir exists, then runs node_install_cmd in that workdir
+    - init(): ensures workdir exists, then runs node_install_cmd in that workdir
     - wrap(): currently just runs via bash -c (no fixed layout enforced)
       (If later you standardize node to a fixed folder under workdir, you can inject PATH here.)
     """
@@ -28,28 +28,34 @@ class NodeAgentRuntimeEnv(AgentRuntimeEnv):
         sandbox: Sandbox,
         workdir: str,
         session: str = "node-runtime-env-session",
-        install_cmd: str | None = None,
-        prepare_timeout: int = 300,
+        version: str | None = None,
+        add_to_sys_path: bool = True,
+        init_timeout: int = 300,
         session_envs: dict[str, str] | None = None,
     ) -> None:
+        if not add_to_sys_path:
+            raise ValueError("Node runtime env only supports add_to_sys_path=True")
+
         super().__init__(
             sandbox=sandbox,
             workdir=workdir,
             session=session,
-            install_cmd=install_cmd,
-            prepare_timeout=prepare_timeout,
+            version=version,
+            add_to_sys_path=add_to_sys_path,
+            init_timeout=init_timeout,
             session_envs=session_envs,
         )
-        self.node_install_cmd = install_cmd or env_vars.ROCK_AGENT_NPM_INSTALL_CMD
+        self.node_install_cmd = env_vars.ROCK_AGENT_NPM_INSTALL_CMD
 
     def wrap(self, cmd: str) -> str:
         return f"bash -c {shlex.quote(cmd)}"
 
-    async def prepare(self) -> None:
+    async def init(self) -> None:
+        """Initialize the Node runtime environment."""
         await self.ensure_session()
 
         sandbox_id = self._sandbox.sandbox_id
-        logger.info(f"[{sandbox_id}] Preparing Node runtime env (workdir={self.workdir})")
+        logger.info(f"[{sandbox_id}] Initializing Node runtime env (workdir={self.workdir})")
 
         # 1) ensure workdir exists
         await self._sandbox.arun(
@@ -66,7 +72,7 @@ class NodeAgentRuntimeEnv(AgentRuntimeEnv):
             cmd=f"bash -c {shlex.quote(install_cmd)}",
             session=self.session,
             mode=RunMode.NOHUP,
-            wait_timeout=self.prepare_timeout,
+            wait_timeout=self.init_timeout,
             error_msg="Node runtime installation failed",
         )
 
@@ -82,4 +88,4 @@ class NodeAgentRuntimeEnv(AgentRuntimeEnv):
             raise RuntimeError("Node runtime validation failed")
 
         self._prepared = True
-        logger.info(f"[{sandbox_id}] Node runtime env prepared")
+        logger.info(f"[{sandbox_id}] Node runtime env initialized")

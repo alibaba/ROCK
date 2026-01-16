@@ -16,7 +16,7 @@ from rock.actions import UploadRequest
 from rock.logger import init_logger
 from rock.sdk.sandbox.agent.base import BaseAgent
 from rock.sdk.sandbox.agent.config import BaseAgentConfig
-from rock.sdk.sandbox.agent.runtime_env import NodeAgentRuntimeEnv
+from rock.sdk.sandbox.runtime_env import NodeRuntimeEnv
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
@@ -80,19 +80,18 @@ class IFlowCliConfig(BaseAgentConfig):
 
 
 class IFlowCli(BaseAgent):
-    """IFlow CLI Agent implementation with NodeAgentRuntimeEnv."""
+    """IFlow CLI Agent implementation with NodeRuntimeEnv."""
 
     def __init__(self, sandbox: Sandbox, config: IFlowCliConfig):
         super().__init__(sandbox, config)
         self.config: IFlowCliConfig = config
 
         # runtime env maintains its own session
-        self.agent_runtime_env = NodeAgentRuntimeEnv(
+        self.agent_runtime_env = NodeRuntimeEnv(
             sandbox=self._sandbox,
             workdir=self.config.agent_installed_dir,
             session=self.agent_session,
-            install_cmd=self.config.npm_install_cmd,
-            prepare_timeout=self.config.runtime_env_prepare_timeout,
+            init_timeout=self.config.runtime_env_init_timeout,
         )
 
     @override
@@ -141,11 +140,11 @@ class IFlowCli(BaseAgent):
     async def _prepare_node_runtime(self):
         step_start = time.time()
 
-        self._log_step("Preparing Node runtime env (npm/node)", step_name="Node Runtime")
-        await self.agent_runtime_env.prepare()
+        self._log_step("Initializing Node runtime env (npm/node)", step_name="Node Runtime")
+        await self.agent_runtime_env.init()
 
         elapsed_step = time.time() - step_start
-        self._log_step("Node runtime env prepared", step_name="Node Runtime", is_complete=True, elapsed=elapsed_step)
+        self._log_step("Node runtime env initialized", step_name="Node Runtime", is_complete=True, elapsed=elapsed_step)
 
     async def _configure_npm_registry(self):
         """Configure npm to use mirror registry for faster downloads."""

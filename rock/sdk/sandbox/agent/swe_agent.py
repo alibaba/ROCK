@@ -16,7 +16,6 @@ from rock.actions import UploadRequest
 from rock.logger import init_logger
 from rock.sdk.sandbox.agent.base import BaseAgent
 from rock.sdk.sandbox.agent.config import BaseAgentConfig
-from rock.sdk.sandbox.agent.runtime_env.python_env import PythonAgentRuntimeEnv
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
@@ -149,13 +148,8 @@ class SweAgent(BaseAgent):
         super().__init__(sandbox, config)
         self.config: SweAgentConfig = config
 
-        self.agent_runtime_env = PythonAgentRuntimeEnv(
-            sandbox=self._sandbox,
-            workdir=self.config.agent_installed_dir,
-            install_cmd=self.config.python_install_cmd,
-            session=self.agent_session,
-            prepare_timeout=self.config.runtime_env_prepare_timeout,
-        )
+        # Use rt_env_manager to manage runtime env
+        self._python_version = "3.11"  # Default to 3.11
 
     @override
     async def install(self):
@@ -164,7 +158,14 @@ class SweAgent(BaseAgent):
         logger.info(f"[{sandbox_id}] Starting SWE-agent installation")
 
         try:
-            await self.agent_runtime_env.prepare()
+            # Initialize Python runtime env using rt_env_manager
+            await self._sandbox.rt_env_manager.init(
+                type="python",
+                version=self._python_version,
+                workdir=self.config.agent_installed_dir,
+                init_timeout=self.config.runtime_env_init_timeout,
+            )
+
             await self._install_swe_agent_package()
             await self._upload_generated_config_template()
 
@@ -184,12 +185,15 @@ class SweAgent(BaseAgent):
 
         self._log_step("Installing SWE-agent repository", step_name="SWE-agent Install")
 
-        if not self.agent_runtime_env.prepared:
-            raise RuntimeError("Python runtime env is not prepared. Call python_env.prepare() before installation.")
+        # Get runtime env from rt_env_manager
+        agent_runtime_env = self._sandbox.rt_env_manager.get(type="python", version=self._python_version)
+
+        if not agent_runtime_env.prepared:
+            raise RuntimeError("Python runtime env is not prepared. Call rt_env_manager.init() before installation.")
 
         swe_agent_install_cmd = f"cd {self.config.agent_installed_dir} && {self.config.swe_agent_install_cmd}"
 
-        await self.agent_runtime_env.run(
+        await agent_runtime_env.run(
             cmd=swe_agent_install_cmd,
             wait_timeout=self.config.agent_install_timeout,
             error_msg="SWE-agent installation failed",
@@ -282,10 +286,13 @@ class SweAgent(BaseAgent):
 
     @override
     async def create_agent_run_cmd(self, prompt: str) -> str:
-        if not self.agent_runtime_env.prepared:
+        # Get runtime env from rt_env_manager
+        agent_runtime_env = self._sandbox.rt_env_manager.get(type="python", version=self._python_version)
+
+        if not agent_runtime_env.prepared:
             raise RuntimeError("Python runtime env is not prepared. Ensure agent.init() completed successfully.")
 
-        swe_agent = f"{self.agent_runtime_env.bin_dir}/sweagent"
+        swe_agent = f"{agent_runtime_env.bin_dir}/sweagent"
         config_path = f"{self.config.agent_installed_dir}/{self.GENERATED_CONFIG_NAME}"
 
         cmd = f"{swe_agent} run --config {config_path} --problem_statement.text {shlex.quote(prompt)}"
