@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pytest
 
-from rock import env_vars
 from rock.actions import Command
 from rock.logger import init_logger
 from rock.sdk.sandbox.agent.swe_agent import DEFAULT_RUN_SINGLE_CONFIG, SweAgent, SweAgentConfig
@@ -75,11 +74,6 @@ async def call_model_inference_generator(filepath: str = "infer_data/qwen3_coder
                 yield line
 
 
-def _get_python_install_cmd() -> str:
-    """Get the Python installation command."""
-    return env_vars.ROCK_AGENT_PYTHON_INSTALL_CMD
-
-
 async def _init_git_repository(sandbox: Sandbox, repo_path: str) -> None:
     """Initialize a git repository with an initial commit.
 
@@ -113,14 +107,11 @@ async def _init_git_repository(sandbox: Sandbox, repo_path: str) -> None:
 async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
     """Test SWE-Agent installation with integrated model service."""
 
-    python_install_cmd = _get_python_install_cmd()
     project_path = "/root/test_swe_agent"
     test_instance_id = "test_instance_id"
     try:
         # Initialize SWE-Agent configuration
-        model_service_config = ModelServiceConfig(
-            python_install_cmd=python_install_cmd,
-        )
+        model_service_config = ModelServiceConfig()
 
         run_single_config = DEFAULT_RUN_SINGLE_CONFIG.copy()
         run_single_config["agent"]["model"]["name"] = "openai/Qwen3-Coder-Plus"
@@ -128,11 +119,10 @@ async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
         run_single_config["agent"]["model"]["api_key"] = "just_a_test_key"
 
         swe_agent_config = SweAgentConfig(
-            agent_type="swe-agent",
-            version="unknown",
             default_run_single_config=run_single_config,
             model_service_config=model_service_config,
-            python_install_cmd=python_install_cmd,
+            project_path=project_path,
+            instance_id=test_instance_id,
         )
 
         # Initialize and setup the agent
@@ -152,15 +142,7 @@ async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
         inference_gen = call_model_inference_generator()
 
         # Run agent and model service in parallel
-        agent_run_task = asyncio.create_task(
-            sandbox_instance.agent.run(
-                problem_statement="rename 1.txt to 2.txt",
-                project_path=project_path,
-                instance_id=test_instance_id,
-                agent_run_timeout=1800,
-                agent_run_check_interval=30,
-            )
-        )
+        agent_run_task = asyncio.create_task(sandbox_instance.agent.run(prompt="rename 1.txt to 2.txt"))
 
         whale_service_task = asyncio.create_task(model_service_loop(sandbox_instance.agent, inference_gen))
 
@@ -172,7 +154,7 @@ async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
                 logger.error(f"Task {i} failed: {type(result).__name__}: {str(result)}")
 
         patch_path = (
-            f"{swe_agent_config.swe_agent_workdir}/{test_instance_id}/{test_instance_id}/{test_instance_id}.patch"
+            f"{swe_agent_config.agent_installed_dir}/{test_instance_id}/{test_instance_id}/{test_instance_id}.patch"
         )
 
         file_content = await sandbox_instance.arun(cmd=f"cat {patch_path}", mode=RunMode.NOHUP)

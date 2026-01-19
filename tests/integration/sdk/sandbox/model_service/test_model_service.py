@@ -1,6 +1,5 @@
 import pytest
 
-from rock import env_vars
 from rock.actions import Command
 from rock.logger import init_logger
 from rock.sdk.sandbox.client import Sandbox
@@ -17,8 +16,7 @@ async def test_model_service_install_and_start(sandbox_instance: Sandbox):
     """Test model service installation and startup flow."""
 
     # 1. Initialize model service
-    python_install_cmd = env_vars.ROCK_AGENT_PYTHON_INSTALL_CMD
-    model_service_config = ModelServiceConfig(python_install_cmd=python_install_cmd)
+    model_service_config = ModelServiceConfig()
     sandbox_instance.model_service = ModelService(sandbox_instance, model_service_config)
 
     # 2. Install service
@@ -30,15 +28,8 @@ async def test_model_service_install_and_start(sandbox_instance: Sandbox):
     await sandbox_instance.model_service.start()
     assert sandbox_instance.model_service.is_started, "Model service should be started"
 
-    # 4. Verify installed files
-    result = await sandbox_instance.execute(Command(command=["ls", model_service_config.workdir]))
-    logger.info(f"Work directory contents: {result.stdout}")
-    assert result.exit_code == 0
-    assert "cpython31114.tar.gz" in result.stdout, "Tar archive file missing"
-    assert "python" in result.stdout, "Python directory missing"
-
-    # 5. Verify Python executables
-    python_bin_path = f"{model_service_config.workdir}/python/bin"
+    # 4. Verify Python executables
+    python_bin_path = sandbox_instance.model_service.rt_env.bin_dir
     result = await sandbox_instance.execute(Command(command="ls", cwd=python_bin_path))
     logger.info(f"Python bin directory contents: {result.stdout}")
     assert result.exit_code == 0
