@@ -24,6 +24,8 @@ class SandboxStartRequest(BaseModel):
     """The amount of memory to allocate for the container."""
     cpus: float = 2
     """The amount of CPUs to allocate for the container."""
+    sandbox_id: str | None = Field(default=None)
+    """The id of the sandbox."""
 
 
 class SandboxCommand(Command):

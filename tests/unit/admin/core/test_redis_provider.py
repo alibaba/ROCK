@@ -33,3 +33,11 @@ async def test_redis_json_mget(redis_provider: RedisProvider):
 
     cleanup_results = await redis_provider.json_mget(test_keys, "$")
     assert all(not result for result in cleanup_results)
+
+
+@pytest.mark.asyncio
+async def test_redis_read_non_exist_key(redis_provider: RedisProvider):
+    assert not await redis_provider.json_get("sandbox_test_non_exist_key", "$")
+
+    await redis_provider.json_set("sandbox_test_key", "$", {"name": "user1"})
+    assert await redis_provider.json_get("sandbox_test_key", "$")
