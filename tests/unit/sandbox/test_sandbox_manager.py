@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+import uuid
 
 import pytest
 import ray
@@ -151,3 +152,22 @@ async def test_get_status_state(sandbox_manager):
     sandbox_status = await sandbox_manager.get_status(sandbox_id)
     assert sandbox_status.state == State.RUNNING
     await sandbox_manager.stop(sandbox_id)
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_sandbox_start_with_sandbox_id(sandbox_manager):
+    try:
+        sandbox_id = uuid.uuid4().hex
+        response = await sandbox_manager.start_async(DockerDeploymentConfig(container_name=sandbox_id))
+        assert response.sandbox_id == sandbox_id
+        await check_sandbox_status_until_alive(sandbox_manager, sandbox_id)
+        with pytest.raises(BadRequestRockError) as e:
+            await sandbox_manager.start_async(
+                DockerDeploymentConfig(container_name=sandbox_id),
+                sandbox_id=sandbox_id,
+            )
+    except Exception as e:
+        logger.error(f"test_sandbox_start_with_sandbox_id error: {str(e)}", exc_info=True)
+    finally:
+        await sandbox_manager.stop(sandbox_id)
