@@ -171,18 +171,26 @@ class RockAgent(Agent):
         logger.info(f"[{sandbox_id}] Provisioning working_dir: {local_abs} -> {target_dir}")
 
         # Clean & create
-        await self._sandbox.arun(
+        result = await self._sandbox.arun(
             cmd=f"rm -rf {shlex.quote(target_dir)} && mkdir -p {shlex.quote(target_dir)}",
             session=self.agent_session,
         )
+        if result.exit_code != 0:
+            raise RuntimeError(f"Failed to create target directory {target_dir}: {result.output}")
 
-        await self._sandbox.fs.upload_dir(source_dir=local_abs, target_dir=target_dir)
+        upload_result = await self._sandbox.fs.upload_dir(source_dir=local_abs, target_dir=target_dir)
+        if upload_result.exit_code != 0:
+            raise RuntimeError(f"Failed to upload directory: {upload_result.failure_reason}")
 
         if self.config.entry_file:
-            await self._sandbox.arun(
+            chmod_result = await self._sandbox.arun(
                 cmd=f"chmod +x {target_dir}/{self.config.entry_file}",
                 session=self.agent_session,
             )
+            if chmod_result.exit_code != 0:
+                raise RuntimeError(
+                    f"Failed to set executable permission on {self.config.entry_file}: {chmod_result.output}"
+                )
 
         self._working_dir_in_sandbox = target_dir
         logger.info(f"[{sandbox_id}] working_dir_in_sandbox ready: {target_dir}")
