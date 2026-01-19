@@ -21,16 +21,17 @@ from rock.actions import (
     WriteFileResponse,
 )
 from rock.actions.sandbox.sandbox_info import SandboxInfo
-from rock.admin.core.redis_key import alive_sandbox_key, timeout_sandbox_key
+from rock.admin.core.redis_key import ALIVE_PREFIX, alive_sandbox_key, timeout_sandbox_key
 from rock.admin.metrics.decorator import monitor_sandbox_operation
 from rock.admin.metrics.monitor import MetricsMonitor
 from rock.admin.proto.request import SandboxBashAction as BashAction
 from rock.admin.proto.request import SandboxCloseBashSessionRequest as CloseBashSessionRequest
 from rock.admin.proto.request import SandboxCommand as Command
 from rock.admin.proto.request import SandboxCreateSessionRequest as CreateSessionRequest
+from rock.admin.proto.request import SandboxQueryParams
 from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
-from rock.admin.proto.response import SandboxStatusResponse
+from rock.admin.proto.response import SandboxListResponse, SandboxStatusResponse
 from rock.config import OssConfig, ProxyServiceConfig, RockConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
@@ -164,6 +165,31 @@ class SandboxProxyService:
                 results.append(SandboxStatusResponse.from_sandbox_info(sandbox_info))
         logger.info(f"batch_get_sandbox_status_from_redis succ, result count is {len(results)}")
         return results
+
+    @monitor_sandbox_operation()
+    async def list_sandboxes(self, query_params: SandboxQueryParams) -> SandboxListResponse:
+        if self._redis_provider is None:
+            logger.warning("Redis provider is not available, list_sandboxes returning empty result")
+            return SandboxListResponse()
+        page = int(query_params.pop("page", "1"))
+        page_size = int(query_params.pop("page_size", "500"))
+        if page < 1 or page_size < 1:
+            raise BadRequestRockError(f"page parameter invalid, page is {page}, page_size is {page_size}")
+        if page_size > self._batch_get_status_max_count:
+            raise BadRequestRockError(f"page_size exceeds maximum {self._batch_get_status_max_count}")
+        logger.info(f"list sandboxes with filters: {query_params}, page: {page}, page_size: {page_size}")
+        try:
+            all_sandbox_data = await self.list_all_sandboxes_by_query_params(query_params)
+            total = len(all_sandbox_data)
+            start_index = (page - 1) * page_size
+            end_index = start_index + page_size
+            page_data = all_sandbox_data[start_index:end_index]
+            has_more = end_index < total
+            logger.info(f"Returning page {page} with {len(page_data)} items, total: {total}, has_more: {has_more}")
+            return SandboxListResponse(items=page_data, total=total, page=page, has_more=has_more)
+        except Exception as e:
+            logger.error(f"Error filtering sandboxes: {e}", exc_info=True)
+            raise
 
     async def websocket_proxy(self, client_websocket, sandbox_id: str, target_path: str | None = None):
         target_url = await self.get_sandbox_websocket_url(sandbox_id, target_path)
@@ -346,3 +372,30 @@ class SandboxProxyService:
             env_vars.ROCK_SANDBOX_EXPIRE_TIME_KEY: str(expire_time),
         }
         await self._redis_provider.json_set(timeout_sandbox_key(sandbox_id), "$", new_dict)
+
+    async def list_all_sandboxes_by_query_params(self, query_params: SandboxQueryParams):
+        all_keys = []
+        async for key in self._redis_provider.client.scan_iter(match=f"{ALIVE_PREFIX}*", count=1000):  # type: ignore
+            all_keys.append(key)
+        if not all_keys:
+            return []
+        all_sandbox_data = []
+        batch_size = self._batch_get_status_max_count
+        for i in range(0, len(all_keys), batch_size):
+            batch_keys = all_keys[i : i + batch_size]
+            sandbox_infos_list = await self._redis_provider.json_mget(batch_keys, "$")
+            for sandbox_infos in sandbox_infos_list:
+                if not sandbox_infos or len(sandbox_infos) == 0:
+                    continue
+                sandbox_info = sandbox_infos[0] if isinstance(sandbox_infos, list) else sandbox_infos
+                if self._matches_query_params(sandbox_info, query_params):
+                    all_sandbox_data.append(SandboxStatusResponse.from_sandbox_info(sandbox_info))
+        return all_sandbox_data
+
+    def _matches_query_params(self, sandbox_info: SandboxInfo, query_params: SandboxQueryParams) -> bool:
+        if not query_params:
+            return True
+        for filter_key, filter_value in query_params.items():
+            if filter_key not in sandbox_info or sandbox_info[filter_key] != filter_value:
+                return False
+        return True

@@ -33,7 +33,7 @@ class SandboxStatusResponse(BaseModel):
     @classmethod
     def from_sandbox_info(cls, sandbox_info: "SandboxInfo") -> "SandboxStatusResponse":
         return cls(
-            sandbox_id=sandbox_info.get("sandbox_id"),
+            sandbox_id=sandbox_info.get("sandbox_id", ""),
             status=sandbox_info.get("phases", {}),
             state=sandbox_info.get("state"),
             port_mapping=sandbox_info.get("port_mapping", {}),
@@ -50,3 +50,9 @@ class SandboxStatusResponse(BaseModel):
 
 class BatchSandboxStatusResponse(SandboxResponse):
     statuses: list[SandboxStatusResponse] | None = None
+
+
+class SandboxListResponse(SandboxResponse):
+    items: list[SandboxStatusResponse] = []
+    total: int = 0
+    has_more: bool = False

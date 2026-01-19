@@ -1,4 +1,4 @@
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -100,3 +100,15 @@ class WarmupRequest(BaseModel):
 
 class BatchSandboxStatusRequest(BaseModel):
     sandbox_ids: list[str]
+
+
+class SandboxQueryParams(TypedDict, total=False):
+    """Sandbox列表查询参数"""
+
+    page: str
+    page_size: str
+    user_id: str
+    experiment_id: str
+    namespace: str
+    image: str
+    state: str

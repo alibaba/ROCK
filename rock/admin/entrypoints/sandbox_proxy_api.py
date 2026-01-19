@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, File, Form, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, File, Form, Request, UploadFile, WebSocket, WebSocketDisconnect
 
 from rock.actions import (
     BashObservation,
@@ -20,10 +20,11 @@ from rock.admin.proto.request import (
     SandboxCloseBashSessionRequest,
     SandboxCommand,
     SandboxCreateBashSessionRequest,
+    SandboxQueryParams,
     SandboxReadFileRequest,
     SandboxWriteFileRequest,
 )
-from rock.admin.proto.response import BatchSandboxStatusResponse
+from rock.admin.proto.response import BatchSandboxStatusResponse, SandboxListResponse
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.utils import handle_exceptions
 
@@ -97,6 +98,14 @@ async def upload(
     sandbox_id: str | None = Form(None),
 ) -> RockResponse[UploadResponse]:
     return RockResponse(result=await sandbox_proxy_service.upload(file, target_path, sandbox_id))
+
+
+@sandbox_proxy_router.get("/sandboxes")
+@handle_exceptions(error_message="list sandboxes failed")
+async def list_sandboxes(request: Request) -> RockResponse[SandboxListResponse]:
+    query_params: SandboxQueryParams = dict(request.query_params)
+    result = await sandbox_proxy_service.list_sandboxes(query_params)
+    return RockResponse(result=result)
 
 
 @sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/ws")
