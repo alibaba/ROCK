@@ -60,16 +60,19 @@ class ProxyServiceConfig:
     timeout: float = 180.0
     max_connections: int = 500
     max_keepalive_connections: int = 100
+    batch_get_status_max_count: int = 2000
 
 
 @dataclass
 class DatabaseConfig:
     url: str = ""
 
+
 @dataclass
 class StandardSpec:
     memory: str = "8g"
     cpus: int = 2
+
 
 @dataclass
 class RuntimeConfig:

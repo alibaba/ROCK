@@ -170,3 +170,18 @@ class RedisProvider:
             return False
 
         return False
+
+    async def json_mget(self, keys: list[str], path: str = "$") -> list[Any | None]:
+        """
+        Get JSON data from the specified keys and path.
+        :param keys: Redis key list
+        :param path: JSONPath expression (defaults to '$' to get the entire document).
+        :return: Parsed Python object list
+        """
+        logger.debug(f"JSON MGET for keys '{keys}' at path '{path}'")
+        try:
+            results = await self.json_client.mget(keys, path)
+            return results
+        except Exception as e:
+            logger.error(f"Error on JSON MGET for keys '{keys}': {e}", exc_info=True)
+            raise

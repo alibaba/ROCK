@@ -96,3 +96,7 @@ class SandboxWriteFileRequest(WriteFileRequest):
 
 class WarmupRequest(BaseModel):
     image: str = "python:3.11"
+
+
+class BatchSandboxStatusRequest(BaseModel):
+    sandbox_ids: list[str]

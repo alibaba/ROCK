@@ -35,8 +35,6 @@ from rock.config import OssConfig, ProxyServiceConfig, RockConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
-from rock.rocklet import __version__ as swe_version
-from rock.sandbox import __version__ as gateway_version
 from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var
 from rock.utils.providers import RedisProvider
 from rock.utils.service import build_sandbox_from_redis
@@ -68,6 +66,8 @@ class SandboxProxyService:
             self.oss_config.access_key_secret,
             env_vars.ROCK_OSS_BUCKET_REGION,
         )
+
+        self._batch_get_status_max_count = rock_config.proxy_service.batch_get_status_max_count
 
     @monitor_sandbox_operation()
     async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
@@ -220,6 +220,27 @@ class SandboxProxyService:
             sandbox_id, sandbox_status_dicts[0], "execute", None, command.model_dump(), None, "POST"
         )
         return CommandResponse(**response)
+
+    @monitor_sandbox_operation()
+    async def batch_get_sandbox_status_from_redis(self, sandbox_ids: list[str]) -> list[SandboxStatusResponse]:
+        if self._redis_provider is None:
+            logger.info("batch_get_sandbox_status_from_redis, redis provider is None, return empty")
+            return []
+        if sandbox_ids is None:
+            raise BadRequestRockError(message="sandbox_ids is None")
+        if len(sandbox_ids) > self._batch_get_status_max_count:
+            raise BadRequestRockError(
+                message=f"sandbox_ids count too large, max count is {self._batch_get_status_max_count}"
+            )
+        logger.info(f"batch_get_sandbox_status_from_redis, sandbox_ids count is {len(sandbox_ids)}")
+        results = []
+        alive_keys = [alive_sandbox_key(sandbox_id) for sandbox_id in sandbox_ids]
+        sandbox_infos: list[SandboxInfo] = await self._redis_provider.json_mget(alive_keys, "$")
+        for sandbox_info in sandbox_infos:
+            if sandbox_info:
+                results.append(SandboxStatusResponse.from_sandbox_info(sandbox_info))
+        logger.info(f"batch_get_sandbox_status_from_redis succ, result count is {len(results)}")
+        return results
 
     async def websocket_proxy(self, client_websocket, sandbox_id: str, target_path: str | None = None):
         target_url = await self.get_sandbox_websocket_url(sandbox_id, target_path)

@@ -15,6 +15,7 @@ from rock.actions import (
     WriteFileResponse,
 )
 from rock.admin.proto.request import (
+    BatchSandboxStatusRequest,
     SandboxBashAction,
     SandboxCloseBashSessionRequest,
     SandboxCommand,
@@ -22,6 +23,7 @@ from rock.admin.proto.request import (
     SandboxReadFileRequest,
     SandboxWriteFileRequest,
 )
+from rock.admin.proto.response import BatchSandboxStatusResponse
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.utils import handle_exceptions
 
@@ -57,6 +59,14 @@ async def run(action: SandboxBashAction) -> RockResponse[BashObservation]:
     if result.exit_code is not None and result.exit_code == -1:
         return RockResponse(status=ResponseStatus.FAILED, error=result.failure_reason)
     return RockResponse(result=result)
+
+
+@sandbox_proxy_router.post("/sandboxes/batch")
+@handle_exceptions(error_message="batch get sandbox status failed")
+async def batch_get_status(request: BatchSandboxStatusRequest) -> RockResponse[BatchSandboxStatusResponse]:
+    statuses_list = await sandbox_proxy_service.batch_get_sandbox_status_from_redis(request.sandbox_ids)
+    response = BatchSandboxStatusResponse(statuses=statuses_list)
+    return RockResponse(result=response)
 
 
 @sandbox_proxy_router.post("/close_session")
