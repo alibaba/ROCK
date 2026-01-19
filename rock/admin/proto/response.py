@@ -30,6 +30,7 @@ class SandboxStatusResponse(BaseModel):
     namespace: str | None = None
     cpus: float | None = None
     memory: str | None = None
+<<<<<<< Updated upstream
 
     @classmethod
     def from_sandbox_info(cls, sandbox_info: "SandboxInfo") -> "SandboxStatusResponse":
@@ -57,3 +58,6 @@ class SandboxListResponse(SandboxResponse):
     items: list[SandboxStatusResponse] = []
     total: int = 0
     has_more: bool = False
+=======
+    namespace: str | None = None
+>>>>>>> Stashed changes

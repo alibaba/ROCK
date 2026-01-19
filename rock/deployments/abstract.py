@@ -2,6 +2,8 @@ import asyncio
 from abc import ABC, abstractmethod
 
 from rock.actions import AbstractSandbox, IsAliveResponse
+from rock.actions.sandbox.response import CommandResponse
+from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
 from rock.deployments.hooks.abstract import DeploymentHook
 from rock.logger import init_logger
 
@@ -35,6 +37,26 @@ class AbstractDeployment(ABC):
     async def creator_actor(self, actor_name: str):
         """create actor."""
         return None
+    
+    @abstractmethod
+    async def submit(self, sandbox_id: str) -> SandboxStartResponse:
+        """Get status of sandbox."""
+
+    @abstractmethod
+    async def get_status(self, *args, **kwargs) -> SandboxStatusResponse:
+        """Get status of sandbox."""
+
+    @abstractmethod
+    async def get_mount(self, *args, **kwargs):
+        """Get mount of sandbox."""
+
+    @abstractmethod
+    async def get_sandbox_statistics(self, *args, **kwargs):
+        """Get sandbox statistics."""
+
+    @abstractmethod
+    async def commit(self, *args, **kwargs) -> CommandResponse:
+        """Commit sandbox."""
 
     @property
     @abstractmethod
