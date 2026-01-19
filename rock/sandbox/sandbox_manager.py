@@ -13,15 +13,11 @@ from rock.admin.core.redis_key import ALIVE_PREFIX, alive_sandbox_key, timeout_s
 from rock.admin.metrics.decorator import monitor_sandbox_operation
 from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
 from rock.config import RockConfig, RuntimeConfig
-<<<<<<< Updated upstream
 from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
 from rock.deployments.status import ServiceStatus
-=======
 from rock.deployments.abstract import AbstractDeployment
 from rock.deployments.config import DeploymentConfig
-from rock.deployments.constants import Status
-from rock.deployments.status import PhaseStatus, ServiceStatus
->>>>>>> Stashed changes
+from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
 from rock.sandbox.base_manager import BaseManager
 from rock.sandbox.service.deployment_service import AbstractDeploymentService, RayDeploymentService
@@ -51,52 +47,11 @@ class SandboxManager(BaseManager):
         self._deployment_service = deployment_service
         logger.info("sandbox service init success")
 
-<<<<<<< Updated upstream
-    async def async_ray_get(self, ray_future: ray.ObjectRef):
-        loop = asyncio.get_running_loop()
-        try:
-            result = await loop.run_in_executor(self._executor, lambda r: ray.get(r, timeout=60), ray_future)
-        except Exception as e:
-            logger.error("ray get failed", exc_info=e)
-            error_msg = str(e.args[0]) if len(e.args) > 0 else f"ray get failed, {str(e)}"
-            raise Exception(error_msg)
-        return result
-
-    async def async_ray_get_actor(self, sandbox_id: str):
-        loop = asyncio.get_running_loop()
-        try:
-            result = await loop.run_in_executor(
-                self._executor, ray.get_actor, self.deployment_manager.get_actor_name(sandbox_id), self._ray_namespace
-            )
-        except Exception as e:
-            logger.error("ray get actor failed", exc_info=e)
-            error_msg = str(e.args[0]) if len(e.args) > 0 else f"ray get actor failed, {str(e)}"
-            raise Exception(error_msg)
-        return result
-
-    async def _check_sandbox_exists_in_redis(self, config: DeploymentConfig):
-        if isinstance(config, DockerDeploymentConfig) and config.container_name:
-            sandbox_id = config.container_name
-            if self._redis_provider and await self._redis_provider.json_get(alive_sandbox_key(sandbox_id), "$"):
-                raise BadRequestRockError(f"Sandbox {sandbox_id} already exists")
-
-    @monitor_sandbox_operation()
-    async def start_async(self, config: DeploymentConfig, user_info: dict = {}) -> SandboxStartResponse:
-        await self._check_sandbox_exists_in_redis(config)
-        docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(config)
-        sandbox_id = docker_deployment_config.container_name
-        logger.info(f"[{sandbox_id}] start_async params:{json.dumps(docker_deployment_config.model_dump(), indent=2)}")
-        actor_name = self.deployment_manager.get_actor_name(sandbox_id)
-
-        deployment = docker_deployment_config.get_deployment()
-
-=======
     @monitor_sandbox_operation()
     async def submit(self, config: DeploymentConfig, user_info: dict = {}):
         deployment_config: DeploymentConfig = await self.deployment_manager.init_config(config)
         sandbox_id = deployment_config.container_name
         deployment: AbstractDeployment = await deployment_config.get_deployment()
->>>>>>> Stashed changes
         self.validate_sandbox_spec(self.rock_config.runtime, config)
         self._sandbox_meta[sandbox_id] = {"image": deployment_config.image}
         sandbox_info: SandboxInfo = await deployment.submit(sandbox_id, user_info)
@@ -107,14 +62,6 @@ class SandboxManager(BaseManager):
             env_vars.ROCK_SANDBOX_AUTO_CLEAR_TIME_KEY: str(deployment_config.auto_clear_time),
             env_vars.ROCK_SANDBOX_EXPIRE_TIME_KEY: stop_time,
         }
-<<<<<<< Updated upstream
-        sandbox_info: SandboxInfo = await self.async_ray_get(sandbox_actor.sandbox_info.remote())
-        sandbox_info["user_id"] = user_id
-        sandbox_info["experiment_id"] = experiment_id
-        sandbox_info["namespace"] = namespace
-        sandbox_info["state"] = State.PENDING
-=======
->>>>>>> Stashed changes
         if self._redis_provider:
             await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
             await self._redis_provider.json_set(timeout_sandbox_key(sandbox_id), "$", auto_clear_time_dict)
@@ -172,95 +119,6 @@ class SandboxManager(BaseManager):
         deployment: AbstractDeployment = self._deployment_service.get_deployment(sandbox_id)
         if deployment is None:
             raise Exception(f"sandbox {sandbox_id} not found to get status")
-<<<<<<< Updated upstream
-        else:
-            remote_status: ServiceStatus = await self.async_ray_get(sandbox_actor.get_status.remote())
-            alive = await self.async_ray_get(sandbox_actor.is_alive.remote())
-            sandbox_info: SandboxInfo = None
-            if self._redis_provider:
-                sandbox_info = await self.build_sandbox_from_redis(sandbox_id)
-                if sandbox_info is None:
-                    # The start() method will write to redis on the first call to get_status()
-                    sandbox_info = await self.async_ray_get(sandbox_actor.sandbox_info.remote())
-                sandbox_info.update(remote_status.to_dict())
-                if alive.is_alive:
-                    sandbox_info["state"] = State.RUNNING
-                await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
-                await self._update_expire_time(sandbox_id)
-                logger.info(f"sandbox {sandbox_id} status is {sandbox_info}, write to redis")
-            else:
-                sandbox_info = await self.async_ray_get(sandbox_actor.sandbox_info.remote())
-
-            return SandboxStatusResponse(
-                sandbox_id=sandbox_id,
-                status=remote_status.phases,
-                state=sandbox_info.get("state"),
-                port_mapping=remote_status.get_port_mapping(),
-                host_name=sandbox_info.get("host_name"),
-                host_ip=sandbox_info.get("host_ip"),
-                is_alive=alive.is_alive,
-                image=sandbox_info.get("image"),
-                swe_rex_version=swe_version,
-                gateway_version=gateway_version,
-                user_id=sandbox_info.get("user_id"),
-                experiment_id=sandbox_info.get("experiment_id"),
-                namespace=sandbox_info.get("namespace"),
-                cpus=sandbox_info.get("cpus"),
-                memory=sandbox_info.get("memory"),
-            )
-
-    async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
-        sandbox_actor = await self.async_ray_get_actor(request.sandbox_id)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {request.sandbox_id} not found to create session")
-        await self._update_expire_time(request.sandbox_id)
-        return await self.async_ray_get(sandbox_actor.create_session.remote(request))
-
-    @monitor_sandbox_operation()
-    async def run_in_session(self, action: Action) -> BashObservation:
-        sandbox_actor = await self.async_ray_get_actor(action.sandbox_id)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {action.sandbox_id} not found to run in session")
-        await self._update_expire_time(action.sandbox_id)
-        return await self.async_ray_get(sandbox_actor.run_in_session.remote(action))
-
-    async def close_session(self, request: CloseBashSessionRequest) -> CloseBashSessionResponse:
-        sandbox_actor = await self.async_ray_get_actor(request.sandbox_id)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {request.sandbox_id} not found to close session")
-        await self._update_expire_time(request.sandbox_id)
-        return await self.async_ray_get(sandbox_actor.close_session.remote(request))
-
-    async def execute(self, command: Command) -> CommandResponse:
-        sandbox_actor = await self.async_ray_get_actor(command.sandbox_id)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {command.sandbox_id} not found to execute")
-        await self._update_expire_time(command.sandbox_id)
-        return await self.async_ray_get(sandbox_actor.execute.remote(command))
-
-    async def read_file(self, request: ReadFileRequest) -> ReadFileResponse:
-        sandbox_actor = await self.async_ray_get_actor(request.sandbox_id)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {request.sandbox_id} not found to read file")
-        await self._update_expire_time(request.sandbox_id)
-        return await self.async_ray_get(sandbox_actor.read_file.remote(request))
-
-    @monitor_sandbox_operation()
-    async def write_file(self, request: WriteFileRequest) -> WriteFileResponse:
-        sandbox_actor = await self.async_ray_get_actor(request.sandbox_id)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {request.sandbox_id} not found to write file")
-        await self._update_expire_time(request.sandbox_id)
-        return await self.async_ray_get(sandbox_actor.write_file.remote(request))
-
-    @monitor_sandbox_operation()
-    async def upload(self, file: UploadFile, target_path: str, sandbox_id: str) -> UploadResponse:
-        sandbox_actor = await self.async_ray_get_actor(sandbox_id)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {sandbox_id} not found to upload file")
-        await self._update_expire_time(sandbox_id)
-        return await self.async_ray_get(sandbox_actor.upload.remote(file, target_path))
-=======
         response: SandboxStatusResponse = await deployment.get_status()
         sandbox_info: SandboxInfo = self.get_info_from_response(response)
         if self._redis_provider:
@@ -281,7 +139,6 @@ class SandboxManager(BaseManager):
             memory=response.memory,
             port_mapping=response.port_mapping,
         )
->>>>>>> Stashed changes
 
     async def _is_expired(self, sandbox_id):
         sandbox_actor = await self.async_ray_get_actor(sandbox_id)
