@@ -1,8 +1,11 @@
+import json
+import os
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from rock.deployments.constants import Status
+from rock.rocklet import SERVICE_STATUS_DIR
 
 
 class PhaseStatus(BaseModel):
@@ -16,6 +19,7 @@ class PhaseStatus(BaseModel):
 class ServiceStatus(BaseModel):
     phases: dict[str, PhaseStatus] = Field(default_factory=dict)
     port_mapping: dict[int, int] = Field(default_factory=dict)
+    json_path: str | None = None
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -23,9 +27,23 @@ class ServiceStatus(BaseModel):
         if not self.phases:
             self.add_phase("image_pull", PhaseStatus())
             self.add_phase("docker_run", PhaseStatus())
+        if kwargs.get("sandbox_id"):
+            self.json_path = ServiceStatus.gen_service_status_path(kwargs.get("sandbox_id"))
+            os.makedirs(os.path.dirname(self.json_path), exist_ok=True)
+
+    def _save_to_file(self):
+        """Save ServiceStatus to the file specified by json_path"""
+        if self.json_path:
+            try:
+                with open(self.json_path, "w") as f:
+                    json.dump(self.to_dict(), f, indent=2)
+            except Exception as e:
+                # Error handling to prevent file write failures from affecting the main process
+                raise Exception(f"save service status failed: {str(e)}")
 
     def add_phase(self, phase_name: str, status: PhaseStatus):
         self.phases[phase_name] = status
+        self._save_to_file()
 
     def get_phase(self, phase_name: str) -> PhaseStatus:
         return self.phases[phase_name]
@@ -33,9 +51,11 @@ class ServiceStatus(BaseModel):
     def update_status(self, phase_name: str, status: Status, message: str):
         self.phases[phase_name].status = status
         self.phases[phase_name].message = message
+        self._save_to_file()
 
     def add_port_mapping(self, local_port: int, container_port: int):
         self.port_mapping[local_port] = container_port
+        self._save_to_file()
 
     def get_port_mapping(self) -> dict[int, int]:
         return self.port_mapping
@@ -68,3 +88,17 @@ class ServiceStatus(BaseModel):
             port_mapping[int(port_value)] = mapping
 
         return cls(phases=phases, port_mapping=port_mapping)
+
+    @classmethod
+    def from_content(cls, content: str) -> "ServiceStatus":
+        """Create ServiceStatus from JSON file."""
+        try:
+            data = json.loads(content)
+            service_status = cls.from_dict(data)
+            return service_status
+        except Exception as e:
+            raise Exception(f"parse service status failed:{str(e)}")
+
+    @classmethod
+    def gen_service_status_path(cls, sandbox_id: str) -> str:
+        return f"{SERVICE_STATUS_DIR}/{sandbox_id}.json"

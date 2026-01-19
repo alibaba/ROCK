@@ -36,6 +36,7 @@ from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils.format import parse_memory_size
 from rock.utils.providers import RedisProvider
+from rock.utils.service import build_sandbox_from_redis
 
 logger = init_logger(__name__)
 
@@ -190,13 +191,6 @@ class SandboxManager(BaseManager):
             await self._redis_provider.json_delete(timeout_sandbox_key(sandbox_id))
             logger.info(f"sandbox {sandbox_id} deleted from redis")
 
-    async def build_sandbox_from_redis(self, sandbox_id: str) -> SandboxInfo | None:
-        if self._redis_provider:
-            sandbox_status = await self._redis_provider.json_get(alive_sandbox_key(sandbox_id), "$")
-            if sandbox_status and len(sandbox_status) > 0:
-                return sandbox_status[0]
-        return None
-
     @monitor_sandbox_operation()
     async def get_status(self, sandbox_id) -> SandboxStatusResponse:
         sandbox_actor = await self.async_ray_get_actor(sandbox_id)
@@ -206,7 +200,7 @@ class SandboxManager(BaseManager):
             remote_status: ServiceStatus = await self.async_ray_get(sandbox_actor.get_status.remote())
             sandbox_info: SandboxInfo = None
             if self._redis_provider:
-                sandbox_info = await self.build_sandbox_from_redis(sandbox_id)
+                sandbox_info = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
                 if sandbox_info is None:
                     # The start() method will write to redis on the first call to get_status()
                     sandbox_info = await self.async_ray_get(sandbox_actor.sandbox_info.remote())

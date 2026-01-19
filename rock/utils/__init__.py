@@ -26,8 +26,8 @@ from .retry import (
 from .system import (
     extract_nohup_pid,
     find_free_port,
-    get_instance_id,
     get_host_ip,
+    get_instance_id,
     get_uniagent_endpoint,
     release_port,
     run_command_with_output,
