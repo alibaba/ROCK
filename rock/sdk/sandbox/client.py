@@ -52,6 +52,7 @@ from rock.sdk.sandbox.model_service.base import ModelService
 from rock.sdk.sandbox.network import Network
 from rock.sdk.sandbox.process import Process
 from rock.sdk.sandbox.remote_user import LinuxRemoteUser, RemoteUser
+from rock.sdk.sandbox.runtime_env.base import RuntimeEnv, RuntimeEnvId
 from rock.utils import HttpUtils, extract_nohup_pid, retry_async
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,7 @@ class Sandbox(AbstractSandbox):
     process: Process | None = None
     network: Network | None = None
     fs: FileSystem | None = None
+    runtime_envs: dict[RuntimeEnvId, RuntimeEnv]
 
     def __init__(self, config: SandboxConfig):
         self._pod_name = None
@@ -95,6 +97,7 @@ class Sandbox(AbstractSandbox):
         self.process = Process(self)
         self.network = Network(self)
         self.fs = LinuxFileSystem(self)
+        self.runtime_envs = {}
 
     @property
     def sandbox_id(self) -> str:
