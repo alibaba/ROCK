@@ -27,9 +27,10 @@ class ServiceStatus(BaseModel):
         if not self.phases:
             self.add_phase("image_pull", PhaseStatus())
             self.add_phase("docker_run", PhaseStatus())
-        if kwargs.get("sandbox_id"):
-            self.json_path = ServiceStatus.gen_service_status_path(kwargs.get("sandbox_id"))
-            os.makedirs(os.path.dirname(self.json_path), exist_ok=True)
+
+    def _init_status_path(self, sandbox_id: str):
+        self.json_path = ServiceStatus.gen_service_status_path(sandbox_id)
+        os.makedirs(os.path.dirname(self.json_path), exist_ok=True)
 
     def _save_to_file(self):
         """Save ServiceStatus to the file specified by json_path"""
