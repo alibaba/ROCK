@@ -3,6 +3,7 @@ import time
 import pytest
 
 from rock.actions.sandbox.request import ReadFileRequest
+from rock.actions.sandbox.response import SandboxStatusResponse
 from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.sandbox.config import SandboxConfig
 from tests.integration.conftest import SKIP_IF_NO_DOCKER
@@ -38,6 +39,7 @@ async def test_arun_nohup(sandbox_instance: Sandbox):
 
     await sandbox_instance.arun(session="default", cmd="rm -rf /tmp/nohup_test.txt")
 
+
 @pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
@@ -53,6 +55,7 @@ async def test_arun_timeout(sandbox_instance: Sandbox):
     assert resp.output.__contains__("Command execution failed due to timeout")
 
     await sandbox_instance.stop()
+
 
 @pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
@@ -72,9 +75,10 @@ async def test_sandbox_get_status(admin_remote_server):
     end_time = time.time()
     assert "Failed to pull image" in str(exc_info.value)
     execution_time = end_time - start_time
-    assert execution_time < config.startup_timeout, (
-        f"Execution time {execution_time}s should be less than startup_timeout {config.startup_timeout}s"
-    )
+    assert (
+        execution_time < config.startup_timeout
+    ), f"Execution time {execution_time}s should be less than startup_timeout {config.startup_timeout}s"
+
 
 @pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
@@ -110,6 +114,7 @@ async def test_execute(sandbox_instance: Sandbox):
         resp2 = await sandbox_instance.execute(Command(command="pwd", cwd="/tmp"))
         assert resp2.stdout.strip() == "/tmp"
 
+
 @pytest.mark.parametrize(
     "sandbox_instance",
     [{"cpus": 4}],
@@ -120,8 +125,10 @@ async def test_execute(sandbox_instance: Sandbox):
 @pytest.mark.asyncio
 async def test_start_sandbox_upper_limit(sandbox_instance: Sandbox):
     from rock.actions import SandboxStatusResponse
+
     status: SandboxStatusResponse = await sandbox_instance.get_status()
     assert status.cpus == 4
+
 
 @pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
@@ -151,3 +158,11 @@ async def test_arun_ignore_output(sandbox_instance: Sandbox):
     assert output_file in file_output.output
     l4_resp = await sandbox_instance.read_file(ReadFileRequest(path=output_file))
     assert "Line 4" in l4_resp.content
+
+
+@pytest.mark.need_admin
+@SKIP_IF_NO_DOCKER
+@pytest.mark.asyncio
+async def test_sandbox_proxy_port(sandbox_instance: Sandbox):
+    status: SandboxStatusResponse = await sandbox_instance.get_status()
+    assert 8000 not in status.port_mapping.keys()

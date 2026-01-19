@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
 from rock.config import RuntimeConfig
+from rock.deployments.constants import Port
 
 
 class RuntimeEnv(ABC):
@@ -63,7 +64,7 @@ class DockerRuntimeEnv(RuntimeEnv):
 
         Makes the docker_run.sh script executable and executes it.
         """
-        cmd = "cp /tmp/local_files/docker_run.sh /tmp/docker_run.sh && chmod +x /tmp/docker_run.sh && /tmp/docker_run.sh"
+        cmd = f"cp /tmp/local_files/docker_run.sh /tmp/docker_run.sh && chmod +x /tmp/docker_run.sh && /tmp/docker_run.sh {Port.PROXY}"
         return cmd
 
 
@@ -118,7 +119,7 @@ class LocalRuntimeEnv(RuntimeEnv):
 
         Makes the docker_run.sh script executable and executes it.
         """
-        cmd = "cp /tmp/local_files/docker_run.sh /tmp/docker_run.sh && chmod +x /tmp/docker_run.sh && /tmp/docker_run.sh"
+        cmd = f"cp /tmp/local_files/docker_run.sh /tmp/docker_run.sh && chmod +x /tmp/docker_run.sh && /tmp/docker_run.sh {Port.PROXY}"
         return cmd
 
 
@@ -167,7 +168,7 @@ class UvRuntimeEnv(RuntimeEnv):
         cmd = (
             f"cp /tmp/local_files/docker_run_with_uv.sh /tmp/docker_run_with_uv.sh &&"
             f"chmod +x /tmp/docker_run_with_uv.sh && "
-            f"/tmp/docker_run_with_uv.sh '{container_project_root}'"
+            f"/tmp/docker_run_with_uv.sh '{container_project_root}' {Port.PROXY}"
         )
         return cmd
 
@@ -189,5 +190,5 @@ class PipRuntimeEnv(RuntimeEnv):
         return mount_configs
 
     def get_rocklet_start_cmd(self):
-        cmd = "cp /tmp/local_files/docker_run_with_pip.sh /tmp/docker_run_with_pip.sh && chmod +x /tmp/docker_run_with_pip.sh && /tmp/docker_run_with_pip.sh"
+        cmd = f"cp /tmp/local_files/docker_run_with_pip.sh /tmp/docker_run_with_pip.sh && chmod +x /tmp/docker_run_with_pip.sh && /tmp/docker_run_with_pip.sh {Port.PROXY}"
         return cmd

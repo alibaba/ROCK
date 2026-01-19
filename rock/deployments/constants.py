@@ -11,5 +11,5 @@ class Status(Enum):
 
 class Port(IntEnum):
     SSH = 22
-    PROXY = 8000
+    PROXY = 22555
     SERVER = 8080
