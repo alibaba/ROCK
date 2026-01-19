@@ -49,10 +49,15 @@ async def start_async(
     request: SandboxStartRequest,
     x_user_id: str | None = Header(default="default", alias="X-User-Id"),
     x_experiment_id: str | None = Header(default="default", alias="X-Experiment-Id"),
+    rock_authorization: str | None = Header(default="default", alias="X-Key"),
 ) -> RockResponse[SandboxStartResponse]:
     sandbox_start_response = await sandbox_manager.start_async(
         DockerDeploymentConfig.from_request(request),
-        user_info={"user_id": x_user_id, "experiment_id": x_experiment_id},
+        user_info={
+            "user_id": x_user_id,
+            "experiment_id": x_experiment_id,
+            "rock_authorization": rock_authorization,
+        },
     )
     return RockResponse(result=sandbox_start_response)
 

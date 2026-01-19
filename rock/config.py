@@ -61,6 +61,7 @@ class ProxyServiceConfig:
     max_connections: int = 500
     max_keepalive_connections: int = 100
     batch_get_status_max_count: int = 2000
+    aes_encrypt_key: str | None = None
 
 
 @dataclass
@@ -176,5 +177,13 @@ class RockConfig:
 
         nacos_result = await self.nacos_provider.get_config()
         if nacos_result:
-            sandbox_config = SandboxConfig(**nacos_result)
-            self.sandbox_config = sandbox_config
+            # Update sandbox_config if present
+            if "sandbox_config" in nacos_result:
+                self.sandbox_config = SandboxConfig(**nacos_result["sandbox_config"])
+            # Update proxy_service if present
+            if "proxy_service" in nacos_result:
+                self.proxy_service = ProxyServiceConfig(**nacos_result["proxy_service"])
+
+            logger.info(
+                f"Updated config from Nacos: sandbox_config={self.sandbox_config}, proxy_service={self.proxy_service}"
+            )

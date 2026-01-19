@@ -101,6 +101,7 @@ class SandboxManager(BaseManager):
         user_id = user_info.get("user_id", "default")
         experiment_id = user_info.get("experiment_id", "default")
         namespace = user_info.get("namespace", "default")
+        rock_authorization = user_info.get("rock_authorization", "default")
         sandbox_actor.start.remote()
         sandbox_actor.set_user_id.remote(user_id)
         sandbox_actor.set_experiment_id.remote(experiment_id)
@@ -118,6 +119,7 @@ class SandboxManager(BaseManager):
         sandbox_info["experiment_id"] = experiment_id
         sandbox_info["namespace"] = namespace
         sandbox_info["state"] = State.PENDING
+        sandbox_info["rock_authorization"] = rock_authorization
         if self._redis_provider:
             await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
             await self._redis_provider.json_set(timeout_sandbox_key(sandbox_id), "$", auto_clear_time_dict)
