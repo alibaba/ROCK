@@ -1,6 +1,6 @@
 from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
 
-import time
+import uuid
 from typing import TYPE_CHECKING
 
 from rock.actions import Command, Observation
@@ -64,7 +64,7 @@ class Process:
 
         # Generate script path
         if script_name is None:
-            timestamp = str(time.time_ns())
+            timestamp = str(uuid.uuid4())
             script_name = f"script_{timestamp}.sh"
 
         script_path = f"/tmp/{script_name}"
@@ -79,11 +79,13 @@ class Process:
                 logger.error(error_msg)
                 return Observation(output=error_msg, exit_code=1, failure_reason="Script upload failed")
 
+            from rock.sdk.sandbox.client import RunMode
+
             # Execute script
             logger.info(f"Executing script: {script_path} (timeout={wait_timeout}s)")
             result = await self.sandbox.arun(
                 cmd=f"bash {script_path}",
-                mode="nohup",
+                mode=RunMode.NOHUP,
                 wait_timeout=wait_timeout,
                 wait_interval=wait_interval,
             )
