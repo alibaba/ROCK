@@ -176,14 +176,20 @@ class RockConfig:
             return
 
         nacos_result = await self.nacos_provider.get_config()
-        if nacos_result:
-            # Update sandbox_config if present
-            if "sandbox_config" in nacos_result:
-                self.sandbox_config = SandboxConfig(**nacos_result["sandbox_config"])
-            # Update proxy_service if present
-            if "proxy_service" in nacos_result:
-                self.proxy_service = ProxyServiceConfig(**nacos_result["proxy_service"])
+        if not nacos_result:
+            return
 
-            logger.info(
-                f"Updated config from Nacos: sandbox_config={self.sandbox_config}, proxy_service={self.proxy_service}"
-            )
+        # Map config keys to their corresponding dataclass types
+        config_map = {
+            "sandbox_config": (SandboxConfig, "sandbox_config"),
+            "proxy_service": (ProxyServiceConfig, "proxy_service"),
+        }
+
+        # Update configs that are present in nacos_result
+        for key, (config_class, attr_name) in config_map.items():
+            if key in nacos_result:
+                setattr(self, attr_name, config_class(**nacos_result[key]))
+
+        logger.info(
+            f"Updated config from Nacos: sandbox_config={self.sandbox_config}, proxy_service={self.proxy_service}"
+        )
