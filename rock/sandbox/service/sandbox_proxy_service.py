@@ -1,4 +1,4 @@
-import asyncio
+import asyncio  # noqa: I001
 import json
 import time
 
@@ -36,6 +36,9 @@ from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
 from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var
+from rock.sandbox import __version__ as gateway_version
+from rock.rocklet import __version__ as swe_version
+from rock import BadRequestRockError
 from rock.utils.providers import RedisProvider
 from rock.utils.service import build_sandbox_from_redis
 
