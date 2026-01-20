@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     ROCK_RAY_NAMESPACE: str | None = "xrl-sandbox"
     ROCK_SANDBOX_EXPIRE_TIME_KEY: str | None = "expire_time"
     ROCK_SANDBOX_AUTO_CLEAR_TIME_KEY: str | None = "auto_clear_time"
+    ROCK_TIME_ZONE: str = "Asia/Shanghai"
+
     # OSS Config
     ROCK_OSS_ENABLE: bool = False
     ROCK_OSS_BUCKET_ENDPOINT: str | None = None
@@ -49,6 +51,7 @@ if TYPE_CHECKING:
     ROCK_AGENT_IFLOW_CLI_INSTALL_CMD: str
 
     ROCK_AGENT_MODEL_SERVICE_INSTALL_CMD: str
+
 
 environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_LOGGING_PATH": lambda: os.getenv("ROCK_LOGGING_PATH"),
@@ -88,7 +91,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
         "ROCK_AGENT_PYTHON_INSTALL_CMD",
         "[ -f cpython31114.tar.gz ] && rm cpython31114.tar.gz; [ -d python ] && rm -rf python; wget -q -O cpython31114.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20251120/cpython-3.11.14+20251120-x86_64-unknown-linux-gnu-install_only.tar.gz && tar -xzf cpython31114.tar.gz",
     ),
-    "ROCK_AGENT_PYTHON_v12_INSTALL_CMD": lambda :os.getenv(
+    "ROCK_AGENT_PYTHON_v12_INSTALL_CMD": lambda: os.getenv(
         "ROCK_AGENT_PYTHON_v12_INSTALL_CMD",
         "[ -f cpython-3.12.12.tar.gz ] && rm cpython-3.12.12.tar.gz; [ -d python ] && rm -rf python; wget -q -O cpython-3.12.12.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20251217/cpython-3.12.12+20251217-x86_64-unknown-linux-gnu-install_only.tar.gz && tar -xzf cpython-3.12.12.tar.gz",
     ),
@@ -105,6 +108,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
         "ROCK_AGENT_MODEL_SERVICE_INSTALL_CMD",
         'pip install "rl_rock[model-service]==1.0.0" -i https://mirrors.aliyun.com/pypi/simple',
     ),
+    "ROCK_TIME_ZONE": lambda: os.getenv("ROCK_TIME_ZONE", "Asia/Shanghai"),
 }
 
 
