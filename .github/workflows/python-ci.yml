@@ -12,12 +12,21 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Debug runner info
+    - name: Debug test environment
       run: |
-        echo "Hostname: $(hostname)"
-        echo "User: $(whoami)"
-        ls -la / | grep data
-        ls -la /data 2>/dev/null || echo "/data does not exist"
+        uv run python -c "
+        import os
+        print('=== Inside Python environment ===')
+        print(f'User: {os.getenv(\"USER\", \"unknown\")}')
+        print(f'UID: {os.getuid()}')
+        print(f'CWD: {os.getcwd()}')
+        print(f'/data exists: {os.path.exists(\"/data\")}')
+        if os.path.exists('/data'):
+            print(f'/data contents: {os.listdir(\"/data\")}')
+        else:
+            print('/data does NOT exist in this environment')
+        print(f'/.dockerenv exists: {os.path.exists(\"/.dockerenv\")}')
+        "
 
     - name: Cleanup old files in /tmp/ray
       run: |
