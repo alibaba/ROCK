@@ -113,10 +113,12 @@ class ModelService:
 
             # Create Rock config file
             config_ini_cmd = "mkdir -p ~/.rock && touch ~/.rock/config.ini"
-            await self._sandbox.arun(
+            result = await self._sandbox.arun(
                 cmd=config_ini_cmd,
                 session=self.rt_env.session,
             )
+            if result.exit_code != 0:
+                raise RuntimeError(f"Failed to create Rock config file: {result.output}")
 
             step_elapsed = time.time() - step_start_time
             logger.info(f"[{sandbox_id}] Step 1 completed: Runtime env initialized (elapsed: {step_elapsed:.2f}s)")
@@ -188,11 +190,13 @@ class ModelService:
             bash_start_cmd = f"bash -c {shlex.quote(start_cmd)}"
             logger.debug(f"[{sandbox_id}] Model service Start command: {bash_start_cmd}")
 
-            await self._sandbox.arun(
+            start_result = await self._sandbox.arun(
                 cmd=bash_start_cmd,
                 session=None,
                 mode=RunMode.NOHUP,
             )
+            if start_result.exit_code != 0:
+                raise RuntimeError(f"Failed to start model service: {start_result.output}")
             elapsed = time.time() - start_time
             logger.info(f"[{sandbox_id}] Model service started successfully (elapsed: {elapsed:.2f}s)")
             self.is_started = True
@@ -230,11 +234,13 @@ class ModelService:
             stop_cmd = f"{self.rt_env.bin_dir}/{self.config.stop_cmd}"
             bash_stop_cmd = f"bash -c {shlex.quote(stop_cmd)}"
 
-            await self._sandbox.arun(
+            stop_result = await self._sandbox.arun(
                 cmd=bash_stop_cmd,
                 session=None,
                 mode=RunMode.NOHUP,
             )
+            if stop_result.exit_code != 0:
+                raise RuntimeError(f"Failed to stop model service: {stop_result.output}")
 
             elapsed = time.time() - start_time
             logger.info(f"[{sandbox_id}] Model service stopped (elapsed: {elapsed:.2f}s)")
@@ -272,11 +278,13 @@ class ModelService:
             bash_watch_cmd = f"bash -c {shlex.quote(watch_agent_cmd)}"
             logger.debug(f"[{sandbox_id}] Model service watch agent with pid={pid}, cmd: {bash_watch_cmd}")
 
-            await self._sandbox.arun(
+            watch_result = await self._sandbox.arun(
                 cmd=bash_watch_cmd,
                 session=None,
                 mode=RunMode.NOHUP,
             )
+            if watch_result.exit_code != 0:
+                raise RuntimeError(f"Failed to watch agent: {watch_result.output}")
             elapsed = time.time() - start_time
             logger.info(f"[{sandbox_id}] Watch agent completed (elapsed: {elapsed:.2f}s)")
 
@@ -349,6 +357,9 @@ class ModelService:
                 wait_timeout=call_timeout,
                 wait_interval=check_interval,
             )
+
+            if result.exit_code != 0:
+                raise RuntimeError(f"Anti-call LLM command failed: {result.output}")
 
             elapsed = time.time() - start_time
             logger.info(f"[{sandbox_id}] Anti-call LLM execution completed (elapsed: {elapsed:.2f}s)")

@@ -303,12 +303,11 @@ class RockAgent(Agent):
                 )
 
                 if result.exit_code != 0:
-                    logger.warning(
+                    raise RuntimeError(
                         f"[{sandbox_id}] {step_name} command {idx} failed with exit code "
-                        f"{result.exit_code}: {result.output[:200]}..."
+                        f"{result.exit_code}: {result.output[:200]}"
                     )
-                else:
-                    logger.debug(f"[{sandbox_id}] {step_name} command {idx} completed successfully")
+                logger.debug(f"[{sandbox_id}] {step_name} command {idx} completed successfully")
 
             self._log_step(
                 f"Completed {len(cmd_list)} commands",
