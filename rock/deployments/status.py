@@ -4,8 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from rock import env_vars
 from rock.deployments.constants import Status
-from rock.rocklet import SERVICE_STATUS_DIR
 
 
 class PhaseStatus(BaseModel):
@@ -102,4 +102,4 @@ class ServiceStatus(BaseModel):
 
     @classmethod
     def gen_service_status_path(cls, sandbox_id: str) -> str:
-        return f"{SERVICE_STATUS_DIR}/{sandbox_id}.json"
+        return f"{env_vars.ROCK_SERVICE_STATUS_DIR}/{sandbox_id}.json"

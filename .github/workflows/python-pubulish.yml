@@ -18,7 +18,7 @@ jobs:
         uses: astral-sh/setup-uv@v2
         with:
           version: "latest"
-          enable-cache: true 
+          enable-cache: true
 
       - name: Set up Python 3.11
         run: uv python install 3.11
@@ -28,6 +28,8 @@ jobs:
           uv sync --all-extras --all-groups
 
       - name: Run tests
+        env:
+          ROCK_SERVICE_STATUS_DIR: /tmp/service_status
         run: |
           uv run pytest -m "not need_ray and not need_admin" --reruns 1 -n auto
 
@@ -37,7 +39,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: read
-      id-token: write 
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 

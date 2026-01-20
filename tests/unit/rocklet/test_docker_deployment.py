@@ -8,8 +8,6 @@ from rock.actions import (
     CreateBashSessionRequest,
 )
 from rock.deployments.config import DockerDeploymentConfig, get_deployment
-from rock.deployments.constants import Status
-from rock.deployments.docker import DockerDeployment
 
 
 async def test_docker_deployment(container_name):

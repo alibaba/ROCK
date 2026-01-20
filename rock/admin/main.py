@@ -10,7 +10,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, Request
 from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import JSONResponse, Response, StreamingResponse
+from starlette.responses import JSONResponse
 
 from rock import env_vars
 from rock.admin.core.ray_service import RayService

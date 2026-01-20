@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     ROCK_LOGGING_PATH: str | None = None
     ROCK_LOGGING_FILE_NAME: str | None = None
     ROCK_LOGGING_LEVEL: str | None = None
+    ROCK_SERVICE_STATUS_DIR: str | None = None
     ROCK_CONFIG: str | None = None
     ROCK_CONFIG_DIR_NAME: str | None = None
     ROCK_BASE_URL: str | None = "http://localhost:8080"
@@ -54,6 +55,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_LOGGING_PATH": lambda: os.getenv("ROCK_LOGGING_PATH"),
     "ROCK_LOGGING_FILE_NAME": lambda: os.getenv("ROCK_LOGGING_FILE_NAME", "rocklet.log"),
     "ROCK_LOGGING_LEVEL": lambda: os.getenv("ROCK_LOGGING_LEVEL", "INFO"),
+    "ROCK_SERVICE_STATUS_DIR": lambda: os.getenv("ROCK_SERVICE_STATUS_DIR", "/data/service_status"),
     "ROCK_CONFIG": lambda: os.getenv("ROCK_CONFIG"),
     "ROCK_CONFIG_DIR_NAME": lambda: os.getenv("ROCK_CONFIG_DIR_NAME", "rock-conf"),
     "ROCK_BASE_URL": lambda: os.getenv("ROCK_BASE_URL", "http://localhost:8080"),
@@ -88,7 +90,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
         "ROCK_AGENT_PYTHON_INSTALL_CMD",
         "[ -f cpython31114.tar.gz ] && rm cpython31114.tar.gz; [ -d python ] && rm -rf python; wget -q -O cpython31114.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20251120/cpython-3.11.14+20251120-x86_64-unknown-linux-gnu-install_only.tar.gz && tar -xzf cpython31114.tar.gz",
     ),
-    "ROCK_AGENT_PYTHON_v12_INSTALL_CMD": lambda :os.getenv(
+    "ROCK_AGENT_PYTHON_v12_INSTALL_CMD": lambda: os.getenv(
         "ROCK_AGENT_PYTHON_v12_INSTALL_CMD",
         "[ -f cpython-3.12.12.tar.gz ] && rm cpython-3.12.12.tar.gz; [ -d python ] && rm -rf python; wget -q -O cpython-3.12.12.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20251217/cpython-3.12.12+20251217-x86_64-unknown-linux-gnu-install_only.tar.gz && tar -xzf cpython-3.12.12.tar.gz",
     ),
