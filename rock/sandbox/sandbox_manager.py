@@ -30,13 +30,13 @@ logger = init_logger(__name__)
 
 class SandboxManager(BaseManager):
     _ray_namespace: str = None
+    _deployment_service: AbstractDeploymentService = None
 
     def __init__(
         self,
         rock_config: RockConfig,
         redis_provider: RedisProvider | None = None,
         ray_namespace: str = env_vars.ROCK_RAY_NAMESPACE,
-        deployment_service: AbstractDeploymentService = RayDeploymentService(),
         enable_runtime_auto_clear: bool = False,
     ):
         super().__init__(
@@ -44,17 +44,21 @@ class SandboxManager(BaseManager):
         )
 
         self._ray_namespace = ray_namespace
-        self._deployment_service = deployment_service
+        self._deployment_service = RayDeploymentService(ray_namespace=ray_namespace)
         logger.info("sandbox service init success")
+
+    @monitor_sandbox_operation()
+    async def start_async(self, config: DeploymentConfig, user_info: dict = {}) -> SandboxStartResponse:
+        return await self.submit(config, user_info)
 
     @monitor_sandbox_operation()
     async def submit(self, config: DeploymentConfig, user_info: dict = {}):
         deployment_config: DeploymentConfig = await self.deployment_manager.init_config(config)
         sandbox_id = deployment_config.container_name
-        deployment: AbstractDeployment = await deployment_config.get_deployment()
+        # deployment: AbstractDeployment = deployment_config.get_deployment()
         self.validate_sandbox_spec(self.rock_config.runtime, config)
         self._sandbox_meta[sandbox_id] = {"image": deployment_config.image}
-        sandbox_info: SandboxInfo = await deployment.submit(sandbox_id, user_info)
+        sandbox_info: SandboxInfo = await self._deployment_service.submit(deployment_config, user_info)
         logger.info(f"sandbox {sandbox_id} is submitted")
 
         stop_time = str(int(time.time()) + deployment_config.auto_clear_time * 60)
@@ -76,12 +80,13 @@ class SandboxManager(BaseManager):
     @monitor_sandbox_operation()
     async def stop(self, sandbox_id):
         logger.info(f"stop sandbox {sandbox_id}")
-        deployment: AbstractDeployment = self._deployment_service.get_deployment(sandbox_id)
-        if deployment is None:
-            await self._clear_redis_keys(sandbox_id)
-            raise Exception(f"sandbox {sandbox_id} not found to stop")
-        logger.info(f"start to stop run time {sandbox_id}")
-        await deployment.stop(sandbox_id)
+        # deployment: AbstractDeployment = await self._deployment_service.stop(sandbox_id)
+        # if deployment is None:
+        #     await self._clear_redis_keys(sandbox_id)
+        #     raise Exception(f"sandbox {sandbox_id} not found to stop")
+        # logger.info(f"start to stop run time {sandbox_id}")
+        # await deployment.stop(sandbox_id)
+        await self._deployment_service.stop(sandbox_id)
 
         try:
             self._sandbox_meta.pop(sandbox_id)
@@ -91,7 +96,7 @@ class SandboxManager(BaseManager):
         await self._clear_redis_keys(sandbox_id)
 
     async def get_mount(self, sandbox_id):
-        deployment: AbstractDeployment = self._deployment_service.get_deployment(sandbox_id)
+        deployment: AbstractDeployment = await self._deployment_service.get_deployment(sandbox_id)
         if deployment is None:
             raise Exception(f"sandbox {sandbox_id} not found to get mount")
         return deployment.get_mount()
@@ -99,7 +104,7 @@ class SandboxManager(BaseManager):
     @monitor_sandbox_operation()
     async def commit(self, sandbox_id, image_tag: str, username: str, password: str) -> CommandResponse:
         logger.info(f"commit sandbox {sandbox_id}")
-        deployment: AbstractDeployment = self._deployment_service.get_deployment(sandbox_id)
+        deployment: AbstractDeployment = await self._deployment_service.get_deployment(sandbox_id)
         if deployment is None:
             await self._clear_redis_keys(sandbox_id)
             raise Exception(f"sandbox {sandbox_id} not found to commit")
@@ -116,10 +121,7 @@ class SandboxManager(BaseManager):
 
     @monitor_sandbox_operation()
     async def get_status(self, sandbox_id) -> SandboxStatusResponse:
-        deployment: AbstractDeployment = self._deployment_service.get_deployment(sandbox_id)
-        if deployment is None:
-            raise Exception(f"sandbox {sandbox_id} not found to get status")
-        response: SandboxStatusResponse = await deployment.get_status()
+        response: SandboxStatusResponse = await self._deployment_service.get_status(sandbox_id)
         sandbox_info: SandboxInfo = self.get_info_from_response(response)
         if self._redis_provider:
             await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
@@ -187,8 +189,7 @@ class SandboxManager(BaseManager):
                 continue
 
     async def get_sandbox_statistics(self, sandbox_id):
-        deployment: AbstractDeployment = self._deployment_service.get_deployment(sandbox_id)
-        resource_metrics = await deployment.get_sandbox_statistics()
+        resource_metrics = await self._deployment_service.get_sandbox_statistics(sandbox_id)
         return resource_metrics
 
     async def _update_expire_time(self, sandbox_id):

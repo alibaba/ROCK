@@ -17,7 +17,6 @@ from rock.sandbox import __version__ as gateway_version
 
 logger = init_logger(__name__)
 
-
 class RayDeployment(DockerDeployment):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -27,9 +26,10 @@ class RayDeployment(DockerDeployment):
         return cls(**config.model_dump())
 
     async def async_ray_get(self, ray_future: ray.ObjectRef):
-        loop = asyncio.get_running_loop()
+        """Async wrapper for ray.get() using asyncio.to_thread for non-blocking execution."""
         try:
-            result = await loop.run_in_executor(self._executor, lambda r: ray.get(r, timeout=60), ray_future)
+            # Use asyncio.to_thread to run ray.get in a thread pool without managing executor
+            result = await asyncio.to_thread(ray.get, ray_future, timeout=60)
         except Exception as e:
             logger.error("ray get failed", exc_info=e)
             error_msg = str(e.args[0]) if len(e.args) > 0 else f"ray get failed, {str(e)}"
@@ -70,35 +70,6 @@ class RayDeployment(DockerDeployment):
         except ValueError as e:
             logger.warning(f"Invalid memory size: {self._config.memory}", exc_info=e)
             raise BadRequestRockError(f"Invalid memory size: {self._config.memory}")
-        
-    async def stop(self, sandbox_id: str):
-        actor: SandboxActor = self._ray_actor
-        await self.async_ray_get(actor.stop.remote())
-        logger.info(f"run time stop over {sandbox_id}")
-        ray.kill(actor)
-
-    async def get_status(self, sandbox_id: str) -> SandboxStatusResponse:
-        actor: SandboxActor = self._ray_actor
-        sandbox_info: SandboxInfo = await self.async_ray_get(actor.sandbox_info.remote())
-        remote_status: ServiceStatus = await self.async_ray_get(actor.get_status.remote())
-        alive = await self.async_ray_get(actor.is_alive.remote())
-        return SandboxStatusResponse(
-            sandbox_id=sandbox_id,
-            status=self._service_status.phases,
-            port_mapping=remote_status.get_port_mapping(),
-            host_name=sandbox_info.get("host_name"),
-            host_ip=sandbox_info.get("host_ip"),
-            is_alive=alive.is_alive,
-            image=sandbox_info.get("image"),
-            swe_rex_version=swe_version,
-            gateway_version=gateway_version,
-            user_id=sandbox_info.get("user_id"),
-            experiment_id=sandbox_info.get("experiment_id"),
-            namespace=sandbox_info.get("namespace"),
-            cpus=sandbox_info.get("cpus"),
-            memory=sandbox_info.get("memory"),
-            namespace=sandbox_info.get("namespace"),
-        )
     
     async def get_mount(self, *args, **kwargs):
         actor = await self._ray_actor

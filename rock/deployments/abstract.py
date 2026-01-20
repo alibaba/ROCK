@@ -38,23 +38,18 @@ class AbstractDeployment(ABC):
         """create actor."""
         return None
     
-    @abstractmethod
     async def submit(self, sandbox_id: str) -> SandboxStartResponse:
         """Get status of sandbox."""
 
-    @abstractmethod
     async def get_status(self, *args, **kwargs) -> SandboxStatusResponse:
         """Get status of sandbox."""
 
-    @abstractmethod
     async def get_mount(self, *args, **kwargs):
         """Get mount of sandbox."""
 
-    @abstractmethod
     async def get_sandbox_statistics(self, *args, **kwargs):
         """Get sandbox statistics."""
 
-    @abstractmethod
     async def commit(self, *args, **kwargs) -> CommandResponse:
         """Commit sandbox."""
 
