@@ -65,10 +65,12 @@ class NodeRuntimeEnv(RuntimeEnv):
         from rock.sdk.sandbox.client import RunMode
 
         # 1) ensure workdir exists
-        await self._sandbox.arun(
+        result = await self._sandbox.arun(
             cmd=f"mkdir -p {self.workdir}",
             session=self.session,
         )
+        if result.exit_code != 0:
+            raise RuntimeError(f"Failed to create workdir: {self.workdir}, exit_code: {result.exit_code}")
 
         # 2) install node/npm
         install_cmd = f"cd {self.workdir} && {self.node_install_cmd}"
@@ -92,7 +94,11 @@ class NodeRuntimeEnv(RuntimeEnv):
         # 4) configure npm registry if specified
         if self.npm_registry:
             logger.info(f"[{sandbox_id}] Configuring npm registry: {self.npm_registry}")
-            await self.run(cmd=f"npm config set registry {shlex.quote(self.npm_registry)}")
+            result = await self.run(cmd=f"npm config set registry {shlex.quote(self.npm_registry)}")
+            if result.exit_code != 0:
+                raise RuntimeError(
+                    f"Failed to configure npm registry: {self.npm_registry}, exit_code: {result.exit_code}"
+                )
 
         # 5) add to sys path if specified
         if self.add_to_sys_path:

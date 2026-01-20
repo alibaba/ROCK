@@ -109,18 +109,13 @@ class RuntimeEnv(ABC):
         if self._session_ready:
             return
 
-        # Try to create; if already exists, sandbox may raise—treat as ok.
-        try:
-            await self._sandbox.create_session(
-                CreateBashSessionRequest(
-                    session=self.session,
-                    env_enable=True,
-                    env=self.session_envs,
-                )
+        await self._sandbox.create_session(
+            CreateBashSessionRequest(
+                session=self.session,
+                env_enable=True,
+                env=self.session_envs,
             )
-        except Exception as e:
-            logger.debug(f"[{self._sandbox.sandbox_id}] Session creation: {e}")
-
+        )
         self._session_ready = True
 
     async def init(self) -> None:
@@ -190,6 +185,6 @@ class RuntimeEnv(ABC):
                 session=self.session,
             )
             if result.exit_code != 0:
-                logger.warning(f"[{sandbox_id}] Failed to create symlink for {exe}: {result.output}")
+                raise RuntimeError(f"Failed to create symlink for {exe}: {result.output}")
 
         logger.info(f"[{sandbox_id}] Runtime bin added to system path")

@@ -74,10 +74,12 @@ class PythonRuntimeEnv(RuntimeEnv):
         from rock.sdk.sandbox.client import RunMode
 
         # 1) ensure workdir exists
-        await self._sandbox.arun(
+        result = await self._sandbox.arun(
             cmd=f"mkdir -p {self.workdir}",
             session=self.session,
         )
+        if result.exit_code != 0:
+            raise RuntimeError(f"Failed to create workdir: {self.workdir}, exit_code: {result.exit_code}")
 
         # 2) install Python runtime
         install_cmd = f"cd {shlex.quote(self.workdir)} && {self.python_install_cmd}"
@@ -107,10 +109,14 @@ class PythonRuntimeEnv(RuntimeEnv):
         # 4) configure pip index url if specified
         if self.pip_index_url:
             logger.info(f"[{sandbox_id}] Configuring pip index URL: {self.pip_index_url}")
-            await self._sandbox.arun(
+            result = await self._sandbox.arun(
                 cmd=f"{self.bin_dir}/pip config set global.index-url {shlex.quote(self.pip_index_url)}",
                 session=self.session,
             )
+            if result.exit_code != 0:
+                raise RuntimeError(
+                    f"Failed to configure pip index URL: {self.pip_index_url}, exit_code: {result.exit_code}"
+                )
 
         # 5) install pip packages if specified
         if self.pip:
