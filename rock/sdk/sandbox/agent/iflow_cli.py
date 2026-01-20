@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any, Literal
 from typing_extensions import override
 
 from rock import env_vars
-from rock.actions import UploadRequest
 from rock.logger import init_logger
 from rock.sdk.sandbox.agent.rock_agent import RockAgent, RockAgentConfig
 from rock.sdk.sandbox.runtime_env.config import NodeRuntimeEnvConfig
@@ -135,6 +134,21 @@ class IFlowCli(RockAgent):
             )
             raise
 
+    @override
+    async def create_agent_run_cmd(self, prompt: str) -> str:
+        """Create IFlow run command (NOT wrapped by bash -c)."""
+        sandbox_id = self._sandbox.sandbox_id
+
+        session_id = await self._get_session_id_from_sandbox()
+        if session_id:
+            logger.info(f"[{sandbox_id}] Using existing session ID: {session_id}")
+        else:
+            logger.info(f"[{sandbox_id}] No previous session found, will start fresh execution")
+
+        iflow_cmd = f'iflow -r "{session_id}" -p {shlex.quote(prompt)} --yolo > {self.config.iflow_log_file} 2>&1'
+
+        return self.rt_env.wrap(f"mkdir -p {self.config.project_path} && cd {self.config.project_path} && {iflow_cmd}")
+
     async def _install_iflow_cli_package(self):
         sandbox_id = self._sandbox.sandbox_id
         step_start = time.time()
@@ -187,12 +201,11 @@ class IFlowCli(RockAgent):
         self._log_step("Generating and uploading iflow settings", step_name="Upload Settings")
 
         with self._temp_iflow_settings_file() as temp_settings_path:
-            await self._sandbox.upload(
-                UploadRequest(
-                    source_path=temp_settings_path,
-                    target_path="/root/.iflow/settings.json",
-                )
+            await self._sandbox.upload_by_path(
+                file_path=temp_settings_path,
+                target_path="/root/.iflow/settings.json",
             )
+
             logger.debug(f"[{sandbox_id}] Settings uploaded to /root/.iflow/settings.json")
 
         elapsed_step = time.time() - step_start
@@ -259,18 +272,3 @@ class IFlowCli(RockAgent):
         except Exception as e:
             logger.warning(f"[{sandbox_id}] Error extracting session-id: {str(e)}")
             return ""
-
-    @override
-    async def create_agent_run_cmd(self, prompt: str) -> str:
-        """Create IFlow run command (NOT wrapped by bash -c)."""
-        sandbox_id = self._sandbox.sandbox_id
-
-        session_id = await self._get_session_id_from_sandbox()
-        if session_id:
-            logger.info(f"[{sandbox_id}] Using existing session ID: {session_id}")
-        else:
-            logger.info(f"[{sandbox_id}] No previous session found, will start fresh execution")
-
-        iflow_cmd = f'iflow -r "{session_id}" -p {shlex.quote(prompt)} --yolo > {self.config.iflow_log_file} 2>&1'
-
-        return self.rt_env.wrap(f"mkdir -p {self.config.project_path} && cd {self.config.project_path} && {iflow_cmd}")

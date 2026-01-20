@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, Literal
 import yaml
 from typing_extensions import override
 
-from rock.actions import UploadRequest
 from rock.logger import init_logger
 from rock.sdk.sandbox.agent.rock_agent import RockAgent, RockAgentConfig
 from rock.sdk.sandbox.runtime_env import PythonRuntimeEnvConfig, RuntimeEnvConfig
@@ -178,7 +177,11 @@ class SweAgent(RockAgent):
         try:
             await super().install()
 
-            swe_agent_install_cmd = f"mkdir -p {self.config.agent_installed_dir} && cd {self.config.agent_installed_dir} && {self.config.swe_agent_install_cmd}"
+            swe_agent_install_cmd = (
+                f"mkdir -p {self.config.agent_installed_dir} "
+                f"&& cd {self.config.agent_installed_dir} "
+                f"&& {self.config.swe_agent_install_cmd}"
+            )
 
             await self.rt_env.run(
                 cmd=swe_agent_install_cmd,
@@ -229,11 +232,9 @@ class SweAgent(RockAgent):
         self._log_step("Generating and uploading SWE-agent config template", step_name="Upload Config")
 
         with self._generated_config_template_context() as local_path:
-            await self._sandbox.upload(
-                UploadRequest(
-                    source_path=os.path.abspath(local_path),
-                    target_path=self.config_path,
-                )
+            await self._sandbox.upload_by_path(
+                file_path=os.path.abspath(local_path),
+                target_path=self.config_path,
             )
 
             logger.debug(f"[{sandbox_id}] Uploaded config template to {self.config_path}")
