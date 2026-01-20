@@ -227,7 +227,16 @@ class RockAgent(Agent):
 
         Uses rt_env_config from the agent configuration.
         This method is idempotent: calling multiple times only initializes once.
+
+        If rt_env already exists and is initialized, this method returns early
+        without creating a new RuntimeEnv instance.
         """
+        # Check if already initialized to avoid creating duplicate RuntimeEnv
+        if self.rt_env is not None and self.rt_env.initialized:
+            sandbox_id = self._sandbox.sandbox_id
+            logger.info(f"[{sandbox_id}] RuntimeEnv already initialized, skipping install")
+            return
+
         rt_config = self.config.rt_env_config
 
         # Create a new RuntimeEnv instance for this agent (uses UUID internally)
