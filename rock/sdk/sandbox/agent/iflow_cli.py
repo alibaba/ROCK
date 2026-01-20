@@ -131,7 +131,9 @@ class IFlowCli(RockAgent):
 
         iflow_cmd = f'iflow -r "{session_id}" -p {shlex.quote(prompt)} --yolo > {self.config.iflow_log_file} 2>&1'
 
-        return self.rt_env.wrap(f"mkdir -p {self.config.project_path} && cd {self.config.project_path} && {iflow_cmd}")
+        return self.rt_env.wrapped_cmd(
+            f"mkdir -p {self.config.project_path} && cd {self.config.project_path} && {iflow_cmd}"
+        )
 
     @with_time_logging("Installing iflow-cli package")
     async def _install_iflow_cli_package(self):

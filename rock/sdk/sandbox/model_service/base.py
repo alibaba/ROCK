@@ -153,13 +153,12 @@ class ModelService:
 
         from rock.sdk.sandbox.client import RunMode
 
-        start_cmd = (
+        bash_start_cmd = self.rt_env.wrapped_cmd(
             f"export ROCK_LOGGING_PATH={self.config.logging_path} && "
             f"export ROCK_LOGGING_FILE_NAME={self.config.logging_file_name} && "
-            f"{self.rt_env.bin_dir}/{self.config.stop_cmd} && "
-            f"{self.rt_env.bin_dir}/{self.config.start_cmd.format(model_service_type=self.config.model_service_type)}"
+            f"{self.config.stop_cmd} && "
+            f"{self.config.start_cmd.format(model_service_type=self.config.model_service_type)}"
         )
-        bash_start_cmd = f"bash -c {shlex.quote(start_cmd)}"
         logger.debug(f"[{sandbox_id}] Model service Start command: {bash_start_cmd}")
 
         start_result = await self._sandbox.arun(
@@ -189,7 +188,7 @@ class ModelService:
 
         from rock.sdk.sandbox.client import RunMode
 
-        stop_cmd = f"{self.rt_env.bin_dir}/{self.config.stop_cmd}"
+        stop_cmd = self.rt_env.wrapped_cmd(self.config.stop_cmd)
         bash_stop_cmd = f"bash -c {shlex.quote(stop_cmd)}"
 
         stop_result = await self._sandbox.arun(
@@ -225,8 +224,7 @@ class ModelService:
 
         from rock.sdk.sandbox.client import RunMode
 
-        watch_agent_cmd = f"{self.rt_env.bin_dir}/{self.config.watch_agent_cmd.format(pid=pid)}"
-        bash_watch_cmd = f"bash -c {shlex.quote(watch_agent_cmd)}"
+        bash_watch_cmd = self.rt_env.wrapped_cmd(self.config.watch_agent_cmd.format(pid=pid))
         logger.debug(f"[{sandbox_id}] Model service watch agent with pid={pid}, cmd: {bash_watch_cmd}")
 
         watch_result = await self._sandbox.arun(
@@ -290,8 +288,7 @@ class ModelService:
         else:
             cmd = self.config.anti_call_llm_cmd_no_response.format(index=index)
 
-        full_cmd = f"{self.rt_env.bin_dir}/{cmd}"
-        bash_cmd = f"bash -c {shlex.quote(full_cmd)}"
+        bash_cmd = self.rt_env.wrapped_cmd(cmd)
         logger.debug(f"[{sandbox_id}] Executing command: {bash_cmd}")
 
         result = await self._sandbox.arun(

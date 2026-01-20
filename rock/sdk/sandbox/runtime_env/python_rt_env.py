@@ -64,7 +64,6 @@ class PythonRuntimeEnv(RuntimeEnv):
         3. Validates Python exists
         4. Configures pip index URL (if specified)
         5. Installs pip packages (if specified)
-        6. Adds to sys path (if specified)
         """
         await self.ensure_session()
 
@@ -84,10 +83,6 @@ class PythonRuntimeEnv(RuntimeEnv):
         # Step 5: install pip packages if specified
         if self.pip:
             await self._install_pip()
-
-        # Step 6: add to sys path if specified
-        if self.add_to_sys_path:
-            await self._add_to_sys_path(executables=["python", "pip", "python3", "pip3"])
 
     @with_time_logging("Ensuring workdir exists")
     async def _ensure_workdir(self) -> None:
@@ -117,7 +112,7 @@ class PythonRuntimeEnv(RuntimeEnv):
     @with_time_logging("Validating Python installation")
     async def _validate_python(self) -> None:
         """Validate Python executable exists."""
-        check_cmd = f"test -x {self.bin_dir}/python"
+        check_cmd = self.run("test -x python")
         result = await self._sandbox.arun(
             cmd=check_cmd,
             session=self.session,
@@ -125,15 +120,16 @@ class PythonRuntimeEnv(RuntimeEnv):
         if result.exit_code != 0:
             raise RuntimeError(
                 "PythonRuntimeEnv.init() failed: "
-                f"{self.bin_dir}/python not found or not executable. "
+                f"{self.workdir}/runtime-env/bin/python not found or not executable. "
                 "Ensure python_install_cmd installs into ./python under workdir."
             )
 
     @with_time_logging("Configuring pip index URL")
     async def _configure_pip(self) -> None:
         """Configure pip index URL."""
+        cmd = self.run(f"pip config set global.index-url {shlex.quote(self.pip_index_url)}")
         result = await self._sandbox.arun(
-            cmd=f"{self.bin_dir}/pip config set global.index-url {shlex.quote(self.pip_index_url)}",
+            cmd=cmd,
             session=self.session,
         )
         if result.exit_code != 0:
@@ -157,19 +153,19 @@ class PythonRuntimeEnv(RuntimeEnv):
                     source_path=os.path.abspath(self.pip),
                     target_path=target_path,
                 )
-                pip_cmd = f"{self.bin_dir}/pip install -r {shlex.quote(target_path)}"
+                pip_cmd = self.run(f"pip install -r {shlex.quote(target_path)}")
             else:
                 raise FileNotFoundError(f"Requirements file not found: {self.pip}")
         else:
             # Treat as list of packages
             packages = " ".join([shlex.quote(pkg) for pkg in self.pip])
-            pip_cmd = f"{self.bin_dir}/pip install {packages}"
+            pip_cmd = self.run(f"pip install {packages}")
 
         from rock.sdk.sandbox.client import RunMode
 
         await arun_with_retry(
             sandbox=self._sandbox,
-            cmd=f"bash -c {shlex.quote(pip_cmd)}",
+            cmd=pip_cmd,
             session=self.session,
             mode=RunMode.NOHUP,
             wait_timeout=self.install_timeout,

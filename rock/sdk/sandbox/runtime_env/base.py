@@ -74,13 +74,12 @@ class RuntimeEnv(ABC):
 
         # Extract values from config
         version = rt_env_config.version
-        add_to_sys_path = rt_env_config.add_to_sys_path
         session_envs = rt_env_config.session_envs
 
         self.version = version
-        self.add_to_sys_path = add_to_sys_path
         self.session_envs = session_envs or {}
         self.install_timeout = rt_env_config.install_timeout
+        self.custom_install_cmd = rt_env_config.custom_install_cmd
 
         rt_type = rt_env_config.rt_env_type
         version_str = version or "default"
@@ -94,10 +93,6 @@ class RuntimeEnv(ABC):
         # State flag
         self._initialized: bool = False
         self._session_ready: bool = False
-
-    @property
-    def bin_dir(self) -> str:
-        return f"{self.workdir}/runtime-env/bin"
 
     @property
     def initialized(self) -> bool:
@@ -129,14 +124,27 @@ class RuntimeEnv(ABC):
             return
 
         await self._do_init()
+
+        # Execute custom install command after _do_init
+        if self.custom_install_cmd:
+            await self.run(
+                self.custom_install_cmd,
+                wait_timeout=self.install_timeout,
+                error_msg="custom_install_cmd failed",
+            )
+
         self._initialized = True
 
     async def _do_init(self) -> None:
         """Internal method for initialization. Override in subclasses."""
         raise NotImplementedError
 
-    def wrap(self, cmd: str) -> str:
-        wrapped = f"export PATH={shlex.quote(self.bin_dir)}:$PATH && {cmd}"
+    def wrapped_cmd(self, cmd: str, prepend: bool = False) -> str:
+        bin_dir = f"{self.workdir}/runtime-env/bin"
+        if prepend:
+            wrapped = f"export PATH={shlex.quote(bin_dir)}:$PATH && {cmd}"
+        else:
+            wrapped = f"export PATH=$PATH:{shlex.quote(bin_dir)} && {cmd}"
         return f"bash -c {shlex.quote(wrapped)}"
 
     async def run(
@@ -147,14 +155,14 @@ class RuntimeEnv(ABC):
         error_msg: str = "runtime env command failed",
     ):
         """Run a command under this runtime via arun_with_retry."""
-        # Import here to avoid circular import
+
         from rock.sdk.sandbox.client import RunMode
 
         if mode is None:
             mode = RunMode.NOHUP
 
         await self.ensure_session()
-        wrapped = self.wrap(cmd)
+        wrapped = self.wrapped_cmd(cmd, prepend=True)
 
         logger.debug(f"[{self._sandbox.sandbox_id}] RuntimeEnv run cmd: {wrapped}")
 
@@ -166,25 +174,3 @@ class RuntimeEnv(ABC):
             wait_timeout=wait_timeout,
             error_msg=error_msg,
         )
-
-    async def _add_to_sys_path(self, executables: list[str]) -> None:
-        """Link runtime bin directory to /usr/local/bin for system-wide access.
-
-        Args:
-            executables: List of executable names to symlink.
-        """
-        sandbox_id = self._sandbox.sandbox_id
-        logger.info(f"[{sandbox_id}] Adding runtime bin to system path")
-
-        for exe in executables:
-            src = f"{self.bin_dir}/{exe}"
-            dst = f"/usr/local/bin/{exe}"
-            cmd = f"ln -sf {shlex.quote(src)} {shlex.quote(dst)}"
-            result = await self._sandbox.arun(
-                cmd=cmd,
-                session=self.session,
-            )
-            if result.exit_code != 0:
-                raise RuntimeError(f"Failed to create symlink for {exe}: {result.output}")
-
-        logger.info(f"[{sandbox_id}] Runtime bin added to system path")

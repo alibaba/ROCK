@@ -55,7 +55,6 @@ class NodeRuntimeEnv(RuntimeEnv):
         2. Installs Node runtime
         3. Configures npm registry (if specified)
         4. Validates Node exists
-        5. Adds to sys path (if specified)
         """
         await self.ensure_session()
 
@@ -71,10 +70,6 @@ class NodeRuntimeEnv(RuntimeEnv):
         # Step 4: configure npm registry if specified
         if self.npm_registry:
             await self._configure_npm_registry()
-
-        # Step 5: add to sys path if specified
-        if self.add_to_sys_path:
-            await self._add_to_sys_path(executables=["node", "npm", "npx", "corepack"])
 
     @with_time_logging("Ensuring workdir exists")
     async def _ensure_workdir(self) -> None:

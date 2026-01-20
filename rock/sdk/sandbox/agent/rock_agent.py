@@ -69,8 +69,8 @@ class RockAgentConfig(AgentConfig):
     working_dir: str | None = Field(default=None)
     """Local directory to upload to sandbox. If None, no upload occurs."""
 
-    entry_file: str | None = Field(default=None)
-    """Entry file name for the agent script."""
+    run_cmd: str | None = Field(default=None)
+    """Command to execute agent. 必须留一个{prompt}的位置"""
 
     rt_env_config: RuntimeEnvConfig | None = Field(default_factory=PythonRuntimeEnvConfig)
     """Runtime environment configuration for the agent."""
@@ -217,9 +217,8 @@ class RockAgent(Agent):
         - RockAgent does NOT start ModelService; upper layer should call `start_model_service()` if needed.
         """
         cmd = await self.create_agent_run_cmd(prompt)
-        wrapped_cmd = f"bash -c {shlex.quote(cmd)}"
         return await self._agent_run(
-            cmd=wrapped_cmd,
+            cmd=cmd,
             session=self.agent_session,
         )
 
@@ -365,25 +364,16 @@ class RockAgent(Agent):
             raise
 
     async def create_agent_run_cmd(self, prompt: str) -> str:
-        """Create the command to run the agent in the sandbox.
+        project_path = shlex.quote(str(self.config.project_path))
+        run_cmd = self.config.run_cmd.format(prompt=prompt)
+        wrapped_cmd = self.rt_env.wrapped_cmd(run_cmd, prepend=False)
 
-        By default, this method runs the entry_file under working_dir using Python
-        in the configured project_path.
-
-        Notes:
-            1. For non-Python RuntimeEnv, subclasses should implement this method.
-            2. Ensure the entry file supports receiving the prompt via command-line args.
-            3. For custom Agent requirements, overriding this method is recommended.
-        """
-        if not (self.working_dir_in_sandbox and self.config.entry_file):
-            raise ValueError("working_dir and entry_file must be set for RockAgent run")
-        return (
-            f"mkdir -p {self.config.project_path} && "
-            f"cd {self.config.project_path} && "
-            f"{self.rt_env.bin_dir}/python "
-            f"{self.working_dir_in_sandbox}/{self.config.entry_file} "
-            f"{shlex.quote(prompt)}"
-        )
+        parts = [
+            f"mkdir -p {project_path}",
+            f"cd {project_path}",
+            wrapped_cmd,
+        ]
+        return " && ".join(parts)
 
     @with_time_logging("Agent run")
     async def _agent_run(self, cmd: str, session: str) -> Observation:

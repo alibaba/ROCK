@@ -21,11 +21,11 @@ class RuntimeEnvConfig(BaseModel):
     session_envs: dict[str, str] | None = Field(default=None)
     """Environment variables for the runtime session."""
 
-    add_to_sys_path: bool = Field(default=False)
-    """Whether to link runtime bin directory to /usr/local/bin."""
-
     install_timeout: int = Field(default=600)
     """Timeout in seconds for installation commands."""
+
+    custom_install_cmd: str | None = Field(default=None)
+    """Custom install command to run after _do_init(). Supports && or ; for multi-step commands."""
 
 
 class PythonRuntimeEnvConfig(RuntimeEnvConfig):
