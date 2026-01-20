@@ -15,6 +15,15 @@ class StandardFormatter(logging.Formatter):
         super().__init__(*args, **kwargs)
         self.log_color_enable = log_color_enable
 
+    def formatTime(self, record):
+        """Format time as ISO 8601 with milliseconds and timezone"""
+        from datetime import datetime, timezone
+
+        # Use local timezone
+        dt = datetime.fromtimestamp(record.created, tz=timezone.utc).astimezone()
+        # Format as ISO 8601: 2026-01-20T07:26:39.268+08:00
+        return dt.isoformat(timespec="milliseconds")
+
     def format(self, record):
         # ANSI color codes for different log levels
         COLORS = {
