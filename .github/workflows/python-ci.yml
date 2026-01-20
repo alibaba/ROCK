@@ -2,7 +2,7 @@ name: Python CI
 
 on:
   push:
-    branches: [ dev/merge_get_status_to_read_cluster_0115 ]
+    branches: [ master ]
   pull_request:
     branches: [ master ]
 
@@ -12,28 +12,14 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Debug test environment
-      run: |
-        uv run python -c "
-        import os
-        print('=== Inside Python environment ===')
-        print(f'User: {os.getenv(\"USER\", \"unknown\")}')
-        print(f'UID: {os.getuid()}')
-        print(f'CWD: {os.getcwd()}')
-        print(f'/data exists: {os.path.exists(\"/data\")}')
-        if os.path.exists('/data'):
-            print(f'/data contents: {os.listdir(\"/data\")}')
-        else:
-            print('/data does NOT exist in this environment')
-        print(f'/.dockerenv exists: {os.path.exists(\"/.dockerenv\")}')
-        "
-
     - name: Cleanup old files in /tmp/ray
       run: |
         [ -d /tmp/ray ] && find /tmp/ray -mindepth 1 -mmin +60 -delete || true
 
     - name: Set up project (install dependencies without building)
       run: |
+        sudo mkdir -p /data
+        sudo chmod 777 /data
         uv sync --all-extras --group test --python 3.11
 
     - name: Run fast tests
