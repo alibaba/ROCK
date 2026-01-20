@@ -65,10 +65,10 @@ class RockAgentConfig(AgentConfig):
     agent_run_check_interval: int = Field(default=30, gt=0)
     """Interval in seconds for checking agent run status."""
 
-    working_dir: str | None = Field(default=".")
+    working_dir: str | None = Field(default=None)
     """Local directory to upload to sandbox. If None, no upload occurs."""
 
-    entry_file: str | None = Field(default="agent.py")
+    entry_file: str | None = Field(default=None)
     """Entry file name for the agent script."""
 
     rt_env_config: RuntimeEnvConfig | None = Field(default_factory=PythonRuntimeEnvConfig)
@@ -369,7 +369,7 @@ class RockAgent(Agent):
             3. For custom Agent requirements, overriding this method is recommended.
         """
         if not (self.working_dir_in_sandbox and self.config.entry_file):
-            raise ValueError("working_dir and entry_file must be set for RockAgent")
+            raise ValueError("working_dir and entry_file must be set for RockAgent run")
         return (
             f"mkdir -p {self.config.project_path} && "
             f"cd {self.config.project_path} && "

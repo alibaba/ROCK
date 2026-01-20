@@ -60,12 +60,6 @@ class IFlowCliConfig(RockAgentConfig):
     agent_type: Literal["iflow-cli"] = "iflow-cli"
     """Type identifier for IFlow CLI agent."""
 
-    working_dir: str | None = None
-    """Local directory to upload to sandbox. Set to None for IFlow CLI."""
-
-    entry_file: str | None = None
-    """Entry file name. Set to None for IFlow CLI (uses iflow CLI directly)."""
-
     iflow_cli_install_cmd: str = env_vars.ROCK_AGENT_IFLOW_CLI_INSTALL_CMD
     """Command to install iflow-cli in the sandbox."""
 

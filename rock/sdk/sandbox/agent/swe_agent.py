@@ -128,12 +128,6 @@ class SweAgentConfig(RockAgentConfig):
     agent_type: Literal["swe-agent"] = "swe-agent"
     """Type identifier for SWE-agent."""
 
-    working_dir: str | None = None
-    """Local directory to upload to sandbox. Set to None for SWE-agent (uses git clone directly)."""
-
-    entry_file: str | None = None
-    """Entry file name. Set to None for SWE-agent (uses sweagent CLI directly)."""
-
     swe_agent_install_cmd: str = (
         "[ -d SWE-agent ] && rm -rf SWE-agent; "
         "git clone https://github.com/SWE-agent/SWE-agent.git && "
