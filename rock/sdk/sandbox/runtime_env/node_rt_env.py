@@ -19,7 +19,7 @@ class NodeRuntimeEnv(RuntimeEnv):
     """Node runtime env.
 
     Each NodeRuntimeEnv is identified by (type, version) and is managed by Sandbox.rt_envs.
-    workdir is auto-generated as: /rock_rt_envs/node/{version}/
+    workdir is auto-generated as: /rock-rt-envs/node/{version}/
 
     Usage:
         env = NodeRuntimeEnv(sandbox, version="20.10.0")
@@ -82,17 +82,17 @@ class NodeRuntimeEnv(RuntimeEnv):
         )
         logger.info(f"[{sandbox_id}] Node runtime installed")
 
-        # 3) configure npm registry if specified
-        if self.npm_registry:
-            logger.info(f"[{sandbox_id}] Configuring npm registry: {self.npm_registry}")
-            await self.run(cmd=f"npm config set registry {shlex.quote(self.npm_registry)}")
-
-        # 4) validate node exists
+        # 3) validate node exists
         res = await self.run(cmd="test -x node && node --version || true")
         logger.debug(f"[{sandbox_id}] Node validation output: {res.output[:200]}")
 
         if res.exit_code != 0:
             raise RuntimeError("Node runtime validation failed")
+
+        # 4) configure npm registry if specified
+        if self.npm_registry:
+            logger.info(f"[{sandbox_id}] Configuring npm registry: {self.npm_registry}")
+            await self.run(cmd=f"npm config set registry {shlex.quote(self.npm_registry)}")
 
         # 5) add to sys path if specified
         if self.add_to_sys_path:

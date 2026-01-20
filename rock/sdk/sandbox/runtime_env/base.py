@@ -118,8 +118,8 @@ class RuntimeEnv(ABC):
                     env=self.session_envs,
                 )
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[{self._sandbox.sandbox_id}] Session creation: {e}")
 
         self._session_ready = True
 

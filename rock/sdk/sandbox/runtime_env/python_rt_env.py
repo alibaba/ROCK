@@ -15,6 +15,13 @@ if TYPE_CHECKING:
 
 logger = init_logger(__name__)
 
+# Version to install command mapping
+_PYTHON_VERSION_MAP: dict[str, str] = {
+    "3.11": env_vars.ROCK_RTENV_PYTHON_V31114_INSTALL_CMD,
+    "default": env_vars.ROCK_RTENV_PYTHON_V31114_INSTALL_CMD,
+    "3.12": env_vars.ROCK_RTENV_PYTHON_V31212_INSTALL_CMD,
+}
+
 
 class PythonRuntimeEnv(RuntimeEnv):
     """Python runtime env.
@@ -42,12 +49,11 @@ class PythonRuntimeEnv(RuntimeEnv):
         self.pip_index_url = rt_env_config.pip_index_url
 
         # Get install command based on version
-        if rt_env_config.version == "3.11" or rt_env_config.version == "default":
-            self.python_install_cmd = env_vars.ROCK_RTENV_PYTHON_V31114_INSTALL_CMD
-        elif rt_env_config.version == "3.12":
-            self.python_install_cmd = env_vars.ROCK_RTENV_PYTHON_V31212_INSTALL_CMD
-        else:
-            raise ValueError(f"Unsupported Python version: {rt_env_config.version}. Only 3.11 and 3.12 are supported.")
+        version = rt_env_config.version
+        if version not in _PYTHON_VERSION_MAP:
+            supported = list(_PYTHON_VERSION_MAP.keys())
+            raise ValueError(f"Unsupported Python version: {version}. Supported versions: {supported}")
+        self.python_install_cmd = _PYTHON_VERSION_MAP[version]
 
     async def _do_init(self) -> None:
         """Initialize and install Python runtime environment.
