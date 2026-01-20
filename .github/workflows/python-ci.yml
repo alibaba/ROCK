@@ -2,7 +2,7 @@ name: Python CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [ dev/merge_get_status_to_read_cluster_0115 ]
   pull_request:
     branches: [ master ]
 
@@ -11,6 +11,13 @@ jobs:
     runs-on: self-hosted
     steps:
     - uses: actions/checkout@v4
+
+    - name: Debug runner info
+      run: |
+        echo "Hostname: $(hostname)"
+        echo "User: $(whoami)"
+        ls -la / | grep data
+        ls -la /data 2>/dev/null || echo "/data does not exist"
 
     - name: Cleanup old files in /tmp/ray
       run: |
