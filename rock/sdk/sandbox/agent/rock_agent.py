@@ -183,16 +183,6 @@ class RockAgent(Agent):
         if upload_result.exit_code != 0:
             raise RuntimeError(f"Failed to upload directory: {upload_result.failure_reason}")
 
-        if self.config.entry_file:
-            chmod_result = await self._sandbox.arun(
-                cmd=f"chmod +x {target_dir}/{self.config.entry_file}",
-                session=self.agent_session,
-            )
-            if chmod_result.exit_code != 0:
-                raise RuntimeError(
-                    f"Failed to set executable permission on {self.config.entry_file}: {chmod_result.output}"
-                )
-
         self._working_dir_in_sandbox = target_dir
         logger.info(f"[{sandbox_id}] working_dir_in_sandbox ready: {target_dir}")
 
