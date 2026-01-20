@@ -24,7 +24,7 @@ class ModelServiceConfig(BaseModel):
     agent monitoring, and anti-call LLM operations.
     """
 
-    model_service_install_cmd: str = Field(default=env_vars.ROCK_AGENT_MODEL_SERVICE_INSTALL_CMD)
+    model_service_install_cmd: str = Field(default=env_vars.ROCK_MODEL_SERVICE_INSTALL_CMD)
     """Command to install model service package."""
 
     model_service_install_timeout: int = Field(default=300, gt=0)
