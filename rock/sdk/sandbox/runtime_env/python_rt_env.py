@@ -80,7 +80,7 @@ class PythonRuntimeEnv(RuntimeEnv):
             cmd=f"bash -c {shlex.quote(install_cmd)}",
             session=self.session,
             mode=RunMode.NOHUP,
-            wait_timeout=600,
+            wait_timeout=self.install_timeout,
             error_msg="Python runtime installation failed",
         )
         logger.info(f"[{sandbox_id}] Python {self.version} installed")
@@ -130,7 +130,7 @@ class PythonRuntimeEnv(RuntimeEnv):
                 # Upload requirements.txt to sandbox, keep original filename
                 original_filename = os.path.basename(self.pip)
                 target_path = f"{self.workdir}/{original_filename}"
-                await self._sandbox.upload(
+                await self._sandbox.upload_by_path(
                     source_path=os.path.abspath(self.pip),
                     target_path=target_path,
                 )
@@ -149,7 +149,7 @@ class PythonRuntimeEnv(RuntimeEnv):
             cmd=f"bash -c {shlex.quote(pip_cmd)}",
             session=self.session,
             mode=RunMode.NOHUP,
-            wait_timeout=600,
+            wait_timeout=self.install_timeout,
             error_msg="Pip packages installation failed",
         )
 

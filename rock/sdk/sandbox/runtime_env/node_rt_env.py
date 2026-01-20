@@ -77,7 +77,7 @@ class NodeRuntimeEnv(RuntimeEnv):
             cmd=f"bash -c {shlex.quote(install_cmd)}",
             session=self.session,
             mode=RunMode.NOHUP,
-            wait_timeout=600,
+            wait_timeout=self.install_timeout,
             error_msg="Node runtime installation failed",
         )
         logger.info(f"[{sandbox_id}] Node runtime installed")

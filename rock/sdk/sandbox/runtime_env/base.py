@@ -80,6 +80,7 @@ class RuntimeEnv(ABC):
         self.version = version
         self.add_to_sys_path = add_to_sys_path
         self.session_envs = session_envs or {}
+        self.install_timeout = rt_env_config.install_timeout
 
         rt_type = rt_env_config.rt_env_type
         version_str = version or "default"

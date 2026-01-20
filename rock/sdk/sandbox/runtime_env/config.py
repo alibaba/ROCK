@@ -24,6 +24,9 @@ class RuntimeEnvConfig(BaseModel):
     add_to_sys_path: bool = Field(default=False)
     """Whether to link runtime bin directory to /usr/local/bin."""
 
+    install_timeout: int = Field(default=600)
+    """Timeout in seconds for installation commands."""
+
 
 class PythonRuntimeEnvConfig(RuntimeEnvConfig):
     """Configuration for Python runtime environment.
