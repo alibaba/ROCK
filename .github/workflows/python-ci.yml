@@ -18,8 +18,6 @@ jobs:
 
     - name: Set up project (install dependencies without building)
       run: |
-        sudo mkdir -p /data
-        sudo chmod 777 /data
         uv sync --all-extras --group test --python 3.11
 
     - name: Run fast tests
