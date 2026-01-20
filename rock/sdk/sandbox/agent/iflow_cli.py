@@ -142,9 +142,11 @@ class IFlowCli(RockAgent):
         self._log_step("Installing iflow-cli", step_name="IFlow Install")
         logger.debug(f"[{sandbox_id}] IFlow CLI install command: {self.config.iflow_cli_install_cmd[:100]}...")
 
+        iflow_cli_install_cmd = f"mkdir -p {self.config.agent_installed_dir} && cd {self.config.agent_installed_dir} && {self.config.iflow_cli_install_cmd}"
+
         # Use node runtime env to run install cmd (wrap is currently bash -c, but uses node_env session)
         await self.rt_env.run(
-            cmd=self.config.iflow_cli_install_cmd,
+            cmd=iflow_cli_install_cmd,
             wait_timeout=self.config.agent_install_timeout,
             error_msg="iflow-cli installation failed",
         )
