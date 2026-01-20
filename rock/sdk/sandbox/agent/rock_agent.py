@@ -18,6 +18,7 @@ from rock.sdk.sandbox.agent.config import AgentBashCommand, AgentConfig
 from rock.sdk.sandbox.model_service.base import ModelService, ModelServiceConfig
 from rock.sdk.sandbox.runtime_env.base import RuntimeEnv
 from rock.sdk.sandbox.runtime_env.config import PythonRuntimeEnvConfig, RuntimeEnvConfig
+from rock.sdk.sandbox.utils import with_time_logging
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
@@ -251,7 +252,7 @@ class RockAgent(Agent):
         sandbox_id = self._sandbox.sandbox_id
 
         try:
-            self._log_step(f"Creating bash session: {self.agent_session}", step_name="Setup Session")
+            logger.info(f"[{sandbox_id}] Creating bash session: {self.agent_session}")
 
             await self._sandbox.create_session(
                 CreateBashSessionRequest(
@@ -261,8 +262,8 @@ class RockAgent(Agent):
                 )
             )
 
-            self._log_step(
-                f"Bash session '{self.agent_session}' created successfully", step_name="Setup Session", is_complete=True
+            logger.info(
+                f"[{sandbox_id}] Setup Session completed: Bash session '{self.agent_session}' created successfully"
             )
         except Exception as e:
             logger.error(
@@ -271,12 +272,14 @@ class RockAgent(Agent):
             )
             raise
 
+    @with_time_logging("Agent pre-init cmds")
     async def _execute_pre_init(self):
         await self._execute_init_commands(
             cmd_list=self.config.pre_init_cmds,
             step_name="pre-init",
         )
 
+    @with_time_logging("Agent post-init cmds")
     async def _execute_post_init(self):
         await self._execute_init_commands(
             cmd_list=self.config.post_init_cmds,
@@ -291,7 +294,7 @@ class RockAgent(Agent):
             return
 
         try:
-            self._log_step(f"Executing {len(cmd_list)} commands", step_name=step_name)
+            logger.info(f"[{sandbox_id}] {step_name.capitalize()} started: Executing {len(cmd_list)} commands")
 
             for idx, cmd_config in enumerate(cmd_list, 1):
                 command = cmd_config.command
@@ -318,11 +321,7 @@ class RockAgent(Agent):
                     )
                 logger.debug(f"[{sandbox_id}] {step_name} command {idx} completed successfully")
 
-            self._log_step(
-                f"Completed {len(cmd_list)} commands",
-                step_name=step_name,
-                is_complete=True,
-            )
+            logger.info(f"[{sandbox_id}] {step_name.capitalize()} completed: Completed {len(cmd_list)} commands")
 
         except Exception as e:
             logger.error(f"[{sandbox_id}] {step_name} execution failed: {str(e)}", exc_info=True)
@@ -386,6 +385,7 @@ class RockAgent(Agent):
             f"{shlex.quote(prompt)}"
         )
 
+    @with_time_logging("Agent run")
     async def _agent_run(self, cmd: str, session: str) -> Observation:
         """Execute agent command in nohup mode with optional ModelService watch.
 
@@ -496,26 +496,3 @@ class RockAgent(Agent):
             call_timeout=call_timeout,
             check_interval=check_interval,
         )
-
-    def _log_step(
-        self,
-        message: str,
-        step_name: str = "Step",
-        is_complete: bool = False,
-        elapsed: float | None = None,
-    ):
-        """Helper method to log step progress with consistent formatting.
-
-        Args:
-            message: Main message to log
-            step_name: Name of the step being executed
-            is_complete: Whether this is a completion log
-            elapsed: Optional elapsed time in seconds
-        """
-        sandbox_id = self._sandbox.sandbox_id
-
-        if is_complete:
-            time_str = f" (elapsed: {elapsed:.2f}s)" if elapsed is not None else ""
-            logger.info(f"[{sandbox_id}] {step_name} completed: {message}{time_str}")
-        else:
-            logger.info(f"[{sandbox_id}] {step_name} started: {message}")
