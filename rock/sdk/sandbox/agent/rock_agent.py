@@ -465,6 +465,30 @@ class RockAgent(Agent):
         logger.info(f"[{sandbox_id}] Starting ModelService")
         await self.model_service.start()
 
+    async def anti_call_llm(
+        self,
+        index: int,
+        response_payload: str | None = None,
+        call_timeout: int = 600,
+        check_interval: int = 3,
+    ) -> str:
+        """Execute anti-call LLM command.
+
+        Delegates to ModelService.anti_call_llm for execution.
+
+        Raises:
+            RuntimeError: If ModelService is not initialized
+        """
+        if not self.model_service:
+            raise RuntimeError(f"ModelService is not initialized in {self.config.agent_type}!")
+
+        return await self.model_service.anti_call_llm(
+            index=index,
+            response_payload=response_payload,
+            call_timeout=call_timeout,
+            check_interval=check_interval,
+        )
+
     def _log_step(
         self,
         message: str,
