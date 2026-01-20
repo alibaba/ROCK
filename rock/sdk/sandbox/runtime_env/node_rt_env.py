@@ -44,7 +44,7 @@ class NodeRuntimeEnv(RuntimeEnv):
                 f"Unsupported Node version: {rt_env_config.version}. Only {self.DEFAULT_VERSION} is supported right now."
             )
 
-        self.node_install_cmd = env_vars.ROCK_RTENV_NODE_INSTALL_CMD
+        self.node_install_cmd = env_vars.ROCK_RTENV_NODE_V22180_INSTALL_CMD
         self.npm_registry = rt_env_config.npm_registry
 
     async def _do_init(self) -> None:

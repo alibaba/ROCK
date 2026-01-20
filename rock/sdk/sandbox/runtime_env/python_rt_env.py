@@ -43,9 +43,9 @@ class PythonRuntimeEnv(RuntimeEnv):
 
         # Get install command based on version
         if rt_env_config.version == "3.11" or rt_env_config.version == "default":
-            self.python_install_cmd = env_vars.ROCK_RTENV_PYTHON_INSTALL_CMD
+            self.python_install_cmd = env_vars.ROCK_RTENV_PYTHON_V31114_INSTALL_CMD
         elif rt_env_config.version == "3.12":
-            self.python_install_cmd = env_vars.ROCK_RTENV_PYTHON_V12_INSTALL_CMD
+            self.python_install_cmd = env_vars.ROCK_RTENV_PYTHON_V31212_INSTALL_CMD
         else:
             raise ValueError(f"Unsupported Python version: {rt_env_config.version}. Only 3.11 and 3.12 are supported.")
 
