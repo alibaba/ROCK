@@ -3,14 +3,15 @@ import logging
 import re
 from datetime import datetime
 
+from rock import env_vars
 from rock.logger import init_logger
 
 
 def test_init_logger_iso8601_format():
+    env_vars.ROCK_LOGGING_PATH = "/tmp/rock_logs"
+    env_vars.ROCK_TIME_ZONE = "Asia/Shanghai"
     captured_output = io.StringIO()
-
-    logger = init_logger("test_logger")
-
+    logger = init_logger("test_logger", "test_logger.log")
     for handler in logger.handlers:
         if isinstance(handler, logging.StreamHandler):
             handler.stream = captured_output
@@ -20,10 +21,9 @@ def test_init_logger_iso8601_format():
     log_output = captured_output.getvalue()
 
     # ISO 8601 regex: YYYY-MM-DDTHH:MM:SS.mmm+ZZ:ZZ
-    iso8601_pattern = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}"
+    iso8601_pattern = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\+08:00"
 
     assert re.search(iso8601_pattern, log_output), f"Log timestamp should be in ISO 8601 format, got: {log_output}"
-
     assert "Test ISO 8601 format message" in log_output
 
     timestamp_match = re.search(iso8601_pattern, log_output)
