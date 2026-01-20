@@ -27,7 +27,7 @@ class PythonRuntimeEnv(RuntimeEnv):
     """Python runtime env.
 
     Each PythonRuntimeEnv is identified by (type, version) and is managed by Sandbox.rt_envs.
-    workdir is auto-generated as: /rock_rt_envs/python/{version}/
+    workdir is auto-generated as: /rock-rt-envs/python/{version}/
 
     Usage:
         env = PythonRuntimeEnv(sandbox, version="3.11", pip=["langchain"])

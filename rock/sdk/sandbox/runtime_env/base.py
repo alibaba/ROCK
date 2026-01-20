@@ -22,7 +22,7 @@ class RuntimeEnv(ABC):
     """Runtime environment (e.g., Python/Node).
 
     Each RuntimeEnv is identified by (type, version) tuple and is managed by Sandbox.rt_envs.
-    workdir is auto-generated as: /rock_rt_envs/{type}/{version}/
+    workdir is auto-generated as: /rock-rt-envs/{type}/{version}/
     session is auto-generated as: rt-env-{type}-{version}
 
     Usage:
