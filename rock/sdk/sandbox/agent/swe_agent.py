@@ -4,7 +4,6 @@ import copy
 import os
 import shlex
 import tempfile
-import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -14,6 +13,7 @@ from typing_extensions import override
 from rock.logger import init_logger
 from rock.sdk.sandbox.agent.rock_agent import RockAgent, RockAgentConfig
 from rock.sdk.sandbox.runtime_env import PythonRuntimeEnvConfig, RuntimeEnvConfig
+from rock.sdk.sandbox.utils import with_time_logging
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
@@ -162,6 +162,7 @@ class SweAgent(RockAgent):
         return f"{self.config.agent_installed_dir}/{self.GENERATED_CONFIG_NAME}"
 
     @override
+    @with_time_logging("Installing SWE-agent")
     async def install(self):
         """Install SWE-agent after Python runtime environment is ready.
 
@@ -169,38 +170,21 @@ class SweAgent(RockAgent):
         1. Clones SWE-agent repository and installs it
         2. Generates and uploads the YAML configuration template
         """
+        await super().install()
 
-        sandbox_id = self._sandbox.sandbox_id
-        start_time = time.time()
-        logger.info(f"[{sandbox_id}] Starting SWE-agent installation")
+        swe_agent_install_cmd = (
+            f"mkdir -p {self.config.agent_installed_dir} "
+            f"&& cd {self.config.agent_installed_dir} "
+            f"&& {self.config.swe_agent_install_cmd}"
+        )
 
-        try:
-            await super().install()
+        await self.rt_env.run(
+            cmd=swe_agent_install_cmd,
+            wait_timeout=self.config.agent_install_timeout,
+            error_msg="SWE-agent installation failed",
+        )
 
-            swe_agent_install_cmd = (
-                f"mkdir -p {self.config.agent_installed_dir} "
-                f"&& cd {self.config.agent_installed_dir} "
-                f"&& {self.config.swe_agent_install_cmd}"
-            )
-
-            await self.rt_env.run(
-                cmd=swe_agent_install_cmd,
-                wait_timeout=self.config.agent_install_timeout,
-                error_msg="SWE-agent installation failed",
-            )
-
-            await self._upload_generated_config_template()
-
-            elapsed = time.time() - start_time
-            logger.info(f"[{sandbox_id}] SWE-agent installation completed (elapsed: {elapsed:.2f}s)")
-
-        except Exception as e:
-            elapsed = time.time() - start_time
-            logger.error(
-                f"[{sandbox_id}] SWE-agent installation failed - {str(e)} (elapsed: {elapsed:.2f}s)",
-                exc_info=True,
-            )
-            raise
+        await self._upload_generated_config_template()
 
     @override
     async def create_agent_run_cmd(self, prompt: str) -> str:
@@ -219,6 +203,7 @@ class SweAgent(RockAgent):
             f"--problem_statement.text {shlex.quote(prompt)}"
         )
 
+    @with_time_logging("Uploading SWE-agent config template")
     async def _upload_generated_config_template(self) -> None:
         """Generate and upload the SWE-agent configuration template.
 
@@ -226,26 +211,11 @@ class SweAgent(RockAgent):
         with dynamic values for output_dir and repository paths.
         The problem_statement text is injected at runtime via CLI args in create_agent_run_cmd().
         """
-        sandbox_id = self._sandbox.sandbox_id
-        step_start = time.time()
-
-        self._log_step("Generating and uploading SWE-agent config template", step_name="Upload Config")
-
         with self._generated_config_template_context() as local_path:
             await self._sandbox.upload_by_path(
                 file_path=os.path.abspath(local_path),
                 target_path=self.config_path,
             )
-
-            logger.debug(f"[{sandbox_id}] Uploaded config template to {self.config_path}")
-
-        elapsed_step = time.time() - step_start
-        self._log_step(
-            "Configuration template uploaded",
-            step_name="Upload Config",
-            is_complete=True,
-            elapsed=elapsed_step,
-        )
 
     @contextmanager
     def _generated_config_template_context(self):

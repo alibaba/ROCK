@@ -8,7 +8,7 @@ from rock import env_vars
 from rock.logger import init_logger
 from rock.sdk.sandbox.runtime_env.base import RuntimeEnv
 from rock.sdk.sandbox.runtime_env.config import PythonRuntimeEnvConfig
-from rock.sdk.sandbox.utils import arun_with_retry
+from rock.sdk.sandbox.utils import arun_with_retry, with_time_logging
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
@@ -68,12 +68,30 @@ class PythonRuntimeEnv(RuntimeEnv):
         """
         await self.ensure_session()
 
-        sandbox_id = self._sandbox.sandbox_id
-        logger.info(f"[{sandbox_id}] Initializing Python {self.version} in {self.workdir}")
+        # Step 1: ensure workdir exists
+        await self._ensure_workdir()
 
-        from rock.sdk.sandbox.client import RunMode
+        # Step 2: install Python runtime
+        await self._install_python_runtime()
 
-        # 1) ensure workdir exists
+        # Step 3: validate python exists
+        await self._validate_python()
+
+        # Step 4: configure pip index url if specified
+        if self.pip_index_url:
+            await self._configure_pip()
+
+        # Step 5: install pip packages if specified
+        if self.pip:
+            await self._install_pip()
+
+        # Step 6: add to sys path if specified
+        if self.add_to_sys_path:
+            await self._add_to_sys_path(executables=["python", "pip", "python3", "pip3"])
+
+    @with_time_logging("Ensuring workdir exists")
+    async def _ensure_workdir(self) -> None:
+        """Create workdir for runtime environment."""
         result = await self._sandbox.arun(
             cmd=f"mkdir -p {self.workdir}",
             session=self.session,
@@ -81,7 +99,11 @@ class PythonRuntimeEnv(RuntimeEnv):
         if result.exit_code != 0:
             raise RuntimeError(f"Failed to create workdir: {self.workdir}, exit_code: {result.exit_code}")
 
-        # 2) install Python runtime
+    @with_time_logging("Installing Python runtime")
+    async def _install_python_runtime(self) -> None:
+        """Install Python runtime."""
+        from rock.sdk.sandbox.client import RunMode
+
         install_cmd = f"cd {shlex.quote(self.workdir)} && {self.python_install_cmd}"
         await arun_with_retry(
             sandbox=self._sandbox,
@@ -91,9 +113,10 @@ class PythonRuntimeEnv(RuntimeEnv):
             wait_timeout=self.install_timeout,
             error_msg="Python runtime installation failed",
         )
-        logger.info(f"[{sandbox_id}] Python {self.version} installed")
 
-        # 3) validate python exists
+    @with_time_logging("Validating Python installation")
+    async def _validate_python(self) -> None:
+        """Validate Python executable exists."""
         check_cmd = f"test -x {self.bin_dir}/python"
         result = await self._sandbox.arun(
             cmd=check_cmd,
@@ -106,35 +129,23 @@ class PythonRuntimeEnv(RuntimeEnv):
                 "Ensure python_install_cmd installs into ./python under workdir."
             )
 
-        # 4) configure pip index url if specified
-        if self.pip_index_url:
-            logger.info(f"[{sandbox_id}] Configuring pip index URL: {self.pip_index_url}")
-            result = await self._sandbox.arun(
-                cmd=f"{self.bin_dir}/pip config set global.index-url {shlex.quote(self.pip_index_url)}",
-                session=self.session,
+    @with_time_logging("Configuring pip index URL")
+    async def _configure_pip(self) -> None:
+        """Configure pip index URL."""
+        result = await self._sandbox.arun(
+            cmd=f"{self.bin_dir}/pip config set global.index-url {shlex.quote(self.pip_index_url)}",
+            session=self.session,
+        )
+        if result.exit_code != 0:
+            raise RuntimeError(
+                f"Failed to configure pip index URL: {self.pip_index_url}, exit_code: {result.exit_code}"
             )
-            if result.exit_code != 0:
-                raise RuntimeError(
-                    f"Failed to configure pip index URL: {self.pip_index_url}, exit_code: {result.exit_code}"
-                )
 
-        # 5) install pip packages if specified
-        if self.pip:
-            await self._install_pip()
-
-        # 6) add to sys path if specified
-        if self.add_to_sys_path:
-            await self._add_to_sys_path(executables=["python", "pip", "python3", "pip3"])
-
-        logger.info(f"[{sandbox_id}] Python {self.version} runtime env initialized")
-
+    @with_time_logging("Installing pip packages")
     async def _install_pip(self) -> None:
         """Install pip packages."""
         if not self.pip:
             return
-
-        sandbox_id = self._sandbox.sandbox_id
-        logger.info(f"[{sandbox_id}] Installing pip packages")
 
         if isinstance(self.pip, str):
             # Treat as requirements.txt path - upload it first
@@ -164,5 +175,3 @@ class PythonRuntimeEnv(RuntimeEnv):
             wait_timeout=self.install_timeout,
             error_msg="Pip packages installation failed",
         )
-
-        logger.info(f"[{sandbox_id}] Pip packages installed successfully")

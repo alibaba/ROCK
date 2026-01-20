@@ -7,7 +7,7 @@ from rock import env_vars
 from rock.logger import init_logger
 from rock.sdk.sandbox.runtime_env.base import RuntimeEnv
 from rock.sdk.sandbox.runtime_env.config import NodeRuntimeEnvConfig
-from rock.sdk.sandbox.utils import arun_with_retry
+from rock.sdk.sandbox.utils import arun_with_retry, with_time_logging
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
@@ -59,12 +59,26 @@ class NodeRuntimeEnv(RuntimeEnv):
         """
         await self.ensure_session()
 
-        sandbox_id = self._sandbox.sandbox_id
-        logger.info(f"[{sandbox_id}] Initializing Node runtime in {self.workdir}")
+        # Step 1: ensure workdir exists
+        await self._ensure_workdir()
 
-        from rock.sdk.sandbox.client import RunMode
+        # Step 2: install node/npm
+        await self._install_node_runtime()
 
-        # 1) ensure workdir exists
+        # Step 3: validate node exists
+        await self._validate_node()
+
+        # Step 4: configure npm registry if specified
+        if self.npm_registry:
+            await self._configure_npm_registry()
+
+        # Step 5: add to sys path if specified
+        if self.add_to_sys_path:
+            await self._add_to_sys_path(executables=["node", "npm", "npx", "corepack"])
+
+    @with_time_logging("Ensuring workdir exists")
+    async def _ensure_workdir(self) -> None:
+        """Create workdir for runtime environment."""
         result = await self._sandbox.arun(
             cmd=f"mkdir -p {self.workdir}",
             session=self.session,
@@ -72,7 +86,11 @@ class NodeRuntimeEnv(RuntimeEnv):
         if result.exit_code != 0:
             raise RuntimeError(f"Failed to create workdir: {self.workdir}, exit_code: {result.exit_code}")
 
-        # 2) install node/npm
+    @with_time_logging("Installing Node runtime")
+    async def _install_node_runtime(self) -> None:
+        """Install Node runtime."""
+        from rock.sdk.sandbox.client import RunMode
+
         install_cmd = f"cd {self.workdir} && {self.node_install_cmd}"
         await arun_with_retry(
             sandbox=self._sandbox,
@@ -82,26 +100,17 @@ class NodeRuntimeEnv(RuntimeEnv):
             wait_timeout=self.install_timeout,
             error_msg="Node runtime installation failed",
         )
-        logger.info(f"[{sandbox_id}] Node runtime installed")
 
-        # 3) validate node exists
+    @with_time_logging("Validating Node installation")
+    async def _validate_node(self) -> None:
+        """Validate Node executable exists."""
         res = await self.run(cmd="test -x node && node --version || true")
-        logger.debug(f"[{sandbox_id}] Node validation output: {res.output[:200]}")
-
         if res.exit_code != 0:
             raise RuntimeError("Node runtime validation failed")
 
-        # 4) configure npm registry if specified
-        if self.npm_registry:
-            logger.info(f"[{sandbox_id}] Configuring npm registry: {self.npm_registry}")
-            result = await self.run(cmd=f"npm config set registry {shlex.quote(self.npm_registry)}")
-            if result.exit_code != 0:
-                raise RuntimeError(
-                    f"Failed to configure npm registry: {self.npm_registry}, exit_code: {result.exit_code}"
-                )
-
-        # 5) add to sys path if specified
-        if self.add_to_sys_path:
-            await self._add_to_sys_path(executables=["node", "npm", "npx", "corepack"])
-
-        logger.info(f"[{sandbox_id}] Node runtime env initialized")
+    @with_time_logging("Configuring npm registry")
+    async def _configure_npm_registry(self) -> None:
+        """Configure npm registry."""
+        result = await self.run(cmd=f"npm config set registry {shlex.quote(self.npm_registry)}")
+        if result.exit_code != 0:
+            raise RuntimeError(f"Failed to configure npm registry: {self.npm_registry}, exit_code: {result.exit_code}")
