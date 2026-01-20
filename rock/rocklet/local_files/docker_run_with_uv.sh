@@ -2,6 +2,7 @@
 set -o errexit
 
 PROJECT_ROOT=$1
+port=$2
 
 if [ -z "$PROJECT_ROOT" ]; then
     echo "Error: PROJECT_ROOT is required as first argument"
@@ -42,7 +43,7 @@ if [ ! -f /etc/alpine-release ]; then
 
     mkdir -p /data/logs
     # Run rocklet
-    /tmp/rocklet-venv/bin/rocklet >> /data/logs/rocklet.log 2>&1
+    /tmp/rocklet-venv/bin/rocklet --port ${port} >> /data/logs/rocklet.log 2>&1
 
 else
     echo "Alpine Linux system is not supported yet"

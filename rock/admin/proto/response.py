@@ -2,7 +2,7 @@ from pydantic import BaseModel
 
 from rock.actions import SandboxResponse
 from rock.actions.sandbox.response import State
-from rock.actions.sandbox.sandbox_info import SandboxInfo
+from rock.actions.sandbox.sandbox_info import SandboxInfo, SandboxListItem
 
 
 class SandboxStartResponse(SandboxResponse):
@@ -27,13 +27,14 @@ class SandboxStatusResponse(BaseModel):
     swe_rex_version: str | None = None
     user_id: str | None = None
     experiment_id: str | None = None
+    namespace: str | None = None
     cpus: float | None = None
     memory: str | None = None
 
     @classmethod
     def from_sandbox_info(cls, sandbox_info: "SandboxInfo") -> "SandboxStatusResponse":
         return cls(
-            sandbox_id=sandbox_info.get("sandbox_id"),
+            sandbox_id=sandbox_info.get("sandbox_id", ""),
             status=sandbox_info.get("phases", {}),
             state=sandbox_info.get("state"),
             port_mapping=sandbox_info.get("port_mapping", {}),
@@ -48,5 +49,22 @@ class SandboxStatusResponse(BaseModel):
         )
 
 
+class SandboxListStatusResponse(SandboxStatusResponse):
+    rock_authorization_encrypted: str | None = None
+
+    @classmethod
+    def from_sandbox_info(cls, sandbox_info: "SandboxListItem") -> "SandboxListStatusResponse":
+        base_data = super().from_sandbox_info(sandbox_info)
+        base_dict = base_data.model_dump()
+        base_dict["rock_authorization_encrypted"] = sandbox_info.get("rock_authorization_encrypted", None)
+        return cls(**base_dict)
+
+
 class BatchSandboxStatusResponse(SandboxResponse):
     statuses: list[SandboxStatusResponse] | None = None
+
+
+class SandboxListResponse(SandboxResponse):
+    items: list[SandboxListStatusResponse] = []
+    total: int = 0
+    has_more: bool = False

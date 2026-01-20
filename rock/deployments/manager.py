@@ -16,10 +16,15 @@ class DeploymentManager:
         self._enable_runtime_auto_clear = enable_runtime_auto_clear
         self.rock_config = rock_config
 
+    def _generate_sandbox_id(self, config: DeploymentConfig) -> str:
+        if isinstance(config, DockerDeploymentConfig) and config.container_name:
+            return config.container_name
+        return uuid.uuid4().hex
+
     async def init_config(self, config: DeploymentConfig) -> DockerDeploymentConfig:
         _role = env_vars.ROCK_ADMIN_ROLE
         _env = env_vars.ROCK_ADMIN_ENV
-        sandbox_id = uuid.uuid4().hex
+        sandbox_id = self._generate_sandbox_id(config)
         sandbox_id_ctx_var.set(sandbox_id)
 
         # TODO: get ray from config

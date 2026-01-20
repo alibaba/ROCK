@@ -81,8 +81,15 @@ class SandboxManager(BaseManager):
             raise Exception(error_msg)
         return result
 
+    async def _check_sandbox_exists_in_redis(self, config: DeploymentConfig):
+        if isinstance(config, DockerDeploymentConfig) and config.container_name:
+            sandbox_id = config.container_name
+            if self._redis_provider and await self._redis_provider.json_get(alive_sandbox_key(sandbox_id), "$"):
+                raise BadRequestRockError(f"Sandbox {sandbox_id} already exists")
+
     @monitor_sandbox_operation()
     async def start_async(self, config: DeploymentConfig, user_info: dict = {}) -> SandboxStartResponse:
+        await self._check_sandbox_exists_in_redis(config)
         docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(config)
         sandbox_id = docker_deployment_config.container_name
         logger.info(f"[{sandbox_id}] start_async params:{json.dumps(docker_deployment_config.model_dump(), indent=2)}")
@@ -95,6 +102,7 @@ class SandboxManager(BaseManager):
         user_id = user_info.get("user_id", "default")
         experiment_id = user_info.get("experiment_id", "default")
         namespace = user_info.get("namespace", "default")
+        rock_authorization = user_info.get("rock_authorization", "default")
         sandbox_actor.start.remote()
         sandbox_actor.set_user_id.remote(user_id)
         sandbox_actor.set_experiment_id.remote(experiment_id)
@@ -112,6 +120,7 @@ class SandboxManager(BaseManager):
         sandbox_info["experiment_id"] = experiment_id
         sandbox_info["namespace"] = namespace
         sandbox_info["state"] = State.PENDING
+        sandbox_info["rock_authorization"] = rock_authorization
         if self._redis_provider:
             await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
             await self._redis_provider.json_set(timeout_sandbox_key(sandbox_id), "$", auto_clear_time_dict)

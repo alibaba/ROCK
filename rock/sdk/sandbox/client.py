@@ -420,7 +420,7 @@ class Sandbox(AbstractSandbox):
                 wait_interval=wait_interval,
                 response_limited_bytes_in_nohup=response_limited_bytes_in_nohup,
                 ignore_output=ignore_output,
-                output_file=output_file
+                output_file=output_file,
             )
 
     async def _arun_with_nohup(
@@ -451,9 +451,7 @@ class Sandbox(AbstractSandbox):
                 create_file_cmd = f"mkdir -p {dir_path}"
                 response: Observation = await self._run_in_session(Action(command=create_file_cmd, session=session))
                 if response.exit_code != 0:
-                    error_msg = (
-                        f"Failed mkdir for output file path: {output_file}, because {response.failure_reason}"
-                    )
+                    error_msg = f"Failed mkdir for output file path: {output_file}, because {response.failure_reason}"
                     raise InternalServerRockError(error_msg)
 
             tmp_file = output_file if output_file else f"/tmp/tmp_{timestamp}.out"
@@ -912,8 +910,9 @@ class SandboxGroup:
     async def start(self):
         semaphore = asyncio.Semaphore(self.config.start_concurrency)
 
-        async def start_sandbox_with_retry(sandbox: Sandbox) -> None:
+        async def start_sandbox_with_retry(index: int, sandbox: Sandbox) -> None:
             async with semaphore:
+                logging.info(f"Starting sandbox {index} with {sandbox.config.image} ...")
                 for attempt in range(self.config.start_retry_times):
                     try:
                         await sandbox.start()
@@ -930,7 +929,7 @@ class SandboxGroup:
                             )
                             await asyncio.sleep(1)  # Wait 1 second before retry
 
-        tasks = [start_sandbox_with_retry(sandbox) for sandbox in self.sandbox_list]
+        tasks = [start_sandbox_with_retry(index, sandbox) for index, sandbox in enumerate(self.sandbox_list)]
         await asyncio.gather(*tasks)
         logging.info(
             f"Successfully started {len(self.sandbox_list)} sandboxes with concurrency {self.config.start_concurrency}"

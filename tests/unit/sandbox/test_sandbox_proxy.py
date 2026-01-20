@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 
 from rock.actions.sandbox.response import State
@@ -13,7 +15,7 @@ async def test_batch_get_sandbox_status(sandbox_manager: SandboxManager, sandbox
     sandbox_ids = []
     sandbox_count = 3
     for _ in range(sandbox_count):
-        response = await sandbox_manager.start_async(DockerDeploymentConfig(cpus=1, memory="2g"))
+        response = await sandbox_manager.start_async(DockerDeploymentConfig(cpus=0.5, memory="1g"))
         sandbox_ids.append(response.sandbox_id)
         await check_sandbox_status_until_alive(sandbox_manager, response.sandbox_id)
     # batch get status
@@ -34,3 +36,49 @@ async def test_batch_get_sandbox_status(sandbox_manager: SandboxManager, sandbox
     assert len(batch_response_with_invalid) == len(sandbox_ids)
     for sandbox_id in sandbox_ids:
         await sandbox_manager.stop(sandbox_id)
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_list_sandbox(sandbox_manager: SandboxManager, sandbox_proxy_service: SandboxProxyService):
+    # create two sandbox
+    random_user_id = uuid.uuid4().hex[:8]
+    user_info1 = {"user_id": random_user_id, "experiment_id": "exp1", "rock_authorization": "rock_authorization"}
+    user_info2 = {"user_id": "user2", "experiment_id": "exp2"}
+    response1 = await sandbox_manager.start_async(DockerDeploymentConfig(cpus=0.5, memory="1g"), user_info=user_info1)
+    response2 = await sandbox_manager.start_async(DockerDeploymentConfig(cpus=0.5, memory="1g"), user_info=user_info2)
+    sandbox_id1 = response1.sandbox_id
+    sandbox_id2 = response2.sandbox_id
+    await check_sandbox_status_until_alive(sandbox_manager, sandbox_id1)
+    await check_sandbox_status_until_alive(sandbox_manager, sandbox_id2)
+
+    # empty query
+    result = await sandbox_proxy_service.list_sandboxes({})
+    assert len(result.items) >= 2
+    sandbox_ids = [s.sandbox_id for s in result.items]
+    assert sandbox_id1 in sandbox_ids
+    assert sandbox_id2 in sandbox_ids
+
+    # query with params
+    result = await sandbox_proxy_service.list_sandboxes(
+        {"user_id": user_info1["user_id"], "experiment_id": user_info1["experiment_id"]}
+    )
+    assert len(result.items) >= 1
+    for sandbox_data in result.items:
+        assert sandbox_data.user_id == user_info1["user_id"]
+        assert sandbox_data.experiment_id == user_info1["experiment_id"]
+    sandbox_ids = [s.sandbox_id for s in result.items]
+    assert sandbox_id1 in sandbox_ids
+
+    rock_auth_encrypted = result.items[0].rock_authorization_encrypted
+    assert rock_auth_encrypted is not None
+    assert rock_auth_encrypted != user_info1["rock_authorization"]
+    assert sandbox_proxy_service._aes_encrypter.decrypt(rock_auth_encrypted) == user_info1["rock_authorization"]
+
+    # assert empty list
+    result = await sandbox_proxy_service.list_sandboxes(
+        {"user_id": user_info1["user_id"], "experiment_id": user_info2["experiment_id"]}
+    )
+    assert len(result.items) == 0
+    await sandbox_manager.stop(sandbox_id1)
+    await sandbox_manager.stop(sandbox_id2)

@@ -20,25 +20,27 @@ from rock.actions import (
     UploadResponse,
     WriteFileResponse,
 )
-from rock.actions.sandbox.sandbox_info import SandboxInfo
-from rock.admin.core.redis_key import alive_sandbox_key, timeout_sandbox_key
+from rock.actions.sandbox.sandbox_info import SandboxInfo, SandboxListItem
+from rock.admin.core.redis_key import ALIVE_PREFIX, alive_sandbox_key, timeout_sandbox_key
 from rock.admin.metrics.decorator import monitor_sandbox_operation
 from rock.admin.metrics.monitor import MetricsMonitor
 from rock.admin.proto.request import SandboxBashAction as BashAction
 from rock.admin.proto.request import SandboxCloseBashSessionRequest as CloseBashSessionRequest
 from rock.admin.proto.request import SandboxCommand as Command
 from rock.admin.proto.request import SandboxCreateSessionRequest as CreateSessionRequest
+from rock.admin.proto.request import SandboxQueryParams
 from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
-from rock.admin.proto.response import SandboxStatusResponse
+from rock.admin.proto.response import SandboxListResponse, SandboxListStatusResponse, SandboxStatusResponse
 from rock.config import OssConfig, ProxyServiceConfig, RockConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
+from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
 from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var
 from rock.sandbox import __version__ as gateway_version
 from rock.rocklet import __version__ as swe_version
-from rock import BadRequestRockError
+from rock.utils.crypto_utils import AESEncryption
 from rock.utils.providers import RedisProvider
 from rock.utils.service import build_sandbox_from_redis
 
@@ -50,6 +52,7 @@ class SandboxProxyService:
     _httpx_client = None
 
     def __init__(self, rock_config: RockConfig, redis_provider: RedisProvider | None = None):
+        self._rock_config = rock_config
         self._redis_provider = redis_provider
         self.metrics_monitor = MetricsMonitor.create(export_interval_millis=20_000)
         self.oss_config: OssConfig = rock_config.oss
@@ -70,7 +73,18 @@ class SandboxProxyService:
             env_vars.ROCK_OSS_BUCKET_REGION,
         )
 
+        self._aes_encrypter = AESEncryption()
+
         self._batch_get_status_max_count = rock_config.proxy_service.batch_get_status_max_count
+
+    async def refresh_aes_key(self):
+        try:
+            await self._rock_config.update()
+            if aes_encrypt_key := self._rock_config.proxy_service.aes_encrypt_key:
+                self._aes_encrypter.key_update(aes_encrypt_key)
+        except Exception as e:
+            logger.error(f"update aes key failed, error: {e}")
+            raise InternalServerRockError(f"update aes key failed, {str(e)}")
 
     @monitor_sandbox_operation()
     async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
@@ -244,6 +258,31 @@ class SandboxProxyService:
                 results.append(SandboxStatusResponse.from_sandbox_info(sandbox_info))
         logger.info(f"batch_get_sandbox_status_from_redis succ, result count is {len(results)}")
         return results
+
+    @monitor_sandbox_operation()
+    async def list_sandboxes(self, query_params: SandboxQueryParams) -> SandboxListResponse:
+        if self._redis_provider is None:
+            logger.warning("Redis provider is not available, list_sandboxes returning empty result")
+            return SandboxListResponse()
+        page = int(query_params.pop("page", "1"))
+        page_size = int(query_params.pop("page_size", "500"))
+        if page < 1 or page_size < 1:
+            raise BadRequestRockError(f"page parameter invalid, page is {page}, page_size is {page_size}")
+        if page_size > self._batch_get_status_max_count:
+            raise BadRequestRockError(f"page_size exceeds maximum {self._batch_get_status_max_count}")
+        logger.info(f"list sandboxes with filters: {query_params}, page: {page}, page_size: {page_size}")
+        try:
+            all_sandbox_data = await self.list_all_sandboxes_by_query_params(query_params)
+            total = len(all_sandbox_data)
+            start_index = (page - 1) * page_size
+            end_index = start_index + page_size
+            page_data = all_sandbox_data[start_index:end_index]
+            has_more = end_index < total
+            logger.info(f"Returning page {page} with {len(page_data)} items, total: {total}, has_more: {has_more}")
+            return SandboxListResponse(items=page_data, total=total, has_more=has_more)
+        except Exception as e:
+            logger.error(f"Error filtering sandboxes: {e}", exc_info=True)
+            raise
 
     async def websocket_proxy(self, client_websocket, sandbox_id: str, target_path: str | None = None):
         target_url = await self.get_sandbox_websocket_url(sandbox_id, target_path)
@@ -426,3 +465,67 @@ class SandboxProxyService:
             env_vars.ROCK_SANDBOX_EXPIRE_TIME_KEY: str(expire_time),
         }
         await self._redis_provider.json_set(timeout_sandbox_key(sandbox_id), "$", new_dict)
+
+    async def list_all_sandboxes_by_query_params(self, query_params: SandboxQueryParams):
+        all_keys = []
+        async for key in self._redis_provider.client.scan_iter(match=f"{ALIVE_PREFIX}*", count=1000):  # type: ignore
+            all_keys.append(key)
+        if not all_keys:
+            return []
+
+        await self.refresh_aes_key()
+
+        all_sandbox_data = []
+        rock_auth_encrypt_dict = {}
+        batch_size = self._batch_get_status_max_count
+        for i in range(0, len(all_keys), batch_size):
+            batch_keys = all_keys[i : i + batch_size]
+            sandbox_infos_list = await self._redis_provider.json_mget(batch_keys, "$")
+
+            self._encrypt_rock_auth(rock_auth_encrypt_dict, sandbox_infos_list)
+
+            for sandbox_info in sandbox_infos_list:
+                if not sandbox_info:
+                    continue
+                if self._matches_query_params(sandbox_info, query_params):
+                    # Add encrypted rock_authorization to sandbox_info
+                    if "rock_authorization" in sandbox_info:
+                        rock_auth = sandbox_info["rock_authorization"]
+                        sandbox_info["rock_authorization_encrypted"] = rock_auth_encrypt_dict.get(rock_auth)
+                    all_sandbox_data.append(SandboxListStatusResponse.from_sandbox_info(sandbox_info))
+        return all_sandbox_data
+
+    def _matches_query_params(self, sandbox_info: SandboxInfo, query_params: SandboxQueryParams) -> bool:
+        if not query_params:
+            return True
+        for filter_key, filter_value in query_params.items():
+            if filter_key not in sandbox_info or sandbox_info[filter_key] != filter_value:
+                return False
+        return True
+
+    def _build_sandbox_list_item(self, sandbox_info: SandboxInfo, rock_auth_encrypt_dict: dict[str, str]):
+        sandbox_list_item = SandboxListItem(**sandbox_info)
+        if "rock_authorization" in sandbox_info:
+            rock_auth = sandbox_info["rock_authorization"]
+            if rock_auth and rock_auth in rock_auth_encrypt_dict:
+                sandbox_list_item["rock_authorization_encrypted"] = rock_auth_encrypt_dict[rock_auth]
+            else:
+                sandbox_list_item["rock_authorization_encrypted"] = None
+        return sandbox_list_item
+
+    def _encrypt_rock_auth(self, rock_auth_encrypt_dict: dict[str, str], sandbox_infos_list: list):
+        for sandbox_info in sandbox_infos_list:
+            if not sandbox_info:
+                continue
+
+            if "rock_authorization" not in sandbox_info:
+                continue
+
+            if (rock_auth := sandbox_info["rock_authorization"]) and rock_auth not in rock_auth_encrypt_dict:
+                try:
+                    # encrypt rock_auth
+                    encrypted_auth = self._aes_encrypter.encrypt(rock_auth)
+                    rock_auth_encrypt_dict[rock_auth] = encrypted_auth
+                except Exception as e:
+                    logger.error(f"Failed to encrypt rock_auth: {e}")
+                    rock_auth_encrypt_dict[rock_auth] = None

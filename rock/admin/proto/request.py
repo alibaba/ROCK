@@ -1,4 +1,4 @@
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -24,6 +24,8 @@ class SandboxStartRequest(BaseModel):
     """The amount of memory to allocate for the container."""
     cpus: float = 2
     """The amount of CPUs to allocate for the container."""
+    sandbox_id: str | None = Field(default=None)
+    """The id of the sandbox."""
 
 
 class SandboxCommand(Command):
@@ -100,3 +102,15 @@ class WarmupRequest(BaseModel):
 
 class BatchSandboxStatusRequest(BaseModel):
     sandbox_ids: list[str]
+
+
+class SandboxQueryParams(TypedDict, total=False):
+    """Sandbox列表查询参数"""
+
+    page: str
+    page_size: str
+    user_id: str
+    experiment_id: str
+    namespace: str
+    image: str
+    state: str
