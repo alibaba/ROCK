@@ -166,7 +166,7 @@ class RuntimeEnv(ABC):
         logger.debug(f"[{self._sandbox.sandbox_id}] RuntimeEnv run cmd: {wrapped}")
 
         result = await self._sandbox.arun(
-            cmd=cmd,
+            cmd=wrapped,
             session=self.session,
             mode=mode,
             wait_timeout=wait_timeout,
