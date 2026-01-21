@@ -262,25 +262,69 @@ class SandboxManager(BaseManager):
                     memory=sandbox_info.get("memory"),
                 )
 
-    @monitor_sandbox_operation()
-    async def get_status_v2(self, sandbox_id) -> SandboxStatusResponse:
+    async def _get_sandbox_info(self, sandbox_id: str) -> SandboxInfo:
+        """Get sandbox info, prioritize Redis, fallback to Ray Actor"""
         if self._redis_provider:
-            sandbox_info: SandboxInfo = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
+            sandbox_info = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
         else:
             sandbox_actor = await self.async_ray_get_actor(sandbox_id)
             if sandbox_actor is None:
                 raise Exception(f"sandbox {sandbox_id} not found to get status")
             sandbox_info = await self.async_ray_get(sandbox_actor.sandbox_info.remote())
+
         if sandbox_info is None:
             raise Exception(f"sandbox {sandbox_id} not found to get status")
-        await self._update_expire_time(sandbox_id)
-        remote_status: ServiceStatus = await self.get_remote_status(sandbox_id, sandbox_info.get("host_ip"))
-        resp = SandboxStatusResponse(
+
+        return sandbox_info
+
+    async def _check_alive_status(
+    self, sandbox_id: str, host_ip: str, remote_status: ServiceStatus
+) -> bool:
+        """Check if sandbox is alive"""
+        try:
+            alive_resp = await HttpUtils.get(
+                url=f"http://{host_ip}:{remote_status.get_mapped_port(Port.PROXY)}/is_alive",
+                headers={
+                    "sandbox_id": sandbox_id,
+                    EAGLE_EYE_TRACE_ID: trace_id_ctx_var.get(),
+                },
+            )
+            return IsAliveResponse(**alive_resp).is_alive
+        except Exception:
+            return False
+
+    @monitor_sandbox_operation()
+    async def get_status_v2(self, sandbox_id) -> SandboxStatusResponse:
+        # 1. Get sandbox_info (unified exception handling)
+        sandbox_info = await self._get_sandbox_info(sandbox_id)
+
+        # 2. Parallel execution: update expire time & get remote status
+        host_ip = sandbox_info.get("host_ip")
+        _, remote_status = await asyncio.gather(
+            self._update_expire_time(sandbox_id),
+            self.get_remote_status(sandbox_id, host_ip),
+        )
+
+        # 3. Update sandbox_info and check alive status
+        sandbox_info.update(remote_status.to_dict())
+        is_alive = await self._check_alive_status(sandbox_id, host_ip, remote_status)
+        if is_alive:
+            sandbox_info["state"] = State.RUNNING
+
+        # 4. Persist to Redis if Redis exists
+        if self._redis_provider:
+            await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
+            logger.info(f"sandbox {sandbox_id} status is {remote_status}, write to redis")
+
+        # 5. Build and return response
+        return SandboxStatusResponse(
             sandbox_id=sandbox_id,
+            status=remote_status.phases,
+            port_mapping=remote_status.get_port_mapping(),
             state=sandbox_info.get("state"),
             host_name=sandbox_info.get("host_name"),
             host_ip=sandbox_info.get("host_ip"),
-            is_alive=False,
+            is_alive=is_alive,
             image=sandbox_info.get("image"),
             swe_rex_version=swe_version,
             gateway_version=gateway_version,
@@ -290,26 +334,6 @@ class SandboxManager(BaseManager):
             cpus=sandbox_info.get("cpus"),
             memory=sandbox_info.get("memory"),
         )
-        sandbox_info.update(remote_status.to_dict())
-        try:
-            alive_resp = await HttpUtils.get(
-                url=f"http://{sandbox_info.get('host_ip')}:{remote_status.get_mapped_port(Port.PROXY)}/is_alive",
-                headers={"sandbox_id": sandbox_id, EAGLE_EYE_TRACE_ID: trace_id_ctx_var.get()},
-            )
-            alive = IsAliveResponse(**alive_resp)
-        except Exception:
-            alive = IsAliveResponse(is_alive=False)
-        if alive.is_alive:
-            sandbox_info["state"] = State.RUNNING
-        if self._redis_provider:
-            await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
-            logger.info(f"sandbox {sandbox_id} status is {remote_status}, write to redis")
-
-        resp.status = remote_status.phases
-        resp.port_mapping = remote_status.get_port_mapping()
-        resp.is_alive = alive.is_alive
-        resp.state = sandbox_info.get("state")
-        return resp
 
     async def get_remote_status(self, sandbox_id: str, host_ip: str) -> ServiceStatus:
         service_status_path = PersistedServiceStatus.gen_service_status_path(sandbox_id)
