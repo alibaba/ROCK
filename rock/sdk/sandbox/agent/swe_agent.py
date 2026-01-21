@@ -197,9 +197,7 @@ class SweAgent(RockAgent):
             sweagent run --config /installed_agent/generated_config.yaml --problem_statement.text "fix this bug"
         """
 
-        return self.runtime_env.wrapped_cmd(
-            f"sweagent run --config {self.config_path} --problem_statement.text {shlex.quote(prompt)}"
-        )
+        return f"{self.runtime_env.workdir}/runtime-env/bin/sweagent run --config {self.config_path} --problem_statement.text {shlex.quote(prompt)}"
 
     @with_time_logging("Uploading SWE-agent config template")
     async def _upload_generated_config_template(self) -> None:

@@ -329,7 +329,7 @@ class RockAgent(Agent):
 
         # Use deploy.format() to replace ${working_dir} and ${prompt}
         run_cmd = self.deploy.format(self.config.run_cmd, prompt=shlex.quote(prompt))
-        wrapped_cmd = self.runtime_env.wrapped_cmd(run_cmd, prepend=False)
+        wrapped_cmd = self.runtime_env.wrapped_cmd(run_cmd)
 
         parts = [
             f"mkdir -p {project_path}",
