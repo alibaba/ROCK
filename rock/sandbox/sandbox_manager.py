@@ -328,7 +328,7 @@ class SandboxManager(BaseManager):
 
         # When the file does not exist, exit_code = 2
         if find_file_rsp.get("exit_code") and find_file_rsp.get("exit_code") == 2:
-            return None
+            raise Exception(f"service status file not found: {find_file_rsp}")
 
         response: dict = await HttpUtils.post(
             url=read_file_url,
