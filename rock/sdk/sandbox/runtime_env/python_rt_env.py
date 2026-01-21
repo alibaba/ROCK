@@ -112,30 +112,12 @@ class PythonRuntimeEnv(RuntimeEnv):
     @with_time_logging("Validating Python installation")
     async def _validate_python(self) -> None:
         """Validate Python executable exists."""
-        check_cmd = self.run("test -x python")
-        result = await self._sandbox.arun(
-            cmd=check_cmd,
-            session=self.session,
-        )
-        if result.exit_code != 0:
-            raise RuntimeError(
-                "PythonRuntimeEnv.init() failed: "
-                f"{self.workdir}/runtime-env/bin/python not found or not executable. "
-                "Ensure python_install_cmd installs into ./python under workdir."
-            )
+        return await self.run("test -x python")
 
     @with_time_logging("Configuring pip index URL")
     async def _configure_pip(self) -> None:
         """Configure pip index URL."""
-        cmd = self.run(f"pip config set global.index-url {shlex.quote(self.pip_index_url)}")
-        result = await self._sandbox.arun(
-            cmd=cmd,
-            session=self.session,
-        )
-        if result.exit_code != 0:
-            raise RuntimeError(
-                f"Failed to configure pip index URL: {self.pip_index_url}, exit_code: {result.exit_code}"
-            )
+        return await self.run(f"pip config set global.index-url {shlex.quote(self.pip_index_url)}")
 
     @with_time_logging("Installing pip packages")
     async def _install_pip(self) -> None:
@@ -153,21 +135,10 @@ class PythonRuntimeEnv(RuntimeEnv):
                     source_path=os.path.abspath(self.pip),
                     target_path=target_path,
                 )
-                pip_cmd = self.run(f"pip install -r {shlex.quote(target_path)}")
+                return await self.run(f"pip install -r {shlex.quote(target_path)}")
             else:
                 raise FileNotFoundError(f"Requirements file not found: {self.pip}")
         else:
             # Treat as list of packages
             packages = " ".join([shlex.quote(pkg) for pkg in self.pip])
-            pip_cmd = self.run(f"pip install {packages}")
-
-        from rock.sdk.sandbox.client import RunMode
-
-        await arun_with_retry(
-            sandbox=self._sandbox,
-            cmd=pip_cmd,
-            session=self.session,
-            mode=RunMode.NOHUP,
-            wait_timeout=self.install_timeout,
-            error_msg="Pip packages installation failed",
-        )
+            return await self.run(f"pip install {packages}")

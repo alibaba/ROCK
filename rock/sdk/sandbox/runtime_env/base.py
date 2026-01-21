@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, NewType
 
 from rock.actions import CreateBashSessionRequest
 from rock.logger import init_logger
-from rock.sdk.sandbox.utils import arun_with_retry
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import RunModeType, Sandbox
@@ -166,11 +165,14 @@ class RuntimeEnv(ABC):
 
         logger.debug(f"[{self._sandbox.sandbox_id}] RuntimeEnv run cmd: {wrapped}")
 
-        return await arun_with_retry(
-            sandbox=self._sandbox,
-            cmd=wrapped,
+        result = await self._sandbox.arun(
+            cmd=cmd,
             session=self.session,
             mode=mode,
             wait_timeout=wait_timeout,
-            error_msg=error_msg,
+            wait_interval=wait_timeout,
         )
+        # If exit_code is not 0, raise an exception to trigger retry
+        if result.exit_code != 0:
+            raise Exception(f"{error_msg} with exit code: {result.exit_code}, output: {result.output}")
+        return result

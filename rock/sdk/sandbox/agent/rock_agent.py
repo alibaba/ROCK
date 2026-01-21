@@ -355,7 +355,7 @@ class RockAgent(Agent):
 
     async def create_agent_run_cmd(self, prompt: str) -> str:
         project_path = shlex.quote(str(self.config.project_path))
-        run_cmd = self.config.run_cmd.format(prompt=prompt)
+        run_cmd = self.config.run_cmd.format(prompt=shlex.quote(prompt))
         wrapped_cmd = self.rt_env.wrapped_cmd(run_cmd, prepend=False)
 
         parts = [
