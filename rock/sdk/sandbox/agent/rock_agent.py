@@ -163,7 +163,6 @@ class RockAgent(Agent):
         - RockAgent only wraps the command with: bash -c <quoted>.
         - Subclass is responsible for composing the full command content
           (including `cd ... && ...` if needed).
-        - RockAgent does NOT start ModelService; upper layer should call `start_model_service()` if needed.
         """
         cmd = await self.create_agent_run_cmd(prompt)
         return await self._agent_run(
@@ -282,11 +281,11 @@ class RockAgent(Agent):
             raise
 
     async def _init_model_service(self):
-        """Initialize ModelService (install only, not start).
+        """Initialize and start ModelService.
 
         If the sandbox already has a ModelService, reuse it instead of creating
-        a new one. Otherwise, creates a ModelService instance and executes installation.
-        The service will be started later in run() if needed.
+        a new one. Otherwise, creates a ModelService instance, executes installation,
+        and starts the service.
         """
         sandbox_id = self._sandbox.sandbox_id
 
@@ -295,9 +294,10 @@ class RockAgent(Agent):
             if self._sandbox.model_service is not None:
                 logger.info(f"[{sandbox_id}] Reusing existing ModelService from sandbox")
                 self.model_service = self._sandbox.model_service
-                # Ensure it's installed if not already
+                # Ensure it's installed and started if not already
                 if not self.model_service.is_installed:
                     await self.model_service.install()
+                await self.model_service.start()
                 logger.info(f"[{sandbox_id}] ModelService reused successfully")
                 return
 
@@ -309,10 +309,11 @@ class RockAgent(Agent):
             )
 
             await self.model_service.install()
+            await self.model_service.start()
 
             self._sandbox.model_service = self.model_service  # Ensure one sandbox has just one model service
 
-            logger.info(f"[{sandbox_id}] ModelService initialized successfully")
+            logger.info(f"[{sandbox_id}] ModelService initialized and started successfully")
 
         except Exception as e:
             logger.error(f"[{sandbox_id}] ModelService initialization failed: {str(e)}", exc_info=True)
@@ -409,41 +410,3 @@ class RockAgent(Agent):
             error_msg = f"Failed to execute nohup command '{cmd}': {str(e)}"
             logger.error(f"[{sandbox_id}] {error_msg}", exc_info=True)
             return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
-
-    async def start_model_service(self):
-        """Start the ModelService if it was initialized.
-
-        Raises:
-            RuntimeError: If ModelService is not initialized
-        """
-        sandbox_id = self._sandbox.sandbox_id
-
-        if not self.model_service:
-            raise RuntimeError(f"ModelService is not initialized in {self.config.agent_type}!")
-
-        logger.info(f"[{sandbox_id}] Starting ModelService")
-        await self.model_service.start()
-
-    async def anti_call_llm(
-        self,
-        index: int,
-        response_payload: str | None = None,
-        call_timeout: int = 600,
-        check_interval: int = 3,
-    ) -> str:
-        """Execute anti-call LLM command.
-
-        Delegates to ModelService.anti_call_llm for execution.
-
-        Raises:
-            RuntimeError: If ModelService is not initialized
-        """
-        if not self.model_service:
-            raise RuntimeError(f"ModelService is not initialized in {self.config.agent_type}!")
-
-        return await self.model_service.anti_call_llm(
-            index=index,
-            response_payload=response_payload,
-            call_timeout=call_timeout,
-            check_interval=check_interval,
-        )
