@@ -81,6 +81,32 @@ class StandardSpec:
 
 
 @dataclass
+class TaskConfig:
+    """单个任务配置"""
+
+    name: str = ""  # 任务名称
+    task_class: str = ""  # 任务类的完整路径
+    enabled: bool = True  # 是否启用
+    interval_seconds: int = 3600  # 执行间隔（秒）
+    idempotent: bool = True  # 是否为幂等任务
+    params: dict = field(default_factory=dict)  # 任务特定参数
+
+
+@dataclass
+class SchedulerConfig:
+    """调度器配置"""
+
+    enabled: bool = False
+    worker_cache_ttl: int = 3600
+    tasks: list[TaskConfig] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        # 将 dict 列表转换为 TaskConfig 列表
+        if self.tasks and isinstance(self.tasks[0], dict):
+            self.tasks = [TaskConfig(**task) for task in self.tasks]
+
+
+@dataclass
 class RuntimeConfig:
     enable_auto_clear: bool = False
     project_root: str = field(default_factory=lambda: env_vars.ROCK_PROJECT_ROOT)
@@ -121,6 +147,7 @@ class RockConfig:
     oss: OssConfig = field(default_factory=OssConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     proxy_service: ProxyServiceConfig = field(default_factory=ProxyServiceConfig)
+    scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     nacos_provider: NacosConfigProvider | None = None
 
     @classmethod
@@ -158,6 +185,8 @@ class RockConfig:
             kwargs["runtime"] = RuntimeConfig(**config["runtime"])
         if "proxy_service" in config:
             kwargs["proxy_service"] = ProxyServiceConfig(**config["proxy_service"])
+        if "scheduler" in config:
+            kwargs["scheduler"] = SchedulerConfig(**config["scheduler"])
 
         return cls(**kwargs)
 

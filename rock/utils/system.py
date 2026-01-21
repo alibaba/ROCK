@@ -86,7 +86,9 @@ def extract_nohup_pid(nohup_output: str) -> int:
         return None
 
 
-async def find_free_port(max_attempts: int = 10, sleep_between_attempts: float = 0.1) -> int:
+async def find_free_port(
+    max_attempts: int = 10, sleep_between_attempts: float = 0.1
+) -> int:
     """Find a free port that is not yet registered
 
     Args:
@@ -108,7 +110,9 @@ async def find_free_port(max_attempts: int = 10, sleep_between_attempts: float =
                     _REGISTERED_PORTS.add(port)
                     logger.debug(f"Found free port {port}")
                     return port
-            logger.debug(f"Port {port} already registered, trying again after {sleep_between_attempts}s")
+            logger.debug(
+                f"Port {port} already registered, trying again after {sleep_between_attempts}s"
+            )
         time.sleep(sleep_between_attempts)
     msg = f"Failed to find a unique free port after {max_attempts} attempts"
     raise RuntimeError(msg)
@@ -192,7 +196,9 @@ def get_uniagent_endpoint(
     """
     try:
         if not Path(host_info_path).exists():
-            logging.warning(f"Host info file {host_info_path} not found, using default endpoint")
+            logging.warning(
+                f"Host info file {host_info_path} not found, using default endpoint"
+            )
             return default_host, default_port
         ip_pattern = re.compile(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})")
         with open(host_info_path) as f:
@@ -201,7 +207,9 @@ def get_uniagent_endpoint(
                     host = match.group(1)
                     logging.info(f"Found UniAgent IP: {host}")
                     return host, default_port
-        logging.warning(f"No valid IP found in {host_info_path}, using default endpoint")
+        logging.warning(
+            f"No valid IP found in {host_info_path}, using default endpoint"
+        )
         return default_host, default_port
     except Exception as e:
         logging.error(f"Error reading UniAgent endpoint: {e}")
@@ -221,3 +229,22 @@ def get_iso8601_timestamp(timestamp: int = None, timezone: str = None):
     else:
         time = datetime.datetime.now(tz)
     return time.isoformat(timespec="seconds")
+
+def is_primary_pod() -> bool:
+    """
+    Check if the current pod is the primary pod (index 0).
+    Reads /etc/hostname file and parses the pod index from the pod name.
+    Hostname format example: rock-admin-write-nt-gray-0.rock-admin-write-nt-gray-hs.chatos.svc.cluster.local
+    """
+    try:
+        with open("/etc/hostname") as f:
+            hostname = f.read().strip()
+        # Extract pod name (content before the first dot)
+        pod_name = hostname.split(".")[0]
+        # Extract index (number after the last hyphen)
+        pod_index = pod_name.rsplit("-", 1)[-1]
+        return pod_index == "0"
+    except Exception as e:
+        # If unable to read or parse, default to True (for local dev environment, etc.)
+        logger.warning(f"Failed to determine pod index from hostname: {e}, defaulting to primary")
+        return True
