@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from rock import env_vars
 from rock.actions.sandbox.request import CreateBashSessionRequest
+from rock.deployments.constants import Port
 from rock.logger import init_logger
 from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.sandbox.config import SandboxConfig
@@ -108,8 +109,18 @@ def admin_remote_server():
             "--port",
             str(port),
         ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=None,
+        stderr=None,
+    )
+
+    rocklet_process = subprocess.Popen(
+        [
+            "rocklet",
+            "--port",
+            str(Port.PROXY.value),
+        ],
+        stdout=None,
+        stderr=None,
     )
 
     # Wait for the server to start
@@ -118,21 +129,28 @@ def admin_remote_server():
     for _ in range(max_retries):
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=1):
-                break
+                with socket.create_connection(("127.0.0.1", Port.PROXY.value), timeout=1):
+                    break
         except (TimeoutError, ConnectionRefusedError):
             time.sleep(retry_delay)
     else:
         process.kill()
+        rocklet_process.kill()
         pytest.fail("Server did not start within the expected time")
 
     logger.info(f"Admin server started on port {port}")
     yield RemoteServer(port)
 
     process.terminate()
+    rocklet_process.terminate()
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         process.kill()
+    try:
+        rocklet_process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        rocklet_process.kill()
 
 
 @pytest.fixture

@@ -38,11 +38,8 @@ from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
 from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
 from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var
-from rock.sandbox import __version__ as gateway_version
-from rock.rocklet import __version__ as swe_version
 from rock.utils.crypto_utils import AESEncryption
 from rock.utils.providers import RedisProvider
-from rock.utils.service import build_sandbox_from_redis
 
 logger = init_logger(__name__)
 
@@ -128,76 +125,6 @@ class SandboxProxyService:
         except Exception as e:
             logger.error(f"sandbox not alive for {str(e)}")
             return IsAliveResponse(is_alive=False)
-
-    async def get_remote_status(self, sandbox_id: str, host_ip: str) -> ServiceStatus:
-        service_status_path = ServiceStatus.gen_service_status_path(sandbox_id)
-        find_file_rsp = await self._send_request(
-            sandbox_id=sandbox_id,
-            sandbox_status_dict={
-                "host_ip": host_ip,
-                "port_mapping": {Port.PROXY: 22555}, # 22555 is the port of worker rocklet
-            },
-            path="execute",
-            data=None,
-            json_data={"command": ["ls", service_status_path]},
-            files=None,
-            method="POST",
-        )
-
-        # When the file does not exist, exit_code = 2
-        if find_file_rsp.get("exit_code") and find_file_rsp.get("exit_code") == 2:
-            return None
-
-        response: dict = await self._send_request(
-            sandbox_id=sandbox_id,
-            sandbox_status_dict={
-                "host_ip": host_ip,
-                "port_mapping": {Port.PROXY: 22555},
-            },
-            path="read_file",
-            data=None,
-            json_data={"path": service_status_path},
-            files=None,
-            method="POST",
-        )
-        if response.get("content"):
-            return ServiceStatus.from_content(response.get("content"))
-        error_msg = (
-            f"get_remote_status failed! {response.get('failure_reason') if response.get('failure_reason') else ''}"
-        )
-        raise Exception(error_msg)
-
-    @monitor_sandbox_operation()
-    async def get_status(self, sandbox_id) -> SandboxStatusResponse:
-        sandbox_info: SandboxInfo = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
-        if sandbox_info is None:
-            raise Exception(f"sandbox {sandbox_id} not found to get status")
-        await self._update_expire_time(sandbox_id)
-        remote_status: ServiceStatus = await self.get_remote_status(sandbox_id, sandbox_info.get("host_ip"))
-        resp = SandboxStatusResponse(
-            sandbox_id=sandbox_id,
-            host_name=sandbox_info.get("host_name"),
-            host_ip=sandbox_info.get("host_ip"),
-            is_alive=False,
-            image=sandbox_info.get("image"),
-            swe_rex_version=swe_version,
-            gateway_version=gateway_version,
-            user_id=sandbox_info.get("user_id"),
-            experiment_id=sandbox_info.get("experiment_id"),
-            namespace=sandbox_info.get("namespace"),
-            cpus=sandbox_info.get("cpus"),
-            memory=sandbox_info.get("memory"),
-        )
-        if remote_status is None:
-            return resp
-        sandbox_info.update(remote_status.to_dict())
-        await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
-        logger.info(f"sandbox {sandbox_id} status is {remote_status}, write to redis")
-        alive = await self._is_alive(sandbox_id, sandbox_info)
-        resp.status = remote_status.phases
-        resp.port_mapping = remote_status.get_port_mapping()
-        resp.is_alive = alive.is_alive
-        return resp
 
     @monitor_sandbox_operation()
     async def read_file(self, request: ReadFileRequest) -> ReadFileResponse:

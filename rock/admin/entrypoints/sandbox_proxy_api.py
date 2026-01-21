@@ -36,11 +36,6 @@ def set_sandbox_proxy_service(service: SandboxProxyService):
     global sandbox_proxy_service
     sandbox_proxy_service = service
 
-@sandbox_proxy_router.get("/get_status")
-@handle_exceptions(error_message="get sandbox status failed")
-async def get_status(sandbox_id: str):
-    return RockResponse(result=await sandbox_proxy_service.get_status(sandbox_id))
-
 @sandbox_proxy_router.post("/execute")
 @handle_exceptions(error_message="execute command failed")
 async def execute(command: SandboxCommand) -> RockResponse[CommandResponse]:
