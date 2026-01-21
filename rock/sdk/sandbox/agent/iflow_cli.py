@@ -6,7 +6,7 @@ import re
 import shlex
 import tempfile
 from contextlib import contextmanager
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from typing_extensions import override
 
@@ -15,6 +15,9 @@ from rock.logger import init_logger
 from rock.sdk.sandbox.agent.rock_agent import RockAgent, RockAgentConfig
 from rock.sdk.sandbox.runtime_env.config import NodeRuntimeEnvConfig
 from rock.sdk.sandbox.utils import with_time_logging
+
+if TYPE_CHECKING:
+    from rock.sdk.sandbox.client import Sandbox
 
 logger = init_logger(__name__)
 
@@ -86,6 +89,10 @@ class IFlowCli(RockAgent):
     - Settings file generation and upload
     - Session management for persistent execution
     """
+
+    def __init__(self, sandbox: Sandbox):
+        super().__init__(sandbox)
+        self.config: IFlowCliConfig | None = None
 
     @override
     @with_time_logging("Installing IFlow CLI")
