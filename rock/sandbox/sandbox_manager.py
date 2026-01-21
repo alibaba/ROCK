@@ -78,6 +78,9 @@ class SandboxManager(BaseManager):
             result = await loop.run_in_executor(
                 self._executor, ray.get_actor, self.deployment_manager.get_actor_name(sandbox_id), self._ray_namespace
             )
+        except ValueError as e:
+            logger.error(f"ray get actor, actor {sandbox_id} not exist", exc_info=e)
+            raise e
         except Exception as e:
             logger.error("ray get actor failed", exc_info=e)
             error_msg = str(e.args[0]) if len(e.args) > 0 else f"ray get actor failed, {str(e)}"
@@ -167,7 +170,7 @@ class SandboxManager(BaseManager):
             logger.info(f"stop sandbox {sandbox_id}")
             try:
                 sandbox_actor = await self.async_ray_get_actor(sandbox_id)
-            except Exception as e:
+            except ValueError as e:
                 await self._clear_redis_keys(sandbox_id)
                 raise Exception(f"sandbox {sandbox_id} not found to stop, {str(e)}")
             logger.info(f"start to stop run time {sandbox_id}")
