@@ -307,7 +307,7 @@ class DockerDeployment(AbstractDeployment):
                 "-e",
                 f"ROCK_LOGGING_PATH={env_vars.ROCK_LOGGING_PATH}",
                 "-e",
-                f"ROCK_LOGGING_LEVEL={env_vars.ROCK_LOGGING_LEVEL}"
+                f"ROCK_LOGGING_LEVEL={env_vars.ROCK_LOGGING_LEVEL}",
             ]
 
         time.sleep(random.randint(0, 5))
@@ -321,7 +321,7 @@ class DockerDeployment(AbstractDeployment):
             *volume_args,
             "--privileged",
             "-p",
-            f"{self._config.port}:8000",
+            f"{self._config.port}:{Port.PROXY}",
             "-p",
             f"{self._service_status.get_mapped_port(Port.SERVER)}:8080",
             "-p",

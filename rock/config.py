@@ -18,6 +18,10 @@ class RayConfig:
     runtime_env: dict = field(default_factory=dict)
     namespace: str = "xrl-sandbox"
     resources: dict | None = None
+    ray_reconnect_enabled: bool = field(default=False)
+    ray_reconnect_interval_seconds: int = field(default=60 * 60 * 12)
+    ray_reconnect_request_threshold: int = field(default=10 * 1024 * 1024)
+    ray_reconnect_check_interval_seconds: int = field(default=60 * 10)
 
 
 @dataclass
@@ -61,6 +65,7 @@ class ProxyServiceConfig:
     max_connections: int = 500
     max_keepalive_connections: int = 100
     batch_get_status_max_count: int = 2000
+    aes_encrypt_key: str | None = None
 
 
 @dataclass
@@ -175,6 +180,20 @@ class RockConfig:
             return
 
         nacos_result = await self.nacos_provider.get_config()
-        if nacos_result:
-            sandbox_config = SandboxConfig(**nacos_result)
-            self.sandbox_config = sandbox_config
+        if not nacos_result:
+            return
+
+        # Map config keys to their corresponding dataclass types
+        config_map = {
+            "sandbox_config": (SandboxConfig, "sandbox_config"),
+            "proxy_service": (ProxyServiceConfig, "proxy_service"),
+        }
+
+        # Update configs that are present in nacos_result
+        for key, (config_class, attr_name) in config_map.items():
+            if key in nacos_result:
+                setattr(self, attr_name, config_class(**nacos_result[key]))
+
+        logger.info(
+            f"Updated config from Nacos: sandbox_config={self.sandbox_config}, proxy_service={self.proxy_service}"
+        )

@@ -24,6 +24,7 @@ from rock.sandbox.service.deployment_service import AbstractDeploymentService, R
 from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils.format import parse_memory_size
 from rock.utils.providers import RedisProvider
+from rock.admin.core.ray_service import RayService
 
 logger = init_logger(__name__)
 
@@ -37,12 +38,13 @@ class SandboxManager(BaseManager):
         rock_config: RockConfig,
         redis_provider: RedisProvider | None = None,
         ray_namespace: str = env_vars.ROCK_RAY_NAMESPACE,
+        ray_service: RayService | None = None,
         enable_runtime_auto_clear: bool = False,
     ):
         super().__init__(
             rock_config, redis_provider=redis_provider, enable_runtime_auto_clear=enable_runtime_auto_clear
         )
-
+        self._ray_service = ray_service
         self._ray_namespace = ray_namespace
         self._deployment_service = RayDeploymentService(ray_namespace=ray_namespace)
         logger.info("sandbox service init success")

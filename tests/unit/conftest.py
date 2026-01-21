@@ -13,6 +13,7 @@ from rock.logger import init_logger
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.utils.providers.redis_provider import RedisProvider
+from rock.admin.core.ray_service import RayService
 
 logger = init_logger(__name__)
 
@@ -36,13 +37,18 @@ async def redis_provider():
     yield provider
     await provider.close_pool()
 
+@pytest.fixture
+def ray_service(rock_config: RockConfig):
+    ray_service = RayService(rock_config.ray)
+    return ray_service
 
 @pytest.fixture
-async def sandbox_manager(rock_config: RockConfig, redis_provider: RedisProvider, ray_init_shutdown):
+async def sandbox_manager(rock_config: RockConfig, redis_provider: RedisProvider, ray_init_shutdown, ray_service):
     sandbox_manager = SandboxManager(
         rock_config,
         redis_provider=redis_provider,
         ray_namespace=rock_config.ray.namespace,
+        ray_service=ray_service,
         enable_runtime_auto_clear=rock_config.runtime.enable_auto_clear,
     )
     return sandbox_manager
