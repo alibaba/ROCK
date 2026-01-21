@@ -9,13 +9,13 @@ from typing import TYPE_CHECKING
 
 import yaml
 from httpx import ReadTimeout
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from rock import env_vars
 from rock.actions import CreateBashSessionRequest, Observation
 from rock.logger import init_logger
 from rock.sdk.sandbox.agent.base import Agent
-from rock.sdk.sandbox.agent.config import AgentBashCommand, AgentConfig
+from rock.sdk.sandbox.agent.config import AgentConfig
 from rock.sdk.sandbox.deploy import Deploy
 from rock.sdk.sandbox.model_service.base import ModelService, ModelServiceConfig
 from rock.sdk.sandbox.runtime_env.base import RuntimeEnv
@@ -27,6 +27,16 @@ if TYPE_CHECKING:
 
 
 logger = init_logger(__name__)
+
+
+class AgentBashCommand(BaseModel):
+    """Configuration for a command execution with timeout control."""
+
+    command: str = Field(...)
+    """The command to execute."""
+
+    timeout_seconds: int = Field(default=300)
+    """Timeout in seconds for command execution."""
 
 
 class RockAgentConfig(AgentConfig):

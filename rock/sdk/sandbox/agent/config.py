@@ -1,6 +1,6 @@
 import uuid
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class AgentConfig(BaseModel):
@@ -14,13 +14,3 @@ class AgentConfig(BaseModel):
 
     version: str = "default"
     """Version identifier for the agent."""
-
-
-class AgentBashCommand(BaseModel):
-    """Configuration for a command execution with timeout control."""
-
-    command: str = Field(...)
-    """The command to execute."""
-
-    timeout_seconds: int = Field(default=300)
-    """Timeout in seconds for command execution."""
