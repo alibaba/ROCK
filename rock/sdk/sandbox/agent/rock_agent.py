@@ -4,8 +4,10 @@ import asyncio
 import shlex
 import time
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+import yaml
 from httpx import ReadTimeout
 from pydantic import Field
 
@@ -99,16 +101,15 @@ class RockAgent(Agent):
     5. Execute post-init commands
     """
 
-    def __init__(self, sandbox: Sandbox, config: RockAgentConfig):
+    def __init__(self, sandbox: Sandbox):
         self._sandbox = sandbox
         self.model_service: ModelService | None = None
         self.runtime_env: RuntimeEnv | None = None
         self.deploy: Deploy = self._sandbox.deploy
+        self.config: RockAgentConfig | None = None
+        self.agent_session: str | None = None
 
-        self.config = config
-        self.agent_session = self.config.agent_session
-
-    async def init(self):
+    async def init(self, config: RockAgentConfig):
         """Initialize the agent environment.
 
         Flow:
@@ -118,6 +119,10 @@ class RockAgent(Agent):
         4. Parallel: RuntimeEnv init + ModelService install (if configured)
         5. Execute post-init commands
         """
+
+        self.config = config
+        self.agent_session = self.config.agent_session
+
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
 
@@ -171,7 +176,7 @@ class RockAgent(Agent):
             session=self.agent_session,
         )
 
-    async def _install(self):
+    async def _do_init(self):
         """Initialize the runtime environment.
 
         Uses runtime_env_config from the agent configuration.
@@ -417,3 +422,33 @@ class RockAgent(Agent):
             error_msg = f"Failed to execute nohup command '{cmd}': {str(e)}"
             logger.error(f"[{sandbox_id}] {error_msg}", exc_info=True)
             return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
+
+    @classmethod
+    async def install(
+        cls,
+        sandbox: Sandbox,
+        config_path: str = "rock_agent_config.yaml",
+    ) -> None:
+        """从 yaml 配置文件安装并初始化 RockAgent。
+
+        Args:
+            sandbox: Sandbox 实例
+            config_path: yaml 配置文件路径，默认 "rock_agent_config.yaml"
+
+        Raises:
+            FileNotFoundError: 当文件路径不存在时
+            ValueError: 当文件格式无效时
+        """
+        path = Path(config_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Agent config file not found: {config_path}")
+
+        if path.suffix.lower() not in (".yaml", ".yml"):
+            raise ValueError(f"Unsupported config file format: {path.suffix}. Only .yaml is supported.")
+
+        with open(path, encoding="utf-8") as f:
+            config_dict = yaml.safe_load(f)
+
+        agent = cls(sandbox)
+        await agent.init(RockAgentConfig(**config_dict))
+        sandbox.agent = agent

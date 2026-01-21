@@ -46,8 +46,7 @@ from rock.sdk.common.exceptions import (
     raise_for_code,
 )
 from rock.sdk.sandbox.agent.base import Agent
-from rock.sdk.sandbox.agent.rock_agent import RockAgent, RockAgentConfig
-from rock.sdk.sandbox.agent.utils import load_agent_config
+from rock.sdk.sandbox.agent.rock_agent import RockAgent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
 from rock.sdk.sandbox.deploy import Deploy
 from rock.sdk.sandbox.file_system import FileSystem, LinuxFileSystem
@@ -103,6 +102,7 @@ class Sandbox(AbstractSandbox):
         self.fs = LinuxFileSystem(self)
         self.deploy = Deploy(self)
         self.runtime_envs = {}
+        self.agent = RockAgent(self)
 
     @property
     def sandbox_id(self) -> str:
@@ -905,25 +905,6 @@ class Sandbox(AbstractSandbox):
             f"_oss_token_expire_time={self._oss_token_expire_time!r}"
             f")"
         )
-
-    async def install_agent_from_config(
-        self,
-        config_source: RockAgentConfig | dict | str,
-    ) -> None:
-        """从配置安装并初始化 RockAgent。
-
-        Args:
-            config_source: RockAgentConfig 对象、dict 或 yaml/json 文件路径
-
-        Raises:
-            ValueError: 当配置格式无效时
-            FileNotFoundError: 当文件路径不存在时
-            RuntimeError: 当 agent 初始化失败时
-        """
-        config = load_agent_config(config_source)
-        agent = RockAgent(sandbox=self, config=config)
-        await agent.init()
-        self.agent = agent
 
 
 class SandboxGroup:
