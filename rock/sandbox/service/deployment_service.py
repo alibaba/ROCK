@@ -14,8 +14,6 @@ from rock.logger import init_logger
 from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils.format import parse_memory_size
-from rock.rocklet import __version__ as swe_version
-from rock.sandbox import __version__ as gateway_version
 
 logger = init_logger(__name__)
 
@@ -26,12 +24,12 @@ class AbstractDeploymentService():
         ...
 
     @abstractmethod
-    async def submit(self, config: DeploymentConfig, user_info: dict) -> SandboxStartResponse:
+    async def submit(self, config: DeploymentConfig, user_info: dict) -> SandboxInfo:
         """Get status of sandbox."""
         ...
 
     @abstractmethod
-    async def get_status(self, *args, **kwargs) -> SandboxStatusResponse:
+    async def get_status(self, *args, **kwargs) -> SandboxInfo:
         """Get status of sandbox."""
         ...
 
@@ -128,30 +126,17 @@ class RayDeploymentService():
         logger.info(f"run time stop over {sandbox_id}")
         ray.kill(actor)
 
-    async def get_status(self, sandbox_id: str) -> SandboxStatusResponse:
+    async def get_status(self, sandbox_id: str) -> SandboxInfo:
         actor: SandboxActor = await self.async_ray_get_actor(sandbox_id)
         sandbox_info: SandboxInfo = await self.async_ray_get(actor.sandbox_info.remote())
         remote_status: ServiceStatus = await self.async_ray_get(actor.get_status.remote())
+        sandbox_info["status"] = remote_status.phases
+        sandbox_info["port_mapping"] = remote_status.get_port_mapping()
         alive = await self.async_ray_get(actor.is_alive.remote())
+        sandbox_info["alive"] = alive.is_alive
         if alive.is_alive:
             sandbox_info["state"] = State.RUNNING
-        return SandboxStatusResponse(
-            sandbox_id=sandbox_id,
-            status=remote_status.phases,
-            port_mapping=remote_status.get_port_mapping(),
-            host_name=sandbox_info.get("host_name"),
-            host_ip=sandbox_info.get("host_ip"),
-            is_alive=alive.is_alive,
-            image=sandbox_info.get("image"),
-            swe_rex_version=swe_version,
-            gateway_version=gateway_version,
-            user_id=sandbox_info.get("user_id"),
-            experiment_id=sandbox_info.get("experiment_id"),
-            namespace=sandbox_info.get("namespace"),
-            cpus=sandbox_info.get("cpus"),
-            memory=sandbox_info.get("memory"),
-            state=sandbox_info.get("state"),
-        )
+        return sandbox_info
 
     async def get_mount(self, sandbox_id: str):
         actor = await self.async_ray_get_actor(sandbox_id)

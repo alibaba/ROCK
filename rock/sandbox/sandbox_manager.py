@@ -7,13 +7,10 @@ from rock.actions import (
     CommandResponse,
     CreateBashSessionResponse,
 )
-<<<<<<< HEAD
 from rock.actions.sandbox.response import IsAliveResponse, State
-=======
 from rock.admin.proto.request import SandboxCreateSessionRequest as CreateSessionRequest
 from rock.admin.proto.request import SandboxCommand as Command
 from rock.admin.proto.request import SandboxAction as Action
->>>>>>> 14531e3 (fix test case: revert session related apis)
 
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.core.ray_service import RayService
@@ -36,8 +33,15 @@ from rock.utils import (
     trace_id_ctx_var,
 )
 from rock.utils.format import parse_memory_size
+<<<<<<< HEAD
 from rock.utils.providers.redis_provider import RedisProvider
 from rock.utils.service import build_sandbox_from_redis
+=======
+from rock.utils.providers import RedisProvider
+from rock.admin.core.ray_service import RayService
+from rock.rocklet import __version__ as swe_version
+from rock.sandbox import __version__ as gateway_version
+>>>>>>> ddca701 (fix test case: add rock auth in get status)
 
 logger = init_logger(__name__)
 
@@ -71,7 +75,6 @@ class SandboxManager(BaseManager):
         async with self._ray_service.get_ray_rwlock().read_lock():
             deployment_config: DeploymentConfig = await self.deployment_manager.init_config(config)
             sandbox_id = deployment_config.container_name
-            # deployment: AbstractDeployment = deployment_config.get_deployment()
             self.validate_sandbox_spec(self.rock_config.runtime, config)
             self._sandbox_meta[sandbox_id] = {"image": deployment_config.image}
             sandbox_info: SandboxInfo = await self._deployment_service.submit(deployment_config, user_info)
@@ -134,14 +137,23 @@ class SandboxManager(BaseManager):
     @monitor_sandbox_operation()
     async def get_status(self, sandbox_id) -> SandboxStatusResponse:
         async with self._ray_service.get_ray_rwlock().read_lock():
-            response: SandboxStatusResponse = await self._deployment_service.get_status(sandbox_id)
-            sandbox_info: SandboxInfo = self.get_info_from_response(response)
+            deployment_info: SandboxInfo = await self._deployment_service.get_status(sandbox_id)
+            sandbox_info: SandboxInfo = None
             if self._redis_provider:
+                sandbox_info = await self.build_sandbox_info_from_redis(sandbox_id)
+                if sandbox_info is None:
+                    sandbox_info = deployment_info
+                else:
+                    sandbox_info["state"] = deployment_info.get("state")
                 await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
                 await self._update_expire_time(sandbox_id)
-                # logger.info(f"sandbox {sandbox_id} status is {remote_status}, write to redis")
-            return response
+                remote_info = {k: v for k, v in deployment_info.items() if k in ['status', 'port_mapping', 'alive']}
+                sandbox_info.update(remote_info)
+                logger.info(f"sandbox {sandbox_id} status is {sandbox_info}, write to redis")
+            else:
+                sandbox_info = deployment_info
 
+<<<<<<< HEAD
     async def _get_sandbox_info(self, sandbox_id: str) -> SandboxInfo:
         """Get sandbox info, prioritize Redis, fallback to Ray Actor"""
         if self._redis_provider:
@@ -257,6 +269,32 @@ class SandboxManager(BaseManager):
             memory=response.memory,
             port_mapping=response.port_mapping,
         )
+=======
+            return SandboxStatusResponse(
+                sandbox_id=sandbox_id,
+                status=sandbox_info.get("status"),
+                state=sandbox_info.get("state"),
+                port_mapping=sandbox_info.get("port_mapping"),
+                host_name=sandbox_info.get("host_name"),
+                host_ip=sandbox_info.get("host_ip"),
+                is_alive=sandbox_info.get("alive"),
+                image=sandbox_info.get("image"),
+                swe_rex_version=swe_version,
+                gateway_version=gateway_version,
+                user_id=sandbox_info.get("user_id"),
+                experiment_id=sandbox_info.get("experiment_id"),
+                namespace=sandbox_info.get("namespace"),
+                cpus=sandbox_info.get("cpus"),
+                memory=sandbox_info.get("memory"),
+            )
+
+    async def build_sandbox_info_from_redis(self, sandbox_id: str) -> SandboxInfo | None:
+        if self._redis_provider:
+            sandbox_status = await self._redis_provider.json_get(alive_sandbox_key(sandbox_id), "$")
+            if sandbox_status and len(sandbox_status) > 0:
+                return sandbox_status[0]
+        return None
+>>>>>>> ddca701 (fix test case: add rock auth in get status)
     
     async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
         sandbox_actor = await self._deployment_service.async_ray_get_actor(request.sandbox_id)
