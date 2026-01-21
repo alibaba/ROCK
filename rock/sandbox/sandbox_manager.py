@@ -45,6 +45,7 @@ from rock.utils import (
 from rock.utils.format import parse_memory_size
 from rock.utils.providers.redis_provider import RedisProvider
 from rock.utils.service import build_sandbox_from_redis
+from rock.admin.core.ray_service import RayService
 
 logger = init_logger(__name__)
 

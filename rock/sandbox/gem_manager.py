@@ -19,6 +19,7 @@ from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.utils.providers import RedisProvider
+from rock.admin.core.ray_service import RayService
 
 
 class GemManager(SandboxManager):
