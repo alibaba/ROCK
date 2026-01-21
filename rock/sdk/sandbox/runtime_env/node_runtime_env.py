@@ -19,7 +19,7 @@ class NodeRuntimeEnv(RuntimeEnv):
     """Node runtime env.
 
     Each NodeRuntimeEnv is identified by (type, version) and is managed by Sandbox.runtime_envs.
-    workdir is auto-generated as: /rock-rt-envs/node/{version}/
+    workdir is auto-generated as: /rock-runtime-envs/node/{version}/
 
     Usage:
         env = NodeRuntimeEnv(sandbox, version="20.10.0")

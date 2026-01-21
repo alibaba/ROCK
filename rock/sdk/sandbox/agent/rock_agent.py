@@ -46,7 +46,7 @@ class RockAgentConfig(AgentConfig):
     agent_session: str = Field(default=f"agent-session-{uuid.uuid4().hex}")
     """Session identifier for bash operations."""
 
-    session_envs: dict[str, str] = Field(default_factory=dict)
+    env: dict[str, str] = Field(default_factory=dict)
     """Environment variables for the agent session."""
 
     pre_init_cmds: list[AgentBashCommand] = Field(
@@ -122,15 +122,14 @@ class RockAgent(Agent):
         logger.info(f"[{sandbox_id}] Starting agent initialization")
 
         try:
-            # Sequential steps that must happen first
-            await self._execute_pre_init()
-
-            await self._setup_session()
-
             if self.config.working_dir:
                 await self.deploy.deploy_working_dir(
                     local_path=self.config.working_dir,
                 )
+
+            await self._setup_session()
+            # Sequential steps that must happen first
+            await self._execute_pre_init()
 
             # Parallel tasks: agent-specific install + ModelService init
             tasks = [self.install()]
@@ -205,7 +204,7 @@ class RockAgent(Agent):
                 CreateBashSessionRequest(
                     session=self.agent_session,
                     env_enable=True,
-                    env=self.config.session_envs,
+                    env=self.config.env,
                 )
             )
 

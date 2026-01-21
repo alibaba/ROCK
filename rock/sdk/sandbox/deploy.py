@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shlex
 import uuid
 from string import Template
 from typing import TYPE_CHECKING
@@ -62,13 +61,6 @@ class Deploy:
         sandbox_id = self._sandbox.sandbox_id
         logger.info(f"[{sandbox_id}] Deploying working_dir: {local_abs} -> {target_path}")
 
-        # 创建目标目录
-        result = await self._sandbox.execute(
-            cmd=["bash", "-c", f"rm -rf {shlex.quote(target_path)} && mkdir -p {shlex.quote(target_path)}"],
-        )
-        if result.exit_code != 0:
-            raise RuntimeError(f"Failed to create target directory: {result.output}")
-
         # 上传目录
         upload_result = await self._sandbox.fs.upload_dir(source_dir=local_abs, target_dir=target_path)
         if upload_result.exit_code != 0:
@@ -99,8 +91,10 @@ class Deploy:
             >>> deploy.format("cat ${working_dir}/${prompt}", prompt="test.txt")
             "cat /tmp/rock_workdir_abc123/test.txt"
         """
-        if self._working_dir is None:
-            raise RuntimeError("No working_dir deployed yet. Call deploy_working_dir() first.")
+        subs = {
+            **kwargs,
+            **({"working_dir": self._working_dir} if self._working_dir else {}),
+        }
+        subs = {k: v for k, v in subs.items() if v is not None}
 
-        substitutions = {"working_dir": self._working_dir, **kwargs}
-        return Template(template).substitute(**substitutions)
+        return Template(template).safe_substitute(subs)
