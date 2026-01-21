@@ -139,7 +139,7 @@ class RockAgent(Agent):
             await self._execute_pre_init()
 
             # Parallel tasks: agent-specific install + ModelService init
-            tasks = [self._install()]
+            tasks = [self._do_init()]
 
             if self.config.model_service_config:
                 tasks.append(self._init_model_service())
@@ -330,11 +330,12 @@ class RockAgent(Agent):
 
         Automatically performs deploy.format() to replace ${working_dir} and ${prompt} placeholders.
         """
-        # Use project_path if set, otherwise fall back to deploy.working_dir
-        if self.config.project_path is not None:
-            path = self.config.project_path
-        else:
-            path = self.deploy.working_dir or "/testbed"
+        # Get project_path from config or deploy.working_dir
+        path = self.config.project_path or self.deploy.working_dir
+        if path is None:
+            raise ValueError(
+                "project_path is not set. Please configure it in the agent config or deploy a working directory."
+            )
 
         project_path = shlex.quote(str(path))
 
@@ -423,16 +424,10 @@ class RockAgent(Agent):
             logger.error(f"[{sandbox_id}] {error_msg}", exc_info=True)
             return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
 
-    @classmethod
-    async def install(
-        cls,
-        sandbox: Sandbox,
-        config_path: str = "rock_agent_config.yaml",
-    ) -> None:
+    async def install(self, config_path: str = "rock_agent_config.yaml") -> None:
         """从 yaml 配置文件安装并初始化 RockAgent。
 
         Args:
-            sandbox: Sandbox 实例
             config_path: yaml 配置文件路径，默认 "rock_agent_config.yaml"
 
         Raises:
@@ -449,6 +444,4 @@ class RockAgent(Agent):
         with open(path, encoding="utf-8") as f:
             config_dict = yaml.safe_load(f)
 
-        agent = cls(sandbox)
-        await agent.init(RockAgentConfig(**config_dict))
-        sandbox.agent = agent
+        await self.init(RockAgentConfig(**config_dict))
