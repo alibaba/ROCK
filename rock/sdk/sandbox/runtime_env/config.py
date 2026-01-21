@@ -12,7 +12,7 @@ class RuntimeEnvConfig(BaseModel):
     for concrete configurations.
     """
 
-    runtime_env_type: str = Field()
+    type: str = Field()
     """Runtime type discriminator. Must be 'python' or 'node'."""
 
     version: str = Field(default="default")
@@ -39,7 +39,7 @@ class PythonRuntimeEnvConfig(RuntimeEnvConfig):
         )
     """
 
-    runtime_env_type: Literal["python"] = Field(default="python")
+    type: Literal["python"] = Field(default="python")
     """Runtime type discriminator. Must be 'python'."""
 
     version: Literal["3.11", "3.12", "default"] = Field(default="default")
@@ -68,7 +68,7 @@ class NodeRuntimeEnvConfig(RuntimeEnvConfig):
         )
     """
 
-    runtime_env_type: Literal["node"] = Field(default="node")
+    type: Literal["node"] = Field(default="node")
     """Runtime type discriminator. Must be 'node'."""
 
     version: Literal["22.18.0", "default"] = Field(default="default")

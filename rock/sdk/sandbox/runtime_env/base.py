@@ -55,7 +55,7 @@ class RuntimeEnv(ABC):
         Returns:
             RuntimeEnv instance of the appropriate type, automatically registered to sandbox.runtime_envs
         """
-        runtime_type = runtime_env_config.runtime_env_type
+        runtime_type = runtime_env_config.type
         runtime_class = cls._REGISTRY.get(runtime_type)
         if runtime_class is None:
             raise ValueError(f"Unsupported runtime type: {runtime_type}")
@@ -80,7 +80,7 @@ class RuntimeEnv(ABC):
         self.install_timeout = runtime_env_config.install_timeout
         self.custom_install_cmd = runtime_env_config.custom_install_cmd
 
-        runtime_type = runtime_env_config.runtime_env_type
+        runtime_type = runtime_env_config.type
         version_str = version or "default"
 
         # Unique ID for this runtime env instance
