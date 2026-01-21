@@ -5,7 +5,9 @@ class DeprecatedMeta(type):
     def __getattribute__(cls, name):
         # only raise warning for public constants
         if not name.startswith("_") and name.isupper():
-            raise DeprecationWarning(f"Constants.{name} is deprecated. Use rock.envs instead")
+            raise DeprecationWarning(
+                f"Constants.{name} is deprecated. Use rock.envs instead"
+            )
         return super().__getattribute__(name)
 
 
