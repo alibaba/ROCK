@@ -34,8 +34,8 @@ class IsAliveResponse(BaseModel):
 
 class SandboxStatusResponse(BaseModel):
     sandbox_id: str = None
-    status: dict | None = None
-    port_mapping: dict | None = None
+    status: dict = None
+    port_mapping: dict = None
     host_name: str | None = None
     host_ip: str | None = None
     is_alive: bool = True

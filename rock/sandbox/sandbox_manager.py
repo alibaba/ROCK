@@ -278,6 +278,7 @@ class SandboxManager(BaseManager):
         remote_status: ServiceStatus = await self.get_remote_status(sandbox_id, sandbox_info.get("host_ip"))
         resp = SandboxStatusResponse(
             sandbox_id=sandbox_id,
+            state=sandbox_info.get("state"),
             host_name=sandbox_info.get("host_name"),
             host_ip=sandbox_info.get("host_ip"),
             is_alive=False,
@@ -293,9 +294,6 @@ class SandboxManager(BaseManager):
         if remote_status is None:
             return resp
         sandbox_info.update(remote_status.to_dict())
-        if self._redis_provider:
-            await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
-            logger.info(f"sandbox {sandbox_id} status is {remote_status}, write to redis")
         try:
             alive_resp = await HttpUtils.get(
                 url=f"http://{sandbox_info.get('host_ip')}:{remote_status.get_mapped_port(Port.PROXY)}/is_alive",
@@ -304,10 +302,16 @@ class SandboxManager(BaseManager):
             alive = IsAliveResponse(**alive_resp)
         except Exception:
             alive = IsAliveResponse(is_alive=False)
+        if alive.is_alive:
+            sandbox_info["state"] = State.RUNNING
+        if self._redis_provider:
+            await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
+            logger.info(f"sandbox {sandbox_id} status is {remote_status}, write to redis")
 
         resp.status = remote_status.phases
         resp.port_mapping = remote_status.get_port_mapping()
         resp.is_alive = alive.is_alive
+        resp.state = sandbox_info.get("state")
         return resp
 
     async def get_remote_status(self, sandbox_id: str, host_ip: str) -> ServiceStatus:
