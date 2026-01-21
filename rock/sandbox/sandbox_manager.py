@@ -165,10 +165,11 @@ class SandboxManager(BaseManager):
     async def stop(self, sandbox_id):
         async with self._ray_service.get_ray_rwlock().read_lock():
             logger.info(f"stop sandbox {sandbox_id}")
-            sandbox_actor = await self.async_ray_get_actor(sandbox_id)
-            if sandbox_actor is None:
+            try:
+                sandbox_actor = await self.async_ray_get_actor(sandbox_id)
+            except Exception as e:
                 await self._clear_redis_keys(sandbox_id)
-                raise Exception(f"sandbox {sandbox_id} not found to stop")
+                raise Exception(f"sandbox {sandbox_id} not found to stop, {str(e)}")
             logger.info(f"start to stop run time {sandbox_id}")
             await self.async_ray_get(sandbox_actor.stop.remote())
             logger.info(f"run time stop over {sandbox_id}")
@@ -311,9 +312,6 @@ class SandboxManager(BaseManager):
         return await self.async_ray_get(sandbox_actor.upload.remote(file, target_path))
 
     async def _is_expired(self, sandbox_id):
-        sandbox_actor = await self.async_ray_get_actor(sandbox_id)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {sandbox_id} not found")
         timeout_dict = await self._redis_provider.json_get(timeout_sandbox_key(sandbox_id), "$")
         if timeout_dict is None or len(timeout_dict) == 0:
             raise Exception(f"sandbox {sandbox_id} timeout key not found")
@@ -339,11 +337,6 @@ class SandboxManager(BaseManager):
         logger.debug("check job background")
         async for key in self._redis_provider.client.scan_iter(match=f"{ALIVE_PREFIX}*", count=100):
             sandbox_id = key.removeprefix(ALIVE_PREFIX)
-            if not await self._is_actor_alive(sandbox_id):
-                logger.info(f"sandbox_id:[{sandbox_id}] is not alive, start to stop")
-                await self._clear_redis_keys(sandbox_id)
-                continue
-
             try:
                 is_expired = await self._is_expired(sandbox_id)
                 if is_expired:
