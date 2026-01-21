@@ -5,7 +5,7 @@ import os
 import shlex
 import tempfile
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 import yaml
 from typing_extensions import override
@@ -14,10 +14,6 @@ from rock.logger import init_logger
 from rock.sdk.sandbox.agent.rock_agent import RockAgent, RockAgentConfig
 from rock.sdk.sandbox.runtime_env import PythonRuntimeEnvConfig, RuntimeEnvConfig
 from rock.sdk.sandbox.utils import with_time_logging
-
-if TYPE_CHECKING:
-    from rock.sdk.sandbox.client import Sandbox
-
 
 logger = init_logger(__name__)
 
@@ -127,13 +123,6 @@ class SweAgentConfig(RockAgentConfig):
     agent_type: Literal["swe-agent"] = "swe-agent"
     """Type identifier for SWE-agent."""
 
-    swe_agent_install_cmd: str = (
-        "[ -d SWE-agent ] && rm -rf SWE-agent; "
-        "git clone https://github.com/SWE-agent/SWE-agent.git && "
-        "cd SWE-agent && pip install -e ."
-    )
-    """Command to install SWE-agent in the sandbox."""
-
     default_run_single_config: dict[str, Any] = DEFAULT_RUN_SINGLE_CONFIG
     """Default configuration for SWE-agent run_single mode."""
 
@@ -152,10 +141,6 @@ class SweAgent(RockAgent):
     GENERATED_CONFIG_NAME = "generated_config.yaml"
     """Filename for the generated SWE-agent configuration."""
 
-    def __init__(self, sandbox: Sandbox, config: SweAgentConfig):
-        super().__init__(sandbox, config)
-        self.config: SweAgentConfig = config
-
     @property
     def config_path(self) -> str:
         """Path to the generated SWE-agent configuration file in the sandbox."""
@@ -163,19 +148,25 @@ class SweAgent(RockAgent):
 
     @override
     @with_time_logging("Installing SWE-agent")
-    async def install(self):
+    async def _do_init(self):
         """Install SWE-agent after Python runtime environment is ready.
 
         This extends the parent install() to perform SWE-agent specific installation:
         1. Clones SWE-agent repository and installs it
         2. Generates and uploads the YAML configuration template
         """
-        await super().install()
+        await super()._do_init()
+
+        swe_agent_install_cmd: str = (
+            "[ -d SWE-agent ] && rm -rf SWE-agent; "
+            "git clone https://github.com/SWE-agent/SWE-agent.git && "
+            "cd SWE-agent && pip install -e ."
+        )
 
         swe_agent_install_cmd = (
             f"mkdir -p {self.config.agent_installed_dir} "
             f"&& cd {self.config.agent_installed_dir} "
-            f"&& {self.config.swe_agent_install_cmd}"
+            f"&& {swe_agent_install_cmd}"
         )
 
         await self.runtime_env.run(

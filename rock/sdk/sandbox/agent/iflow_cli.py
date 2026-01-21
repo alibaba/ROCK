@@ -6,7 +6,7 @@ import re
 import shlex
 import tempfile
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from typing_extensions import override
 
@@ -15,9 +15,6 @@ from rock.logger import init_logger
 from rock.sdk.sandbox.agent.rock_agent import RockAgent, RockAgentConfig
 from rock.sdk.sandbox.runtime_env.config import NodeRuntimeEnvConfig
 from rock.sdk.sandbox.utils import with_time_logging
-
-if TYPE_CHECKING:
-    from rock.sdk.sandbox.client import Sandbox
 
 logger = init_logger(__name__)
 
@@ -90,13 +87,9 @@ class IFlowCli(RockAgent):
     - Session management for persistent execution
     """
 
-    def __init__(self, sandbox: Sandbox, config: IFlowCliConfig):
-        super().__init__(sandbox, config)
-        self.config: IFlowCliConfig = config
-
     @override
     @with_time_logging("Installing IFlow CLI")
-    async def install(self):
+    async def _do_init(self):
         """Install IFlow CLI and configure the environment.
 
         Steps:
@@ -107,7 +100,7 @@ class IFlowCli(RockAgent):
         4. Upload settings configuration file
         """
         # Step 1: Initialize Node runtime via parent class
-        await super().install()
+        await super()._do_init()
 
         # Step 2: iflow-cli
         await self._install_iflow_cli_package()
