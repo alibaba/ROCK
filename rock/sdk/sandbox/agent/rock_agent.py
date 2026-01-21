@@ -79,8 +79,8 @@ class RockAgentConfig(AgentConfig):
     )
     """Runtime environment configuration for the agent."""
 
-    model_service_config: ModelServiceConfig | None = Field(default=None)
-    """Optional ModelService configuration for LLM integration."""
+    model_service_config: ModelServiceConfig = Field(default_factory=ModelServiceConfig)
+    """ModelService configuration for LLM integration. Use enable field to control whether to initialize."""
 
 
 class RockAgent(Agent):
@@ -141,7 +141,7 @@ class RockAgent(Agent):
             # Parallel tasks: agent-specific install + ModelService init
             tasks = [self._do_init()]
 
-            if self.config.model_service_config:
+            if self.config.model_service_config.enable:
                 tasks.append(self._init_model_service())
 
             await asyncio.gather(*tasks)

@@ -24,6 +24,9 @@ class ModelServiceConfig(BaseModel):
     agent monitoring, and anti-call LLM operations.
     """
 
+    enable: bool = Field(default=False)
+    """Whether to enable the ModelService. When False, ModelService will not be initialized."""
+
     model_service_install_cmd: str = Field(default=env_vars.ROCK_MODEL_SERVICE_INSTALL_CMD)
     """Command to install model service package."""
 
