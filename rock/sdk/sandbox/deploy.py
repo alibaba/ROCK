@@ -14,11 +14,11 @@ logger = init_logger(__name__)
 
 
 class Deploy:
-    """Sandbox 资源部署管理器.
+    """Sandbox resource deployment manager.
 
-    提供:
-    - deploy_working_dir(): 将本地目录部署到 sandbox
-    - format(): 使用 ${working_dir} 模板替换
+    Provides:
+    - deploy_working_dir(): Deploy local directory to sandbox
+    - format(): Replace ${working_dir} template placeholders
     """
 
     def __init__(self, sandbox: Sandbox):
@@ -27,7 +27,7 @@ class Deploy:
 
     @property
     def working_dir(self) -> str | None:
-        """返回当前部署的 working_dir 在 sandbox 中的路径."""
+        """Returns the working_dir path deployed in the sandbox."""
         return self._working_dir
 
     async def deploy_working_dir(
@@ -35,54 +35,54 @@ class Deploy:
         local_path: str,
         target_path: str | None = None,
     ) -> str:
-        """将本地目录部署到 sandbox.
+        """Deploy local directory to sandbox.
 
-        支持多次调用，后面的调用会覆盖之前的路径。
+        Supports multiple calls; later calls will overwrite previous paths.
 
         Args:
-            local_path: 本地目录路径（相对或绝对）
-            target_path: sandbox 目标路径（默认: /tmp/rock_workdir_<uuid>）
+            local_path: Local directory path (relative or absolute).
+            target_path: Target path in sandbox (default: /tmp/rock_workdir_<uuid>).
 
         Returns:
-            sandbox 中的目标路径
+            The target path in sandbox.
         """
         local_abs = os.path.abspath(local_path)
 
-        # 验证本地路径
+        # Validate local path
         if not os.path.exists(local_abs):
             raise FileNotFoundError(f"local_path not found: {local_abs}")
         if not os.path.isdir(local_abs):
             raise ValueError(f"local_path must be a directory: {local_abs}")
 
-        # 确定目标路径
+        # Determine target path
         if target_path is None:
             target_path = f"/tmp/rock_workdir_{uuid.uuid4().hex}"
 
         sandbox_id = self._sandbox.sandbox_id
         logger.info(f"[{sandbox_id}] Deploying working_dir: {local_abs} -> {target_path}")
 
-        # 上传目录
+        # Upload directory
         upload_result = await self._sandbox.fs.upload_dir(source_dir=local_abs, target_dir=target_path)
         if upload_result.exit_code != 0:
             raise RuntimeError(f"Failed to upload directory: {upload_result.failure_reason}")
 
-        # 覆盖之前的 working_dir
+        # Overwrite previous working_dir
         self._working_dir = target_path
         logger.info(f"[{sandbox_id}] working_dir deployed: {target_path}")
         return target_path
 
     def format(self, template: str, **kwargs: str) -> str:
-        """使用 string.Template 格式化命令模板.
+        """Format command template using string.Template.
 
         Args:
-            template: 包含 ${working_dir} 等占位符的命令模板
-            **kwargs: 其他变量替换，如 prompt="xxx" 替换 ${prompt}
+            template: Command template containing placeholders like ${working_dir}.
+            **kwargs: Additional variable replacements, e.g., prompt="xxx" replaces ${prompt}.
 
         Returns:
-            格式化后的命令
+            The formatted command.
 
         Raises:
-            RuntimeError: 如果没有部署过 working_dir
+            RuntimeError: If working_dir has not been deployed.
 
         Example:
             >>> deploy.format("mv ${working_dir}/config.json /root/.app/")
