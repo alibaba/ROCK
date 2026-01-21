@@ -104,4 +104,4 @@ class NodeRuntimeEnv(RuntimeEnv):
     @with_time_logging("Configuring npm registry")
     async def _configure_npm_registry(self) -> None:
         """Configure npm registry."""
-        return self.run(cmd=f"npm config set registry {shlex.quote(self.npm_registry)}")
+        return await self.run(cmd=f"npm config set registry {shlex.quote(self.npm_registry)}")
