@@ -58,13 +58,13 @@ async def lifespan(app: FastAPI):
             password=rock_config.redis.password,
         )
         await redis_provider.init_pool()
-        
-    # init ray service
-    ray_service = RayService(rock_config.ray)
-    ray_service.init()
 
     # init sandbox service
     if args.role == "admin":
+        # init ray service
+        ray_service = RayService(rock_config.ray)
+        ray_service.init()
+
         # init service
         if rock_config.runtime.enable_auto_clear:
             sandbox_manager = GemManager(
