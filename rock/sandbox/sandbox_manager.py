@@ -265,13 +265,6 @@ class SandboxManager(BaseManager):
         await self._update_expire_time(request.sandbox_id)
         return await self._deployment_service.async_ray_get(sandbox_actor.create_session.remote(request))
 
-    async def execute(self, command: Command) -> CommandResponse:
-        sandbox_actor = await self._deployment_service.async_ray_get_actor(command.sandbox_id)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {command.sandbox_id} not found to execute")
-        await self._update_expire_time(command.sandbox_id)
-        return await self._deployment_service.async_ray_get(sandbox_actor.execute.remote(command))
-
     @monitor_sandbox_operation()
     async def run_in_session(self, action: Action) -> BashObservation:
         sandbox_actor = await self._deployment_service.async_ray_get_actor(action.sandbox_id)
@@ -279,6 +272,13 @@ class SandboxManager(BaseManager):
             raise Exception(f"sandbox {action.sandbox_id} not found to run in session")
         await self._update_expire_time(action.sandbox_id)
         return await self._deployment_service.async_ray_get(sandbox_actor.run_in_session.remote(action))
+
+    async def execute(self, command: Command) -> CommandResponse:
+        sandbox_actor = await self._deployment_service.async_ray_get_actor(command.sandbox_id)
+        if sandbox_actor is None:
+            raise Exception(f"sandbox {command.sandbox_id} not found to execute")
+        await self._update_expire_time(command.sandbox_id)
+        return await self._deployment_service.async_ray_get(sandbox_actor.execute.remote(command))
 
     async def _is_expired(self, sandbox_id):
         timeout_dict = await self._redis_provider.json_get(timeout_sandbox_key(sandbox_id), "$")
