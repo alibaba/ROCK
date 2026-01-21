@@ -171,3 +171,12 @@ async def test_sandbox_start_with_sandbox_id(sandbox_manager):
         logger.error(f"test_sandbox_start_with_sandbox_id error: {str(e)}", exc_info=True)
     finally:
         await sandbox_manager.stop(sandbox_id)
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_get_actor_not_exist_raises_value_error(sandbox_manager):
+    sandbox_id = "unknown"
+    with pytest.raises(Exception) as exc_info:
+        await sandbox_manager.async_ray_get_actor(sandbox_id)
+    assert exc_info.type == ValueError

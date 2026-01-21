@@ -23,9 +23,6 @@ from .importer import (
 from .retry import (
     retry_async,
 )
-from .service import (
-    gen_service_status_path,
-)
 from .system import (
     extract_nohup_pid,
     find_free_port,
@@ -83,8 +80,6 @@ __all__ = [
     "handle_exceptions",
     # Retry utilities
     "retry_async",
-    # Service utilities
-    "gen_service_status_path",
     # Constants
     "ENV_POOL",
     "sandbox_id_ctx_var",

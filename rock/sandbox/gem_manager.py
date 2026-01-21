@@ -12,6 +12,7 @@ from rock.actions import (
     EnvStepRequest,
     EnvStepResponse,
 )
+from rock.admin.core.ray_service import RayService
 from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
 from rock.config import RockConfig
 from rock.deployments.config import DockerDeploymentConfig
@@ -26,9 +27,10 @@ class GemManager(SandboxManager):
         rock_config: RockConfig,
         redis_provider: RedisProvider | None = None,
         ray_namespace: str = env_vars.ROCK_RAY_NAMESPACE,
+        ray_service: RayService | None = None,
         enable_runtime_auto_clear: bool = False,
     ):
-        super().__init__(rock_config, redis_provider, ray_namespace, enable_runtime_auto_clear)
+        super().__init__(rock_config, redis_provider, ray_namespace, ray_service, enable_runtime_auto_clear)
 
     async def env_make(self, env_id: str) -> EnvMakeResponse:
         config = DockerDeploymentConfig(image=env_vars.ROCK_ENVHUB_DEFAULT_DOCKER_IMAGE)

@@ -84,11 +84,10 @@ async def get_sandbox_statistics(sandbox_id: str):
 @handle_exceptions(error_message="get sandbox status failed")
 async def get_status(sandbox_id: str):
     if sandbox_manager.rock_config.nacos_provider is None or sandbox_manager.rock_config.nacos_provider.get_switch_status(
-        GET_STATUS_SWITCH, True
+        GET_STATUS_SWITCH
     ):
-        print("call get_status_v2")
         return RockResponse(result=await sandbox_manager.get_status_v2(sandbox_id))
-    return RockResponse(result=await sandbox_manager.get_status_v2(sandbox_id))
+    return RockResponse(result=await sandbox_manager.get_status(sandbox_id))
 
 
 @sandbox_router.post("/execute")

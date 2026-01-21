@@ -58,6 +58,10 @@ async def lifespan(app: FastAPI):
             password=rock_config.redis.password,
         )
         await redis_provider.init_pool()
+        
+    # init ray service
+    ray_service = RayService(rock_config.ray)
+    ray_service.init()
 
     # init sandbox service
     if args.role == "admin":
@@ -67,6 +71,7 @@ async def lifespan(app: FastAPI):
                 rock_config,
                 redis_provider=redis_provider,
                 ray_namespace=rock_config.ray.namespace,
+                ray_service=ray_service,
                 enable_runtime_auto_clear=True,
             )
         else:
@@ -74,6 +79,7 @@ async def lifespan(app: FastAPI):
                 rock_config,
                 redis_provider=redis_provider,
                 ray_namespace=rock_config.ray.namespace,
+                ray_service=ray_service,
                 enable_runtime_auto_clear=False,
             )
         set_sandbox_manager(sandbox_manager)
@@ -82,7 +88,6 @@ async def lifespan(app: FastAPI):
         set_warmup_service(warmup_service)
         set_env_service(sandbox_manager)
 
-        RayService(rock_config.ray).init()
     else:
         sandbox_manager = SandboxProxyService(rock_config=rock_config, redis_provider=redis_provider)
         set_sandbox_proxy_service(sandbox_manager)
