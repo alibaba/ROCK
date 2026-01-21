@@ -116,6 +116,7 @@ class BaseManager:
         self.metrics_monitor.record_gauge_by_name(MetricsConstants.AVAILABLE_CPU_RESOURCE, available_cpu)
         self.metrics_monitor.record_gauge_by_name(MetricsConstants.AVAILABLE_MEM_RESOURCE, available_mem)
 
+    # TODO: remove ray dependency in base manager, impl it in ray deployment service
     async def _collect_system_resource_metrics(self):
         """收集系统资源指标"""
         cluster_resources = ray.cluster_resources()

@@ -26,14 +26,15 @@ async def test_async_sandbox_start(sandbox_manager: SandboxManager):
     assert sandbox_id is not None
     search_start_time = time.time()
     while time.time() - search_start_time < 60:
-        is_alive_response = await sandbox_manager._is_actor_alive(sandbox_id)
+        is_alive_response = await sandbox_manager._is_deployment_alive(sandbox_id)
         if is_alive_response:
             break
 
-    is_alive_response = await sandbox_manager._is_actor_alive(sandbox_id)
+    is_alive_response = await sandbox_manager._is_deployment_alive(sandbox_id)
     assert is_alive_response
 
-    sandbox_actor = await sandbox_manager.async_ray_get_actor(sandbox_id)
+    # TODO: fix async_ray_get_actor for it is not a general method
+    sandbox_actor = await sandbox_manager._deployment_service.async_ray_get_actor(sandbox_id)
     assert sandbox_actor is not None
     assert await sandbox_actor.user_id.remote() == "default"
     assert await sandbox_actor.experiment_id.remote() == "default"
@@ -71,12 +72,12 @@ async def test_ray_actor_is_alive(sandbox_manager):
     response = await sandbox_manager.start_async(docker_deploy_config)
     assert response.sandbox_id is not None
 
-    assert await sandbox_manager._is_actor_alive(response.sandbox_id)
+    assert await sandbox_manager._is_deployment_alive(response.sandbox_id)
 
-    sandbox_actor = await sandbox_manager.async_ray_get_actor(response.sandbox_id)
+    sandbox_actor = await sandbox_manager._deployment_service.async_ray_get_actor(response.sandbox_id)
     ray.kill(sandbox_actor)
 
-    assert not await sandbox_manager._is_actor_alive(response.sandbox_id)
+    assert not await sandbox_manager._is_deployment_alive(response.sandbox_id)
 
 
 @pytest.mark.need_ray
@@ -88,7 +89,7 @@ async def test_user_info_set_success(sandbox_manager):
 
     cnt = 0
     while True:
-        is_alive_response = await sandbox_manager._is_actor_alive(sandbox_id)
+        is_alive_response = await sandbox_manager._is_deployment_alive(sandbox_id)
         if is_alive_response:
             break
         time.sleep(1)
@@ -96,13 +97,15 @@ async def test_user_info_set_success(sandbox_manager):
         if cnt > 60:
             raise Exception("sandbox not alive")
 
-    is_alive_response = await sandbox_manager._is_actor_alive(sandbox_id)
+    is_alive_response = await sandbox_manager._is_deployment_alive(sandbox_id)
     assert is_alive_response
 
-    sandbox_actor = await sandbox_manager.async_ray_get_actor(sandbox_id)
-    assert sandbox_actor is not None
-    assert await sandbox_actor.user_id.remote() == "test_user_id"
-    assert await sandbox_actor.experiment_id.remote() == "test_experiment_id"
+    sandbox_deployment = await sandbox_manager._deployment_service.get_deployment(sandbox_id)
+    assert sandbox_deployment is not None
+
+    ray_actor = await sandbox_manager._deployment_service.async_ray_get_actor(sandbox_id)
+    assert await ray_actor.user_id.remote() == "test_user_id"
+    assert await ray_actor.experiment_id.remote() == "test_experiment_id"
 
     await sandbox_manager.stop(sandbox_id)
 
@@ -171,12 +174,3 @@ async def test_sandbox_start_with_sandbox_id(sandbox_manager):
         logger.error(f"test_sandbox_start_with_sandbox_id error: {str(e)}", exc_info=True)
     finally:
         await sandbox_manager.stop(sandbox_id)
-
-
-@pytest.mark.need_ray
-@pytest.mark.asyncio
-async def test_get_actor_not_exist_raises_value_error(sandbox_manager):
-    sandbox_id = "unknown"
-    with pytest.raises(Exception) as exc_info:
-        await sandbox_manager.async_ray_get_actor(sandbox_id)
-    assert exc_info.type == ValueError

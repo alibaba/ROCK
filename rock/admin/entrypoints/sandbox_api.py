@@ -52,7 +52,7 @@ async def start_async(
     x_experiment_id: str | None = Header(default="default", alias="X-Experiment-Id"),
     rock_authorization: str | None = Header(default="default", alias="X-Key"),
 ) -> RockResponse[SandboxStartResponse]:
-    sandbox_start_response = await sandbox_manager.start_async(
+    sandbox_start_response = await sandbox_manager.submit(
         DockerDeploymentConfig.from_request(request),
         user_info={
             "user_id": x_user_id,
@@ -89,52 +89,6 @@ async def get_status(sandbox_id: str):
     ):
         return RockResponse(result=await sandbox_manager.get_status_v2(sandbox_id))
     return RockResponse(result=await sandbox_manager.get_status(sandbox_id))
-
-
-@sandbox_router.post("/execute")
-@handle_exceptions(error_message="execute command failed")
-async def execute(command: SandboxCommand) -> RockResponse[CommandResponse]:
-    return RockResponse(result=await sandbox_manager.execute(command))
-
-
-@sandbox_router.post("/create_session")
-@handle_exceptions(error_message="create session failed")
-async def create_session(request: SandboxCreateBashSessionRequest) -> RockResponse[CreateBashSessionResponse]:
-    return RockResponse(result=await sandbox_manager.create_session(request))
-
-
-@sandbox_router.post("/run_in_session")
-@handle_exceptions(error_message="run in session failed")
-async def run(action: SandboxBashAction) -> RockResponse[BashObservation]:
-    return RockResponse(result=await sandbox_manager.run_in_session(action))
-
-
-@sandbox_router.post("/close_session")
-@handle_exceptions(error_message="close session failed")
-async def close_session(request: SandboxCloseBashSessionRequest) -> RockResponse[CloseBashSessionResponse]:
-    return RockResponse(result=await sandbox_manager.close_session(request))
-
-
-@sandbox_router.post("/read_file")
-@handle_exceptions(error_message="read file failed")
-async def read_file(request: SandboxReadFileRequest) -> RockResponse[ReadFileResponse]:
-    return RockResponse(result=await sandbox_manager.read_file(request))
-
-
-@sandbox_router.post("/write_file")
-@handle_exceptions(error_message="write file failed")
-async def write_file(request: SandboxWriteFileRequest) -> RockResponse[WriteFileResponse]:
-    return RockResponse(result=await sandbox_manager.write_file(request))
-
-
-@sandbox_router.post("/upload")
-@handle_exceptions(error_message="upload file failed")
-async def upload(
-    file: UploadFile = File(...),
-    target_path: str = Form(...),
-    sandbox_id: str | None = Form(None),
-) -> RockResponse[UploadResponse]:
-    return RockResponse(result=await sandbox_manager.upload(file, target_path, sandbox_id))
 
 
 @sandbox_router.post("/stop")
