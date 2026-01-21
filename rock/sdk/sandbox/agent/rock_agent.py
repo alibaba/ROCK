@@ -82,7 +82,7 @@ class RockAgentConfig(AgentConfig):
     """Local directory to upload to sandbox. If None, no upload occurs."""
 
     run_cmd: str | None = Field(default=None)
-    """Command to execute agent. 必须留一个{prompt}的位置"""
+    """Command to execute agent. Must contain exactly one {prompt} placeholder."""
 
     runtime_env_config: NodeRuntimeEnvConfig | PythonRuntimeEnvConfig | None = Field(
         default_factory=PythonRuntimeEnvConfig
@@ -118,6 +118,28 @@ class RockAgent(Agent):
         self.deploy: Deploy = self._sandbox.deploy
         self.config: RockAgentConfig | None = None
         self.agent_session: str | None = None
+
+    async def install(self, config_path: str = "rock_agent_config.yaml") -> None:
+        """Install and initialize RockAgent from a YAML configuration file.
+
+        Args:
+            config_path: Path to the YAML config file. Defaults to "rock_agent_config.yaml".
+
+        Raises:
+            FileNotFoundError: When the config file path does not exist.
+            ValueError: When the file format is invalid.
+        """
+        path = Path(config_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Agent config file not found: {config_path}")
+
+        if path.suffix.lower() not in (".yaml", ".yml"):
+            raise ValueError(f"Unsupported config file format: {path.suffix}. Only .yaml is supported.")
+
+        with open(path, encoding="utf-8") as f:
+            config_dict = yaml.safe_load(f)
+
+        await self.init(RockAgentConfig(**config_dict))
 
     async def init(self, config: RockAgentConfig):
         """Initialize the agent environment.
@@ -433,25 +455,3 @@ class RockAgent(Agent):
             error_msg = f"Failed to execute nohup command '{cmd}': {str(e)}"
             logger.error(f"[{sandbox_id}] {error_msg}", exc_info=True)
             return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
-
-    async def install(self, config_path: str = "rock_agent_config.yaml") -> None:
-        """从 yaml 配置文件安装并初始化 RockAgent。
-
-        Args:
-            config_path: yaml 配置文件路径，默认 "rock_agent_config.yaml"
-
-        Raises:
-            FileNotFoundError: 当文件路径不存在时
-            ValueError: 当文件格式无效时
-        """
-        path = Path(config_path)
-        if not path.exists():
-            raise FileNotFoundError(f"Agent config file not found: {config_path}")
-
-        if path.suffix.lower() not in (".yaml", ".yml"):
-            raise ValueError(f"Unsupported config file format: {path.suffix}. Only .yaml is supported.")
-
-        with open(path, encoding="utf-8") as f:
-            config_dict = yaml.safe_load(f)
-
-        await self.init(RockAgentConfig(**config_dict))
