@@ -17,7 +17,7 @@ from rock.sdk.sandbox.agent.config import AgentBashCommand, AgentConfig
 from rock.sdk.sandbox.deploy import Deploy
 from rock.sdk.sandbox.model_service.base import ModelService, ModelServiceConfig
 from rock.sdk.sandbox.runtime_env.base import RuntimeEnv
-from rock.sdk.sandbox.runtime_env.config import PythonRuntimeEnvConfig, RuntimeEnvConfig
+from rock.sdk.sandbox.runtime_env.config import NodeRuntimeEnvConfig, PythonRuntimeEnvConfig
 from rock.sdk.sandbox.utils import with_time_logging
 
 if TYPE_CHECKING:
@@ -72,7 +72,9 @@ class RockAgentConfig(AgentConfig):
     run_cmd: str | None = Field(default=None)
     """Command to execute agent. 必须留一个{prompt}的位置"""
 
-    runtime_env_config: RuntimeEnvConfig | None = Field(default_factory=PythonRuntimeEnvConfig)
+    runtime_env_config: NodeRuntimeEnvConfig | PythonRuntimeEnvConfig | None = Field(
+        default_factory=PythonRuntimeEnvConfig
+    )
     """Runtime environment configuration for the agent."""
 
     model_service_config: ModelServiceConfig | None = Field(default=None)
