@@ -40,8 +40,8 @@ class RockAgentConfig(AgentConfig):
     instance_id: str = Field(default=f"instance-id-{uuid.uuid4().hex}")
     """Unique identifier for this agent instance."""
 
-    project_path: str = Field(default="/testbed")
-    """Working directory path in the sandbox. If not set, defaults to /testbed. If not exists, it will be created."""
+    project_path: str | None = Field(default=None)
+    """Working directory path in the sandbox. If not set, uses deploy.working_dir. If not exists, it will be created."""
 
     agent_session: str = Field(default=f"agent-session-{uuid.uuid4().hex}")
     """Session identifier for bash operations."""
@@ -134,7 +134,7 @@ class RockAgent(Agent):
             await self._execute_pre_init()
 
             # Parallel tasks: agent-specific install + ModelService init
-            tasks = [self.install()]
+            tasks = [self._install()]
 
             if self.config.model_service_config:
                 tasks.append(self._init_model_service())
@@ -171,7 +171,7 @@ class RockAgent(Agent):
             session=self.agent_session,
         )
 
-    async def install(self):
+    async def _install(self):
         """Initialize the runtime environment.
 
         Uses runtime_env_config from the agent configuration.
@@ -325,7 +325,13 @@ class RockAgent(Agent):
 
         Automatically performs deploy.format() to replace ${working_dir} and ${prompt} placeholders.
         """
-        project_path = shlex.quote(str(self.config.project_path))
+        # Use project_path if set, otherwise fall back to deploy.working_dir
+        if self.config.project_path is not None:
+            path = self.config.project_path
+        else:
+            path = self.deploy.working_dir or "/testbed"
+
+        project_path = shlex.quote(str(path))
 
         # Use deploy.format() to replace ${working_dir} and ${prompt}
         run_cmd = self.deploy.format(self.config.run_cmd, prompt=shlex.quote(prompt))
