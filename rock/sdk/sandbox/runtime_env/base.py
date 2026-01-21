@@ -170,7 +170,6 @@ class RuntimeEnv(ABC):
             session=self.session,
             mode=mode,
             wait_timeout=wait_timeout,
-            wait_interval=wait_timeout,
         )
         # If exit_code is not 0, raise an exception to trigger retry
         if result.exit_code != 0:
