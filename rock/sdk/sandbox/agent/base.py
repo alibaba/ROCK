@@ -21,7 +21,7 @@ class Agent(ABC):
     def __init__(self, sandbox: AbstractSandbox):
         self._sandbox = sandbox
         self.model_service: ModelService | None = None
-        self.rt_env: RuntimeEnv | None = None
+        self.runtime_env: RuntimeEnv | None = None
 
     @abstractmethod
     async def init(self):

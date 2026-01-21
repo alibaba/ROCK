@@ -30,7 +30,7 @@ class ModelServiceConfig(BaseModel):
     model_service_install_timeout: int = Field(default=300, gt=0)
     """Timeout for model service installation in seconds."""
 
-    rt_env_config: PythonRuntimeEnvConfig = Field(default_factory=PythonRuntimeEnvConfig)
+    runtime_env_config: PythonRuntimeEnvConfig = Field(default_factory=PythonRuntimeEnvConfig)
     """Runtime environment configuration for the model service."""
 
     model_service_type: str = Field(default="local")
@@ -80,7 +80,7 @@ class ModelService:
         self._sandbox = sandbox
         self.config = config
 
-        self.rt_env = RuntimeEnv.from_config(self._sandbox, self.config.rt_env_config)
+        self.runtime_env = RuntimeEnv.from_config(self._sandbox, self.config.runtime_env_config)
 
         self.is_installed = False
         self.is_started = False
@@ -101,13 +101,13 @@ class ModelService:
             Exception: If any installation step fails.
         """
         # Initialize runtime env (installs Python)
-        await self.rt_env.init()
+        await self.runtime_env.init()
 
         # Create Rock config file
         config_ini_cmd = "mkdir -p ~/.rock && touch ~/.rock/config.ini"
         result = await self._sandbox.arun(
             cmd=config_ini_cmd,
-            session=self.rt_env.session,
+            session=self.runtime_env.session,
         )
         if result.exit_code != 0:
             raise RuntimeError(f"Failed to create Rock config file: {result.output}")
@@ -119,10 +119,10 @@ class ModelService:
 
     @with_time_logging("Installing model service package")
     async def _install_model_service(self) -> None:
-        """Install model service package using rt_env.run()."""
-        install_cmd = f"cd {self.rt_env.workdir} && {self.config.model_service_install_cmd}"
+        """Install model service package using runtime_env.run()."""
+        install_cmd = f"cd {self.runtime_env.workdir} && {self.config.model_service_install_cmd}"
 
-        await self.rt_env.run(
+        await self.runtime_env.run(
             cmd=install_cmd,
             wait_timeout=self.config.model_service_install_timeout,
             error_msg="Model service installation failed",
@@ -153,7 +153,7 @@ class ModelService:
 
         from rock.sdk.sandbox.client import RunMode
 
-        bash_start_cmd = self.rt_env.wrapped_cmd(
+        bash_start_cmd = self.runtime_env.wrapped_cmd(
             f"export ROCK_LOGGING_PATH={self.config.logging_path} && "
             f"export ROCK_LOGGING_FILE_NAME={self.config.logging_file_name} && "
             f"{self.config.stop_cmd} && "
@@ -188,7 +188,7 @@ class ModelService:
 
         from rock.sdk.sandbox.client import RunMode
 
-        stop_cmd = self.rt_env.wrapped_cmd(self.config.stop_cmd)
+        stop_cmd = self.runtime_env.wrapped_cmd(self.config.stop_cmd)
         bash_stop_cmd = f"bash -c {shlex.quote(stop_cmd)}"
 
         stop_result = await self._sandbox.arun(
@@ -224,7 +224,7 @@ class ModelService:
 
         from rock.sdk.sandbox.client import RunMode
 
-        bash_watch_cmd = self.rt_env.wrapped_cmd(self.config.watch_agent_cmd.format(pid=pid))
+        bash_watch_cmd = self.runtime_env.wrapped_cmd(self.config.watch_agent_cmd.format(pid=pid))
         logger.debug(f"[{sandbox_id}] Model service watch agent with pid={pid}, cmd: {bash_watch_cmd}")
 
         watch_result = await self._sandbox.arun(
@@ -288,7 +288,7 @@ class ModelService:
         else:
             cmd = self.config.anti_call_llm_cmd_no_response.format(index=index)
 
-        bash_cmd = self.rt_env.wrapped_cmd(cmd)
+        bash_cmd = self.runtime_env.wrapped_cmd(cmd)
         logger.debug(f"[{sandbox_id}] Executing command: {bash_cmd}")
 
         result = await self._sandbox.arun(

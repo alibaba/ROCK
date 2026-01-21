@@ -12,7 +12,7 @@ class RuntimeEnvConfig(BaseModel):
     for concrete configurations.
     """
 
-    rt_env_type: str = Field()
+    runtime_env_type: str = Field()
     """Runtime type discriminator. Must be 'python' or 'node'."""
 
     version: str = Field(default="default")
@@ -32,14 +32,14 @@ class PythonRuntimeEnvConfig(RuntimeEnvConfig):
     """Configuration for Python runtime environment.
 
     Example:
-        rt_env_config=PythonRuntimeEnvConfig(
+        runtime_env_config=PythonRuntimeEnvConfig(
             version="default",  # defaults to 3.11
             pip=["langchain", "langchain-openai"],
             pip_index_url="https://mirrors.aliyun.com/pypi/simple/",
         )
     """
 
-    rt_env_type: Literal["python"] = Field(default="python")
+    runtime_env_type: Literal["python"] = Field(default="python")
     """Runtime type discriminator. Must be 'python'."""
 
     version: Literal["3.11", "3.12", "default"] = Field(default="default")
@@ -62,13 +62,13 @@ class NodeRuntimeEnvConfig(RuntimeEnvConfig):
     """Configuration for Node.js runtime environment.
 
     Example:
-        rt_env_config=NodeRuntimeEnvConfig(
+        runtime_env_config=NodeRuntimeEnvConfig(
             version="default",  # defaults to 22.18.0
             npm_registry="https://registry.npmmirror.com",
         )
     """
 
-    rt_env_type: Literal["node"] = Field(default="node")
+    runtime_env_type: Literal["node"] = Field(default="node")
     """Runtime type discriminator. Must be 'node'."""
 
     version: Literal["22.18.0", "default"] = Field(default="default")

@@ -26,7 +26,7 @@ _PYTHON_VERSION_MAP: dict[str, str] = {
 class PythonRuntimeEnv(RuntimeEnv):
     """Python runtime env.
 
-    Each PythonRuntimeEnv is identified by (type, version) and is managed by Sandbox.rt_envs.
+    Each PythonRuntimeEnv is identified by (type, version) and is managed by Sandbox.runtime_envs.
     workdir is auto-generated as: /rock-rt-envs/python/{version}/
 
     Usage:
@@ -35,21 +35,21 @@ class PythonRuntimeEnv(RuntimeEnv):
         await env.run("python --version")
     """
 
-    rt_env_type: str = "python"
+    runtime_env_type: str = "python"
 
     def __init__(
         self,
         sandbox: Sandbox,
-        rt_env_config: PythonRuntimeEnvConfig,
+        runtime_env_config: PythonRuntimeEnvConfig,
     ) -> None:
         # Create base config with resolved version (extra="ignore" handles 'pip' and 'pip_index_url' fields)
-        super().__init__(sandbox=sandbox, rt_env_config=rt_env_config)
+        super().__init__(sandbox=sandbox, runtime_env_config=runtime_env_config)
 
-        self.pip = rt_env_config.pip
-        self.pip_index_url = rt_env_config.pip_index_url
+        self.pip = runtime_env_config.pip
+        self.pip_index_url = runtime_env_config.pip_index_url
 
         # Get install command based on version
-        version = rt_env_config.version
+        version = runtime_env_config.version
         if version not in _PYTHON_VERSION_MAP:
             supported = list(_PYTHON_VERSION_MAP.keys())
             raise ValueError(f"Unsupported Python version: {version}. Supported versions: {supported}")

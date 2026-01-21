@@ -18,7 +18,7 @@ logger = init_logger(__name__)
 class NodeRuntimeEnv(RuntimeEnv):
     """Node runtime env.
 
-    Each NodeRuntimeEnv is identified by (type, version) and is managed by Sandbox.rt_envs.
+    Each NodeRuntimeEnv is identified by (type, version) and is managed by Sandbox.runtime_envs.
     workdir is auto-generated as: /rock-rt-envs/node/{version}/
 
     Usage:
@@ -30,22 +30,22 @@ class NodeRuntimeEnv(RuntimeEnv):
     # Default Node version
     DEFAULT_VERSION = "22.18.0"
 
-    rt_env_type: str = "node"
+    runtime_env_type: str = "node"
 
     def __init__(
         self,
         sandbox: Sandbox,
-        rt_env_config: NodeRuntimeEnvConfig,
+        runtime_env_config: NodeRuntimeEnvConfig,
     ) -> None:
-        super().__init__(sandbox=sandbox, rt_env_config=rt_env_config)
+        super().__init__(sandbox=sandbox, runtime_env_config=runtime_env_config)
 
-        if rt_env_config.version not in ["default", self.DEFAULT_VERSION]:
+        if runtime_env_config.version not in ["default", self.DEFAULT_VERSION]:
             raise ValueError(
-                f"Unsupported Node version: {rt_env_config.version}. Only {self.DEFAULT_VERSION} is supported right now."
+                f"Unsupported Node version: {runtime_env_config.version}. Only {self.DEFAULT_VERSION} is supported right now."
             )
 
         self.node_install_cmd = env_vars.ROCK_RTENV_NODE_V22180_INSTALL_CMD
-        self.npm_registry = rt_env_config.npm_registry
+        self.npm_registry = runtime_env_config.npm_registry
 
     async def _do_init(self) -> None:
         """Initialize and install Node runtime environment.

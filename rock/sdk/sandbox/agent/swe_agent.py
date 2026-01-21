@@ -137,7 +137,7 @@ class SweAgentConfig(RockAgentConfig):
     default_run_single_config: dict[str, Any] = DEFAULT_RUN_SINGLE_CONFIG
     """Default configuration for SWE-agent run_single mode."""
 
-    rt_env_config: RuntimeEnvConfig | None = PythonRuntimeEnvConfig(version="3.12")
+    runtime_env_config: RuntimeEnvConfig | None = PythonRuntimeEnvConfig(version="3.12")
 
 
 class SweAgent(RockAgent):
@@ -178,7 +178,7 @@ class SweAgent(RockAgent):
             f"&& {self.config.swe_agent_install_cmd}"
         )
 
-        await self.rt_env.run(
+        await self.runtime_env.run(
             cmd=swe_agent_install_cmd,
             wait_timeout=self.config.agent_install_timeout,
             error_msg="SWE-agent installation failed",
@@ -197,7 +197,7 @@ class SweAgent(RockAgent):
             sweagent run --config /installed_agent/generated_config.yaml --problem_statement.text "fix this bug"
         """
 
-        return self.rt_env.wrapped_cmd(
+        return self.runtime_env.wrapped_cmd(
             f"sweagent run --config {self.config_path} --problem_statement.text {shlex.quote(prompt)}"
         )
 

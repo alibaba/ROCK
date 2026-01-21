@@ -1,7 +1,6 @@
 from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
 
 import asyncio
-import os
 import shlex
 import time
 import uuid
@@ -15,6 +14,7 @@ from rock.actions import CreateBashSessionRequest, Observation
 from rock.logger import init_logger
 from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.agent.config import AgentBashCommand, AgentConfig
+from rock.sdk.sandbox.deploy import Deploy
 from rock.sdk.sandbox.model_service.base import ModelService, ModelServiceConfig
 from rock.sdk.sandbox.runtime_env.base import RuntimeEnv
 from rock.sdk.sandbox.runtime_env.config import PythonRuntimeEnvConfig, RuntimeEnvConfig
@@ -72,7 +72,7 @@ class RockAgentConfig(AgentConfig):
     run_cmd: str | None = Field(default=None)
     """Command to execute agent. 必须留一个{prompt}的位置"""
 
-    rt_env_config: RuntimeEnvConfig | None = Field(default_factory=PythonRuntimeEnvConfig)
+    runtime_env_config: RuntimeEnvConfig | None = Field(default_factory=PythonRuntimeEnvConfig)
     """Runtime environment configuration for the agent."""
 
     model_service_config: ModelServiceConfig | None = Field(default=None)
@@ -100,11 +100,11 @@ class RockAgent(Agent):
     def __init__(self, sandbox: Sandbox, config: RockAgentConfig):
         self._sandbox = sandbox
         self.model_service: ModelService | None = None
-        self.rt_env: RuntimeEnv | None = None
+        self.runtime_env: RuntimeEnv | None = None
+        self.deploy: Deploy = self._sandbox.deploy
 
         self.config = config
         self.agent_session = self.config.agent_session
-        self._working_dir_in_sandbox = None
 
     async def init(self):
         """Initialize the agent environment.
@@ -127,7 +127,10 @@ class RockAgent(Agent):
 
             await self._setup_session()
 
-            await self._provision_working_dir()
+            if self.config.working_dir:
+                await self.deploy.deploy_working_dir(
+                    local_path=self.config.working_dir,
+                )
 
             # Parallel tasks: agent-specific install + ModelService init
             tasks = [self.install()]
@@ -150,50 +153,6 @@ class RockAgent(Agent):
             )
             raise
 
-    async def _provision_working_dir(self) -> None:
-        """If config.working_dir is set, upload it into sandbox /tmp/<random>.
-
-        Assumes sandbox.upload_dir(source_dir, target_dir) exists.
-        """
-        working_dir = self.config.working_dir
-        if not working_dir:
-            return
-
-        sandbox_id = self._sandbox.sandbox_id
-        local_abs = os.path.abspath(working_dir)
-
-        if not os.path.exists(local_abs):
-            raise FileNotFoundError(f"config.working_dir not found: {local_abs}")
-        if not os.path.isdir(local_abs):
-            raise ValueError(f"config.working_dir must be a directory: {local_abs}")
-
-        target_dir = f"/tmp/rock_workdir_{uuid.uuid4().hex}"
-
-        logger.info(f"[{sandbox_id}] Provisioning working_dir: {local_abs} -> {target_dir}")
-
-        # Clean & create
-        result = await self._sandbox.arun(
-            cmd=f"rm -rf {shlex.quote(target_dir)} && mkdir -p {shlex.quote(target_dir)}",
-            session=self.agent_session,
-        )
-        if result.exit_code != 0:
-            raise RuntimeError(f"Failed to create target directory {target_dir}: {result.output}")
-
-        upload_result = await self._sandbox.fs.upload_dir(source_dir=local_abs, target_dir=target_dir)
-        if upload_result.exit_code != 0:
-            raise RuntimeError(f"Failed to upload directory: {upload_result.failure_reason}")
-
-        self._working_dir_in_sandbox = target_dir
-        logger.info(f"[{sandbox_id}] working_dir_in_sandbox ready: {target_dir}")
-
-    @property
-    def working_dir_in_sandbox(self) -> str | None:
-        """Return sandbox workdir provisioned from config.working_dir.
-
-        Raises if working_dir was not configured or provisioning not completed.
-        """
-        return self._working_dir_in_sandbox
-
     async def run(
         self,
         prompt: str,
@@ -215,26 +174,26 @@ class RockAgent(Agent):
     async def install(self):
         """Initialize the runtime environment.
 
-        Uses rt_env_config from the agent configuration.
+        Uses runtime_env_config from the agent configuration.
         This method is idempotent: calling multiple times only initializes once.
 
-        If rt_env already exists and is initialized, this method returns early
+        If runtime_env already exists and is initialized, this method returns early
         without creating a new RuntimeEnv instance.
         """
         # Check if already initialized to avoid creating duplicate RuntimeEnv
-        if self.rt_env is not None and self.rt_env.initialized:
+        if self.runtime_env is not None and self.runtime_env.initialized:
             sandbox_id = self._sandbox.sandbox_id
             logger.info(f"[{sandbox_id}] RuntimeEnv already initialized, skipping install")
             return
 
-        rt_config = self.config.rt_env_config
+        runtime_config = self.config.runtime_env_config
 
         # Create a new RuntimeEnv instance for this agent (uses UUID internally)
-        self.rt_env = RuntimeEnv.from_config(self._sandbox, rt_config)
+        self.runtime_env = RuntimeEnv.from_config(self._sandbox, runtime_config)
 
         # Initialize the runtime (includes installation)
-        if not self.rt_env.initialized:
-            await self.rt_env.init()
+        if not self.runtime_env.initialized:
+            await self.runtime_env.init()
 
     async def _setup_session(self):
         """Create and configure the bash session for agent operations."""
@@ -276,7 +235,10 @@ class RockAgent(Agent):
         )
 
     async def _execute_init_commands(self, cmd_list: list[AgentBashCommand], step_name: str):
-        """Execute init-stage commands using nohup."""
+        """Execute init-stage commands using nohup.
+
+        Automatically performs deploy.format() to replace ${working_dir} placeholders.
+        """
         sandbox_id = self._sandbox.sandbox_id
 
         if not cmd_list:
@@ -288,6 +250,9 @@ class RockAgent(Agent):
             for idx, cmd_config in enumerate(cmd_list, 1):
                 command = cmd_config.command
                 timeout = cmd_config.timeout_seconds
+
+                # Replace ${working_dir} placeholder
+                command = self.deploy.format(command)
 
                 logger.debug(
                     f"[{sandbox_id}] Executing {step_name} command {idx}/{len(cmd_list)}: "
@@ -354,9 +319,15 @@ class RockAgent(Agent):
             raise
 
     async def create_agent_run_cmd(self, prompt: str) -> str:
+        """Create agent run command.
+
+        Automatically performs deploy.format() to replace ${working_dir} and ${prompt} placeholders.
+        """
         project_path = shlex.quote(str(self.config.project_path))
-        run_cmd = self.config.run_cmd.format(prompt=shlex.quote(prompt))
-        wrapped_cmd = self.rt_env.wrapped_cmd(run_cmd, prepend=False)
+
+        # Use deploy.format() to replace ${working_dir} and ${prompt}
+        run_cmd = self.deploy.format(self.config.run_cmd, prompt=shlex.quote(prompt))
+        wrapped_cmd = self.runtime_env.wrapped_cmd(run_cmd, prepend=False)
 
         parts = [
             f"mkdir -p {project_path}",

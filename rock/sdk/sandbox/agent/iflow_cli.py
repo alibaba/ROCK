@@ -68,7 +68,7 @@ class IFlowCliConfig(RockAgentConfig):
     iflow_log_file: str = "~/.iflow/session_info.log"
     """Path to the IFlow session log file."""
 
-    rt_env_config: NodeRuntimeEnvConfig = NodeRuntimeEnvConfig(
+    runtime_env_config: NodeRuntimeEnvConfig = NodeRuntimeEnvConfig(
         npm_registry="https://registry.npmmirror.com",
     )
     """Node runtime environment configuration with npm registry."""
@@ -101,7 +101,7 @@ class IFlowCli(RockAgent):
 
         Steps:
         1. Initialize Node runtime (npm/node) via super().install()
-           - npm registry is configured automatically if specified in rt_env_config
+           - npm registry is configured automatically if specified in runtime_env_config
         2. Install iflow-cli
         3. Create iflow configuration directories
         4. Upload settings configuration file
@@ -131,7 +131,7 @@ class IFlowCli(RockAgent):
 
         iflow_cmd = f'iflow -r "{session_id}" -p {shlex.quote(prompt)} --yolo > {self.config.iflow_log_file} 2>&1'
 
-        return self.rt_env.wrapped_cmd(
+        return self.runtime_env.wrapped_cmd(
             f"mkdir -p {self.config.project_path} && cd {self.config.project_path} && {iflow_cmd}"
         )
 
@@ -140,7 +140,7 @@ class IFlowCli(RockAgent):
         iflow_cli_install_cmd = f"mkdir -p {self.config.agent_installed_dir} && cd {self.config.agent_installed_dir} && {self.config.iflow_cli_install_cmd}"
 
         # Use node runtime env to run install cmd (wrap is currently bash -c, but uses node_env session)
-        await self.rt_env.run(
+        await self.runtime_env.run(
             cmd=iflow_cli_install_cmd,
             wait_timeout=self.config.agent_install_timeout,
             error_msg="iflow-cli installation failed",

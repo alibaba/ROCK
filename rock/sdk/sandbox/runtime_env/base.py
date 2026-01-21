@@ -20,13 +20,13 @@ RuntimeEnvId = NewType("RuntimeEnvId", str)
 class RuntimeEnv(ABC):
     """Runtime environment (e.g., Python/Node).
 
-    Each RuntimeEnv is identified by (type, version) tuple and is managed by Sandbox.rt_envs.
+    Each RuntimeEnv is identified by (type, version) tuple and is managed by Sandbox.runtime_envs.
     workdir is auto-generated as: /rock-rt-envs/{type}/{version}/
     session is auto-generated as: rt-env-{type}-{version}
 
     Usage:
         # Factory method to create RuntimeEnv from config
-        env = RuntimeEnv.from_config(sandbox, config.rt_env_config)
+        env = RuntimeEnv.from_config(sandbox, config.runtime_env_config)
         await env.init()
         await env.run("python --version")
     """
@@ -35,59 +35,59 @@ class RuntimeEnv(ABC):
     _REGISTRY: dict[str, type[RuntimeEnv]] = {}
 
     # Runtime type discriminator
-    rt_env_type: str | None = None
+    runtime_env_type: str | None = None
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        # Register subclass based on its rt_env_type property
-        # The subclass must define rt_env_type as a class attribute
-        if hasattr(cls, "rt_env_type") and isinstance(cls.rt_env_type, str):
-            cls._REGISTRY[cls.rt_env_type] = cls
+        # Register subclass based on its runtime_env_type property
+        # The subclass must define runtime_env_type as a class attribute
+        if hasattr(cls, "runtime_env_type") and isinstance(cls.runtime_env_type, str):
+            cls._REGISTRY[cls.runtime_env_type] = cls
 
     @classmethod
-    def from_config(cls, sandbox: Sandbox, rt_env_config: RuntimeEnvConfig) -> RuntimeEnv:
+    def from_config(cls, sandbox: Sandbox, runtime_env_config: RuntimeEnvConfig) -> RuntimeEnv:
         """Factory method to create RuntimeEnv from config.
 
         Args:
             sandbox: Sandbox instance
-            rt_env_config: Runtime environment configuration
+            runtime_env_config: Runtime environment configuration
 
         Returns:
             RuntimeEnv instance of the appropriate type, automatically registered to sandbox.runtime_envs
         """
-        rt_type = rt_env_config.rt_env_type
-        rt_class = cls._REGISTRY.get(rt_type)
-        if rt_class is None:
-            raise ValueError(f"Unsupported runtime type: {rt_type}")
-        rt_env = rt_class(sandbox=sandbox, rt_env_config=rt_env_config)
+        runtime_type = runtime_env_config.runtime_env_type
+        runtime_class = cls._REGISTRY.get(runtime_type)
+        if runtime_class is None:
+            raise ValueError(f"Unsupported runtime type: {runtime_type}")
+        runtime_env = runtime_class(sandbox=sandbox, runtime_env_config=runtime_env_config)
         # Auto-register to sandbox.runtime_envs
-        sandbox.runtime_envs[rt_env.rt_env_id] = rt_env
-        return rt_env
+        sandbox.runtime_envs[runtime_env.runtime_env_id] = runtime_env
+        return runtime_env
 
     def __init__(
         self,
         sandbox: Sandbox,
-        rt_env_config: RuntimeEnvConfig,
+        runtime_env_config: RuntimeEnvConfig,
     ) -> None:
         self._sandbox = sandbox
 
         # Extract values from config
-        version = rt_env_config.version
-        session_envs = rt_env_config.session_envs
+        version = runtime_env_config.version
+        session_envs = runtime_env_config.session_envs
 
         self.version = version
         self.session_envs = session_envs or {}
-        self.install_timeout = rt_env_config.install_timeout
-        self.custom_install_cmd = rt_env_config.custom_install_cmd
+        self.install_timeout = runtime_env_config.install_timeout
+        self.custom_install_cmd = runtime_env_config.custom_install_cmd
 
-        rt_type = rt_env_config.rt_env_type
+        runtime_type = runtime_env_config.runtime_env_type
         version_str = version or "default"
 
         # Unique ID for this runtime env instance
-        self.rt_env_id = RuntimeEnvId(str(uuid.uuid4())[:8])
+        self.runtime_env_id = RuntimeEnvId(str(uuid.uuid4())[:8])
 
-        self.workdir = f"/rock-rt-envs/{rt_type}/{version_str}/{self.rt_env_id}/"
-        self.session = f"rt-env-{rt_type}-{version_str}-{self.rt_env_id}"
+        self.workdir = f"/rock-rt-envs/{runtime_type}/{version_str}/{self.runtime_env_id}/"
+        self.session = f"rt-env-{runtime_type}-{version_str}-{self.runtime_env_id}"
 
         # State flag
         self._initialized: bool = False
