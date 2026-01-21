@@ -291,8 +291,6 @@ class SandboxManager(BaseManager):
             cpus=sandbox_info.get("cpus"),
             memory=sandbox_info.get("memory"),
         )
-        if remote_status is None:
-            return resp
         sandbox_info.update(remote_status.to_dict())
         try:
             alive_resp = await HttpUtils.get(
@@ -328,7 +326,7 @@ class SandboxManager(BaseManager):
 
         # When the file does not exist, exit_code = 2
         if find_file_rsp.get("exit_code") and find_file_rsp.get("exit_code") == 2:
-            raise Exception(f"service status file not found: {find_file_rsp}")
+            return ServiceStatus()
 
         response: dict = await HttpUtils.post(
             url=read_file_url,
