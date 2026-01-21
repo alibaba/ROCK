@@ -86,7 +86,7 @@ class RuntimeEnv(ABC):
         # Unique ID for this runtime env instance
         self.runtime_env_id = RuntimeEnvId(str(uuid.uuid4())[:8])
 
-        self.workdir = f"/rock-runtime-envs/{runtime_type}/{version_str}/{self.runtime_env_id}/"
+        self.workdir = f"/rock-runtime-envs/{runtime_type}/{version_str}/{self.runtime_env_id}"
         self.session = f"runtime-env-{runtime_type}-{version_str}-{self.runtime_env_id}"
 
         # State flag
