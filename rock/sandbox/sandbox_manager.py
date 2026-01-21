@@ -45,7 +45,6 @@ from rock.utils import (
 from rock.utils.format import parse_memory_size
 from rock.utils.providers.redis_provider import RedisProvider
 from rock.utils.service import build_sandbox_from_redis
-from rock.admin.core.ray_service import RayService
 
 logger = init_logger(__name__)
 
@@ -232,7 +231,7 @@ class SandboxManager(BaseManager):
                 alive = await self.async_ray_get(sandbox_actor.is_alive.remote())
                 sandbox_info: SandboxInfo = None
                 if self._redis_provider:
-                    sandbox_info = await build_sandbox_from_redis(sandbox_id)
+                    sandbox_info = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
                     if sandbox_info is None:
                         # The start() method will write to redis on the first call to get_status()
                         sandbox_info = await self.async_ray_get(sandbox_actor.sandbox_info.remote())
