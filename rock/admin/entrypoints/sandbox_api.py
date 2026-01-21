@@ -91,6 +91,24 @@ async def get_status(sandbox_id: str):
     return RockResponse(result=await sandbox_manager.get_status(sandbox_id))
 
 
+@sandbox_router.post("/execute")
+@handle_exceptions(error_message="execute command failed")
+async def execute(command: SandboxCommand) -> RockResponse[CommandResponse]:
+    return RockResponse(result=await sandbox_manager.execute(command))
+
+
+@sandbox_router.post("/create_session")
+@handle_exceptions(error_message="create session failed")
+async def create_session(request: SandboxCreateBashSessionRequest) -> RockResponse[CreateBashSessionResponse]:
+    return RockResponse(result=await sandbox_manager.create_session(request))
+
+
+@sandbox_router.post("/run_in_session")
+@handle_exceptions(error_message="run in session failed")
+async def run(action: SandboxBashAction) -> RockResponse[BashObservation]:
+    return RockResponse(result=await sandbox_manager.run_in_session(action))
+
+
 @sandbox_router.post("/stop")
 @handle_exceptions(error_message="stop sandbox failed")
 async def close(sandbox_id: str = Body(..., embed=True)) -> RockResponse[str]:

@@ -3,9 +3,17 @@ import time
 
 from rock import env_vars
 from rock.actions import (
+    BashObservation,
     CommandResponse,
+    CreateBashSessionResponse,
 )
+<<<<<<< HEAD
 from rock.actions.sandbox.response import IsAliveResponse, State
+=======
+from rock.admin.proto.request import SandboxCreateSessionRequest as CreateSessionRequest
+from rock.admin.proto.request import SandboxCommand as Command
+from rock.admin.proto.request import SandboxAction as Action
+>>>>>>> 14531e3 (fix test case: revert session related apis)
 
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.core.ray_service import RayService
@@ -249,6 +257,28 @@ class SandboxManager(BaseManager):
             memory=response.memory,
             port_mapping=response.port_mapping,
         )
+    
+    async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
+        sandbox_actor = await self._deployment_service.async_ray_get_actor(request.sandbox_id)
+        if sandbox_actor is None:
+            raise Exception(f"sandbox {request.sandbox_id} not found to create session")
+        await self._update_expire_time(request.sandbox_id)
+        return await self._deployment_service.async_ray_get(sandbox_actor.create_session.remote(request))
+
+    async def execute(self, command: Command) -> CommandResponse:
+        sandbox_actor = await self._deployment_service.async_ray_get_actor(command.sandbox_id)
+        if sandbox_actor is None:
+            raise Exception(f"sandbox {command.sandbox_id} not found to execute")
+        await self._update_expire_time(command.sandbox_id)
+        return await self._deployment_service.async_ray_get(sandbox_actor.execute.remote(command))
+
+    @monitor_sandbox_operation()
+    async def run_in_session(self, action: Action) -> BashObservation:
+        sandbox_actor = await self._deployment_service.async_ray_get_actor(action.sandbox_id)
+        if sandbox_actor is None:
+            raise Exception(f"sandbox {action.sandbox_id} not found to run in session")
+        await self._update_expire_time(action.sandbox_id)
+        return await self._deployment_service.async_ray_get(sandbox_actor.run_in_session.remote(action))
 
     async def _is_expired(self, sandbox_id):
         timeout_dict = await self._redis_provider.json_get(timeout_sandbox_key(sandbox_id), "$")
