@@ -38,18 +38,17 @@ class NodeRuntimeEnv(RuntimeEnv):
         sandbox: Sandbox,
         runtime_env_config: NodeRuntimeEnvConfig,
     ) -> None:
-        super().__init__(sandbox=sandbox, runtime_env_config=runtime_env_config)
-
         if runtime_env_config.version not in ["default", self.DEFAULT_VERSION]:
             raise ValueError(
                 f"Unsupported Node version: {runtime_env_config.version}. Only {self.DEFAULT_VERSION} is supported right now."
             )
 
-        self._install_cmd = env_vars.ROCK_RTENV_NODE_V22180_INSTALL_CMD
+        super().__init__(sandbox=sandbox, runtime_env_config=runtime_env_config)
+
         self._npm_registry = runtime_env_config.npm_registry
 
     def _get_install_cmd(self) -> str:
-        return self._install_cmd
+        return env_vars.ROCK_RTENV_NODE_V22180_INSTALL_CMD
 
     @override
     async def _post_init(self) -> None:

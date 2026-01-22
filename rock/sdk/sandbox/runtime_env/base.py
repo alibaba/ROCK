@@ -155,6 +155,7 @@ class RuntimeEnv(ABC):
         return result
 
     def wrapped_cmd(self, cmd: str, prepend: bool = True) -> str:
+        """Always wrap with bash -c to ensure it only affects current cmd. Default prepend=True to give current runtime_env highest priority."""
         bin_dir = f"{self._workdir}/runtime-env/bin"
         if prepend:
             wrapped = f"export PATH={shlex.quote(bin_dir)}:$PATH && {cmd}"
