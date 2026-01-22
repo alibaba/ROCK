@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import shlex
 import uuid
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, NewType
 
 from rock.actions import CreateBashSessionRequest
 from rock.logger import init_logger
+from rock.sdk.sandbox.utils import arun_with_retry, with_time_logging
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import RunModeType, Sandbox
@@ -126,7 +127,7 @@ class RuntimeEnv(ABC):
 
         This method performs installation and validation.
         It is idempotent: calling multiple times only initializes once.
-        Subclasses should override _do_init() to perform actual installation.
+        Subclasses should override _post_init() for additional initialization.
         """
         if self._initialized:
             return
@@ -135,10 +136,11 @@ class RuntimeEnv(ABC):
         await self._ensure_session()
         await self._ensure_workdir()
 
-        # Subclass-specific initialization
-        await self._do_init()
+        # Install runtime and then do additional initialization
+        await self._install_runtime()
+        await self._post_init()
 
-        # Execute custom install command after _do_init
+        # Execute custom install command after _post_init
         if self.custom_install_cmd:
             await self.run(
                 self.custom_install_cmd,
@@ -148,9 +150,30 @@ class RuntimeEnv(ABC):
 
         self._initialized = True
 
-    async def _do_init(self) -> None:
-        """Internal method for initialization. Override in subclasses."""
-        raise NotImplementedError
+    @property
+    @abstractmethod
+    def install_cmd(self) -> str:
+        """Installation command for this runtime environment (e.g., 'python-install.sh')."""
+        pass
+
+    @with_time_logging("Installing runtime")
+    async def _install_runtime(self) -> None:
+        """Install the runtime environment."""
+        from rock.sdk.sandbox.client import RunMode
+
+        install_cmd = f"cd {shlex.quote(self.workdir)} && {self.install_cmd}"
+        await arun_with_retry(
+            sandbox=self._sandbox,
+            cmd=f"bash -c {shlex.quote(install_cmd)}",
+            session=self.session,
+            mode=RunMode.NOHUP,
+            wait_timeout=self.install_timeout,
+            error_msg=f"{self.runtime_env_type} runtime installation failed",
+        )
+
+    async def _post_init(self) -> None:
+        """Additional initialization after runtime installation. Override in subclasses."""
+        pass
 
     def wrapped_cmd(self, cmd: str, prepend: bool = True) -> str:
         bin_dir = f"{self.workdir}/runtime-env/bin"

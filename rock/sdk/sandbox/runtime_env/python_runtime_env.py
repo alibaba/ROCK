@@ -4,11 +4,12 @@ import os
 import shlex
 from typing import TYPE_CHECKING
 
+from typing_extensions import override
+
 from rock import env_vars
 from rock.logger import init_logger
 from rock.sdk.sandbox.runtime_env.base import RuntimeEnv
 from rock.sdk.sandbox.runtime_env.config import PythonRuntimeEnvConfig
-from rock.sdk.sandbox.utils import arun_with_retry, with_time_logging
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
@@ -53,45 +54,31 @@ class PythonRuntimeEnv(RuntimeEnv):
         if version not in _PYTHON_VERSION_MAP:
             supported = list(_PYTHON_VERSION_MAP.keys())
             raise ValueError(f"Unsupported Python version: {version}. Supported versions: {supported}")
-        self.python_install_cmd = _PYTHON_VERSION_MAP[version]
+        self._install_cmd = _PYTHON_VERSION_MAP[version]
 
-    async def _do_init(self) -> None:
-        """Initialize and install Python runtime environment.
+    @property
+    def install_cmd(self) -> str:
+        return self._install_cmd
+
+    @override
+    async def _post_init(self) -> None:
+        """Additional initialization after runtime installation.
 
         This method:
-        1. Installs Python runtime
-        2. Validates Python exists
-        3. Configures pip index URL (if specified)
-        4. Installs pip packages (if specified)
+        1. Validates Python exists
+        2. Configures pip index URL (if specified)
+        3. Installs pip packages (if specified)
         """
-        # Step 1: install Python runtime
-        await self._install_python_runtime()
-
-        # Step 2: validate python exists
+        # Step 1: validate python exists
         await self._validate_python()
 
-        # Step 3: configure pip index url if specified
+        # Step 2: configure pip index url if specified
         if self.pip_index_url:
             await self._configure_pip()
 
-        # Step 4: install pip packages if specified
+        # Step 3: install pip packages if specified
         if self.pip:
             await self._install_pip()
-
-    @with_time_logging("Installing Python runtime")
-    async def _install_python_runtime(self) -> None:
-        """Install Python runtime."""
-        from rock.sdk.sandbox.client import RunMode
-
-        install_cmd = f"cd {shlex.quote(self.workdir)} && {self.python_install_cmd}"
-        await arun_with_retry(
-            sandbox=self._sandbox,
-            cmd=f"bash -c {shlex.quote(install_cmd)}",
-            session=self.session,
-            mode=RunMode.NOHUP,
-            wait_timeout=self.install_timeout,
-            error_msg="Python runtime installation failed",
-        )
 
     async def _validate_python(self) -> None:
         """Validate Python executable exists."""
@@ -101,7 +88,6 @@ class PythonRuntimeEnv(RuntimeEnv):
         """Configure pip index URL."""
         return await self.run(f"pip config set global.index-url {shlex.quote(self.pip_index_url)}")
 
-    @with_time_logging("Installing pip packages")
     async def _install_pip(self) -> None:
         """Install pip packages."""
         if not self.pip:

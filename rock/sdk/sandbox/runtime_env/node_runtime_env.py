@@ -3,11 +3,12 @@ from __future__ import annotations
 import shlex
 from typing import TYPE_CHECKING
 
+from typing_extensions import override
+
 from rock import env_vars
 from rock.logger import init_logger
 from rock.sdk.sandbox.runtime_env.base import RuntimeEnv
 from rock.sdk.sandbox.runtime_env.config import NodeRuntimeEnvConfig
-from rock.sdk.sandbox.utils import arun_with_retry, with_time_logging
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
@@ -44,41 +45,27 @@ class NodeRuntimeEnv(RuntimeEnv):
                 f"Unsupported Node version: {runtime_env_config.version}. Only {self.DEFAULT_VERSION} is supported right now."
             )
 
-        self.node_install_cmd = env_vars.ROCK_RTENV_NODE_V22180_INSTALL_CMD
+        self._install_cmd = env_vars.ROCK_RTENV_NODE_V22180_INSTALL_CMD
         self.npm_registry = runtime_env_config.npm_registry
 
-    async def _do_init(self) -> None:
-        """Initialize and install Node runtime environment.
+    @property
+    def install_cmd(self) -> str:
+        return self._install_cmd
+
+    @override
+    async def _post_init(self) -> None:
+        """Additional initialization after runtime installation.
 
         This method:
-        1. Installs Node runtime
-        2. Validates Node exists
-        3. Configures npm registry (if specified)
+        1. Validates Node exists
+        2. Configures npm registry (if specified)
         """
-        # Step 1: install node/npm
-        await self._install_node_runtime()
-
-        # Step 2: validate node exists
+        # Step 1: validate node exists
         await self._validate_node()
 
-        # Step 3: configure npm registry if specified
+        # Step 2: configure npm registry if specified
         if self.npm_registry:
             await self._configure_npm_registry()
-
-    @with_time_logging("Installing Node runtime")
-    async def _install_node_runtime(self) -> None:
-        """Install Node runtime."""
-        from rock.sdk.sandbox.client import RunMode
-
-        install_cmd = f"cd {self.workdir} && {self.node_install_cmd}"
-        await arun_with_retry(
-            sandbox=self._sandbox,
-            cmd=f"bash -c {shlex.quote(install_cmd)}",
-            session=self.session,
-            mode=RunMode.NOHUP,
-            wait_timeout=self.install_timeout,
-            error_msg="Node runtime installation failed",
-        )
 
     async def _validate_node(self) -> None:
         """Validate Node executable exists."""
