@@ -88,6 +88,7 @@ class SandboxProxyService:
         sandbox_id = request.sandbox_id
         await self._update_expire_time(sandbox_id)
         sandbox_status_dicts = await self.get_service_status(sandbox_id)
+        print(f"sandbox status dicts: {sandbox_status_dicts}")
         response = await self._send_request(
             sandbox_id, sandbox_status_dicts[0], "create_session", None, request.model_dump(), None, "POST"
         )

@@ -149,7 +149,7 @@ class RayDeploymentService():
         actor: SandboxActor = await self.async_ray_get_actor(sandbox_id)
         sandbox_info: SandboxInfo = await self.async_ray_get(actor.sandbox_info.remote())
         remote_status: ServiceStatus = await self.async_ray_get(actor.get_status.remote())
-        sandbox_info["status"] = remote_status.phases
+        sandbox_info["phases"] = remote_status.phases
         sandbox_info["port_mapping"] = remote_status.get_port_mapping()
         alive = await self.async_ray_get(actor.is_alive.remote())
         sandbox_info["alive"] = alive.is_alive

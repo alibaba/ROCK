@@ -106,7 +106,7 @@ def admin_remote_server():
         [
             "admin",
             "--env",
-            "local",
+            "test",
             "--role",
             "admin",
             "--port",
