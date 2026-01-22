@@ -1,14 +1,14 @@
 from abc import abstractmethod
 import asyncio
+from rock.actions.envs.request import EnvCloseRequest, EnvMakeRequest, EnvResetRequest, EnvStepRequest
+from rock.actions.envs.response import EnvCloseResponse, EnvListResponse, EnvMakeResponse, EnvResetResponse, EnvStepResponse
 from rock.actions.sandbox.response import CommandResponse, State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
-from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
 from rock.deployments.abstract import AbstractDeployment
 import ray
 from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
 from rock.deployments.constants import Status
 from rock.deployments.docker import DockerDeployment
-from rock.deployments.ray import RayDeployment
 from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
 from rock.sandbox.sandbox_actor import SandboxActor
@@ -51,6 +51,25 @@ class AbstractDeploymentService():
     async def commit(self, *args, **kwargs) -> CommandResponse:
         ...
 
+    @abstractmethod
+    async def env_step(self, *args, **kwargs):
+        ...
+
+    @abstractmethod
+    async def env_make(self, *args, **kwargs):
+        ...
+    
+    @abstractmethod
+    async def env_reset(self, *args, **kwargs):
+        ...
+
+    @abstractmethod
+    async def env_list(self, *args, **kwargs):
+        ...
+
+    @abstractmethod
+    async def env_close(self, *args, **kwargs):
+        ...
 
 class RayDeploymentService():
     def __init__(self, ray_namespace: str):
@@ -150,9 +169,9 @@ class RayDeploymentService():
         logger.info(f"get_sandbox_statistics: {result}")
         return result
 
-    async def commit(self, *args, **kwargs) -> CommandResponse:
-        actor = await self._ray_actor
-        result = await self.async_ray_get(actor.commit.remote(*args, **kwargs))
+    async def commit(self, sandbox_id) -> CommandResponse:
+        actor = await self.async_ray_get_actor(sandbox_id)
+        result = await self.async_ray_get(actor.commit.remote())
         logger.info(f"commit: {result}")
         return result
 
@@ -162,3 +181,37 @@ class RayDeploymentService():
         status: ServiceStatus = await self.async_ray_get(actor.get_status.remote())
         logger.info(f"get_deployment: {status}")
         return status.phases["docker_run"] == Status.RUNNING
+    
+    async def env_step(self, request: EnvStepRequest) -> EnvStepResponse:
+        sandbox_id = request.sandbox_id
+        actor: SandboxActor = await self.async_ray_get_actor(sandbox_id)
+        result = await self.async_ray_get(actor.env_step.remote(request))
+        logger.info(f"env_step: {result}")
+        return result
+    
+    async def env_make(self, request: EnvMakeRequest) -> EnvMakeResponse:
+        sandbox_id = request.sandbox_id
+        actor: SandboxActor = await self.async_ray_get_actor(sandbox_id)
+        result = await self.async_ray_get(actor.env_make.remote(request))
+        logger.info(f"env_make: {result}")
+        return result
+
+    async def env_reset(self, request: EnvResetRequest) -> EnvResetResponse:
+        sandbox_id = request.sandbox_id
+        actor: SandboxActor = await self.async_ray_get_actor(sandbox_id)
+        result = await self.async_ray_get(actor.env_reset.remote(request))
+        logger.info(f"env_reset: {result}")
+        return result
+
+    async def env_close(self, request: EnvCloseRequest) -> EnvCloseResponse:
+        sandbox_id = request.sandbox_id
+        actor: SandboxActor = await self.async_ray_get_actor(sandbox_id)
+        result = await self.async_ray_get(actor.env_close.remote(request))
+        logger.info(f"env_close: {result}")
+        return result
+
+    async def env_list(self, sandbox_id) -> EnvListResponse:
+        actor: SandboxActor = await self.async_ray_get_actor(sandbox_id)
+        result = await self.async_ray_get(actor.env_list.remote())
+        logger.info(f"env_list: {result}")
+        return result
