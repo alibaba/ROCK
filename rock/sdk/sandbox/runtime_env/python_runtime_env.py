@@ -59,40 +59,24 @@ class PythonRuntimeEnv(RuntimeEnv):
         """Initialize and install Python runtime environment.
 
         This method:
-        1. Creates workdir
-        2. Installs Python runtime
-        3. Validates Python exists
-        4. Configures pip index URL (if specified)
-        5. Installs pip packages (if specified)
+        1. Installs Python runtime
+        2. Validates Python exists
+        3. Configures pip index URL (if specified)
+        4. Installs pip packages (if specified)
         """
-        await self.ensure_session()
-
-        # Step 1: ensure workdir exists
-        await self._ensure_workdir()
-
-        # Step 2: install Python runtime
+        # Step 1: install Python runtime
         await self._install_python_runtime()
 
-        # Step 3: validate python exists
+        # Step 2: validate python exists
         await self._validate_python()
 
-        # Step 4: configure pip index url if specified
+        # Step 3: configure pip index url if specified
         if self.pip_index_url:
             await self._configure_pip()
 
-        # Step 5: install pip packages if specified
+        # Step 4: install pip packages if specified
         if self.pip:
             await self._install_pip()
-
-    @with_time_logging("Ensuring workdir exists")
-    async def _ensure_workdir(self) -> None:
-        """Create workdir for runtime environment."""
-        result = await self._sandbox.arun(
-            cmd=f"mkdir -p {self.workdir}",
-            session=self.session,
-        )
-        if result.exit_code != 0:
-            raise RuntimeError(f"Failed to create workdir: {self.workdir}, exit_code: {result.exit_code}")
 
     @with_time_logging("Installing Python runtime")
     async def _install_python_runtime(self) -> None:

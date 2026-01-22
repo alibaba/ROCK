@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, NewType
 
 from rock.actions import CreateBashSessionRequest
 from rock.logger import init_logger
+from rock.sdk.sandbox.utils import with_time_logging
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import RunModeType, Sandbox
@@ -86,7 +87,7 @@ class RuntimeEnv(ABC):
         # Unique ID for this runtime env instance
         self.runtime_env_id = RuntimeEnvId(str(uuid.uuid4())[:8])
 
-        self.workdir = f"/rock-runtime-envs/{runtime_type}/{version_str}/{self.runtime_env_id}"
+        self.workdir = f"/tmp/rock-runtime-envs/{runtime_type}/{version_str}/{self.runtime_env_id}"
         self.session = f"runtime-env-{runtime_type}-{version_str}-{self.runtime_env_id}"
 
         # State flag
@@ -98,7 +99,7 @@ class RuntimeEnv(ABC):
         """Whether the runtime has been initialized."""
         return self._initialized
 
-    async def ensure_session(self) -> None:
+    async def _ensure_session(self) -> None:
         """Ensure runtime env session exists. Safe to call multiple times."""
         if self._session_ready:
             return
@@ -112,6 +113,16 @@ class RuntimeEnv(ABC):
         )
         self._session_ready = True
 
+    @with_time_logging("Ensuring workdir exists")
+    async def _ensure_workdir(self) -> None:
+        """Create workdir for runtime environment."""
+        result = await self._sandbox.arun(
+            cmd=f"mkdir -p {self.workdir}",
+            session=self.session,
+        )
+        if result.exit_code != 0:
+            raise RuntimeError(f"Failed to create workdir: {self.workdir}, exit_code: {result.exit_code}")
+
     async def init(self) -> None:
         """Initialize the runtime environment.
 
@@ -122,6 +133,11 @@ class RuntimeEnv(ABC):
         if self._initialized:
             return
 
+        # Common setup: ensure session and workdir
+        await self._ensure_session()
+        await self._ensure_workdir()
+
+        # Subclass-specific initialization
         await self._do_init()
 
         # Execute custom install command after _do_init
@@ -160,7 +176,7 @@ class RuntimeEnv(ABC):
         if mode is None:
             mode = RunMode.NOHUP
 
-        await self.ensure_session()
+        await self._ensure_session()
         wrapped = self.wrapped_cmd(cmd, prepend=True)
 
         logger.debug(f"[{self._sandbox.sandbox_id}] RuntimeEnv run cmd: {wrapped}")

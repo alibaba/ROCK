@@ -51,35 +51,19 @@ class NodeRuntimeEnv(RuntimeEnv):
         """Initialize and install Node runtime environment.
 
         This method:
-        1. Creates workdir
-        2. Installs Node runtime
+        1. Installs Node runtime
+        2. Validates Node exists
         3. Configures npm registry (if specified)
-        4. Validates Node exists
         """
-        await self.ensure_session()
-
-        # Step 1: ensure workdir exists
-        await self._ensure_workdir()
-
-        # Step 2: install node/npm
+        # Step 1: install node/npm
         await self._install_node_runtime()
 
-        # Step 3: validate node exists
+        # Step 2: validate node exists
         await self._validate_node()
 
-        # Step 4: configure npm registry if specified
+        # Step 3: configure npm registry if specified
         if self.npm_registry:
             await self._configure_npm_registry()
-
-    @with_time_logging("Ensuring workdir exists")
-    async def _ensure_workdir(self) -> None:
-        """Create workdir for runtime environment."""
-        result = await self._sandbox.arun(
-            cmd=f"mkdir -p {self.workdir}",
-            session=self.session,
-        )
-        if result.exit_code != 0:
-            raise RuntimeError(f"Failed to create workdir: {self.workdir}, exit_code: {result.exit_code}")
 
     @with_time_logging("Installing Node runtime")
     async def _install_node_runtime(self) -> None:
