@@ -101,16 +101,15 @@ class PersistedServiceStatus(ServiceStatus):
                 raise Exception(f"save service status failed: {str(e)}")
 
     def add_phase(self, phase_name: str, status: PhaseStatus):
-        self.phases[phase_name] = status
+        super().add_phase(phase_name, status)
         self._save_to_file()
 
     def update_status(self, phase_name: str, status: Status, message: str):
-        self.phases[phase_name].status = status
-        self.phases[phase_name].message = message
+        super().update_status(phase_name, status, message)
         self._save_to_file()
 
     def add_port_mapping(self, local_port: int, container_port: int):
-        self.port_mapping[local_port] = container_port
+        super().add_port_mapping(local_port, container_port)
         self._save_to_file()
 
     @classmethod
