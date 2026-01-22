@@ -23,9 +23,10 @@ from rock.admin.proto.request import (
     SandboxWriteFileRequest,
 )
 from rock.admin.proto.response import SandboxStartResponse
+from rock.common.constants import GET_STATUS_SWITCH
 from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.sandbox_manager import SandboxManager
-from rock.utils import GET_STATUS_SWITCH, handle_exceptions
+from rock.utils import handle_exceptions
 
 sandbox_router = APIRouter()
 sandbox_manager: SandboxManager
