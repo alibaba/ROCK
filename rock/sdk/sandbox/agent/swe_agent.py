@@ -152,7 +152,7 @@ class SweAgentConfig(DefaultAgentConfig):
 
     swe_agent_workdir: str = "/tmp_sweagent"
 
-    python_install_cmd: str = env_vars.ROCK_AGENT_PYTHON_INSTALL_CMD
+    python_install_cmd: str = env_vars.ROCK_RTENV_PYTHON_V31114_INSTALL_CMD
 
     swe_agent_install_cmd: str = (
         "[ -d SWE-agent ] && rm -rf SWE-agent; "

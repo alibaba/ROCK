@@ -40,8 +40,8 @@ class ModelServiceConfig(BaseModel):
     """
 
     workdir: str = "/tmp_model_service"
-    python_install_cmd: str = env_vars.ROCK_AGENT_PYTHON_INSTALL_CMD
-    model_service_install_cmd: str = env_vars.ROCK_AGENT_MODEL_SERVICE_INSTALL_CMD
+    python_install_cmd: str = env_vars.ROCK_RTENV_PYTHON_V31114_INSTALL_CMD
+    model_service_install_cmd: str = env_vars.ROCK_MODEL_SERVICE_INSTALL_CMD
     python_install_timeout: int = 300
     model_service_install_timeout: int = 300
     model_service_session: str = "model-service-session"

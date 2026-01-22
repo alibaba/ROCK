@@ -4,24 +4,23 @@ Implementation framework reference: `rock/sdk/sandbox/agent/swe_agent.py`
 """
 from __future__ import annotations
 
-import os
-import time
-import json
 import copy
+import json
+import os
 import shlex
 import tempfile
-from pathlib import Path
+import time
 from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Literal
 
 from rock import env_vars
+from rock.actions import Observation, UploadRequest, WriteFileRequest
 from rock.logger import init_logger
-from rock.sdk.sandbox.client import Sandbox
-from rock.sdk.sandbox.utils import arun_with_retry
 from rock.sdk.sandbox.agent.base import DefaultAgent
 from rock.sdk.sandbox.agent.config import DefaultAgentConfig
-from rock.actions import UploadRequest, Observation, WriteFileRequest
-
-from typing import Any, Literal
+from rock.sdk.sandbox.client import Sandbox
+from rock.sdk.sandbox.utils import arun_with_retry
 
 logger = init_logger(__name__)
 
@@ -47,7 +46,7 @@ Phase 1. READING: read the problem and reword it in clearer terms
    1.5 Hightlight any best practices to take into account when testing and fixing the issue
 
 Phase 2. RUNNING: install and run the tests on the repository
-   2.1 Activate the environment by running  
+   2.1 Activate the environment by running
        ./opt/miniconda3/etc/profile.d/conda.sh ; conda activate testbed
    2.2 Follow the readme
    2.3 Install the environment and anything needed
@@ -129,7 +128,7 @@ DEFAULT_RUN_SINGLE_CONFIG = {
         "custom_tokenizer": None,
         "native_tool_calling": True,
         "extended_thinking_budget": 200000,
-    }
+    },
 }
 
 
@@ -160,7 +159,7 @@ class OpenhandsConfig(DefaultAgentConfig):
     # directory where Openhands will be installed
     agent_workdir: str = "/openhands"
 
-    python_install_cmd: str = env_vars.ROCK_AGENT_PYTHON_v12_INSTALL_CMD
+    python_install_cmd: str = env_vars.ROCK_RTENV_PYTHON_V31212_INSTALL_CMD
 
     # Command to clone Openhands/benchmarks repository and install dependencies
     openhands_sdk_install_cmd_list: list[str] = [
@@ -170,7 +169,7 @@ class OpenhandsConfig(DefaultAgentConfig):
         "rm -rf /openhands/benchmarks",
         "git clone -b features/local_workspace_fix_early_stop https://github.com/shayue-wt/benchmarks.git /openhands/benchmarks",
         "/openhands/python/bin/pip install datasets huggingface-hub jinja2 pandas Pillow toml swebench",
-        "/openhands/python/bin/pip install tqdm 'unidiff>=0.7.5,<0.8.0' 'modal>=1.1.4' commit0 pytest-json-report"
+        "/openhands/python/bin/pip install tqdm 'unidiff>=0.7.5,<0.8.0' 'modal>=1.1.4' commit0 pytest-json-report",
     ]
 
     python_install_timeout: int = 300
@@ -195,6 +194,7 @@ class Openhands(DefaultAgent):
     to be compatible with SWE tasks other than SWE-Bench. It orchestrates rollout generation, patch retrieval,
     and result validation.
     """
+
     sandbox: Sandbox
     config: OpenhandsConfig
 
@@ -283,10 +283,7 @@ class Openhands(DefaultAgent):
 
         if self.config.agent_prompt != DEFAULT_PROMPT:
             r = await self._sandbox.write_file(
-                WriteFileRequest(
-                    content=self.config.agent_prompt,
-                    path=self.agent_prompt_path
-                )
+                WriteFileRequest(content=self.config.agent_prompt, path=self.agent_prompt_path)
             )
             assert r.success, f"agent prompt write failed: {r.error}"
             logger.debug("agent prompt write successfully...")
@@ -294,7 +291,7 @@ class Openhands(DefaultAgent):
         r = await self._sandbox.write_file(
             WriteFileRequest(
                 content=json.dumps(config["llm"], indent=4),
-                path=f"{self.config.agent_workdir}/benchmarks/.llm_config.json"
+                path=f"{self.config.agent_workdir}/benchmarks/.llm_config.json",
             )
         )
         assert r.success, f"llm configuration write failed: {r.error}"
@@ -302,8 +299,7 @@ class Openhands(DefaultAgent):
 
     @contextmanager
     def _config_template_context(
-            self, problem_statement: str, project_path: str, instance_id: str,
-            repo_name: str, base_commit: str
+        self, problem_statement: str, project_path: str, instance_id: str, repo_name: str, base_commit: str
     ):
         """Context manager for temporary config file generation and cleanup.
 
@@ -356,12 +352,12 @@ class Openhands(DefaultAgent):
                 logger.warning(f"⚠ Could not clean up temporary config file {temp_file_path}: {e}")
 
     async def run(
-            self,
-            problem_statement: str,
-            project_path: str,
-            instance_id: str,
-            agent_run_timeout: int = 1800,
-            agent_run_check_interval: int = 30,
+        self,
+        problem_statement: str,
+        project_path: str,
+        instance_id: str,
+        agent_run_timeout: int = 1800,
+        agent_run_check_interval: int = 30,
     ) -> Observation:
         """Execute Openhands with the specified problem statement and project path.
 
@@ -427,7 +423,7 @@ class Openhands(DefaultAgent):
                     f"--select ./{instance_config} --max-iterations {self.config.max_iteration}"
                 )
                 if self.config.agent_prompt != DEFAULT_PROMPT:
-                    agent_run_cmd += f" --prompt-path benchmarks/swebench/prompts/custom.j2"
+                    agent_run_cmd += " --prompt-path benchmarks/swebench/prompts/custom.j2"
 
                 full_cmd = f"bash -c {shlex.quote(agent_run_cmd)}"
                 logger.debug(

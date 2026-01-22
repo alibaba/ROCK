@@ -77,7 +77,7 @@ async def call_model_inference_generator(filepath: str = "infer_data/qwen3_coder
 
 def _get_python_install_cmd() -> str:
     """Get the Python installation command."""
-    return env_vars.ROCK_AGENT_PYTHON_INSTALL_CMD
+    return env_vars.ROCK_RTENV_PYTHON_V31114_INSTALL_CMD
 
 
 async def _init_git_repository(sandbox: Sandbox, repo_path: str) -> None:

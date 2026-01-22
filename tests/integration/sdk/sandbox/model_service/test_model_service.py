@@ -17,7 +17,7 @@ async def test_model_service_install_and_start(sandbox_instance: Sandbox):
     """Test model service installation and startup flow."""
 
     # 1. Initialize model service
-    python_install_cmd = env_vars.ROCK_AGENT_PYTHON_INSTALL_CMD
+    python_install_cmd = env_vars.ROCK_RTENV_PYTHON_V31114_INSTALL_CMD
     model_service_config = ModelServiceConfig(python_install_cmd=python_install_cmd)
     sandbox_instance.model_service = ModelService(sandbox_instance, model_service_config)
 
