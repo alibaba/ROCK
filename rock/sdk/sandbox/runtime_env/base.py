@@ -62,7 +62,7 @@ class RuntimeEnv(ABC):
             raise ValueError(f"Unsupported runtime type: {runtime_type}")
         runtime_env = runtime_class(sandbox=sandbox, runtime_env_config=runtime_env_config)
         # Auto-register to sandbox.runtime_envs
-        sandbox.runtime_envs[runtime_env.runtime_env_id] = runtime_env
+        sandbox.runtime_envs[runtime_env._runtime_env_id] = runtime_env
         return runtime_env
 
     def __init__(
@@ -73,18 +73,18 @@ class RuntimeEnv(ABC):
         self._sandbox = sandbox
 
         # Extract values from config
-        self.version = runtime_env_config.version
-        self.env = runtime_env_config.env
-        self.install_timeout = runtime_env_config.install_timeout
-        self.custom_install_cmd = runtime_env_config.custom_install_cmd
+        self._version = runtime_env_config.version
+        self._env = runtime_env_config.env
+        self._install_timeout = runtime_env_config.install_timeout
+        self._custom_install_cmd = runtime_env_config.custom_install_cmd
 
         # Unique ID for this runtime env instance
 
-        self.runtime_env_id = RuntimeEnvId(str(uuid.uuid4())[:8])
+        self._runtime_env_id = RuntimeEnvId(str(uuid.uuid4())[:8])
 
-        version_str = self.version or "default"  # avoid version is ""
-        self.workdir = f"/tmp/rock-runtime-envs/{runtime_env_config.type}/{version_str}/{self.runtime_env_id}"
-        self.session = f"runtime-env-{runtime_env_config.type}-{version_str}-{self.runtime_env_id}"
+        version_str = self._version or "default"  # avoid version is ""
+        self._workdir = f"/tmp/rock-runtime-envs/{runtime_env_config.type}/{version_str}/{self._runtime_env_id}"
+        self._session = f"runtime-env-{runtime_env_config.type}-{version_str}-{self._runtime_env_id}"
 
         # State flag
         self._initialized: bool = False
@@ -95,6 +95,11 @@ class RuntimeEnv(ABC):
         """Whether the runtime has been initialized."""
         return self._initialized
 
+    @property
+    def runtime_env_id(self) -> RuntimeEnvId:
+        """Unique ID for this runtime env instance."""
+        return self._runtime_env_id
+
     async def _ensure_session(self) -> None:
         """Ensure runtime env session exists. Safe to call multiple times."""
         if self._session_ready:
@@ -102,9 +107,9 @@ class RuntimeEnv(ABC):
 
         await self._sandbox.create_session(
             CreateBashSessionRequest(
-                session=self.session,
+                session=self._session,
                 env_enable=True,
-                env=self.env,
+                env=self._env,
             )
         )
         self._session_ready = True
@@ -112,11 +117,11 @@ class RuntimeEnv(ABC):
     async def _ensure_workdir(self) -> None:
         """Create workdir for runtime environment."""
         result = await self._sandbox.arun(
-            cmd=f"mkdir -p {self.workdir}",
-            session=self.session,
+            cmd=f"mkdir -p {self._workdir}",
+            session=self._session,
         )
         if result.exit_code != 0:
-            raise RuntimeError(f"Failed to create workdir: {self.workdir}, exit_code: {result.exit_code}")
+            raise RuntimeError(f"Failed to create workdir: {self._workdir}, exit_code: {result.exit_code}")
 
     async def init(self) -> None:
         """Initialize the runtime environment.
@@ -137,15 +142,14 @@ class RuntimeEnv(ABC):
         await self._post_init()
 
         # Execute custom install command after _post_init
-        if self.custom_install_cmd:
+        if self._custom_install_cmd:
             await self._do_custom_install()
 
         self._initialized = True
 
-    @property
     @abstractmethod
-    def install_cmd(self) -> str:
-        """Installation command for this runtime environment (e.g., 'python-install.sh')."""
+    def _get_install_cmd(self) -> str:
+        """Get installation command for this runtime environment (e.g., 'python-install.sh')."""
         pass
 
     @with_time_logging("Installing runtime")
@@ -153,13 +157,13 @@ class RuntimeEnv(ABC):
         """Install the runtime environment."""
         from rock.sdk.sandbox.client import RunMode
 
-        install_cmd = f"cd {shlex.quote(self.workdir)} && {self.install_cmd}"
+        install_cmd = f"cd {shlex.quote(self._workdir)} && {self.install_cmd}"
         await arun_with_retry(
             sandbox=self._sandbox,
             cmd=f"bash -c {shlex.quote(install_cmd)}",
-            session=self.session,
+            session=self._session,
             mode=RunMode.NOHUP,
-            wait_timeout=self.install_timeout,
+            wait_timeout=self._install_timeout,
             error_msg=f"{self.runtime_env_type} runtime installation failed",
         )
 
@@ -171,13 +175,13 @@ class RuntimeEnv(ABC):
     async def _do_custom_install(self) -> None:
         """Execute custom install command after _post_init."""
         await self.run(
-            self.custom_install_cmd,
-            wait_timeout=self.install_timeout,
+            self._custom_install_cmd,
+            wait_timeout=self._install_timeout,
             error_msg="custom_install_cmd failed",
         )
 
     def wrapped_cmd(self, cmd: str, prepend: bool = True) -> str:
-        bin_dir = f"{self.workdir}/runtime-env/bin"
+        bin_dir = f"{self._workdir}/runtime-env/bin"
         if prepend:
             wrapped = f"export PATH={shlex.quote(bin_dir)}:$PATH && {cmd}"
         else:
@@ -205,7 +209,7 @@ class RuntimeEnv(ABC):
 
         result = await self._sandbox.arun(
             cmd=wrapped,
-            session=self.session,
+            session=self._session,
             mode=mode,
             wait_timeout=wait_timeout,
         )

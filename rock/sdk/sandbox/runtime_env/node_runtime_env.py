@@ -46,7 +46,7 @@ class NodeRuntimeEnv(RuntimeEnv):
             )
 
         self._install_cmd = env_vars.ROCK_RTENV_NODE_V22180_INSTALL_CMD
-        self.npm_registry = runtime_env_config.npm_registry
+        self._npm_registry = runtime_env_config.npm_registry
 
     @property
     def install_cmd(self) -> str:
@@ -64,7 +64,7 @@ class NodeRuntimeEnv(RuntimeEnv):
         await self._validate_node()
 
         # Step 2: configure npm registry if specified
-        if self.npm_registry:
+        if self._npm_registry:
             await self._configure_npm_registry()
 
     async def _validate_node(self) -> None:
@@ -73,4 +73,4 @@ class NodeRuntimeEnv(RuntimeEnv):
 
     async def _configure_npm_registry(self) -> None:
         """Configure npm registry."""
-        return await self.run(cmd=f"npm config set registry {shlex.quote(self.npm_registry)}")
+        return await self.run(cmd=f"npm config set registry {shlex.quote(self._npm_registry)}")

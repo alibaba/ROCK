@@ -46,8 +46,8 @@ class PythonRuntimeEnv(RuntimeEnv):
         # Create base config with resolved version (extra="ignore" handles 'pip' and 'pip_index_url' fields)
         super().__init__(sandbox=sandbox, runtime_env_config=runtime_env_config)
 
-        self.pip = runtime_env_config.pip
-        self.pip_index_url = runtime_env_config.pip_index_url
+        self._pip = runtime_env_config.pip
+        self._pip_index_url = runtime_env_config.pip_index_url
 
         # Get install command based on version
         version = runtime_env_config.version
@@ -73,11 +73,11 @@ class PythonRuntimeEnv(RuntimeEnv):
         await self._validate_python()
 
         # Step 2: configure pip index url if specified
-        if self.pip_index_url:
+        if self._pip_index_url:
             await self._configure_pip()
 
         # Step 3: install pip packages if specified
-        if self.pip:
+        if self._pip:
             await self._install_pip()
 
     async def _validate_python(self) -> None:
@@ -86,27 +86,27 @@ class PythonRuntimeEnv(RuntimeEnv):
 
     async def _configure_pip(self) -> None:
         """Configure pip index URL."""
-        return await self.run(f"pip config set global.index-url {shlex.quote(self.pip_index_url)}")
+        return await self.run(f"pip config set global.index-url {shlex.quote(self._pip_index_url)}")
 
     async def _install_pip(self) -> None:
         """Install pip packages."""
-        if not self.pip:
+        if not self._pip:
             return
 
-        if isinstance(self.pip, str):
+        if isinstance(self._pip, str):
             # Treat as requirements.txt path - upload it first
-            if os.path.exists(self.pip):
+            if os.path.exists(self._pip):
                 # Upload requirements.txt to sandbox, keep original filename
-                original_filename = os.path.basename(self.pip)
-                target_path = f"{self.workdir}/{original_filename}"
+                original_filename = os.path.basename(self._pip)
+                target_path = f"{self._workdir}/{original_filename}"
                 await self._sandbox.upload_by_path(
-                    source_path=os.path.abspath(self.pip),
+                    source_path=os.path.abspath(self._pip),
                     target_path=target_path,
                 )
                 return await self.run(f"pip install -r {shlex.quote(target_path)}")
             else:
-                raise FileNotFoundError(f"Requirements file not found: {self.pip}")
+                raise FileNotFoundError(f"Requirements file not found: {self._pip}")
         else:
             # Treat as list of packages
-            packages = " ".join([shlex.quote(pkg) for pkg in self.pip])
+            packages = " ".join([shlex.quote(pkg) for pkg in self._pip])
             return await self.run(f"pip install {packages}")
