@@ -16,13 +16,6 @@ if TYPE_CHECKING:
 
 logger = init_logger(__name__)
 
-# Version to install command mapping
-_PYTHON_VERSION_MAP: dict[str, str] = {
-    "3.11": env_vars.ROCK_RTENV_PYTHON_V31114_INSTALL_CMD,
-    "default": env_vars.ROCK_RTENV_PYTHON_V31114_INSTALL_CMD,
-    "3.12": env_vars.ROCK_RTENV_PYTHON_V31212_INSTALL_CMD,
-}
-
 
 class PythonRuntimeEnv(RuntimeEnv):
     """Python runtime env.
@@ -43,21 +36,21 @@ class PythonRuntimeEnv(RuntimeEnv):
         sandbox: Sandbox,
         runtime_env_config: PythonRuntimeEnvConfig,
     ) -> None:
+        # Validate version early
+        version = runtime_env_config.version
+        if version not in ("3.11", "3.12", "default"):
+            raise ValueError(f"Unsupported Python version: {version}. Supported versions: 3.11, 3.12, default")
+
         # Create base config with resolved version (extra="ignore" handles 'pip' and 'pip_index_url' fields)
         super().__init__(sandbox=sandbox, runtime_env_config=runtime_env_config)
 
         self._pip = runtime_env_config.pip
         self._pip_index_url = runtime_env_config.pip_index_url
 
-        # Get install command based on version
-        version = runtime_env_config.version
-        if version not in _PYTHON_VERSION_MAP:
-            supported = list(_PYTHON_VERSION_MAP.keys())
-            raise ValueError(f"Unsupported Python version: {version}. Supported versions: {supported}")
-        self._install_cmd = _PYTHON_VERSION_MAP[version]
-
     def _get_install_cmd(self) -> str:
-        return self._install_cmd
+        if self._version in ("3.11", "default"):
+            return env_vars.ROCK_RTENV_PYTHON_V31114_INSTALL_CMD
+        return env_vars.ROCK_RTENV_PYTHON_V31212_INSTALL_CMD
 
     @override
     async def _post_init(self) -> None:
