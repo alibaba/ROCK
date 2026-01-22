@@ -93,12 +93,10 @@ class PythonRuntimeEnv(RuntimeEnv):
             error_msg="Python runtime installation failed",
         )
 
-    @with_time_logging("Validating Python installation")
     async def _validate_python(self) -> None:
         """Validate Python executable exists."""
         return await self.run("test -x python")
 
-    @with_time_logging("Configuring pip index URL")
     async def _configure_pip(self) -> None:
         """Configure pip index URL."""
         return await self.run(f"pip config set global.index-url {shlex.quote(self.pip_index_url)}")

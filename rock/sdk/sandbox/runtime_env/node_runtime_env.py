@@ -80,12 +80,10 @@ class NodeRuntimeEnv(RuntimeEnv):
             error_msg="Node runtime installation failed",
         )
 
-    @with_time_logging("Validating Node installation")
     async def _validate_node(self) -> None:
         """Validate Node executable exists."""
         return await self.run(cmd="test -x node")
 
-    @with_time_logging("Configuring npm registry")
     async def _configure_npm_registry(self) -> None:
         """Configure npm registry."""
         return await self.run(cmd=f"npm config set registry {shlex.quote(self.npm_registry)}")

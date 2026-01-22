@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, NewType
 
 from rock.actions import CreateBashSessionRequest
 from rock.logger import init_logger
-from rock.sdk.sandbox.utils import with_time_logging
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import RunModeType, Sandbox
@@ -113,7 +112,6 @@ class RuntimeEnv(ABC):
         )
         self._session_ready = True
 
-    @with_time_logging("Ensuring workdir exists")
     async def _ensure_workdir(self) -> None:
         """Create workdir for runtime environment."""
         result = await self._sandbox.arun(
