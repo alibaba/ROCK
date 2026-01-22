@@ -27,20 +27,29 @@ RESPONSE_END_MARKER = "LLM_RESPONSE_END"
 SESSION_END_MARKER = "SESSION_END"
 
 
-class ModelProxyConfig(BaseModel):
-    proxy_rules: dict[str, str] = Field(default_factory=dict)
+class ModelServiceConfig(BaseModel):
+    proxy_rules: dict[str, str] = Field(
+        default_factory=lambda: {
+            "gpt": "https://api.openai.com/v1/chat/completions",
+        }
+    )
 
-    # Only these codes will trigger a retry. 
+    # Only these codes will trigger a retry.
     # Codes not in this list (e.g., 400, 401, 403, or certain 5xx/6xx) will fail immediately.
-    retryable_status_codes: list[int] = Field(default_factory=lambda: [429, 499])
+    retryable_status_codes: list[int] = Field(
+        default_factory=lambda: [429, 500]
+    )
 
     request_timeout: int = 120
 
     @classmethod
-    def from_env(cls, config_path: str | None = None):
-        if not config_path:
-            config_path = env_vars.ROCK_MODEL_PROXY_CONFIG
+    def from_file(cls, config_path: str | None = None):
+        """
+        Factory method to create a config instance.
 
+        Args:
+            config_path: Path to the YAML file. If None, returns default config.
+        """
         if not config_path:
             return cls()
 

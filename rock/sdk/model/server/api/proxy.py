@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from rock.logger import init_logger
-from rock.sdk.model.server.config import ModelProxyConfig
+from rock.sdk.model.server.config import ModelServiceConfig
 from rock.utils import retry_async
 
 logger = init_logger(__name__)
@@ -24,7 +24,7 @@ http_client = httpx.AsyncClient()
     jitter=True, # Adds randomness to prevent "thundering herd" effect on the backend.
     exceptions=(httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError)
 )
-async def perform_llm_request(url: str, body: dict, headers: dict, config: ModelProxyConfig):
+async def perform_llm_request(url: str, body: dict, headers: dict, config: ModelServiceConfig):
     """
     Forwards the request and triggers retry ONLY if the status code 
     is in the explicit retryable whitelist.
@@ -40,31 +40,18 @@ async def perform_llm_request(url: str, body: dict, headers: dict, config: Model
     return response
 
 
-def get_target_url(model_name: str, config: ModelProxyConfig) -> str:
+def get_target_url(model_name: str, config: ModelServiceConfig) -> str:
     """
-    Selects the target backend URL based on keyword matching in the model name.
-    Example: 'qwen-max' contains 'qwen', thus matching the Whale provider URL.
+    Selects the target backend URL based on model name matching.
     """
     rules = config.proxy_rules
     if not model_name:
-        if "default" in rules:
-            return rules["default"]
-        raise HTTPException(status_code=400, detail="Model name is missing and no default rule found.")
+        raise HTTPException(status_code=400, detail="Model name is required for routing.")
 
-    model_name_lower = model_name.lower()
+    if model_name in rules:
+        return rules[model_name]
 
-    # Iterate through PROXY_RULES for keyword matching
-    for key, url in rules.items():
-        if key != "default" and key in model_name_lower:
-            return url
-
-    if "default" in rules:
-        return rules["default"]
-
-    raise HTTPException(
-        status_code=400, 
-        detail=f"Model '{model_name}' not configured in proxy rules."
-    )
+    raise HTTPException(status_code=400, detail=f"Model '{model_name}' not configured in proxy rules.")
 
 
 @proxy_router.post("/v1/chat/completions")
@@ -73,7 +60,7 @@ async def chat_completions(body: dict[str, Any], request: Request):
     OpenAI-compatible chat completions proxy endpoint.
     Handles routing, header transparent forwarding, and automatic retries.
     """
-    config = request.app.state.model_proxy_config
+    config = request.app.state.model_service_config
 
     # Step 1: Model Routing
     model_name = body.get("model", "")

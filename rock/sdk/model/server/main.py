@@ -7,11 +7,10 @@ import uvicorn
 from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
 
-from rock import env_vars
 from rock.logger import init_logger
 from rock.sdk.model.server.api.local import init_local_api, local_router
 from rock.sdk.model.server.api.proxy import proxy_router
-from rock.sdk.model.server.config import SERVICE_HOST, SERVICE_PORT, ModelProxyConfig
+from rock.sdk.model.server.config import SERVICE_HOST, SERVICE_PORT, ModelServiceConfig
 
 # Configure logging
 logger = init_logger(__name__)
@@ -21,11 +20,17 @@ logger = init_logger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan context manager."""
     logger.info("LLM Service started")
-    if model_servie_type == "proxy":
-        config_file_path = env_vars.ROCK_MODEL_PROXY_CONFIG if env_vars.ROCK_MODEL_PROXY_CONFIG else "model_proxy_config.yml"
-        model_proxy_config = ModelProxyConfig.from_env(config_file_path)
-        app.state.model_proxy_config = model_proxy_config
-        logger.info(f"Model Proxy Config loaded from {config_file_path}")
+    config_path = getattr(app.state, "config_path", None)
+    if config_path:
+        try:
+            app.state.model_service_config = ModelServiceConfig.from_file(config_path)
+            logger.info(f"Model Service Config loaded from: {config_path}")
+        except Exception as e:
+            logger.error(f"Failed to load config from {config_path}: {e}")
+            raise e
+    else:
+        app.state.model_service_config = ModelServiceConfig()
+        logger.info("No config file specified. Using default config settings.")
     yield
     logger.info("LLM Service shutting down")
 
@@ -55,8 +60,9 @@ async def global_exception_handler(request, exc):
     )
 
 
-def main(model_servie_type: str):
+def main(model_servie_type: str, config_file: str | None):
     logger.info(f"Starting LLM Service on {SERVICE_HOST}:{SERVICE_PORT}, type: {model_servie_type}")
+    app.state.config_path = config_file
     if model_servie_type == "local":
         asyncio.run(init_local_api())
         app.include_router(local_router, prefix="", tags=["local"])
@@ -69,6 +75,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--type", type=str, choices=["local", "proxy"], default="local", help="Type of LLM service (local/proxy)"
+    )
+    parser.add_argument(
+        "--config-file", type=str, default=None, help="Path to the configuration YAML file. If not set, default values will be used."
     )
     args = parser.parse_args()
     model_servie_type = args.type

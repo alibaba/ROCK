@@ -2,28 +2,23 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+import yaml
 from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient, HTTPStatusError, Request, Response
 
 from rock.sdk.model.server.api.proxy import perform_llm_request, proxy_router
-from rock.sdk.model.server.config import ModelProxyConfig
+from rock.sdk.model.server.config import ModelServiceConfig
+from rock.sdk.model.server.main import lifespan
 
 # Initialize a temporary FastAPI application for testing the router
 test_app = FastAPI()
 test_app.include_router(proxy_router)
 
-mock_config = ModelProxyConfig(
-    proxy_rules={
-        "qwen": "http://whale.url",
-        "default": "http://default.url"
-    },
-    retryable_status_codes=[429, 499],
-    request_timeout=60
-)
-test_app.state.model_proxy_config = mock_config
+mock_config = ModelServiceConfig()
+test_app.state.model_service_config = mock_config
 
 @pytest.mark.asyncio
-async def test_chat_completions_routing():
+async def test_chat_completions_routing_success():
     """
     Test the high-level routing logic.
     """
@@ -38,15 +33,32 @@ async def test_chat_completions_routing():
         transport = ASGITransport(app=test_app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             payload = {
-                "model": "Qwen2.5-72B", 
+                "model": "gpt",
                 "messages": [{"role": "user", "content": "hello"}]
             }
             response = await ac.post("/v1/chat/completions", json=payload)
 
         assert response.status_code == 200
         call_args = mock_request.call_args[0]
-        assert call_args[0] == "http://whale.url" 
+        assert call_args[0] == "https://api.openai.com/v1/chat/completions"
         assert mock_request.called
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_routing_not_configured_fail():
+    """
+    Test that the proxy fails when the model is not configured.
+    """
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        payload = {
+            "model": "claude-3",
+            "messages": [{"role": "user", "content": "hello"}]
+        }
+        response = await ac.post("/v1/chat/completions", json=payload)
+
+    assert response.status_code == 400
+    assert "not configured" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -64,8 +76,8 @@ async def test_perform_llm_request_retry_on_whitelist():
         resp_429 = MagicMock(spec=Response)
         resp_429.status_code = 429
         error_429 = HTTPStatusError(
-            "Rate Limited", 
-            request=MagicMock(spec=Request), 
+            "Rate Limited",
+            request=MagicMock(spec=Request),
             response=resp_429
         )
 
@@ -104,7 +116,7 @@ async def test_perform_llm_request_no_retry_on_non_whitelist():
 
         assert result.status_code == 401
         # Call count must be 1, meaning no retries were attempted
-        assert mock_post.call_count == 1 
+        assert mock_post.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -126,3 +138,58 @@ async def test_perform_llm_request_network_timeout_retry():
 
         assert result.status_code == 200
         assert mock_post.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_lifespan_initialization_with_config(tmp_path):
+    """
+    Test that the application correctly initializes and overrides defaults
+    when a valid configuration file path is provided.
+    """
+    conf_file = tmp_path / "proxy.yml"
+    conf_file.write_text(yaml.dump({
+        "proxy_rules": {"my-model": "http://custom-url"},
+        "request_timeout": 50
+    }))
+
+    # Initialize App and simulate CLI argument passing via app.state
+    app = FastAPI(lifespan=lifespan)
+    app.state.config_path = str(conf_file)
+
+    async with lifespan(app):
+        config = app.state.model_service_config
+        # Verify that the config reflects file content instead of defaults
+        assert config.proxy_rules["my-model"] == "http://custom-url"
+        assert config.request_timeout == 50
+        assert "gpt" not in config.proxy_rules
+
+
+@pytest.mark.asyncio
+async def test_lifespan_initialization_no_config():
+    """
+    Test that the application initializes with default ModelServiceConfig 
+    settings when no configuration file path is provided.
+    """
+    app = FastAPI(lifespan=lifespan)
+    app.state.config_path = None
+
+    async with lifespan(app):
+        config = app.state.model_service_config
+        # Verify that default rules (e.g., 'gpt') are loaded
+        assert "gpt" in config.proxy_rules
+        assert config.request_timeout == 120
+
+
+@pytest.mark.asyncio
+async def test_lifespan_invalid_config_path():
+    """
+    Test that providing a non-existent configuration file path causes the
+    lifespan to raise a FileNotFoundError, ensuring fail-fast behavior.
+    """
+    app = FastAPI(lifespan=lifespan)
+    app.state.config_path = "/tmp/non_existent_file.yml"
+
+    # Expect FileNotFoundError to be raised during startup
+    with pytest.raises(FileNotFoundError):
+        async with lifespan(app):
+            pass
