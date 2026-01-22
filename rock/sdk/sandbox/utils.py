@@ -1,5 +1,6 @@
 from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
 
+import asyncio
 import functools
 import time
 from typing import TYPE_CHECKING
@@ -11,53 +12,80 @@ if TYPE_CHECKING:
 
 
 def with_time_logging(operation_name: str):
-    """Decorator to add timing and logging to async methods.
+    """Decorator to add timing and logging to functions.
 
     This decorator:
     - Logs operation start and completion with elapsed time
     - Captures and re-raises exceptions with context
-    - Provides consistent error handling across methods
+    - Supports both sync and async functions
 
     Args:
         operation_name: Name of the operation for logging
-        log_start: Whether to log operation start (default: True)
-        log_success: Whether to log successful completion (default: True)
 
     Example:
         @with_time_logging("Installing model service")
         async def install(self):
             ...
+
+        @with_time_logging("Loading config")
+        def load_config(self):
+            ...
     """
+
     from rock.logger import init_logger
 
     logger = init_logger(__name__)
 
     def decorator(func):
         @functools.wraps(func)
-        async def wrapper(self, *args, **kwargs):
-            sandbox_id = getattr(self._sandbox, "sandbox_id", "unknown")
+        async def async_wrapper(*args, **kwargs):
             start_time = time.time()
 
-            logger.info(f"[{sandbox_id}] Starting {operation_name}")
+            logger.info(f"Starting {operation_name}")
 
             try:
-                result = await func(self, *args, **kwargs)
+                result = await func(*args, **kwargs)
 
                 elapsed = time.time() - start_time
 
-                logger.info(f"[{sandbox_id}] {operation_name} completed (elapsed: {elapsed:.2f}s)")
+                logger.info(f"{operation_name} completed (elapsed: {elapsed:.2f}s)")
 
                 return result
 
             except Exception as e:
                 elapsed = time.time() - start_time
                 logger.error(
-                    f"[{sandbox_id}] {operation_name} failed: {str(e)} (elapsed: {elapsed:.2f}s)",
+                    f"{operation_name} failed: {str(e)} (elapsed: {elapsed:.2f}s)",
                     exc_info=True,
                 )
                 raise
 
-        return wrapper
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            start_time = time.time()
+
+            logger.info(f"Starting {operation_name}")
+
+            try:
+                result = func(*args, **kwargs)
+
+                elapsed = time.time() - start_time
+
+                logger.info(f"{operation_name} completed (elapsed: {elapsed:.2f}s)")
+
+                return result
+
+            except Exception as e:
+                elapsed = time.time() - start_time
+                logger.error(
+                    f"{operation_name} failed: {str(e)} (elapsed: {elapsed:.2f}s)",
+                    exc_info=True,
+                )
+                raise
+
+        if asyncio.iscoroutinefunction(func):
+            return async_wrapper
+        return sync_wrapper
 
     return decorator
 
