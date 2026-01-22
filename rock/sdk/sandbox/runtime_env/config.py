@@ -18,7 +18,7 @@ class RuntimeEnvConfig(BaseModel):
     version: str = Field(default="default")
     """Runtime version. Use 'default' for the default version of each runtime."""
 
-    session_envs: dict[str, str] | None = Field(default=None)
+    env: dict[str, str] | None = Field(default=None)
     """Environment variables for the runtime session."""
 
     install_timeout: int = Field(default=600)

@@ -73,22 +73,18 @@ class RuntimeEnv(ABC):
         self._sandbox = sandbox
 
         # Extract values from config
-        version = runtime_env_config.version
-        session_envs = runtime_env_config.session_envs
-
-        self.version = version
-        self.session_envs = session_envs or {}
+        self.version = runtime_env_config.version
+        self.env = runtime_env_config.env
         self.install_timeout = runtime_env_config.install_timeout
         self.custom_install_cmd = runtime_env_config.custom_install_cmd
 
-        runtime_type = runtime_env_config.type
-        version_str = version or "default"
-
         # Unique ID for this runtime env instance
+
         self.runtime_env_id = RuntimeEnvId(str(uuid.uuid4())[:8])
 
-        self.workdir = f"/tmp/rock-runtime-envs/{runtime_type}/{version_str}/{self.runtime_env_id}"
-        self.session = f"runtime-env-{runtime_type}-{version_str}-{self.runtime_env_id}"
+        version_str = self.version or "default"  # avoid version is ""
+        self.workdir = f"/tmp/rock-runtime-envs/{runtime_env_config.type}/{version_str}/{self.runtime_env_id}"
+        self.session = f"runtime-env-{runtime_env_config.type}-{version_str}-{self.runtime_env_id}"
 
         # State flag
         self._initialized: bool = False
@@ -108,7 +104,7 @@ class RuntimeEnv(ABC):
             CreateBashSessionRequest(
                 session=self.session,
                 env_enable=True,
-                env=self.session_envs,
+                env=self.env,
             )
         )
         self._session_ready = True
@@ -142,11 +138,7 @@ class RuntimeEnv(ABC):
 
         # Execute custom install command after _post_init
         if self.custom_install_cmd:
-            await self.run(
-                self.custom_install_cmd,
-                wait_timeout=self.install_timeout,
-                error_msg="custom_install_cmd failed",
-            )
+            await self._do_custom_install()
 
         self._initialized = True
 
@@ -174,6 +166,15 @@ class RuntimeEnv(ABC):
     async def _post_init(self) -> None:
         """Additional initialization after runtime installation. Override in subclasses."""
         pass
+
+    @with_time_logging("Running custom install")
+    async def _do_custom_install(self) -> None:
+        """Execute custom install command after _post_init."""
+        await self.run(
+            self.custom_install_cmd,
+            wait_timeout=self.install_timeout,
+            error_msg="custom_install_cmd failed",
+        )
 
     def wrapped_cmd(self, cmd: str, prepend: bool = True) -> str:
         bin_dir = f"{self.workdir}/runtime-env/bin"
