@@ -1,31 +1,27 @@
-from __future__ import annotations
-
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from rock import env_vars
+
 
 class RuntimeEnvConfig(BaseModel):
-    """Base configuration for runtime environments.
-
-    This is an abstract base class. Use PythonRuntimeEnvConfig or NodeRuntimeEnvConfig
-    for concrete configurations.
-    """
+    """Base configuration for runtime environments."""
 
     type: str = Field()
-    """Runtime type discriminator. Must be 'python' or 'node'."""
+    """Runtime type discriminator."""
 
     version: str = Field(default="default")
     """Runtime version. Use 'default' for the default version of each runtime."""
 
-    env: dict[str, str] | None = Field(default=None)
+    env: dict[str, str] = Field(default_factory=dict)
     """Environment variables for the runtime session."""
 
     install_timeout: int = Field(default=600)
     """Timeout in seconds for installation commands."""
 
     custom_install_cmd: str | None = Field(default=None)
-    """Custom install command to run after _do_init(). Supports && or ; for multi-step commands."""
+    """Custom install command to run after init. Supports && or ; for multi-step commands."""
 
 
 class PythonRuntimeEnvConfig(RuntimeEnvConfig):
@@ -54,7 +50,7 @@ class PythonRuntimeEnvConfig(RuntimeEnvConfig):
     - None: No packages to install
     """
 
-    pip_index_url: str | None = Field(default="https://mirrors.aliyun.com/pypi/simple/")
+    pip_index_url: str | None = Field(default=env_vars.ROCK_PIP_INDEX_URL)
     """Pip index URL for package installation. If set, will use this mirror."""
 
 
