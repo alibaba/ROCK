@@ -27,20 +27,20 @@ class ModelServiceConfig(BaseModel):
     enable: bool = Field(default=False)
     """Whether to enable the ModelService. When False, ModelService will not be initialized."""
 
-    model_service_install_cmd: str = Field(default=env_vars.ROCK_MODEL_SERVICE_INSTALL_CMD)
+    type: str = Field(default="local")
+    """Type of model service to start."""
+
+    install_cmd: str = Field(default=env_vars.ROCK_MODEL_SERVICE_INSTALL_CMD)
     """Command to install model service package."""
 
-    model_service_install_timeout: int = Field(default=300, gt=0)
+    install_timeout: int = Field(default=300, gt=0)
     """Timeout for model service installation in seconds."""
 
     runtime_env_config: PythonRuntimeEnvConfig = Field(default_factory=PythonRuntimeEnvConfig)
     """Runtime environment configuration for the model service."""
 
-    model_service_type: str = Field(default="local")
-    """Type of model service to start."""
-
-    start_cmd: str = Field(default="rock model-service start --type ${model_service_type}")
-    """Command to start model service with model_service_type placeholder."""
+    start_cmd: str = Field(default="rock model-service start --type ${type}")
+    """Command to start model service with type placeholder."""
 
     stop_cmd: str = Field(default="rock model-service stop")
     """Command to stop model service."""
@@ -106,22 +106,24 @@ class ModelService:
         self.runtime_env = RuntimeEnv.from_config(self._sandbox, self.config.runtime_env_config)
         await self.runtime_env.init()
 
-        # Create Rock config file
-        config_ini_cmd = "mkdir -p ~/.rock && touch ~/.rock/config.ini"
-        await self.runtime_env.run(cmd=config_ini_cmd)
-        # Install model service
+        await self._create_rock_config()
         await self._install_model_service()
 
         self.is_installed = True
 
+    async def _create_rock_config(self) -> None:
+        """Create Rock config file."""
+        config_ini_cmd = "mkdir -p ~/.rock && touch ~/.rock/config.ini"
+        await self.runtime_env.run(cmd=config_ini_cmd)
+
     @with_time_logging("Installing model service package")
     async def _install_model_service(self) -> None:
         """Install model service package using runtime_env.run()."""
-        install_cmd = f"cd {self.runtime_env.workdir} && {self.config.model_service_install_cmd}"
+        install_cmd = f"cd {self.runtime_env.workdir} && {self.config.install_cmd}"
 
         await self.runtime_env.run(
             cmd=install_cmd,
-            wait_timeout=self.config.model_service_install_timeout,
+            wait_timeout=self.config.install_timeout,
             error_msg="Model service installation failed",
         )
 
@@ -150,7 +152,7 @@ class ModelService:
             f"export ROCK_LOGGING_PATH={self.config.logging_path} && "
             f"export ROCK_LOGGING_FILE_NAME={self.config.logging_file_name} && "
             f"{self.config.stop_cmd} && "
-            f"{Template(self.config.start_cmd).safe_substitute(model_service_type=self.config.model_service_type)}"
+            f"{Template(self.config.start_cmd).safe_substitute(type=self.config.type)}"
         )
         logger.debug(f"[{self._sandbox.sandbox_id}] Model service Start command: {bash_start_cmd}")
 
