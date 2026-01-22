@@ -1,3 +1,4 @@
+import os
 import socket
 import subprocess
 import sys
@@ -12,14 +13,13 @@ from fastapi.testclient import TestClient
 
 from rock import env_vars
 from rock.actions.sandbox.request import CreateBashSessionRequest
-from rock.deployments.constants import Port
 from rock.logger import init_logger
 from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.sandbox.config import SandboxConfig
 from rock.utils import find_free_port, run_until_complete
 from rock.utils.concurrent_helper import run_until_complete
 from rock.utils.docker import DockerUtil
-from rock.utils.system import find_free_port, is_port_in_use, kill_process_on_port
+from rock.utils.system import find_free_port
 
 logger = init_logger(__name__)
 
@@ -97,7 +97,10 @@ def admin_client_fixture():
 @pytest.fixture(scope="session")
 def admin_remote_server():
     port = run_until_complete(find_free_port())
+    proxy_port = run_until_complete(find_free_port())
 
+    env = os.environ.copy()
+    env["ROCK_WORKER_ROCKLET_PORT"] = str(proxy_port)
     # Do not redirect stdout and stderr to pipes without reading from them, as this will cause the program to hang.
     process = subprocess.Popen(
         [
@@ -111,11 +114,9 @@ def admin_remote_server():
         ],
         stdout=None,
         stderr=None,
+        env=env,
     )
 
-    proxy_port = Port.PROXY.value
-    if is_port_in_use(proxy_port):
-        kill_process_on_port(proxy_port)
     rocklet_process = subprocess.Popen(
         [
             "rocklet",

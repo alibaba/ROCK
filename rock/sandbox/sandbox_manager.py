@@ -337,8 +337,9 @@ class SandboxManager(BaseManager):
 
     async def get_remote_status(self, sandbox_id: str, host_ip: str) -> ServiceStatus:
         service_status_path = PersistedServiceStatus.gen_service_status_path(sandbox_id)
-        execute_url = f"http://{host_ip}:{Port.PROXY}/execute"
-        read_file_url = f"http://{host_ip}:{Port.PROXY}/read_file"
+        worker_rocklet_port = env_vars.ROCK_WORKER_ROCKLET_PORT if env_vars.ROCK_WORKER_ROCKLET_PORT else Port.PROXY
+        execute_url = f"http://{host_ip}:{worker_rocklet_port}/execute"
+        read_file_url = f"http://{host_ip}:{worker_rocklet_port}/read_file"
         headers={"sandbox_id": sandbox_id, EAGLE_EYE_TRACE_ID: trace_id_ctx_var.get()}
         find_file_rsp = await HttpUtils.post(
             url=execute_url,

@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     ROCK_CONFIG: str | None = None
     ROCK_CONFIG_DIR_NAME: str | None = None
     ROCK_BASE_URL: str | None = "http://localhost:8080"
+    ROCK_WORKER_ROCKLET_PORT: int | None = None
     ROCK_SANDBOX_STARTUP_TIMEOUT_SECONDS: int = 180
     ROCK_CODE_SANDBOX_BASE_URL: str | None = None
     ROCK_ENVHUB_BASE_URL: str | None = "http://localhost:8081"
@@ -62,6 +63,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_CONFIG": lambda: os.getenv("ROCK_CONFIG"),
     "ROCK_CONFIG_DIR_NAME": lambda: os.getenv("ROCK_CONFIG_DIR_NAME", "rock-conf"),
     "ROCK_BASE_URL": lambda: os.getenv("ROCK_BASE_URL", "http://localhost:8080"),
+    "ROCK_WORKER_ROCKLET_PORT": lambda: int(val) if (val := os.getenv("ROCK_WORKER_ROCKLET_PORT")) else None,
     "ROCK_SANDBOX_STARTUP_TIMEOUT_SECONDS": lambda: int(os.getenv("ROCK_SANDBOX_STARTUP_TIMEOUT_SECONDS", "180")),
     "ROCK_CODE_SANDBOX_BASE_URL": lambda: os.getenv("ROCK_CODE_SANDBOX_BASE_URL", ""),
     "ROCK_ENVHUB_BASE_URL": lambda: os.getenv("ROCK_ENVHUB_BASE_URL", "http://localhost:8081"),
