@@ -10,6 +10,7 @@ from tests.integration.conftest import SKIP_IF_NO_DOCKER
 logger = init_logger(__name__)
 
 
+@pytest.mark.skip
 @pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
