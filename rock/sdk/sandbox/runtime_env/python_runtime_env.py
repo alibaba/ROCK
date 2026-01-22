@@ -56,8 +56,7 @@ class PythonRuntimeEnv(RuntimeEnv):
             raise ValueError(f"Unsupported Python version: {version}. Supported versions: {supported}")
         self._install_cmd = _PYTHON_VERSION_MAP[version]
 
-    @property
-    def install_cmd(self) -> str:
+    def _get_install_cmd(self) -> str:
         return self._install_cmd
 
     @override

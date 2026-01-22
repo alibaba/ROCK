@@ -48,8 +48,7 @@ class NodeRuntimeEnv(RuntimeEnv):
         self._install_cmd = env_vars.ROCK_RTENV_NODE_V22180_INSTALL_CMD
         self._npm_registry = runtime_env_config.npm_registry
 
-    @property
-    def install_cmd(self) -> str:
+    def _get_install_cmd(self) -> str:
         return self._install_cmd
 
     @override

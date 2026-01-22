@@ -157,7 +157,7 @@ class RuntimeEnv(ABC):
         """Install the runtime environment."""
         from rock.sdk.sandbox.client import RunMode
 
-        install_cmd = f"cd {shlex.quote(self._workdir)} && {self.install_cmd}"
+        install_cmd = f"cd {shlex.quote(self._workdir)} && {self._get_install_cmd()}"
         await arun_with_retry(
             sandbox=self._sandbox,
             cmd=f"bash -c {shlex.quote(install_cmd)}",
