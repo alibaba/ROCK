@@ -7,10 +7,11 @@ import uvicorn
 from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
 
+from rock import env_vars
 from rock.logger import init_logger
 from rock.sdk.model.server.api.local import init_local_api, local_router
 from rock.sdk.model.server.api.proxy import proxy_router
-from rock.sdk.model.server.config import SERVICE_HOST, SERVICE_PORT
+from rock.sdk.model.server.config import SERVICE_HOST, SERVICE_PORT, ModelProxyConfig
 
 # Configure logging
 logger = init_logger(__name__)
@@ -20,6 +21,11 @@ logger = init_logger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan context manager."""
     logger.info("LLM Service started")
+    if model_servie_type == "proxy":
+        config_file_path = env_vars.ROCK_MODEL_PROXY_CONFIG if env_vars.ROCK_MODEL_PROXY_CONFIG else "model_proxy_config.yml"
+        model_proxy_config = ModelProxyConfig.from_env(config_file_path)
+        app.state.model_proxy_config = model_proxy_config
+        logger.info(f"Model Proxy Config loaded from {config_file_path}")
     yield
     logger.info("LLM Service shutting down")
 

@@ -1,10 +1,120 @@
 from typing import Any
 
-from fastapi import APIRouter, Request
+import httpx
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
+
+from rock.logger import init_logger
+from rock.sdk.model.server.config import ModelProxyConfig
+from rock.utils import retry_async
+
+logger = init_logger(__name__)
 
 proxy_router = APIRouter()
 
 
+# Global HTTP client with a persistent connection pool
+http_client = httpx.AsyncClient()
+
+
+@retry_async(
+    max_attempts=6,
+    delay_seconds=2.0,
+    backoff=2.0, # Exponential backoff (2s, 4s, 8s, 16s, 32s).
+    jitter=True, # Adds randomness to prevent "thundering herd" effect on the backend.
+    exceptions=(httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError)
+)
+async def perform_llm_request(url: str, body: dict, headers: dict, config: ModelProxyConfig):
+    """
+    Forwards the request and triggers retry ONLY if the status code 
+    is in the explicit retryable whitelist.
+    """
+    response = await http_client.post(url, json=body, headers=headers, timeout=config.request_timeout)
+    status_code = response.status_code
+
+    # Check against the explicit whitelist
+    if status_code in config.retryable_status_codes:
+        logger.warning(f"Retryable error detected: {status_code}. Triggering retry for {url}...")
+        response.raise_for_status()
+
+    return response
+
+
+def get_target_url(model_name: str, config: ModelProxyConfig) -> str:
+    """
+    Selects the target backend URL based on keyword matching in the model name.
+    Example: 'qwen-max' contains 'qwen', thus matching the Whale provider URL.
+    """
+    rules = config.proxy_rules
+    if not model_name:
+        if "default" in rules:
+            return rules["default"]
+        raise HTTPException(status_code=400, detail="Model name is missing and no default rule found.")
+
+    model_name_lower = model_name.lower()
+
+    # Iterate through PROXY_RULES for keyword matching
+    for key, url in rules.items():
+        if key != "default" and key in model_name_lower:
+            return url
+
+    if "default" in rules:
+        return rules["default"]
+
+    raise HTTPException(
+        status_code=400, 
+        detail=f"Model '{model_name}' not configured in proxy rules."
+    )
+
+
 @proxy_router.post("/v1/chat/completions")
 async def chat_completions(body: dict[str, Any], request: Request):
-    raise NotImplementedError("Proxy chat completions not implemented yet")
+    """
+    OpenAI-compatible chat completions proxy endpoint.
+    Handles routing, header transparent forwarding, and automatic retries.
+    """
+    config = request.app.state.model_proxy_config
+
+    # Step 1: Model Routing
+    model_name = body.get("model", "")
+    target_url = get_target_url(model_name, config)
+    logger.info(f"Routing model '{model_name}' to URL: {target_url}")
+
+    # Step 2: Header Cleaning
+    # Preserve 'Authorization' for authentication while removing hop-by-hop transport headers.
+    forwarded_headers = {}
+    for key, value in request.headers.items():
+        if key.lower() in ["host", "content-length", "content-type", "transfer-encoding"]:
+            continue
+        forwarded_headers[key] = value
+
+    # Step 3: Strategy Enforcement
+    # Force non-streaming mode for the MVP phase to ensure stability.
+    body["stream"] = False
+
+    try:
+        # Step 4: Execute Request with Retry Logic
+        response = await perform_llm_request(target_url, body, forwarded_headers)
+        return JSONResponse(status_code=response.status_code, content=response.json())
+
+    except httpx.HTTPStatusError as e:
+        # Forward the raw backend error message to the client.
+        # This allows the Agent-side logic to detect keywords like 'context length exceeded' 
+        # or 'content violation' and raise appropriate exceptions.
+        error_text = e.response.text if e.response else "No error details"
+        status_code = e.response.status_code if e.response else 502
+        logger.error(f"Final failure after retries. Status: {status_code}, Response: {error_text}")
+        return JSONResponse(
+            status_code=status_code,
+            content={
+                "error": {
+                    "message": f"LLM backend error: {error_text}",
+                    "type": "proxy_retry_failed",
+                    "code": status_code
+                }
+            }
+        )
+    except Exception as e:
+        logger.error(f"Unexpected proxy error: {str(e)}")
+        # Raise standard 500 for non-HTTP related coding or system errors
+        raise HTTPException(status_code=500, detail=str(e))

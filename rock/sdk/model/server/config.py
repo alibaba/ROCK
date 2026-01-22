@@ -1,3 +1,8 @@
+from pathlib import Path
+
+import yaml
+from pydantic import BaseModel, Field
+
 from rock import env_vars
 
 """Configuration for LLM Service."""
@@ -20,3 +25,34 @@ REQUEST_END_MARKER = "LLM_REQUEST_END"
 RESPONSE_START_MARKER = "LLM_RESPONSE_START"
 RESPONSE_END_MARKER = "LLM_RESPONSE_END"
 SESSION_END_MARKER = "SESSION_END"
+
+
+class ModelProxyConfig(BaseModel):
+    proxy_rules: dict[str, str] = Field(default_factory=dict)
+
+    # Only these codes will trigger a retry. 
+    # Codes not in this list (e.g., 400, 401, 403, or certain 5xx/6xx) will fail immediately.
+    retryable_status_codes: list[int] = Field(default_factory=lambda: [429, 499])
+
+    request_timeout: int = 120
+
+    @classmethod
+    def from_env(cls, config_path: str | None = None):
+        if not config_path:
+            config_path = env_vars.ROCK_MODEL_PROXY_CONFIG
+
+        if not config_path:
+            return cls()
+
+        config_file = Path(config_path)
+
+        if not config_file.exists():
+            raise FileNotFoundError(f"Config file {config_file} not found")
+
+        with open(config_file, encoding="utf-8") as f:
+            config_data = yaml.safe_load(f)
+
+        if config_data is None:
+            return cls()
+
+        return cls(**config_data)
