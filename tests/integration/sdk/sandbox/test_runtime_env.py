@@ -11,7 +11,7 @@ from tests.integration.conftest import SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
 async def test_python_runtime_env(sandbox_instance: Sandbox):
     """Test Python runtime env basic initialization."""
-    config = PythonRuntimeEnvConfig(version="default")
+    config = PythonRuntimeEnvConfig(version="3.11")
     python_env = RuntimeEnv.from_config(sandbox_instance, config)
     await python_env.init()
 
@@ -24,7 +24,7 @@ async def test_python_runtime_env(sandbox_instance: Sandbox):
 @pytest.mark.asyncio
 async def test_node_runtime_env(sandbox_instance: Sandbox):
     """Test Node runtime env basic initialization."""
-    config = NodeRuntimeEnvConfig(version="default")
+    config = NodeRuntimeEnvConfig(version="22.18.0")
     node_env = RuntimeEnv.from_config(sandbox_instance, config)
     await node_env.init()
 
