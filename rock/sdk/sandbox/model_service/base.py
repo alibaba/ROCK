@@ -45,6 +45,9 @@ class ModelServiceConfig(BaseModel):
     stop_cmd: str = Field(default="rock model-service stop")
     """Command to stop model service."""
 
+    config_ini_cmd: str = Field(default="mkdir -p ~/.rock && touch ~/.rock/config.ini")
+    """Command to create Rock config file."""
+
     watch_agent_cmd: str = Field(default="rock model-service watch-agent --pid ${pid}")
     """Command to watch agent with pid placeholder."""
 
@@ -113,8 +116,7 @@ class ModelService:
 
     async def _create_rock_config(self) -> None:
         """Create Rock config file."""
-        config_ini_cmd = "mkdir -p ~/.rock && touch ~/.rock/config.ini"
-        await self.runtime_env.run(cmd=config_ini_cmd)
+        await self.runtime_env.run(cmd=self.config.config_ini_cmd)
 
     @with_time_logging("Installing model service package")
     async def _install_model_service(self) -> None:
