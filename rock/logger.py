@@ -1,7 +1,9 @@
 import logging
 import os
 import sys
+from datetime import datetime
 from functools import cache
+from zoneinfo import ZoneInfo
 
 from rock import env_vars
 from rock.utils import sandbox_id_ctx_var, trace_id_ctx_var
@@ -50,6 +52,18 @@ class StandardFormatter(logging.Formatter):
         return f"{header_str} {record.getMessage()}"
 
 
+class TimezoneFormatter(StandardFormatter):
+    def __init__(self, *args, tz_string="Asia/Shanghai", **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tz = ZoneInfo(tz_string)
+
+    def formatTime(self, record, datefmt=None):
+        dt = datetime.fromtimestamp(record.created, tz=self.tz)
+        if datefmt:
+            return dt.strftime(datefmt)
+        return dt.isoformat(timespec="milliseconds")
+
+
 @cache
 def init_file_handler(log_name: str):
     if env_vars.ROCK_LOGGING_PATH:
@@ -60,7 +74,7 @@ def init_file_handler(log_name: str):
         os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
 
         handler = logging.FileHandler(log_file_path, mode="w+", encoding="utf-8")
-        handler.setFormatter(StandardFormatter(log_color_enable=False))
+        handler.setFormatter(TimezoneFormatter(log_color_enable=False, tz_string=env_vars.ROCK_TIME_ZONE))
         return handler
     return None
 
@@ -89,7 +103,7 @@ def init_logger(name: str | None = None, file_name: str | None = None):
         else:
             # Use stdout handler
             handler = logging.StreamHandler(sys.stdout)
-            handler.setFormatter(StandardFormatter())
+            handler.setFormatter(TimezoneFormatter(tz_string=env_vars.ROCK_TIME_ZONE))
 
         # Apply logging level from environment variable
         log_level = env_vars.ROCK_LOGGING_LEVEL

@@ -311,6 +311,8 @@ class DockerDeployment(AbstractDeployment):
                 f"ROCK_LOGGING_LEVEL={env_vars.ROCK_LOGGING_LEVEL}",
             ]
 
+        env_arg.extend(["-e", f"ROCK_TIME_ZONE={env_vars.ROCK_TIME_ZONE}"])
+
         time.sleep(random.randint(0, 5))
         cmds = [
             "docker",

@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     ROCK_RAY_NAMESPACE: str | None = "xrl-sandbox"
     ROCK_SANDBOX_EXPIRE_TIME_KEY: str | None = "expire_time"
     ROCK_SANDBOX_AUTO_CLEAR_TIME_KEY: str | None = "auto_clear_time"
+    ROCK_TIME_ZONE: str = "Asia/Shanghai"
+
     # OSS Config
     ROCK_OSS_ENABLE: bool = False
     ROCK_OSS_BUCKET_ENDPOINT: str | None = None
@@ -50,6 +52,7 @@ if TYPE_CHECKING:
     ROCK_AGENT_IFLOW_CLI_INSTALL_CMD: str
 
     ROCK_AGENT_MODEL_SERVICE_INSTALL_CMD: str
+
 
 environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_LOGGING_PATH": lambda: os.getenv("ROCK_LOGGING_PATH"),
@@ -107,6 +110,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
         "ROCK_AGENT_MODEL_SERVICE_INSTALL_CMD",
         'pip install "rl_rock[model-service]==1.0.0" -i https://mirrors.aliyun.com/pypi/simple',
     ),
+    "ROCK_TIME_ZONE": lambda: os.getenv("ROCK_TIME_ZONE", "Asia/Shanghai"),
 }
 
 
