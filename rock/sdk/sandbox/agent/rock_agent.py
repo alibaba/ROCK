@@ -53,7 +53,11 @@ class RockAgentConfig(AgentConfig):
     """Unique identifier for this agent instance."""
 
     project_path: str | None = Field(default=None)
-    """Working directory path in the sandbox. If not set, uses deploy.working_dir. If not exists, it will be created."""
+    """Working directory path in the sandbox. If not set, uses deploy.working_dir based on use_deploy_working_dir_as_fallback. If not exists, it will be created."""
+
+    use_deploy_working_dir_as_fallback: bool = Field(default=True)
+    """Whether to use deploy.working_dir as fallback when project_path is not set.
+    If False and project_path is not set, the command will run without cd to any directory."""
 
     agent_session: str = Field(default=f"agent-session-{uuid.uuid4().hex}")
     """Session identifier for bash operations."""
@@ -362,25 +366,31 @@ class RockAgent(Agent):
 
         Automatically performs deploy.format() to replace ${working_dir} and ${prompt} placeholders.
         """
-        # Get project_path from config or deploy.working_dir
-        path = self.config.project_path or self.deploy.working_dir
-        if path is None:
-            raise ValueError(
-                "project_path is not set. Please configure it in the agent config or deploy a working directory."
-            )
+        # Get project_path from config or deploy.working_dir based on config
+        path = self.config.project_path
 
-        project_path = shlex.quote(str(path))
+        # If project_path is not set, check whether to use deploy.working_dir as fallback
+        if path is None:
+            if self.config.use_deploy_working_dir_as_fallback:
+                path = self.deploy.working_dir
+            # else: path stays None, will run without cd
 
         # Use deploy.format() to replace ${working_dir} and ${prompt}
         run_cmd = self.deploy.format(self.config.run_cmd, prompt=shlex.quote(prompt))
         wrapped_cmd = self.runtime_env.wrapped_cmd(run_cmd)
 
-        parts = [
-            f"mkdir -p {project_path}",
-            f"cd {project_path}",
-            wrapped_cmd,
-        ]
-        return " && ".join(parts)
+        # If path exists, add mkdir and cd
+        if path is not None:
+            project_path = shlex.quote(str(path))
+            parts = [
+                f"mkdir -p {project_path}",
+                f"cd {project_path}",
+                wrapped_cmd,
+            ]
+            return " && ".join(parts)
+        else:
+            # path is None, run command directly without cd
+            return wrapped_cmd
 
     @with_time_logging("Agent run")
     async def _agent_run(self, cmd: str, session: str) -> Observation:
