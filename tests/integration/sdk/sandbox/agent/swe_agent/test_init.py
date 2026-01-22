@@ -29,7 +29,6 @@ async def _verify_exists(sandbox: Sandbox, directory_path: str, items: set[str])
     logger.info(f"Directory {directory_path} contents: {result.stdout}")
 
 
-@pytest.mark.skip
 @pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
@@ -52,14 +51,13 @@ async def test_swe_agent_initialization(sandbox_instance: Sandbox):
     await _verify_exists(sandbox_instance, "/", {agent_dir_name})
 
     # 4. Verify agent installation directories
-    await _verify_exists(sandbox_instance, swe_agent_config.swe_agent_workdir, {"python", "SWE-agent"})
+    await _verify_exists(sandbox_instance, swe_agent_config.swe_agent_workdir, {"runtime-env", "SWE-agent"})
 
     # 5. Verify Python executables
-    python_bin_path = f"{swe_agent_config.swe_agent_workdir}/python/bin"
+    python_bin_path = f"{swe_agent_config.swe_agent_workdir}/runtime-env/bin"
     await _verify_exists(sandbox_instance, python_bin_path, {"sweagent"})
 
 
-@pytest.mark.skip
 @pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
@@ -87,8 +85,8 @@ async def test_swe_agent_with_model_service(sandbox_instance: Sandbox):
     await _verify_exists(sandbox_instance, "/", {agent_dir_name, model_service_dir_name})
 
     # 4. Verify agent installation directories
-    await _verify_exists(sandbox_instance, swe_agent_config.swe_agent_workdir, {"python", "SWE-agent"})
+    await _verify_exists(sandbox_instance, swe_agent_config.swe_agent_workdir, {"runtime-env", "SWE-agent"})
 
     # 5. Verify Python executables
-    python_bin_path = f"{swe_agent_config.swe_agent_workdir}/python/bin"
+    python_bin_path = f"{swe_agent_config.swe_agent_workdir}/runtime-env/bin"
     await _verify_exists(sandbox_instance, python_bin_path, {"sweagent"})
