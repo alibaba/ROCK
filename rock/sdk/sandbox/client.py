@@ -47,6 +47,7 @@ from rock.sdk.common.exceptions import (
 )
 from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
+from rock.sdk.sandbox.deploy import Deploy
 from rock.sdk.sandbox.file_system import FileSystem, LinuxFileSystem
 from rock.sdk.sandbox.model_service.base import ModelService
 from rock.sdk.sandbox.network import Network
@@ -79,6 +80,7 @@ class Sandbox(AbstractSandbox):
     network: Network | None = None
     fs: FileSystem | None = None
     runtime_envs: dict[RuntimeEnvId, RuntimeEnv]
+    deploy: Deploy | None = None
 
     def __init__(self, config: SandboxConfig):
         self._pod_name = None
@@ -98,6 +100,7 @@ class Sandbox(AbstractSandbox):
         self.network = Network(self)
         self.fs = LinuxFileSystem(self)
         self.runtime_envs = {}
+        self.deploy = Deploy(self)
 
     @property
     def sandbox_id(self) -> str:
