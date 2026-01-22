@@ -203,3 +203,23 @@ def get_uniagent_endpoint(
     except Exception as e:
         logging.error(f"Error reading UniAgent endpoint: {e}")
         return default_host, default_port
+
+def is_port_in_use(port: int) -> bool:
+    """Check if the port is already in use."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("localhost", port)) == 0
+
+def kill_process_on_port(port: int):
+    """Kill the process using the specified port."""
+    try:
+        result = subprocess.run(["lsof", "-t", "-i", f":{port}"], capture_output=True, text=True)
+        if result.stdout.strip():
+            pids = result.stdout.strip().split("\n")
+            for pid in pids:
+                subprocess.run(["kill", "-9", pid], check=False)
+            # Wait for the process to terminate completely.
+            import time
+
+            time.sleep(0.5)
+    except Exception:
+        pass

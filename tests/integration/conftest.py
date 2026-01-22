@@ -19,7 +19,7 @@ from rock.sdk.sandbox.config import SandboxConfig
 from rock.utils import find_free_port, run_until_complete
 from rock.utils.concurrent_helper import run_until_complete
 from rock.utils.docker import DockerUtil
-from rock.utils.system import find_free_port
+from rock.utils.system import find_free_port, is_port_in_use, kill_process_on_port
 
 logger = init_logger(__name__)
 
@@ -113,11 +113,14 @@ def admin_remote_server():
         stderr=None,
     )
 
+    proxy_port = Port.PROXY.value
+    if is_port_in_use(proxy_port):
+        kill_process_on_port(proxy_port)
     rocklet_process = subprocess.Popen(
         [
             "rocklet",
             "--port",
-            str(Port.PROXY.value),
+            str(proxy_port),
         ],
         stdout=None,
         stderr=None,
@@ -129,7 +132,7 @@ def admin_remote_server():
     for _ in range(max_retries):
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=1):
-                with socket.create_connection(("127.0.0.1", Port.PROXY.value), timeout=1):
+                with socket.create_connection(("127.0.0.1", proxy_port), timeout=1):
                     break
         except (TimeoutError, ConnectionRefusedError):
             time.sleep(retry_delay)
