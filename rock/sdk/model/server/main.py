@@ -81,5 +81,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     model_servie_type = args.type
+    config_file = args.config_file
 
-    main(model_servie_type)
+    main(model_servie_type, config_file)
