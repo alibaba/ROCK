@@ -41,7 +41,7 @@ ROUTE_KEY = "ROUTE-KEY"
 COMMAND_LOG = "command.log"
 EAGLE_EYE_TRACE_ID = "eagleeye-traceid"
 REQUEST_TIMEOUT_SECONDS = 85
-GET_STATUS_SWITCH = "get_status_v2_enable"
+GET_STATUS_SWITCH = "get_status_v2_enabled"
 
 sandbox_id_ctx_var = ContextVar(SANDBOX_ID, default="")
 trace_id_ctx_var = ContextVar(TRACE_ID, default="")
