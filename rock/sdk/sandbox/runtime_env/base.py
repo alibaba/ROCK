@@ -100,29 +100,6 @@ class RuntimeEnv(ABC):
         """Unique ID for this runtime env instance."""
         return self._runtime_env_id
 
-    async def _ensure_session(self) -> None:
-        """Ensure runtime env session exists. Safe to call multiple times."""
-        if self._session_ready:
-            return
-
-        await self._sandbox.create_session(
-            CreateBashSessionRequest(
-                session=self._session,
-                env_enable=True,
-                env=self._env,
-            )
-        )
-        self._session_ready = True
-
-    async def _ensure_workdir(self) -> None:
-        """Create workdir for runtime environment."""
-        result = await self._sandbox.arun(
-            cmd=f"mkdir -p {self._workdir}",
-            session=self._session,
-        )
-        if result.exit_code != 0:
-            raise RuntimeError(f"Failed to create workdir: {self._workdir}, exit_code: {result.exit_code}")
-
     async def init(self) -> None:
         """Initialize the runtime environment.
 
@@ -146,6 +123,67 @@ class RuntimeEnv(ABC):
             await self._do_custom_install()
 
         self._initialized = True
+
+    async def run(
+        self,
+        cmd: str,
+        mode: RunModeType | None = None,
+        wait_timeout: int = 600,
+        error_msg: str = "runtime env command failed",
+    ):
+        """Run a command under this runtime via arun_with_retry."""
+
+        from rock.sdk.sandbox.client import RunMode
+
+        if mode is None:
+            mode = RunMode.NOHUP
+
+        await self._ensure_session()
+        wrapped = self.wrapped_cmd(cmd, prepend=True)
+
+        logger.debug(f"[{self._sandbox.sandbox_id}] RuntimeEnv run cmd: {wrapped}")
+
+        result = await self._sandbox.arun(
+            cmd=wrapped,
+            session=self._session,
+            mode=mode,
+            wait_timeout=wait_timeout,
+        )
+        # If exit_code is not 0, raise an exception to trigger retry
+        if result.exit_code != 0:
+            raise Exception(f"{error_msg} with exit code: {result.exit_code}, output: {result.output}")
+        return result
+
+    def wrapped_cmd(self, cmd: str, prepend: bool = True) -> str:
+        bin_dir = f"{self._workdir}/runtime-env/bin"
+        if prepend:
+            wrapped = f"export PATH={shlex.quote(bin_dir)}:$PATH && {cmd}"
+        else:
+            wrapped = f"export PATH=$PATH:{shlex.quote(bin_dir)} && {cmd}"
+        return f"bash -c {shlex.quote(wrapped)}"
+
+    async def _ensure_session(self) -> None:
+        """Ensure runtime env session exists. Safe to call multiple times."""
+        if self._session_ready:
+            return
+
+        await self._sandbox.create_session(
+            CreateBashSessionRequest(
+                session=self._session,
+                env_enable=True,
+                env=self._env,
+            )
+        )
+        self._session_ready = True
+
+    async def _ensure_workdir(self) -> None:
+        """Create workdir for runtime environment."""
+        result = await self._sandbox.arun(
+            cmd=f"mkdir -p {self._workdir}",
+            session=self._session,
+        )
+        if result.exit_code != 0:
+            raise RuntimeError(f"Failed to create workdir: {self._workdir}, exit_code: {result.exit_code}")
 
     @abstractmethod
     def _get_install_cmd(self) -> str:
@@ -179,41 +217,3 @@ class RuntimeEnv(ABC):
             wait_timeout=self._install_timeout,
             error_msg="custom_install_cmd failed",
         )
-
-    def wrapped_cmd(self, cmd: str, prepend: bool = True) -> str:
-        bin_dir = f"{self._workdir}/runtime-env/bin"
-        if prepend:
-            wrapped = f"export PATH={shlex.quote(bin_dir)}:$PATH && {cmd}"
-        else:
-            wrapped = f"export PATH=$PATH:{shlex.quote(bin_dir)} && {cmd}"
-        return f"bash -c {shlex.quote(wrapped)}"
-
-    async def run(
-        self,
-        cmd: str,
-        mode: RunModeType | None = None,
-        wait_timeout: int = 600,
-        error_msg: str = "runtime env command failed",
-    ):
-        """Run a command under this runtime via arun_with_retry."""
-
-        from rock.sdk.sandbox.client import RunMode
-
-        if mode is None:
-            mode = RunMode.NOHUP
-
-        await self._ensure_session()
-        wrapped = self.wrapped_cmd(cmd, prepend=True)
-
-        logger.debug(f"[{self._sandbox.sandbox_id}] RuntimeEnv run cmd: {wrapped}")
-
-        result = await self._sandbox.arun(
-            cmd=wrapped,
-            session=self._session,
-            mode=mode,
-            wait_timeout=wait_timeout,
-        )
-        # If exit_code is not 0, raise an exception to trigger retry
-        if result.exit_code != 0:
-            raise Exception(f"{error_msg} with exit code: {result.exit_code}, output: {result.output}")
-        return result
