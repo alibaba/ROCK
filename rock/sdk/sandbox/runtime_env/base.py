@@ -22,8 +22,8 @@ class RuntimeEnv(ABC):
     """Runtime environment (e.g., Python/Node).
 
     Each RuntimeEnv is identified by (type, version) tuple and is managed by Sandbox.runtime_envs.
-    workdir is auto-generated as: /rock-runtime-envs/{type}/{version}/
-    session is auto-generated as: runtime-env-{type}-{version}
+    workdir is auto-generated as: /tmp/rock-runtime-envs/{type}/{version}/{runtime_env_id}
+    session is auto-generated as: runtime-env-{type}-{version}-{runtime_env_id}
 
     Usage:
         # Factory method to create RuntimeEnv from config

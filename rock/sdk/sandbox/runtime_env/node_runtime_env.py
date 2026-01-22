@@ -83,7 +83,7 @@ class NodeRuntimeEnv(RuntimeEnv):
     @with_time_logging("Validating Node installation")
     async def _validate_node(self) -> None:
         """Validate Node executable exists."""
-        return await self.run(cmd="test -x node && node --version || true")
+        return await self.run(cmd="test -x node")
 
     @with_time_logging("Configuring npm registry")
     async def _configure_npm_registry(self) -> None:
