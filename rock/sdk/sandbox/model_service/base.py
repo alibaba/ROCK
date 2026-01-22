@@ -1,6 +1,7 @@
 from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
 
 import shlex
+from string import Template
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
@@ -38,21 +39,21 @@ class ModelServiceConfig(BaseModel):
     model_service_type: str = Field(default="local")
     """Type of model service to start."""
 
-    start_cmd: str = Field(default="rock model-service start --type {model_service_type}")
+    start_cmd: str = Field(default="rock model-service start --type ${model_service_type}")
     """Command to start model service with model_service_type placeholder."""
 
     stop_cmd: str = Field(default="rock model-service stop")
     """Command to stop model service."""
 
-    watch_agent_cmd: str = Field(default="rock model-service watch-agent --pid {pid}")
+    watch_agent_cmd: str = Field(default="rock model-service watch-agent --pid ${pid}")
     """Command to watch agent with pid placeholder."""
 
     anti_call_llm_cmd: str = Field(
-        default="rock model-service anti-call-llm --index {index} --response {response_payload}"
+        default="rock model-service anti-call-llm --index ${index} --response ${response_payload}"
     )
     """Command to anti-call LLM with index and response_payload placeholders."""
 
-    anti_call_llm_cmd_no_response: str = Field(default="rock model-service anti-call-llm --index {index}")
+    anti_call_llm_cmd_no_response: str = Field(default="rock model-service anti-call-llm --index ${index}")
     """Command to anti-call LLM with only index placeholder."""
 
     logging_path: str = Field(default="/data/logs")
@@ -149,7 +150,7 @@ class ModelService:
             f"export ROCK_LOGGING_PATH={self.config.logging_path} && "
             f"export ROCK_LOGGING_FILE_NAME={self.config.logging_file_name} && "
             f"{self.config.stop_cmd} && "
-            f"{self.config.start_cmd.format(model_service_type=self.config.model_service_type)}"
+            f"{Template(self.config.start_cmd).safe_substitute(model_service_type=self.config.model_service_type)}"
         )
         logger.debug(f"[{self._sandbox.sandbox_id}] Model service Start command: {bash_start_cmd}")
 
@@ -193,7 +194,7 @@ class ModelService:
             logger.error(error_msg)
             raise RuntimeError(error_msg)
 
-        bash_watch_cmd = self.config.watch_agent_cmd.format(pid=pid)
+        bash_watch_cmd = Template(self.config.watch_agent_cmd).safe_substitute(pid=pid)
         logger.debug(f"[{self._sandbox.sandbox_id}] Model service watch agent with pid={pid}, cmd: {bash_watch_cmd}")
 
         await self.runtime_env.run(cmd=bash_watch_cmd)
@@ -244,12 +245,12 @@ class ModelService:
         from rock.sdk.sandbox.client import RunMode
 
         if response_payload:
-            cmd = self.config.anti_call_llm_cmd.format(
+            cmd = Template(self.config.anti_call_llm_cmd).safe_substitute(
                 index=index,
                 response_payload=shlex.quote(response_payload),
             )
         else:
-            cmd = self.config.anti_call_llm_cmd_no_response.format(index=index)
+            cmd = Template(self.config.anti_call_llm_cmd_no_response).safe_substitute(index=index)
 
         # We chose to use runtime_env's wrapped_cmd instead of the run method here,
         # mainly to avoid unexpected behavior caused by sharing a session with runtime_env
