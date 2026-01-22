@@ -161,6 +161,17 @@ class IFlowCli(DefaultAgent):
             error_msg="npm installation failed",
         )
 
+        await self._sandbox.arun(
+            cmd=(
+                "mv runtime-env /opt/nodejs && "
+                "ln -sf /opt/nodejs/bin/npm /usr/local/bin/npm && "
+                "ln -sf /opt/nodejs/bin/npx /usr/local/bin/npx && "
+                "ln -sf /opt/nodejs/bin/corepack /usr/local/bin/corepack && "
+                "ln -sf /opt/nodejs/bin/node /usr/local/bin/node"
+            ),
+            session=self.agent_session,
+        )
+
         elapsed_step = time.time() - step_start
         self._log_step("NPM installation finished", step_name="NPM Install", is_complete=True, elapsed=elapsed_step)
 
@@ -200,6 +211,11 @@ class IFlowCli(DefaultAgent):
             mode="nohup",
             wait_timeout=self.config.npm_install_timeout,
             error_msg="iflow-cli installation failed",
+        )
+
+        await self._sandbox.arun(
+            cmd="ln -s /opt/nodejs/bin/iflow /usr/local/bin/iflow",
+            session=self.agent_session,
         )
 
         elapsed_step = time.time() - step_start

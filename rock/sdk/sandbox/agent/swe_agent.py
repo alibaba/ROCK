@@ -152,7 +152,7 @@ class SweAgentConfig(DefaultAgentConfig):
 
     swe_agent_workdir: str = "/tmp_sweagent"
 
-    python_install_cmd: str = env_vars.ROCK_RTENV_PYTHON_V31114_INSTALL_CMD
+    python_install_cmd: str = env_vars.ROCK_RTENV_PYTHON_V31212_INSTALL_CMD
 
     swe_agent_install_cmd: str = (
         "[ -d SWE-agent ] && rm -rf SWE-agent; "
@@ -273,7 +273,7 @@ class SweAgent(DefaultAgent):
         self._log_step("Installing SWE-agent repository", step_name="SWE-agent Install")
 
         swe_agent_install_cmd = (
-            f"export PATH={self.config.swe_agent_workdir}/python/bin:$PATH && "
+            f"export PATH={self.config.swe_agent_workdir}/runtime-env/bin:$PATH && "
             f"cd {self.config.swe_agent_workdir} && "
             f"{self.config.swe_agent_install_cmd}"
         )
@@ -428,7 +428,7 @@ class SweAgent(DefaultAgent):
 
                 swe_agent_run_cmd = (
                     f"cd {self.config.swe_agent_workdir} && "
-                    f"{self.config.swe_agent_workdir}/python/bin/sweagent run --config {config_filename}"
+                    f"{self.config.swe_agent_workdir}/runtime-env/bin/sweagent run --config {config_filename}"
                 )
                 full_cmd = f"bash -c {shlex.quote(swe_agent_run_cmd)}"
                 logger.debug(

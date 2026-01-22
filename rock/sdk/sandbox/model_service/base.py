@@ -162,7 +162,7 @@ class ModelService:
             # Step 4: Install model service
             step_start_time = time.time()
             model_service_install_cmd = (
-                f"export PATH={self.config.workdir}/python/bin:$PATH && "
+                f"export PATH={self.config.workdir}/runtime-env/bin:$PATH && "
                 f"cd {self.config.workdir} && {self.config.model_service_install_cmd}"
             )
             bash_service_cmd = f"bash -c {shlex.quote(model_service_install_cmd)}"
@@ -219,8 +219,8 @@ class ModelService:
             start_cmd = (
                 f"export ROCK_LOGGING_PATH={self.config.logging_path} && "
                 f"export ROCK_LOGGING_FILE_NAME={self.config.logging_file_name} && "
-                f"{self.config.workdir}/python/bin/{self.config.stop_cmd} && "
-                f"{self.config.workdir}/python/bin/{self.config.start_cmd.format(model_service_type=self.config.model_service_type)}"
+                f"{self.config.workdir}/runtime-env/bin/{self.config.stop_cmd} && "
+                f"{self.config.workdir}/runtime-env/bin/{self.config.start_cmd.format(model_service_type=self.config.model_service_type)}"
             )
             bash_start_cmd = f"bash -c {shlex.quote(start_cmd)}"
             logger.debug(f"[{sandbox_id}] Model service Start command: {bash_start_cmd}")
@@ -262,7 +262,7 @@ class ModelService:
         try:
             logger.info(f"[{sandbox_id}] Stopping model service")
 
-            stop_cmd = f"{self.config.workdir}/python/bin/{self.config.stop_cmd}"
+            stop_cmd = f"{self.config.workdir}/runtime-env/bin/{self.config.stop_cmd}"
             bash_stop_cmd = f"bash -c {shlex.quote(stop_cmd)}"
 
             await self._sandbox.arun(
@@ -301,7 +301,7 @@ class ModelService:
             raise RuntimeError(error_msg)
 
         try:
-            watch_agent_cmd = f"{self.config.workdir}/python/bin/{self.config.watch_agent_cmd.format(pid=pid)}"
+            watch_agent_cmd = f"{self.config.workdir}/runtime-env/bin/{self.config.watch_agent_cmd.format(pid=pid)}"
             bash_watch_cmd = f"bash -c {shlex.quote(watch_agent_cmd)}"
             logger.debug(f"[{sandbox_id}] Model service watch agent with pid={pid}, cmd: {bash_watch_cmd}")
 
@@ -369,7 +369,7 @@ class ModelService:
             else:
                 cmd = self.config.anti_call_llm_cmd_no_response.format(index=index)
 
-            full_cmd = f"{self.config.workdir}/python/bin/{cmd}"
+            full_cmd = f"{self.config.workdir}/runtime-env/bin/{cmd}"
             bash_cmd = f"bash -c {shlex.quote(full_cmd)}"
             logger.debug(f"[{sandbox_id}] Executing command: {bash_cmd}")
 

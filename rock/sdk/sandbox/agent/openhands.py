@@ -163,13 +163,13 @@ class OpenhandsConfig(DefaultAgentConfig):
 
     # Command to clone Openhands/benchmarks repository and install dependencies
     openhands_sdk_install_cmd_list: list[str] = [
-        f"/openhands/python/bin/pip config set global.index-url {env_vars.ROCK_PIP_INDEX_URL}",
-        "/openhands/python/bin/pip install openhands-agent-server==1.6.0 openhands-sdk==1.6.0",
-        "/openhands/python/bin/pip install openhands-tools==1.6.0 openhands-workspace==1.6.0",
+        f"/openhands/runtime-env/bin/pip config set global.index-url {env_vars.ROCK_PIP_INDEX_URL}",
+        "/openhands/runtime-env/bin/pip install openhands-agent-server==1.6.0 openhands-sdk==1.6.0",
+        "/openhands/runtime-env/bin/pip install openhands-tools==1.6.0 openhands-workspace==1.6.0",
         "rm -rf /openhands/benchmarks",
         "git clone -b features/local_workspace_fix_early_stop https://github.com/shayue-wt/benchmarks.git /openhands/benchmarks",
-        "/openhands/python/bin/pip install datasets huggingface-hub jinja2 pandas Pillow toml swebench",
-        "/openhands/python/bin/pip install tqdm 'unidiff>=0.7.5,<0.8.0' 'modal>=1.1.4' commit0 pytest-json-report",
+        "/openhands/runtime-env/bin/pip install datasets huggingface-hub jinja2 pandas Pillow toml swebench",
+        "/openhands/runtime-env/bin/pip install tqdm 'unidiff>=0.7.5,<0.8.0' 'modal>=1.1.4' commit0 pytest-json-report",
     ]
 
     python_install_timeout: int = 300
@@ -417,7 +417,7 @@ class Openhands(DefaultAgent):
                 agent_run_cmd = (
                     f"cd {self.config.agent_workdir}/benchmarks && "
                     "export PYTHONPATH='.' && "
-                    f"{self.config.agent_workdir}/python/bin/python "
+                    f"{self.config.agent_workdir}/runtime-env/bin/python "
                     "./benchmarks/swebench/run_infer.py "
                     ".llm_config.json --dataset eval --split test --note rock_rollout "
                     f"--select ./{instance_config} --max-iterations {self.config.max_iteration}"
