@@ -131,7 +131,7 @@ class RuntimeEnv(ABC):
         wait_timeout: int = 600,
         error_msg: str = "runtime env command failed",
     ):
-        """Run a command under this runtime via arun_with_retry."""
+        """Run a command under this runtime"""
 
         from rock.sdk.sandbox.client import RunMode
 
