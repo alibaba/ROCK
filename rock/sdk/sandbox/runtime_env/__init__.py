@@ -1,11 +1,11 @@
+from typing import TypeAlias
+
 from rock.sdk.sandbox.runtime_env.base import RuntimeEnv
-from rock.sdk.sandbox.runtime_env.config import (
-    NodeRuntimeEnvConfig,
-    PythonRuntimeEnvConfig,
-    RuntimeEnvConfig,
-)
-from rock.sdk.sandbox.runtime_env.node_runtime_env import NodeRuntimeEnv
-from rock.sdk.sandbox.runtime_env.python_runtime_env import PythonRuntimeEnv
+from rock.sdk.sandbox.runtime_env.config import RuntimeEnvConfig
+from rock.sdk.sandbox.runtime_env.node_runtime_env import NodeRuntimeEnv, NodeRuntimeEnvConfig
+from rock.sdk.sandbox.runtime_env.python_runtime_env import PythonRuntimeEnv, PythonRuntimeEnvConfig
+
+RuntimeEnvConfigType: TypeAlias = NodeRuntimeEnvConfig | PythonRuntimeEnvConfig
 
 __all__ = [
     "RuntimeEnv",
@@ -14,4 +14,5 @@ __all__ = [
     "RuntimeEnvConfig",
     "PythonRuntimeEnvConfig",
     "NodeRuntimeEnvConfig",
+    "RuntimeEnvConfigType",
 ]

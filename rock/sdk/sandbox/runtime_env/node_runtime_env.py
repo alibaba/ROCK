@@ -1,19 +1,40 @@
 from __future__ import annotations
 
 import shlex
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
+from pydantic import Field
 from typing_extensions import override
 
 from rock import env_vars
 from rock.logger import init_logger
 from rock.sdk.sandbox.runtime_env.base import RuntimeEnv
-from rock.sdk.sandbox.runtime_env.config import NodeRuntimeEnvConfig
+from rock.sdk.sandbox.runtime_env.config import RuntimeEnvConfig
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
 
 logger = init_logger(__name__)
+
+
+class NodeRuntimeEnvConfig(RuntimeEnvConfig):
+    """Configuration for Node.js runtime environment.
+
+    Example:
+        runtime_env_config=NodeRuntimeEnvConfig(
+            version="default",  # defaults to 22.18.0
+            npm_registry="https://registry.npmmirror.com",
+        )
+    """
+
+    type: Literal["node"] = Field(default="node")
+    """Runtime type discriminator. Must be 'node'."""
+
+    version: Literal["22.18.0", "default"] = Field(default="default")
+    """Node.js version. Use "default" for 22.18.0."""
+
+    npm_registry: str | None = Field(default=None)
+    """NPM registry URL. If set, will run 'npm config set registry <url>' during init."""
 
 
 class NodeRuntimeEnv(RuntimeEnv):

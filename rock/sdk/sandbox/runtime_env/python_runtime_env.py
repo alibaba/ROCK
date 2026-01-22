@@ -2,19 +2,50 @@ from __future__ import annotations
 
 import os
 import shlex
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
+from pydantic import Field
 from typing_extensions import override
 
 from rock import env_vars
 from rock.logger import init_logger
 from rock.sdk.sandbox.runtime_env.base import RuntimeEnv
-from rock.sdk.sandbox.runtime_env.config import PythonRuntimeEnvConfig
+from rock.sdk.sandbox.runtime_env.config import RuntimeEnvConfig
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
 
 logger = init_logger(__name__)
+
+
+class PythonRuntimeEnvConfig(RuntimeEnvConfig):
+    """Configuration for Python runtime environment.
+
+    Example:
+        runtime_env_config=PythonRuntimeEnvConfig(
+            version="default",  # defaults to 3.11
+            pip=["langchain", "langchain-openai"],
+            pip_index_url="https://mirrors.aliyun.com/pypi/simple/",
+        )
+    """
+
+    type: Literal["python"] = Field(default="python")
+    """Runtime type discriminator. Must be 'python'."""
+
+    version: Literal["3.11", "3.12", "default"] = Field(default="default")
+    """Python version. Use "default" for 3.11."""
+
+    pip: list[str] | str | None = Field(default=None)
+    """Pip packages to install.
+
+    Can be:
+    - list[str]: List of package names to install
+    - str: Path to requirements.txt file
+    - None: No packages to install
+    """
+
+    pip_index_url: str | None = Field(default=env_vars.ROCK_PIP_INDEX_URL)
+    """Pip index URL for package installation. If set, will use this mirror."""
 
 
 class PythonRuntimeEnv(RuntimeEnv):

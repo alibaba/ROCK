@@ -1,8 +1,8 @@
 import pytest
 
 from rock.sdk.sandbox.client import Sandbox
+from rock.sdk.sandbox.runtime_env import NodeRuntimeEnvConfig, PythonRuntimeEnvConfig
 from rock.sdk.sandbox.runtime_env.base import RuntimeEnv
-from rock.sdk.sandbox.runtime_env.config import NodeRuntimeEnvConfig, PythonRuntimeEnvConfig
 from tests.integration.conftest import SKIP_IF_NO_DOCKER
 
 
