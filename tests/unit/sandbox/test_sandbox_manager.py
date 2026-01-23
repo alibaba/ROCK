@@ -119,11 +119,14 @@ async def test_resource_limit_exception_memory(sandbox_manager, docker_deploymen
 @pytest.mark.need_ray
 @pytest.mark.asyncio
 async def test_get_system_resource_info(sandbox_manager):
-    total_cpu, total_mem, ava_cpu, ava_mem = await sandbox_manager._collect_system_resource_metrics()
-    assert total_cpu > 0
-    assert total_mem > 0
-    assert ava_cpu > 0
-    assert ava_mem > 0
+    from rock.actions.sandbox.response import SystemResourceMetrics
+    metrics: SystemResourceMetrics = await sandbox_manager._collect_system_resource_metrics()
+    assert metrics.total_cpu > 0
+    assert metrics.total_memory > 0
+    assert metrics.available_cpu >= 0
+    assert metrics.available_memory >= 0
+    assert metrics.available_cpu <= metrics.total_cpu
+    assert metrics.available_memory <= metrics.total_memory
 
 
 @pytest.mark.need_ray

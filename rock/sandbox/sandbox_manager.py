@@ -383,3 +383,7 @@ class SandboxManager(BaseManager):
         except ValueError as e:
             logger.warning(f"Invalid memory size: {deployment_config.memory}", exc_info=e)
             raise BadRequestRockError(f"Invalid memory size: {deployment_config.memory}")
+
+    async def _collect_system_resource_metrics(self):
+        """Collect system resource metrics, delegate to deployment service"""
+        return await self._deployment_service.collect_system_resource_metrics()

@@ -2,7 +2,7 @@ from abc import abstractmethod
 import asyncio
 from rock.actions.envs.request import EnvCloseRequest, EnvMakeRequest, EnvResetRequest, EnvStepRequest
 from rock.actions.envs.response import EnvCloseResponse, EnvListResponse, EnvMakeResponse, EnvResetResponse, EnvStepResponse
-from rock.actions.sandbox.response import CommandResponse, State
+from rock.actions.sandbox.response import CommandResponse, State, SystemResourceMetrics
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.core.ray_service import RayService
 import ray
@@ -68,6 +68,10 @@ class AbstractDeploymentService():
 
     @abstractmethod
     async def env_close(self, *args, **kwargs):
+        ...
+
+    @abstractmethod
+    async def collect_system_resource_metrics(self) -> SystemResourceMetrics:
         ...
 
 class RayDeploymentService():
@@ -222,3 +226,23 @@ class RayDeploymentService():
         result = await self.async_ray_get(actor.env_list.remote())
         logger.info(f"env_list: {result}")
         return result
+
+    async def collect_system_resource_metrics(self) -> SystemResourceMetrics:
+        """Collect system resource metrics"""
+        cluster_resources = ray.cluster_resources()
+        available_resources = ray.available_resources()
+        total_cpu = cluster_resources.get("CPU", 0)
+        total_mem = cluster_resources.get("memory", 0) / 1024**3
+        available_cpu = available_resources.get("CPU", 0)
+        available_mem = available_resources.get("memory", 0) / 1024**3
+        gpu_count = cluster_resources.get("GPU", 0)
+        available_gpu = available_resources.get("GPU", 0)
+
+        return SystemResourceMetrics(
+            total_cpu=total_cpu,
+            total_memory=total_mem,
+            available_cpu=available_cpu,
+            available_memory=available_mem,
+            gpu_count=int(gpu_count),
+            available_gpu=int(available_gpu),
+        )
