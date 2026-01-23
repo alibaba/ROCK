@@ -2,7 +2,7 @@
 sidebar_position: 2
 ---
 
-# 模型服务 (Model Service)
+# 模型服务 (Model Service)（实验性）
 
 ROCK提供的Model Service负责处理AI模型调用的通信，为代理(Agent)和训练框架(如Roll)或实际的LLM推理服务之间提供通信桥梁。
 

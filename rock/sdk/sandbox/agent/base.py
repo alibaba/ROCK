@@ -3,6 +3,7 @@ from __future__ import annotations  # Postpone annotation evaluation to avoid ci
 import asyncio
 import shlex
 import time
+import warnings
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
@@ -50,6 +51,11 @@ class DefaultAgent(Agent):
     """
 
     def __init__(self, sandbox: Sandbox, config: DefaultAgentConfig):
+        warnings.warn(
+            "*** EXPERIMENTAL *** Rock Agent is experimental; API may change. Use with caution.",
+            category=FutureWarning,
+            stacklevel=2,
+        )
         super().__init__(sandbox)
 
         self._sandbox = sandbox
