@@ -45,7 +45,7 @@ from rock.sdk.common.exceptions import (
     InvalidParameterRockException,
     raise_for_code,
 )
-from rock.sdk.sandbox.agent.base import Agent
+from rock.sdk.sandbox.agent.rock_agent import RockAgent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
 from rock.sdk.sandbox.deploy import Deploy
 from rock.sdk.sandbox.file_system import FileSystem, LinuxFileSystem
@@ -73,7 +73,7 @@ class Sandbox(AbstractSandbox):
     _host_ip: str | None = None
     _oss_bucket: oss2.Bucket | None = None
     _cluster: str | None = None
-    agent: Agent | None = None
+    agent: RockAgent | None = None
     model_service: ModelService | None = None
     remote_user: RemoteUser | None = None
     process: Process | None = None
@@ -101,6 +101,7 @@ class Sandbox(AbstractSandbox):
         self.fs = LinuxFileSystem(self)
         self.runtime_envs = {}
         self.deploy = Deploy(self)
+        self.agent = RockAgent(self)
 
     @property
     def sandbox_id(self) -> str:

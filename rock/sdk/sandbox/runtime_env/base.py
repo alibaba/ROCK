@@ -100,6 +100,11 @@ class RuntimeEnv(ABC):
         """Unique ID for this runtime env instance."""
         return self._runtime_env_id
 
+    @property
+    def workdir(self) -> str:
+        """Working directory for this runtime env instance."""
+        return self._workdir
+
     async def init(self) -> None:
         """Initialize the runtime environment.
 
