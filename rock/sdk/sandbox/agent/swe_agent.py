@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 import yaml
+from pydantic import Field
 from typing_extensions import override
 
 from rock.logger import init_logger
@@ -125,19 +126,22 @@ class SweAgentConfig(RockAgentConfig):
     """SWE-agent configuration."""
 
     agent_type: str = "swe-agent"
-    """Type identifier for SWE-agent."""
+    """OVERRIDE: Type identifier for SWE-agent."""
 
-    swe_agent_install_cmd: str = (
-        "[ -d SWE-agent ] && rm -rf SWE-agent; "
-        "git clone https://github.com/SWE-agent/SWE-agent.git && "
-        "cd SWE-agent && pip install -e ."
+    runtime_env_config: RuntimeEnvConfig | None = Field(default_factory=lambda: PythonRuntimeEnvConfig(version="3.12"))
+    """OVERRIDE: Runtime environment configuration."""
+
+    swe_agent_install_cmd: str = Field(
+        default=(
+            "[ -d SWE-agent ] && rm -rf SWE-agent; "
+            "git clone https://github.com/SWE-agent/SWE-agent.git && "
+            "cd SWE-agent && pip install -e ."
+        )
     )
     """Command to install SWE-agent in the sandbox."""
 
-    default_run_single_config: dict[str, Any] = DEFAULT_RUN_SINGLE_CONFIG
+    default_run_single_config: dict[str, Any] = Field(default_factory=lambda: DEFAULT_RUN_SINGLE_CONFIG.copy())
     """Default configuration for SWE-agent run_single mode."""
-
-    rt_env_config: RuntimeEnvConfig | None = PythonRuntimeEnvConfig(version="3.12")
 
 
 class SweAgent(RockAgent):

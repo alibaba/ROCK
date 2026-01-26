@@ -8,6 +8,7 @@ import tempfile
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
+from pydantic import Field
 from typing_extensions import override
 
 from rock import env_vars
@@ -56,28 +57,32 @@ DEFAULT_IFLOW_SETTINGS: dict[str, Any] = {
 class IFlowCliConfig(RockAgentConfig):
     """IFlow CLI Agent Configuration."""
 
-    agent_type: str = "iflow-cli"
-    """Type identifier for IFlow CLI agent."""
+    agent_type: str = Field(default="iflow-cli")
+    """OVERRIDE: Type identifier for IFlow CLI agent."""
 
-    iflow_cli_install_cmd: str = env_vars.ROCK_AGENT_IFLOW_CLI_INSTALL_CMD
+    runtime_env_config: NodeRuntimeEnvConfig = Field(
+        default_factory=lambda: NodeRuntimeEnvConfig(
+            npm_registry="https://registry.npmmirror.com",
+        )
+    )
+    """OVERRIDE: Node runtime environment configuration with npm registry."""
+
+    env: dict[str, str] = Field(
+        default_factory=lambda: {
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+        }
+    )
+    """OVERRIDE: Environment variables for the agent session."""
+
+    iflow_cli_install_cmd: str = Field(default=env_vars.ROCK_AGENT_IFLOW_CLI_INSTALL_CMD)
     """Command to install iflow-cli in the sandbox."""
 
-    iflow_settings: dict[str, Any] = DEFAULT_IFLOW_SETTINGS
+    iflow_settings: dict[str, Any] = Field(default_factory=lambda: DEFAULT_IFLOW_SETTINGS.copy())
     """Default settings for IFlow CLI configuration."""
 
-    iflow_log_file: str = "~/.iflow/session_info.log"
+    iflow_log_file: str = Field(default="~/.iflow/session_info.log")
     """Path to the IFlow session log file."""
-
-    runtime_env_config: NodeRuntimeEnvConfig = NodeRuntimeEnvConfig(
-        npm_registry="https://registry.npmmirror.com",
-    )
-    """Node runtime environment configuration with npm registry."""
-
-    env: dict[str, str] = {
-        "LANG": "C.UTF-8",
-        "LC_ALL": "C.UTF-8",
-    }
-    """Environment variables for the agent session."""
 
 
 class IFlowCli(RockAgent):

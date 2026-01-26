@@ -35,19 +35,19 @@ class RockAgentConfig(AgentConfig):
     startup/shutdown commands, and environment configurations.
     """
 
-    agent_type: str = "default"
+    agent_type: str = Field(default="default")
     """Type identifier for the agent."""
 
-    agent_name: str = uuid.uuid4().hex
+    agent_name: str = Field(default_factory=lambda: uuid.uuid4().hex)
     """Unique name for the agent instance."""
 
-    version: str = "default"
+    version: str = Field(default="default")
     """Version identifier for the agent."""
 
     agent_installed_dir: str = Field(default="/tmp/installed_agent")
     """Directory where the agent is installed in the sandbox."""
 
-    instance_id: str = Field(default=f"instance-id-{uuid.uuid4().hex}")
+    instance_id: str = Field(default_factory=lambda: f"instance-id-{uuid.uuid4().hex}")
     """Unique identifier for this agent instance."""
 
     project_path: str | None = Field(default=None)
@@ -57,18 +57,20 @@ class RockAgentConfig(AgentConfig):
     """Whether to use deploy.working_dir as fallback when project_path is not set.
     If False and project_path is not set, the command will run without cd to any directory."""
 
-    agent_session: str = Field(default=f"agent-session-{uuid.uuid4().hex}")
+    agent_session: str = Field(default_factory=lambda: f"agent-session-{uuid.uuid4().hex}")
     """Session identifier for bash operations."""
 
     env: dict[str, str] = Field(default_factory=dict)
     """Environment variables for the agent session."""
 
     pre_init_cmds: list[AgentBashCommand] = Field(
-        default=[AgentBashCommand(**agent_bash_cmd) for agent_bash_cmd in env_vars.ROCK_AGENT_PRE_INIT_BASH_CMD_LIST]
+        default_factory=lambda: [
+            AgentBashCommand(**agent_bash_cmd) for agent_bash_cmd in env_vars.ROCK_AGENT_PRE_INIT_BASH_CMD_LIST
+        ]
     )
     """Commands to execute before agent initialization."""
 
-    post_init_cmds: list[AgentBashCommand] = Field(default=[])
+    post_init_cmds: list[AgentBashCommand] = Field(default_factory=list)
     """Commands to execute after agent initialization."""
 
     agent_install_timeout: int = Field(default=600, gt=0)
