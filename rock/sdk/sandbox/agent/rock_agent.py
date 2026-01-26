@@ -168,9 +168,9 @@ class RockAgent(Agent):
     - Support optional ModelService integration for LLM support
 
     Initialization flow:
-    1. Execute pre-init commands
+    1. Provision working directory (upload local dir to sandbox)
     2. Setup bash session with environment variables
-    3. Provision working directory (upload local dir to sandbox)
+    3. Execute pre-init commands
     4. Parallel: RuntimeEnv init + ModelService install (if configured)
     5. Execute post-init commands
     """
@@ -193,6 +193,7 @@ class RockAgent(Agent):
         Raises:
             FileNotFoundError: When the config file path does not exist.
             ValueError: When the file format is invalid.
+            ValidationError: When the configuration validation fails.
         """
         path = Path(config_path)
         if not path.exists():
@@ -426,6 +427,12 @@ class RockAgent(Agent):
         """Create agent run command.
 
         Automatically performs deploy.format() to replace ${working_dir} and ${prompt} placeholders.
+
+        Args:
+            prompt: The user prompt to substitute into {prompt} placeholder.
+
+        Returns:
+            str: The complete command string ready for execution.
         """
         # Get project_path from config or deploy.working_dir based on config
         path = self.config.project_path
