@@ -39,9 +39,6 @@ async def model_service_loop(model_service: ModelService) -> None:
             total_calls += 1
             index += 1
 
-            # only send payload once; subsequent turns send None
-            response_payload = None
-
         logger.info(f"ModelService loop completed (iterations: {index}, API calls: {total_calls})")
 
     except Exception as e:
