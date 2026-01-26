@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import ray
+
 from rock.admin.core.ray_service import RayService
 
 
@@ -43,3 +43,27 @@ async def test_reconnect_ray_calls_ray_shutdown_and_init_and_reset_counters(ray_
         assert service._ray_establish_time == old_establish_time + 5
 
         assert service._ray_establish_time != old_establish_time
+
+
+@pytest.mark.asyncio
+async def test_reconnect_ray_skip_when_reader_exists_and_write_lock_timeout(ray_service: RayService):
+    service = ray_service
+
+    service._ray_request_count = 123
+    service._config.ray_reconnect_wait_timeout_seconds = 5
+
+    old_count = service._ray_request_count
+    old_est = service._ray_establish_time
+
+    service._ray_rwlock._readers = 1
+
+    with patch("rock.admin.core.ray_service.ray.shutdown") as mock_shutdown, patch(
+        "rock.admin.core.ray_service.ray.init"
+    ) as mock_init, patch("time.time", return_value=old_est + 5):
+        await service._reconnect_ray()
+
+        mock_shutdown.assert_not_called()
+        mock_init.assert_not_called()
+
+        assert service._ray_request_count == old_count
+        assert service._ray_establish_time == old_est

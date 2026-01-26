@@ -1,12 +1,12 @@
-import ray
 import time
 
-from rock.config import RayConfig
-from rock.logger import init_logger
-from rock.utils.rwlock import AsyncRWLock
+import ray
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
+from rock.config import RayConfig
+from rock.logger import init_logger
+from rock.utils.rwlock import AsyncRWLock, WriteLockTimeout
 
 logger = init_logger(__name__)
 
@@ -34,7 +34,6 @@ class RayService:
 
     def get_ray_rwlock(self):
         return self._ray_rwlock
-    
 
     def _setup_ray_reconnect_scheduler(self):
         self._ray_reconnection_scheduler = AsyncIOScheduler(
@@ -57,19 +56,22 @@ class RayService:
                 await self._reconnect_ray()
 
     async def _reconnect_ray(self):
-        async with self._ray_rwlock.write_lock():
-            start_time = time.time()
-            logger.info(f"current time {start_time}, Reconnect ray cluster")
-            ray.shutdown()
-            ray.init(
-                address=self._config.address,
-                runtime_env=self._config.runtime_env,
-                namespace=self._config.namespace,
-                resources=self._config.resources,
-            )
-            self._ray_request_count = 0
-            end_time = time.time()
-            self._ray_establish_time = end_time
-            logger.info(
-                f"current time {end_time}, Reconnect ray cluster successfully, duration {end_time - start_time}s"
-            )
+        try:
+            async with self._ray_rwlock.write_lock(timeout=self._config.ray_reconnect_wait_timeout_seconds):
+                start_time = time.time()
+                logger.info(f"current time {start_time}, Reconnect ray cluster")
+                ray.shutdown()
+                ray.init(
+                    address=self._config.address,
+                    runtime_env=self._config.runtime_env,
+                    namespace=self._config.namespace,
+                    resources=self._config.resources,
+                )
+                self._ray_request_count = 0
+                end_time = time.time()
+                self._ray_establish_time = end_time
+                logger.info(
+                    f"current time {end_time}, Reconnect ray cluster successfully, duration {end_time - start_time}s"
+                )
+        except WriteLockTimeout as e:
+            logger.warning("Reconnect ray cluster timeout, skip reconnectting", exc_info=e)

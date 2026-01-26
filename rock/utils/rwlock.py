@@ -2,32 +2,37 @@ import asyncio
 from contextlib import asynccontextmanager
 
 
+class WriteLockTimeout(Exception):
+    pass
+
+
 class AsyncRWLock:
     """
     An asynchronous reader-writer lock implementation that allows multiple concurrent readers
     or exclusive writers. This lock ensures that:
-    
+
     - Multiple readers can acquire the lock simultaneously when no writer is active
     - Writers have exclusive access when acquiring the lock (no readers or other writers)
     - Writers are prioritized over new readers when a writer is waiting, preventing reader starvation
     - The lock is awaitable and integrates with Python's asyncio framework
-    
+
     The implementation uses asyncio.Condition to manage the waiting queue and coordinate
     between readers and writers safely in an asynchronous context.
-    
+
     Usage:
         lock = AsyncRWLock()
-        
+
         # For read operations (shared access)
         async with lock.read_lock():
             # Multiple coroutines can enter this block simultaneously
             data = await read_data()
-            
+
         # For write operations (exclusive access)
         async with lock.write_lock():
             # Only one coroutine can enter this block at a time
             await write_data(new_data)
     """
+
     def __init__(self):
         self._readers = 0
         self._writer = False
@@ -56,13 +61,25 @@ class AsyncRWLock:
         finally:
             await self.release_read()
 
-    async def acquire_write(self):
+    async def acquire_write(self, timeout=None):
         async with self._cond:
             self._writer_waiting += 1
             try:
-                while self._writer or self._readers > 0:
-                    await self._cond.wait()
+
+                async def wait_for_unlock():
+                    while self._writer or self._readers > 0:
+                        await self._cond.wait()
+
+                try:
+                    if timeout is None:
+                        await wait_for_unlock()
+                    else:
+                        await asyncio.wait_for(wait_for_unlock(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    return False
+
                 self._writer = True
+                return True
             finally:
                 self._writer_waiting -= 1
 
@@ -74,8 +91,10 @@ class AsyncRWLock:
             self._cond.notify_all()
 
     @asynccontextmanager
-    async def write_lock(self):
-        await self.acquire_write()
+    async def write_lock(self, timeout=None):
+        ready = await self.acquire_write(timeout=timeout)
+        if not ready:
+            raise WriteLockTimeout()
         try:
             yield
         finally:
