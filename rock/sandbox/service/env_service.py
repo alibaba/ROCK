@@ -37,7 +37,7 @@ class RayEnvService(AbstractEnvService):
         self._ray_service = ray_service
 
     def _get_actor_name(self, sandbox_id):
-        return sandbox_id
+        return f"sandbox-{sandbox_id}"
 
     async def env_step(self, request: EnvStepRequest) -> EnvStepResponse:
         sandbox_id = request.sandbox_id
