@@ -36,7 +36,7 @@ async def test_model_service_install_and_start(sandbox_instance: Sandbox):
     assert "runtime-env" in result.stdout, "Python directory missing"
 
     # 5. Verify Python executables
-    python_bin_path = {sandbox_instance.model_service.runtime_env.bin_dir}
+    python_bin_path = sandbox_instance.model_service.runtime_env.bin_dir
     result = await sandbox_instance.execute(Command(command="ls", cwd=python_bin_path))
     logger.info(f"Python bin directory contents: {result.stdout}")
     assert result.exit_code == 0

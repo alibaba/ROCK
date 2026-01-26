@@ -30,6 +30,7 @@ async def test_swe_agent_initialization(sandbox_instance: Sandbox):
     swe_agent_config = SweAgentConfig(
         agent_type="swe-agent",
         version="unknown",
+        project_path="/root",
     )
     sandbox_instance.agent = SweAgent(sandbox_instance)
 
