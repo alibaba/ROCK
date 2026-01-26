@@ -24,9 +24,6 @@ class ModelServiceConfig(BaseModel):
     agent monitoring, and anti-call LLM operations.
     """
 
-    enable: bool = Field(default=False)
-    """Whether to enable the ModelService. When False, ModelService will not be initialized."""
-
     type: str = Field(default="local")
     """Type of model service to start."""
 
