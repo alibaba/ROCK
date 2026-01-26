@@ -101,7 +101,7 @@ certifi==2025.10.5
     #   httpcore
     #   httpx
     #   requests
-cffi==2.0.0 ; platform_python_implementation != 'PyPy'
+cffi==2.0.0
     # via cryptography
 charset-normalizer==3.4.4
     # via requests
@@ -118,7 +118,7 @@ contourpy==1.3.3 ; python_full_version >= '3.11'
     # via matplotlib
 crcmod==1.7
     # via oss2
-cryptography==44.0.3
+cryptography==39.0.1
     # via
     #   alibabacloud-darabonba-signature-util
     #   alibabacloud-openapi-util
@@ -266,7 +266,7 @@ psutil==7.1.3
     # via nacos-sdk-python
 pycosat==0.6.6
     # via reasoning-gym
-pycparser==2.23 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
+pycparser==2.23 ; implementation_name != 'PyPy'
     # via cffi
 pycryptodome==3.23.0
     # via
@@ -353,8 +353,10 @@ typing-extensions==4.15.0
     #   typing-inspection
 typing-inspection==0.4.2
     # via pydantic
-tzdata==2025.2 ; sys_platform == 'win32'
-    # via tzlocal
+tzdata==2025.2
+    # via
+    #   rl-rock
+    #   tzlocal
 tzlocal==5.3.1
     # via apscheduler
 urllib3==2.5.0
