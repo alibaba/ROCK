@@ -43,7 +43,9 @@ ROCK adopts a client-server architecture, supports different levels of isolation
 [API References](https://alibaba.github.io/ROCK/docs/api)
 
 ---
-**Recommended**: Install from source (using uv). Alternatively, install from PyPI. Start the local admin server:
+**Recommended**:
+Install from source (using `uv`), or install from PyPI.  
+To start the local admin server, make sure Docker and `uv` are installed and that you can pull the `python:3.11` Docker image. If you’re using macOS, see the “Getting Started” guide—especially the “macOS startup” section.
 
 ```bash
 # Clone repository
@@ -58,6 +60,9 @@ uv sync --all-extras
 
 # Activate virtual environment
 source .venv/bin/activate
+
+# for MacOS, change ROCK_WORKER_ENV_TYPE to uv
+# export ROCK_WORKER_ENV_TYPE=uv
 
 # Start admin server
 rock admin start
