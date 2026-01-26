@@ -61,7 +61,7 @@ async def _run_agent_with_model_service(
     test_dir = Path(__file__).resolve().parent
     monkeypatch.chdir(test_dir)
 
-    await sandbox_instance.agent.install(config_path=config_path)
+    await sandbox_instance.agent.install(config=config_path)
 
     agent_run_task = asyncio.create_task(sandbox_instance.agent.run(prompt))
     model_service_task = asyncio.create_task(model_service_loop(sandbox_instance.agent.model_service))
