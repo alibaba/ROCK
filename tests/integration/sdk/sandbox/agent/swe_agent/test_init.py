@@ -44,7 +44,7 @@ async def test_swe_agent_initialization(sandbox_instance: Sandbox):
     sandbox_instance.agent = SweAgent(sandbox_instance, swe_agent_config)
 
     # 2. Initialize the agent
-    await sandbox_instance.agent.init()
+    await sandbox_instance.agent.install()
 
     # 3. Verify agent directory exists in root
     agent_dir_name = os.path.basename(swe_agent_config.swe_agent_workdir)
@@ -77,7 +77,7 @@ async def test_swe_agent_with_model_service(sandbox_instance: Sandbox):
     sandbox_instance.agent = SweAgent(sandbox_instance, swe_agent_config)
 
     # 2. Initialize the agent
-    await sandbox_instance.agent.init()
+    await sandbox_instance.agent.install()
 
     # 3. Verify both agent and model service directories exist in root
     agent_dir_name = os.path.basename(swe_agent_config.swe_agent_workdir)
