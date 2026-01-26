@@ -18,7 +18,7 @@ from rock.sdk.sandbox.agent.base import Agent
 from rock.sdk.sandbox.agent.config import AgentBashCommand, AgentConfig
 from rock.sdk.sandbox.deploy import Deploy
 from rock.sdk.sandbox.model_service.base import ModelService, ModelServiceConfig
-from rock.sdk.sandbox.runtime_env import NodeRuntimeEnvConfig, PythonRuntimeEnvConfig, RuntimeEnv
+from rock.sdk.sandbox.runtime_env import PythonRuntimeEnvConfig, RuntimeEnv, RuntimeEnvConfigType
 from rock.sdk.sandbox.utils import with_time_logging
 
 if TYPE_CHECKING:
@@ -81,14 +81,15 @@ class RockAgentConfig(AgentConfig):
     """Interval in seconds for checking agent run status."""
 
     working_dir: str | None = Field(default=None)
-    """Local directory to upload to sandbox. If None, no upload occurs."""
+    """Local directory to upload to sandbox. If None, no upload occurs. If you want to specify working_dir in commands, set it to ${working_dir}.
+
+    Example in init_cmds or run_cmd:
+        cp ${working_dir}/settings.json ~/.settings/settings.json"""
 
     run_cmd: str | None = Field(default=None)
     """Command to execute agent. Must contain exactly one {prompt} placeholder."""
 
-    runtime_env_config: NodeRuntimeEnvConfig | PythonRuntimeEnvConfig | None = Field(
-        default_factory=PythonRuntimeEnvConfig
-    )
+    runtime_env_config: RuntimeEnvConfigType | None = Field(default_factory=PythonRuntimeEnvConfig)
     """Runtime environment configuration for the agent."""
 
     model_service_config: ModelServiceConfig = Field(default_factory=ModelServiceConfig())
@@ -115,9 +116,10 @@ class RockAgent(Agent):
 
     def __init__(self, sandbox: Sandbox):
         self._sandbox = sandbox
+        self.deploy: Deploy = self._sandbox.deploy
+
         self.model_service: ModelService | None = None
         self.runtime_env: RuntimeEnv | None = None
-        self.deploy: Deploy = self._sandbox.deploy
         self.config: RockAgentConfig | None = None
         self.agent_session: str | None = None
 
