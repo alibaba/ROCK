@@ -9,9 +9,11 @@ if TYPE_CHECKING:
     ROCK_LOGGING_PATH: str | None = None
     ROCK_LOGGING_FILE_NAME: str | None = None
     ROCK_LOGGING_LEVEL: str | None = None
+    ROCK_SERVICE_STATUS_DIR: str | None = None
     ROCK_CONFIG: str | None = None
     ROCK_CONFIG_DIR_NAME: str | None = None
     ROCK_BASE_URL: str | None = "http://localhost:8080"
+    ROCK_WORKER_ROCKLET_PORT: int | None = None
     ROCK_SANDBOX_STARTUP_TIMEOUT_SECONDS: int = 180
     ROCK_CODE_SANDBOX_BASE_URL: str | None = None
     ROCK_ENVHUB_BASE_URL: str | None = "http://localhost:8081"
@@ -59,9 +61,11 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_LOGGING_PATH": lambda: os.getenv("ROCK_LOGGING_PATH"),
     "ROCK_LOGGING_FILE_NAME": lambda: os.getenv("ROCK_LOGGING_FILE_NAME", "rocklet.log"),
     "ROCK_LOGGING_LEVEL": lambda: os.getenv("ROCK_LOGGING_LEVEL", "INFO"),
+    "ROCK_SERVICE_STATUS_DIR": lambda: os.getenv("ROCK_SERVICE_STATUS_DIR", "/data/service_status"),
     "ROCK_CONFIG": lambda: os.getenv("ROCK_CONFIG"),
     "ROCK_CONFIG_DIR_NAME": lambda: os.getenv("ROCK_CONFIG_DIR_NAME", "rock-conf"),
     "ROCK_BASE_URL": lambda: os.getenv("ROCK_BASE_URL", "http://localhost:8080"),
+    "ROCK_WORKER_ROCKLET_PORT": lambda: int(val) if (val := os.getenv("ROCK_WORKER_ROCKLET_PORT")) else None,
     "ROCK_SANDBOX_STARTUP_TIMEOUT_SECONDS": lambda: int(os.getenv("ROCK_SANDBOX_STARTUP_TIMEOUT_SECONDS", "180")),
     "ROCK_CODE_SANDBOX_BASE_URL": lambda: os.getenv("ROCK_CODE_SANDBOX_BASE_URL", ""),
     "ROCK_ENVHUB_BASE_URL": lambda: os.getenv("ROCK_ENVHUB_BASE_URL", "http://localhost:8081"),
