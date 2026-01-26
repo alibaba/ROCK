@@ -51,24 +51,44 @@ async def model_service_loop(model_service: ModelService) -> None:
         raise
 
 
-@pytest.mark.need_admin
-@SKIP_IF_NO_DOCKER
-@pytest.mark.asyncio
-async def test_rock_agent_run_iflow(
-    sandbox_instance: Sandbox,
-) -> None:
-    config_path = Path(__file__).resolve().parent / "rock_agent_config.yaml"
-    await sandbox_instance.agent.install(config_path=str(config_path))
+async def _run_agent_with_model_service(
+    sandbox_instance: "Sandbox",
+    monkeypatch,
+    *,
+    config_path: str,
+    prompt: str = "Hello",
+) -> str:
+    test_dir = Path(__file__).resolve().parent
+    monkeypatch.chdir(test_dir)
 
-    agent_run_task = asyncio.create_task(sandbox_instance.agent.run("Hello"))
+    await sandbox_instance.agent.install(config_path=config_path)
+
+    agent_run_task = asyncio.create_task(sandbox_instance.agent.run(prompt))
     model_service_task = asyncio.create_task(model_service_loop(sandbox_instance.agent.model_service))
 
-    results = await asyncio.gather(agent_run_task, model_service_task, return_exceptions=True)
-    agent_result, model_service_result = results
+    agent_result, model_service_result = await asyncio.gather(
+        agent_run_task, model_service_task, return_exceptions=True
+    )
 
     if isinstance(agent_result, Exception):
         raise agent_result
     if isinstance(model_service_result, Exception):
         raise model_service_result
 
-    assert "Hello! I am ROCK" in agent_result.output
+    return agent_result.output
+
+
+@pytest.mark.need_admin
+@SKIP_IF_NO_DOCKER
+@pytest.mark.asyncio
+async def test_rock_agent_run_iflow(sandbox_instance: Sandbox, monkeypatch) -> None:
+    output = await _run_agent_with_model_service(sandbox_instance, monkeypatch, config_path="iflow_config.yaml")
+    assert "Hello! I am ROCK" in output
+
+
+@pytest.mark.need_admin
+@SKIP_IF_NO_DOCKER
+@pytest.mark.asyncio
+async def test_rock_agent_run_langgraph(sandbox_instance: Sandbox, monkeypatch) -> None:
+    output = await _run_agent_with_model_service(sandbox_instance, monkeypatch, config_path="langgraph_config.yaml")
+    assert "Hello! I am ROCK" in output
