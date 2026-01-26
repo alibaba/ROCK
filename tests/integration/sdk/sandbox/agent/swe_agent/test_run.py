@@ -136,8 +136,8 @@ async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
         )
 
         # Initialize and setup the agent
-        sandbox_instance.agent = SweAgent(sandbox_instance, swe_agent_config)
-        await sandbox_instance.agent.install()
+        sandbox_instance.agent = SweAgent(sandbox_instance)
+        await sandbox_instance.agent.install(swe_agent_config)
         await sandbox_instance.agent.start_model_service()
 
         # Verify health check

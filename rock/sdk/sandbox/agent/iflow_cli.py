@@ -90,16 +90,15 @@ class IFlowCli(DefaultAgent):
     and execution. Supports session resumption for continuing previous work.
     """
 
-    def __init__(self, sandbox: Sandbox, config: IFlowCliConfig):
+    def __init__(self, sandbox: Sandbox):
         """Initialize IFlow CLI agent.
 
         Args:
             sandbox: Sandbox instance for executing commands
-            config: IFlowCliConfig instance with agent settings
         """
-        super().__init__(sandbox, config)
+        super().__init__(sandbox)
 
-        self.config: IFlowCliConfig = config
+        self.config: IFlowCliConfig | None = None
 
     async def _install(self):
         """Install IFlow CLI and configure the environment.

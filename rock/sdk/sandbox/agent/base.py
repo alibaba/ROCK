@@ -50,7 +50,7 @@ class DefaultAgent(Agent):
     - run() - specific execution logic
     """
 
-    def __init__(self, sandbox: Sandbox, config: DefaultAgentConfig):
+    def __init__(self, sandbox: Sandbox):
         warnings.warn(
             "*** EXPERIMENTAL *** Rock Agent is experimental; API may change. Use with caution.",
             category=FutureWarning,
@@ -60,11 +60,10 @@ class DefaultAgent(Agent):
 
         self._sandbox = sandbox
         self.model_service: ModelService | None = None
+        self.config: DefaultAgentConfig | None = None
+        self.agent_session: str | None = None
 
-        self.config = config
-        self.agent_session = self.config.agent_session
-
-    async def install(self):
+    async def install(self, config: DefaultAgentConfig):
         """Initialize the agent environment.
 
         Common flow:
@@ -76,6 +75,9 @@ class DefaultAgent(Agent):
 
         All installation and post-startup tasks run in parallel with ModelService init.
         """
+        self.config = config
+        self.agent_session = self.config.agent_session
+
         sandbox_id = self._sandbox.sandbox_id
         start_time = time.time()
 

@@ -177,16 +177,15 @@ class SweAgent(DefaultAgent):
     a sandboxed environment.
     """
 
-    def __init__(self, sandbox: Sandbox, config: SweAgentConfig):
-        """Initialize SWE-agent with sandbox environment and configuration.
+    def __init__(self, sandbox: Sandbox):
+        """Initialize SWE-agent with sandbox environment.
 
         Args:
             sandbox: Sandbox instance for isolated agent execution
-            config: Configuration parameters for agent setup
         """
-        super().__init__(sandbox, config)
+        super().__init__(sandbox)
 
-        self.config: SweAgentConfig = config
+        self.config: SweAgentConfig | None = None
 
     async def _install(self):
         """Install SWE-agent and configure the environment.
