@@ -184,39 +184,29 @@ class RockAgent(Agent):
         self.config: RockAgentConfig | None = None
         self.agent_session: str | None = None
 
-    async def install(self, config_path: str = "rock_agent_config.yaml") -> None:
-        """Install and initialize RockAgent from a YAML configuration file.
+    async def install(self, config: str | RockAgentConfig) -> None:
+        """Install and initialize RockAgent.
 
         Args:
-            config_path: Path to the YAML config file. Defaults to "rock_agent_config.yaml".
+            config: Either a path to a YAML config file or a RockAgentConfig object.
 
         Raises:
             FileNotFoundError: When the config file path does not exist.
             ValueError: When the file format is invalid.
             ValidationError: When the configuration validation fails.
         """
-        path = Path(config_path)
-        if not path.exists():
-            raise FileNotFoundError(f"Agent config file not found: {config_path}")
+        if isinstance(config, str):
+            path = Path(config)
+            if not path.exists():
+                raise FileNotFoundError(f"Agent config file not found: {config}")
 
-        if path.suffix.lower() not in (".yaml", ".yml"):
-            raise ValueError(f"Unsupported config file format: {path.suffix}. Only .yaml is supported.")
+            if path.suffix.lower() not in (".yaml", ".yml"):
+                raise ValueError(f"Unsupported config file format: {path.suffix}. Only .yaml is supported.")
 
-        with open(path, encoding="utf-8") as f:
-            config_dict = yaml.safe_load(f)
+            with open(path, encoding="utf-8") as f:
+                config_dict = yaml.safe_load(f)
 
-        await self.init(RockAgentConfig(**config_dict))
-
-    async def init(self, config: RockAgentConfig):
-        """Initialize the agent environment.
-
-        Flow:
-        1. Execute pre-init commands
-        2. Setup bash session with environment variables
-        3. Provision working directory (upload local dir to sandbox)
-        4. Parallel: RuntimeEnv init + ModelService install (if configured)
-        5. Execute post-init commands
-        """
+            config = RockAgentConfig(**config_dict)
 
         self.config = config
         self.agent_session = self.config.agent_session
