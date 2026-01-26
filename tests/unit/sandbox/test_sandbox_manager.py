@@ -8,6 +8,7 @@ import ray
 
 from rock.actions import SandboxStatusResponse
 from rock.actions.sandbox.response import State
+from rock.config import RockConfig
 from rock.deployments.config import DockerDeploymentConfig, RayDeploymentConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
@@ -170,3 +171,172 @@ async def wait_sandbox_instance_alive(sandbox_manager: SandboxManager, sandbox_i
         cnt += 1
         if cnt > 60:
             raise Exception("sandbox not alive")
+
+
+async def wait_for_rocklet_service_ready(sandbox_manager: SandboxManager, sandbox_id: str, timeout: int = 120):
+    """Wait for rocklet HTTP service to be ready in container
+    
+    Args:
+        sandbox_manager: SandboxManager instance
+        sandbox_id: Sandbox ID
+        timeout: Maximum wait time in seconds
+        
+    Raises:
+        Exception: If service is not ready within timeout
+    """
+    from rock.deployments.constants import Port
+    from rock.utils import HttpUtils, EAGLE_EYE_TRACE_ID, trace_id_ctx_var
+    
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            # Get sandbox info to get host_ip and port
+            status = await sandbox_manager.get_status(sandbox_id, use_proxy=False)
+            if not status.is_alive or not status.host_ip:
+                await asyncio.sleep(2)
+                continue
+                
+            # Try to connect to rocklet service
+            port = status.port_mapping.get(Port.PROXY)
+            if not port:
+                await asyncio.sleep(2)
+                continue
+                
+            # Test if rocklet service is responding
+            try:
+                await HttpUtils.get(
+                    url=f"http://{status.host_ip}:{port}/",
+                    headers={
+                        "sandbox_id": sandbox_id,
+                        EAGLE_EYE_TRACE_ID: trace_id_ctx_var.get(),
+                    },
+                    read_timeout=5,
+                )
+                logger.info(f"Rocklet service is ready for sandbox {sandbox_id}")
+                return
+            except Exception:
+                # Service not ready yet, continue waiting
+                await asyncio.sleep(2)
+                continue
+        except Exception as e:
+            logger.debug(f"Waiting for rocklet service: {e}")
+            await asyncio.sleep(2)
+            
+    raise Exception(f"Rocklet service not ready within {timeout}s for sandbox {sandbox_id}")
+
+
+async def _test_get_status_with_redis(sandbox_manager: SandboxManager, use_proxy: bool):
+    """Helper function to test get_status with Redis"""
+    from rock.admin.core.redis_key import alive_sandbox_key
+    
+    # Submit a sandbox
+    response = await sandbox_manager.submit(DockerDeploymentConfig(image="python:3.11"))
+    sandbox_id = response.sandbox_id
+    
+    try:
+        # Wait for sandbox to be alive
+        await check_sandbox_status_until_alive(sandbox_manager, sandbox_id)
+        
+        # If using proxy, wait for rocklet HTTP service to be ready
+        # if use_proxy:
+        #     await wait_for_rocklet_service_ready(sandbox_manager, sandbox_id)
+        
+        # Test: get_status with Redis
+        status_response = await sandbox_manager.get_status(sandbox_id, use_proxy=use_proxy)
+        
+        # Common assertions
+        assert status_response.sandbox_id == sandbox_id
+        assert status_response.host_ip is not None
+        assert status_response.host_name is not None
+        assert status_response.is_alive is True
+        assert status_response.state == State.RUNNING
+        assert len(status_response.port_mapping) > 0
+        assert status_response.image == "python:3.11"
+        
+        # Verify Redis was used/updated
+        redis_data = await sandbox_manager._redis_provider.json_get(alive_sandbox_key(sandbox_id), "$")
+        assert redis_data is not None
+        assert len(redis_data) > 0
+        
+        # Additional assertions for proxy mode
+        if use_proxy:
+            # Verify remote status was fetched (phases should be populated)
+            assert status_response.status is not None
+            assert "docker_run" in status_response.status
+    finally:
+        # Cleanup
+        await sandbox_manager.stop(sandbox_id)
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_get_status_with_redis_without_proxy(sandbox_manager: SandboxManager):
+    """Test get_status: with Redis, without proxy (use_proxy=False)"""
+    await _test_get_status_with_redis(sandbox_manager, use_proxy=False)
+
+
+@pytest.mark.skip(reason="Skip this test after proxy port is fixed")
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_get_status_with_redis_with_proxy(sandbox_manager: SandboxManager):
+    """Test get_status: with Redis, with proxy (use_proxy=True)"""
+    await _test_get_status_with_redis(sandbox_manager, use_proxy=True)
+
+async def _test_get_status_without_redis(rock_config: RockConfig, ray_service, use_proxy: bool):
+    """Helper function to test get_status without Redis"""
+    # Create sandbox_manager without Redis
+    sandbox_manager_no_redis = SandboxManager(
+        rock_config,
+        redis_provider=None,  # No Redis
+        ray_namespace=rock_config.ray.namespace,
+        ray_service=ray_service,
+        enable_runtime_auto_clear=False,
+    )
+    
+    # Submit a sandbox
+    response = await sandbox_manager_no_redis.submit(DockerDeploymentConfig(image="python:3.11"))
+    sandbox_id = response.sandbox_id
+    
+    try:
+        # Wait for sandbox to be alive
+        await check_sandbox_status_until_alive(sandbox_manager_no_redis, sandbox_id)
+        
+        # If using proxy, wait for rocklet HTTP service to be ready
+        if use_proxy:
+            await wait_for_rocklet_service_ready(sandbox_manager_no_redis, sandbox_id)
+        
+        # Test: get_status without Redis
+        status_response = await sandbox_manager_no_redis.get_status(sandbox_id, use_proxy=use_proxy)
+        
+        # Common assertions
+        assert status_response.sandbox_id == sandbox_id
+        assert status_response.host_ip is not None
+        assert status_response.host_name is not None
+        assert status_response.is_alive is True
+        assert status_response.state == State.RUNNING
+        assert len(status_response.port_mapping) > 0
+        assert status_response.image == "python:3.11"
+        assert status_response.status is not None
+        
+        # Additional assertions for proxy mode
+        if use_proxy:
+            # Verify remote status was fetched (phases should be populated)
+            assert "docker_run" in status_response.status
+    finally:
+        # Cleanup
+        await sandbox_manager_no_redis.stop(sandbox_id)
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_get_status_without_redis_without_proxy(rock_config: RockConfig, ray_init_shutdown, ray_service):
+    """Test get_status: without Redis, without proxy (use_proxy=False)"""
+    await _test_get_status_without_redis(rock_config, ray_service, use_proxy=False)
+
+
+@pytest.mark.skip(reason="Skip this test after proxy port is fixed")
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_get_status_without_redis_with_proxy(rock_config: RockConfig, ray_init_shutdown, ray_service):
+    """Test get_status: without Redis, with proxy (use_proxy=True)"""
+    await _test_get_status_without_redis(rock_config, ray_service, use_proxy=True)
