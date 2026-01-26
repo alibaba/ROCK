@@ -4011,7 +4011,7 @@ wheels = [
 
 [[package]]
 name = "rl-rock"
-version = "1.0.0"
+version = "1.0.2"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
@@ -4027,6 +4027,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "requests" },
     { name = "rich" },
+    { name = "tzdata" },
     { name = "uuid" },
 ]
 
@@ -4170,6 +4171,7 @@ requires-dist = [
     { name = "swebench", marker = "extra == 'builder'" },
     { name = "swebench", marker = "extra == 'model-service'" },
     { name = "twisted", marker = "extra == 'rocklet'" },
+    { name = "tzdata" },
     { name = "uuid" },
     { name = "uvicorn", marker = "extra == 'model-service'" },
     { name = "uvicorn", marker = "extra == 'rocklet'" },
