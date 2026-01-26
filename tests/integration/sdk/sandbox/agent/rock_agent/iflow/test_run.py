@@ -23,7 +23,7 @@ async def model_service_loop(model_service: ModelService) -> None:
 
     index = 0
     total_calls = 0
-    response_payload = MODEL_PAYLOAD
+    response_payload = None
 
     try:
         while True:
@@ -35,6 +35,8 @@ async def model_service_loop(model_service: ModelService) -> None:
             if agent_request_json_str == "SESSION_END":
                 logger.info("ModelService session ended")
                 break
+
+            response_payload = MODEL_PAYLOAD
 
             total_calls += 1
             index += 1
