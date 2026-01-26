@@ -26,7 +26,7 @@ async def test_async_sandbox_start(sandbox_manager: SandboxManager):
     assert sandbox_id is not None
     assert await wait_sandbox_instance_alive(sandbox_manager, sandbox_id)
 
-    assert await sandbox_manager._deployment_service.is_deployment_alive(sandbox_id)
+    assert await sandbox_manager._deployment_service.is_alive(sandbox_id)
 
     sandbox_status = await sandbox_manager.get_status(sandbox_id)
     assert sandbox_status.user_id == "default"
@@ -70,7 +70,7 @@ async def test_ray_actor_is_alive(sandbox_manager):
     sandbox_actor = await sandbox_manager._deployment_service._ray_service.async_ray_get_actor(response.sandbox_id)
     ray.kill(sandbox_actor)
 
-    assert not await sandbox_manager._deployment_service.is_deployment_alive(response.sandbox_id)
+    assert not await sandbox_manager._deployment_service.is_alive(response.sandbox_id)
 
 
 @pytest.mark.need_ray
@@ -82,7 +82,7 @@ async def test_user_info_set_success(sandbox_manager):
 
     assert await wait_sandbox_instance_alive(sandbox_manager, sandbox_id)
 
-    is_alive_response = await sandbox_manager._deployment_service.is_deployment_alive(sandbox_id)
+    is_alive_response = await sandbox_manager._deployment_service.is_alive(sandbox_id)
     assert is_alive_response
 
     sandbox_status = await sandbox_manager.get_status(sandbox_id)
@@ -163,7 +163,7 @@ async def test_sandbox_start_with_sandbox_id(sandbox_manager):
 async def wait_sandbox_instance_alive(sandbox_manager: SandboxManager, sandbox_id: str) -> bool:
     cnt = 0
     while True:
-        is_alive_response = await sandbox_manager._deployment_service.is_deployment_alive(sandbox_id)
+        is_alive_response = await sandbox_manager._deployment_service.is_alive(sandbox_id)
         if is_alive_response:
             return True
         time.sleep(1)

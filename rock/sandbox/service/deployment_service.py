@@ -17,7 +17,7 @@ logger = init_logger(__name__)
 
 class AbstractDeploymentService():
     @abstractmethod
-    async def is_deployment_alive(self, sandbox_id: str) -> bool:
+    async def is_alive(self, sandbox_id: str) -> bool:
         ...
 
     @abstractmethod
@@ -60,7 +60,7 @@ class RayDeploymentService():
     def _get_actor_name(self, sandbox_id):
         return f"sandbox-{sandbox_id}"
 
-    async def is_deployment_alive(self, sandbox_id) -> bool:
+    async def is_alive(self, sandbox_id) -> bool:
         try:
             actor: SandboxActor = await self._ray_service.async_ray_get_actor(self._get_actor_name(sandbox_id))
         except ValueError:
@@ -119,7 +119,6 @@ class RayDeploymentService():
             sandbox_info["phases"] = remote_status.phases
             sandbox_info["port_mapping"] = remote_status.get_port_mapping()
             alive = await self._ray_service.async_ray_get(actor.is_alive.remote())
-            sandbox_info["alive"] = alive.is_alive
             if alive.is_alive:
                 sandbox_info["state"] = State.RUNNING
             return sandbox_info

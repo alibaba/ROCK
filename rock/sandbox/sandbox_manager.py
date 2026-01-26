@@ -151,7 +151,7 @@ class SandboxManager(BaseManager):
             port_mapping=sandbox_info.get("port_mapping"),
             host_name=sandbox_info.get("host_name"),
             host_ip=sandbox_info.get("host_ip"),
-            is_alive=sandbox_info.get("alive"),
+            is_alive=sandbox_info.get("state") == State.RUNNING,
             image=sandbox_info.get("image"),
             swe_rex_version=swe_version,
             gateway_version=gateway_version,

@@ -20,7 +20,6 @@ class SandboxInfo(TypedDict, total=False):
     create_user_gray_flag: bool
     cpus: float
     memory: str
-    alive: bool
 
 
 class SandboxListItem(SandboxInfo):
