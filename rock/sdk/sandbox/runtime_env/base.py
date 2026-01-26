@@ -105,6 +105,11 @@ class RuntimeEnv(ABC):
         """Working directory for this runtime env instance."""
         return self._workdir
 
+    @property
+    def bin_dir(self) -> str:
+        """Binary directory for this runtime env instance."""
+        return f"{self.workdir}/runtime-env/bin"
+
     async def init(self) -> None:
         """Initialize the runtime environment.
 
@@ -161,11 +166,11 @@ class RuntimeEnv(ABC):
 
     def wrapped_cmd(self, cmd: str, prepend: bool = True) -> str:
         """Always wrap with bash -c to ensure it only affects current cmd. Default prepend=True to give current runtime_env highest priority."""
-        bin_dir = f"{self._workdir}/runtime-env/bin"
+
         if prepend:
-            wrapped = f"export PATH={shlex.quote(bin_dir)}:$PATH && {cmd}"
+            wrapped = f"export PATH={shlex.quote(self.bin_dir)}:$PATH && {cmd}"
         else:
-            wrapped = f"export PATH=$PATH:{shlex.quote(bin_dir)} && {cmd}"
+            wrapped = f"export PATH=$PATH:{shlex.quote(self.bin_dir)} && {cmd}"
         return f"bash -c {shlex.quote(wrapped)}"
 
     async def _ensure_session(self) -> None:

@@ -92,7 +92,7 @@ class RockAgentConfig(AgentConfig):
     runtime_env_config: RuntimeEnvConfigType | None = Field(default_factory=PythonRuntimeEnvConfig)
     """Runtime environment configuration for the agent."""
 
-    model_service_config: ModelServiceConfig = Field(default_factory=ModelServiceConfig())
+    model_service_config: ModelServiceConfig = Field(default_factory=ModelServiceConfig)
     """ModelService configuration for LLM integration."""
 
     @field_validator("run_cmd")
@@ -258,7 +258,7 @@ class RockAgent(Agent):
         - Subclass is responsible for composing the full command content
           (including `cd ... && ...` if needed).
         """
-        cmd = await self.create_agent_run_cmd(prompt)
+        cmd = await self._create_agent_run_cmd(prompt)
         return await self._agent_run(
             cmd=cmd,
             session=self.agent_session,
@@ -413,7 +413,7 @@ class RockAgent(Agent):
             logger.error(f"[{sandbox_id}] ModelService initialization failed: {str(e)}", exc_info=True)
             raise
 
-    async def create_agent_run_cmd(self, prompt: str) -> str:
+    async def _create_agent_run_cmd(self, prompt: str) -> str:
         """Create agent run command.
 
         Automatically performs deploy.format() to replace ${working_dir} and ${prompt} placeholders.
