@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import yaml
 from httpx import ReadTimeout
-from pydantic import Field
+from pydantic import Field, field_validator, model_validator
 
 from rock import env_vars
 from rock.actions import CreateBashSessionRequest, Observation
@@ -94,6 +94,67 @@ class RockAgentConfig(AgentConfig):
 
     model_service_config: ModelServiceConfig = Field(default_factory=ModelServiceConfig())
     """ModelService configuration for LLM integration."""
+
+    @field_validator("run_cmd")
+    @classmethod
+    def _validate_run_cmd(cls, v: str | None) -> str | None:
+        """Validate run_cmd contains required {prompt} placeholder.
+
+        Args:
+            v: The run command string.
+
+        Returns:
+            The validated run command.
+
+        Raises:
+            ValueError: If run_cmd is provided but doesn't contain {prompt}.
+        """
+        if v is not None:
+            if "{prompt}" not in v:
+                raise ValueError(f"run_cmd must contain exactly one {{prompt}} placeholder. Got: {v!r}")
+            # Check for exactly one occurrence
+            prompt_count = v.count("{prompt}")
+            if prompt_count != 1:
+                raise ValueError(
+                    f"run_cmd must contain exactly one {{prompt}} placeholder, found {prompt_count}. Got: {v!r}"
+                )
+        return v
+
+    @model_validator(mode="after")
+    def _validate_timeout_consistency(self) -> RockAgentConfig:
+        """Validate timeout settings are consistent with each other.
+
+        Returns:
+            Self for method chaining.
+
+        Raises:
+            ValueError: If timeout settings are inconsistent.
+        """
+        # agent_run_check_interval should be less than agent_run_timeout
+        if self.agent_run_check_interval >= self.agent_run_timeout:
+            raise ValueError(
+                f"agent_run_check_interval ({self.agent_run_check_interval}s) must be less than "
+                f"agent_run_timeout ({self.agent_run_timeout}s)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_working_dir_exists(self) -> RockAgentConfig:
+        """Validate working_dir exists if provided.
+
+        Returns:
+            Self for method chaining.
+
+        Raises:
+            ValueError: If working_dir does not exist.
+        """
+        if self.working_dir is not None:
+            path = Path(self.working_dir)
+            if not path.exists():
+                raise ValueError(f"working_dir does not exist: {self.working_dir}")
+            if not path.is_dir():
+                raise ValueError(f"working_dir is not a directory: {self.working_dir}")
+        return self
 
 
 class RockAgent(Agent):
