@@ -1,0 +1,14 @@
+run_cmd: "iflow -p ${prompt} --yolo"
+
+runtime_env_config:
+  type: node
+  npm_registry: "https://registry.npmmirror.com"
+  custom_install_cmd: "npm i -g @iflow-ai/iflow-cli@latest"
+
+env:
+  IFLOW_API_KEY: "xxxxxxx"
+  IFLOW_BASE_URL: "http://localhost:8080/v1"
+  IFLOW_MODEL_NAME: "Qwen3-Coder-Plus"
+
+model_service_config:
+  enabled: true
