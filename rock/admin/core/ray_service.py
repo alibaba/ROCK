@@ -4,9 +4,10 @@ import ray
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
+from rock import InternalServerRockError
 from rock.config import RayConfig
 from rock.logger import init_logger
-from rock.utils.rwlock import AsyncRWLock, WriteLockTimeout
+from rock.utils.rwlock import AsyncRWLock
 
 logger = init_logger(__name__)
 
@@ -73,5 +74,5 @@ class RayService:
                 logger.info(
                     f"current time {end_time}, Reconnect ray cluster successfully, duration {end_time - start_time}s"
                 )
-        except WriteLockTimeout as e:
+        except InternalServerRockError as e:
             logger.warning("Reconnect ray cluster timeout, skip reconnectting", exc_info=e)

@@ -2,7 +2,8 @@ import asyncio
 
 import pytest
 
-from rock.utils.rwlock import AsyncRWLock, WriteLockTimeout
+from rock import InternalServerRockError
+from rock.utils.rwlock import AsyncRWLock
 
 
 @pytest.mark.asyncio
@@ -12,7 +13,7 @@ async def test_rwlock_write_timeout_then_read_lock_ok():
     lock._readers = 1
 
     async def writer():
-        with pytest.raises(WriteLockTimeout):
+        with pytest.raises(InternalServerRockError):
             async with lock.write_lock(timeout=5):
                 pytest.fail("write_lock should have timed out and not enter this block")
 

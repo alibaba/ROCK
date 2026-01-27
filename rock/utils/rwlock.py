@@ -1,9 +1,8 @@
 import asyncio
 from contextlib import asynccontextmanager
 
-
-class WriteLockTimeout(Exception):
-    pass
+from rock import InternalServerRockError
+from rock._codes import codes
 
 
 class AsyncRWLock:
@@ -94,7 +93,11 @@ class AsyncRWLock:
     async def write_lock(self, timeout=None):
         ready = await self.acquire_write(timeout=timeout)
         if not ready:
-            raise WriteLockTimeout()
+            raise InternalServerRockError(
+                f"Failed to acquire write lock within {timeout} seconds. "
+                "This may indicate a deadlock or excessive lock contention in background jobs.",
+                code=codes.INTERNAL_SERVER_ERROR,
+            )
         try:
             yield
         finally:
