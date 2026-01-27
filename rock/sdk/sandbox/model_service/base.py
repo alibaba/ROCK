@@ -106,8 +106,7 @@ class ModelService:
             Exception: If any installation step fails.
         """
         # Initialize runtime env (installs Python)
-        self.runtime_env = RuntimeEnv.from_config(self._sandbox, self.config.runtime_env_config)
-        await self.runtime_env.init()
+        self.runtime_env = await RuntimeEnv.create(self._sandbox, self.config.runtime_env_config)
 
         await self._create_rock_config()
         await self._install_model_service()
