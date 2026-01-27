@@ -23,6 +23,7 @@ from rock.admin.proto.request import (
     SandboxWriteFileRequest,
 )
 from rock.admin.proto.response import SandboxStartResponse
+from rock.common.constants import GET_STATUS_SWITCH
 from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.utils import handle_exceptions
@@ -83,6 +84,10 @@ async def get_sandbox_statistics(sandbox_id: str):
 @sandbox_router.get("/get_status")
 @handle_exceptions(error_message="get sandbox status failed")
 async def get_status(sandbox_id: str):
+    if sandbox_manager.rock_config.nacos_provider is None or sandbox_manager.rock_config.nacos_provider.get_switch_status(
+        GET_STATUS_SWITCH
+    ):
+        return RockResponse(result=await sandbox_manager.get_status_v2(sandbox_id))
     return RockResponse(result=await sandbox_manager.get_status(sandbox_id))
 
 

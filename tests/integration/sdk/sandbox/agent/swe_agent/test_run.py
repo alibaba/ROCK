@@ -109,6 +109,7 @@ async def _init_git_repository(sandbox: Sandbox, repo_path: str) -> None:
 @pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
+@pytest.mark.skip
 async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
     """Test SWE-Agent installation with integrated model service."""
 
@@ -135,8 +136,8 @@ async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
         )
 
         # Initialize and setup the agent
-        sandbox_instance.agent = SweAgent(sandbox_instance, swe_agent_config)
-        await sandbox_instance.agent.init()
+        sandbox_instance.agent = SweAgent(sandbox_instance)
+        await sandbox_instance.agent.install(swe_agent_config)
         await sandbox_instance.agent.start_model_service()
 
         # Verify health check

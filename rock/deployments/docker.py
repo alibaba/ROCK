@@ -20,7 +20,7 @@ from rock.deployments.constants import Port, Status
 from rock.deployments.hooks.abstract import CombinedDeploymentHook, DeploymentHook
 from rock.deployments.runtime_env import DockerRuntimeEnv, LocalRuntimeEnv, PipRuntimeEnv, UvRuntimeEnv
 from rock.deployments.sandbox_validator import DockerSandboxValidator
-from rock.deployments.status import ServiceStatus
+from rock.deployments.status import PersistedServiceStatus, ServiceStatus
 from rock.logger import init_logger
 from rock.rocklet import PACKAGE_NAME, REMOTE_EXECUTABLE_NAME
 from rock.rocklet.exceptions import DeploymentNotStartedError, DockerPullError
@@ -62,7 +62,7 @@ class DockerDeployment(AbstractDeployment):
         self._stop_time = datetime.datetime.now() + datetime.timedelta(minutes=self._config.auto_clear_time)
         self._check_stop_task = None
         self._container_name = None
-        self._service_status = ServiceStatus()
+        self._service_status = PersistedServiceStatus()
         if self._config.container_name:
             self.set_container_name(self._config.container_name)
         if env_vars.ROCK_WORKER_ENV_TYPE == "docker":
@@ -275,6 +275,7 @@ class DockerDeployment(AbstractDeployment):
 
         if self._container_name is None:
             self.set_container_name(self._get_container_name())
+        self._service_status.init_status_path(sandbox_id=self._container_name)
         executor = get_executor()
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(executor, self._pull_image)

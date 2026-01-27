@@ -198,15 +198,23 @@ class Openhands(DefaultAgent):
     sandbox: Sandbox
     config: OpenhandsConfig
 
-    def __init__(self, sandbox: Sandbox, config: OpenhandsConfig):
-        """Initialize Agent with sandbox environment and configuration.
+    def __init__(self, sandbox: Sandbox):
+        """Initialize Agent with sandbox environment.
 
         Args:
             sandbox: Sandbox instance for isolated agent execution
+        """
+        super().__init__(sandbox)
+
+        self.agent_prompt_path: str | None = None
+
+    async def install(self, config: OpenhandsConfig) -> None:
+        """Install and configure Openhands.
+
+        Args:
             config: Configuration parameters for agent setup
         """
-        super().__init__(sandbox, config)
-
+        await super().install(config)
         self.agent_prompt_path = f"{self.config.agent_workdir}/benchmarks/benchmarks/swebench/prompts/custom.j2"
 
     async def _install(self):

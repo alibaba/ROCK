@@ -36,7 +36,6 @@ def set_sandbox_proxy_service(service: SandboxProxyService):
     global sandbox_proxy_service
     sandbox_proxy_service = service
 
-
 @sandbox_proxy_router.post("/execute")
 @handle_exceptions(error_message="execute command failed")
 async def execute(command: SandboxCommand) -> RockResponse[CommandResponse]:

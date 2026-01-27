@@ -1,4 +1,4 @@
-import asyncio
+import asyncio  # noqa: I001
 import json
 import time
 
@@ -116,8 +116,15 @@ class SandboxProxyService:
     @monitor_sandbox_operation()
     async def is_alive(self, sandbox_id: str) -> IsAliveResponse:
         sandbox_status_dicts = await self.get_service_status(sandbox_id)
-        response = await self._send_request(sandbox_id, sandbox_status_dicts[0], "is_alive", None, None, None, "GET")
-        return IsAliveResponse(**response)
+        return await self._is_alive(sandbox_id, sandbox_status_dicts[0])
+
+    async def _is_alive(self, sandbox_id: str, sandbox_status_dict: dict) -> IsAliveResponse:
+        try:
+            response = await self._send_request(sandbox_id, sandbox_status_dict, "is_alive", None, None, None, "GET")
+            return IsAliveResponse(**response)
+        except Exception as e:
+            logger.error(f"sandbox not alive for {str(e)}")
+            return IsAliveResponse(is_alive=False)
 
     @monitor_sandbox_operation()
     async def read_file(self, request: ReadFileRequest) -> ReadFileResponse:

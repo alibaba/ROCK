@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import ray
+
 from rock.admin.core.ray_service import RayService
 
 

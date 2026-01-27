@@ -1,0 +1,16 @@
+working_dir: "."
+
+run_cmd: "python langgraph_agent.py ${prompt}"
+
+runtime_env_config:
+  type: python
+  pip:
+    - langchain==1.2.3
+    - langchain-openai==1.1.7
+    - langgraph==1.0.6
+
+env:
+  OPENAI_API_KEY: xxxxxxx
+
+model_service_config:
+  enabled: true

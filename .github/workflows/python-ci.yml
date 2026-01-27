@@ -2,9 +2,13 @@ name: Python CI
 
 on:
   push:
-    branches: [ master ]
+    branches:
+      - master
+      - release/v1.0
   pull_request:
-    branches: [ master ]
+    branches:
+      - master
+      - release/v1.0
 
 jobs:
   test:

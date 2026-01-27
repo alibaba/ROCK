@@ -12,6 +12,7 @@ from rock.actions import (
     EnvStepRequest,
     EnvStepResponse,
 )
+from rock.admin.core.ray_service import RayService
 from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
 from rock.config import RockConfig
 from rock.deployments.config import DockerDeploymentConfig
