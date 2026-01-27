@@ -1,4 +1,4 @@
-# RuntimeEnv SDK Reference
+# RuntimeEnv
 
 The RuntimeEnv module is used to manage language runtime environments in the sandbox (currently providing Python / Node.js).
 
