@@ -2,13 +2,50 @@
 sidebar_position: 2
 ---
 
-# Model Service（Experimental）
+# Model Service (Experimental)
 
 The Model Service provided by ROCK is responsible for handling AI model call communications, serving as a communication bridge between agents and training frameworks (such as Roll) or actual LLM inference services.
 
-## Architecture Overview
+## RockAgent Integration
 
-The model service uses the file system as a communication medium, implementing a request-response mechanism between agents and models. When an agent needs to call a model, the request is first written to a log file, then processed by the listening component. When the model generates a response, the result is written back to the log file and read by the waiting agent.
+ModelService is typically **automatically managed by RockAgent** - no manual lifecycle management is required. Simply enable it in the configuration:
+
+```python
+from rock.sdk.sandbox.model_service.base import ModelServiceConfig
+
+config = ModelServiceConfig(
+    enabled=True,  # Enable ModelService, RockAgent manages its lifecycle
+)
+```
+
+RockAgent will automatically:
+- Install ModelService (install Python runtime, install model service package)
+- Start/stop ModelService
+- Monitor Agent process
+
+## Architecture Overview (Local Mode)
+
+In local mode, the model service uses the **file system** as the communication medium, implementing a request-response mechanism between agents and models.
+
+When an agent needs to call a model, the request is first written to a log file, then processed by the listening component. When the model generates a response, the result is written back to the log file and read by the waiting agent.
+
+## anti_call_llm - Core API
+
+`anti_call_llm()` is the **most important API in Local mode**, used to manually trigger LLM anti-calls for fine-grained control over model calls:
+
+```python
+result = await model_service.anti_call_llm(
+    index=0,                                   # LLM call index
+    response_payload='OpenAI type response',       # Response data (optional)
+    call_timeout=600,                          # Operation timeout (seconds)
+    check_interval=3,                          # Status check interval (seconds)
+)
+```
+
+**Use cases:**
+- After Agent captures LLM response, call this method to notify Roll runtime
+- Supports carrying response data for error handling or retry
+- Configurable timeout and check interval for different network environments
 
 ## CLI Commands
 
@@ -69,43 +106,148 @@ SESSION_END
 
 Metadata contains timestamp and index information to ensure message order and processing.
 
-## Sandbox Integration
+## SDK Usage
 
 ### ModelServiceConfig
-Located in `rock/sdk/sandbox/model_service/base.py`, defines model service configuration in the sandbox:
-- Working directory
-- Python and model service installation commands
-- Session environment variables
-- Various command templates
 
-### ModelService Class
-Handles the lifecycle of model services within the sandbox:
-- `install()`: Install model service dependencies in the sandbox
-- `start()`: Start the model service
-- `stop()`: Stop the model service
-- `watch_agent()`: Monitor the agent process
-- `anti_call_llm()`: Perform anti-call LLM operations
+Model service configuration class, located in `rock/sdk/sandbox/model_service/base.py`:
 
-## Workflow
+```python
+from rock.sdk.sandbox.model_service.base import ModelServiceConfig
 
-1. Agent initiates a model call request
-2. Request is formatted and written to a log file
-3. Model service listens to the log file and captures new requests
-4. Runtime (Roll) processes the request and generates a response
-5. Response is written to the log file
-6. Model service returns the response to the agent
+config = ModelServiceConfig(
+    enabled=True,
+    type="local",                                      # Service type
+    install_cmd="pip install rock-model-service",      # Install command
+    install_timeout=300,                               # Install timeout (seconds)
+    start_cmd="rock model-service start --type ${type}",  # Start command
+    stop_cmd="rock model-service stop",                # Stop command
+    logging_path="/data/logs",                         # Log path
+    logging_file_name="model_service.log",             # Log filename
+)
+```
+
+| Config | Default | Description |
+|--------|---------|-------------|
+| `enabled` | `False` | Whether to enable model service (RockAgent manages) |
+| `type` | `"local"` | Service type: `local` or `proxy` |
+| `install_cmd` | - | Model service package install command |
+| `install_timeout` | `300` | Install timeout in seconds |
+| `start_cmd` | - | Start command template |
+| `stop_cmd` | - | Stop command |
+| `logging_path` | `/data/logs` | Log directory path |
+| `logging_file_name` | `model_service.log` | Log filename |
+
+### ModelService
+
+Model service management class, handles the lifecycle of model services within the sandbox:
+
+```python
+from rock.sdk.sandbox.client import Sandbox
+from rock.sdk.sandbox.model_service.base import ModelServiceConfig, ModelService
+
+sandbox = Sandbox(config)
+model_service = ModelService(sandbox, ModelServiceConfig())
+
+# Typically auto-managed by RockAgent, no manual calls needed
+# The following methods are only for manual control when needed
+
+# Install model service
+await model_service.install()
+
+# Start model service
+await model_service.start()
+
+# Monitor agent process
+await model_service.watch_agent(pid="12345")
+
+# Execute anti-call LLM (Core API for Local mode)
+result = await model_service.anti_call_llm(
+    index=0,
+    response_payload='{"content": "response"}',
+    call_timeout=600,
+    check_interval=3,
+)
+
+# Stop model service
+await model_service.stop()
+```
+
+## API Reference
+
+### install()
+
+Install model service dependencies in the sandbox.
+
+```python
+await model_service.install()
+```
+
+Execution steps:
+1. Create and initialize Python runtime environment
+2. Create Rock config file
+3. Install model service package
+
+**Note:** Typically auto-called by RockAgent.
+
+### start()
+
+Start the model service.
+
+```python
+await model_service.start()
+```
+
+Prerequisite: Must call `install()` first.
+
+**Note:** Typically auto-called by RockAgent.
+
+### stop()
+
+Stop the model service.
+
+```python
+await model_service.stop()
+```
+
+If the service is not running, this operation will be skipped.
+
+**Note:** Typically auto-called by RockAgent.
+
+### watch_agent(pid)
+
+Monitor the agent process.
+
+```python
+await model_service.watch_agent(pid="12345")
+```
+
+Sends `SESSION_END` message when the process exits.
+
+### anti_call_llm(index, response_payload, call_timeout, check_interval)
+
+Execute anti-call LLM operation. **This is the most important API in Local mode.**
+
+```python
+result = await model_service.anti_call_llm(
+    index=0,                                   # LLM call index
+    response_payload='{"result": "..."}',       # Response data (optional)
+    call_timeout=600,                          # Operation timeout (seconds)
+    check_interval=3,                          # Status check interval (seconds)
+)
+```
 
 ## Configuration Options
 
 ### Service Configuration
-- `SERVICE_HOST`: Service host address, defaults to "0.0.0.0"
-- `SERVICE_PORT`: Service port, defaults to 8080
+- `SERVICE_HOST`: Service host address, defaults to `"0.0.0.0"`
+- `SERVICE_PORT`: Service port, defaults to `8080`
 
 ### Log Configuration
 - `LOG_FILE`: Log file path used for communication, containing request and response data
 
 ### Polling Configuration
-- `POLLING_INTERVAL_SECONDS`: Polling interval, defaults to 0.1 seconds
+- `POLLING_INTERVAL_SECONDS`: Polling interval, defaults to `0.1` seconds
 - `REQUEST_TIMEOUT`: Request timeout, defaults to unlimited
 
 ### Marker Configuration
