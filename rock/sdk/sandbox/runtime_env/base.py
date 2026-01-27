@@ -26,9 +26,7 @@ class RuntimeEnv(ABC):
     session is auto-generated as: runtime-env-{type}-{version}-{runtime_env_id}
 
     Usage:
-        # Factory method to create RuntimeEnv from config
-        env = RuntimeEnv.from_config(sandbox, config.runtime_env_config)
-        await env.init()
+        env = await RuntimeEnv.create(sandbox, config)
         await env.run("python --version")
     """
 
@@ -46,15 +44,18 @@ class RuntimeEnv(ABC):
             cls._REGISTRY[cls.runtime_env_type] = cls
 
     @classmethod
-    def from_config(cls, sandbox: Sandbox, runtime_env_config: RuntimeEnvConfig) -> RuntimeEnv:
-        """Factory method to create RuntimeEnv from config.
+    async def create(cls, sandbox: Sandbox, runtime_env_config: RuntimeEnvConfig) -> RuntimeEnv:
+        """Async factory method: create RuntimeEnv from config and initialize it.
+
+        This creates a RuntimeEnv instance of the appropriate type and initializes it.
+        The instance is automatically registered to sandbox.runtime_envs.
 
         Args:
             sandbox: Sandbox instance
             runtime_env_config: Runtime environment configuration
 
         Returns:
-            RuntimeEnv instance of the appropriate type, automatically registered to sandbox.runtime_envs
+            Initialized RuntimeEnv instance of the appropriate type
         """
         runtime_type = runtime_env_config.type
         runtime_class = cls._REGISTRY.get(runtime_type)
@@ -63,6 +64,7 @@ class RuntimeEnv(ABC):
         runtime_env = runtime_class(sandbox=sandbox, runtime_env_config=runtime_env_config)
         # Auto-register to sandbox.runtime_envs
         sandbox.runtime_envs[runtime_env._runtime_env_id] = runtime_env
+        await runtime_env.init()
         return runtime_env
 
     def __init__(

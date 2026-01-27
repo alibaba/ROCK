@@ -283,12 +283,8 @@ class RockAgent(Agent):
 
         runtime_config = self.config.runtime_env_config
 
-        # Create a new RuntimeEnv instance for this agent (uses UUID internally)
-        self.runtime_env = RuntimeEnv.from_config(self._sandbox, runtime_config)
-
-        # Initialize the runtime (includes installation)
-        if not self.runtime_env.initialized:
-            await self.runtime_env.init()
+        # Create and initialize runtime env (includes installation)
+        self.runtime_env = await RuntimeEnv.create(self._sandbox, runtime_config)
 
     async def _setup_session(self):
         """Create and configure the bash session for agent operations."""
