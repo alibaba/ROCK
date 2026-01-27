@@ -11,7 +11,7 @@ from rock.config import RockConfig
 from rock.deployments.config import DockerDeploymentConfig
 from rock.logger import init_logger
 from rock.sandbox.sandbox_manager import SandboxManager
-from rock.sandbox.service.deployment_service import RayDeploymentService
+from rock.sandbox.service.deployment.ray import RayDeploymentService
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.utils.providers.redis_provider import RedisProvider
 from rock.admin.core.ray_service import RayService

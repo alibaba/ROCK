@@ -32,7 +32,8 @@ from rock.deployments.config import DeploymentConfig
 
 from rock.logger import init_logger
 from rock.sandbox.base_manager import BaseManager
-from rock.sandbox.service.deployment_service import AbstractDeploymentService, RayDeploymentService
+from rock.sandbox.service.deployment.abstract import AbstractDeploymentService
+from rock.sandbox.service.deployment.ray import RayDeploymentService
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils import (
