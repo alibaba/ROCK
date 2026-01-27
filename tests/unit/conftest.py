@@ -11,6 +11,7 @@ from rock.config import RockConfig
 from rock.deployments.config import DockerDeploymentConfig
 from rock.logger import init_logger
 from rock.sandbox.sandbox_manager import SandboxManager
+from rock.sandbox.service.deployment.ray import RayDeploymentService
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.utils.providers.redis_provider import RedisProvider
 from rock.admin.core.ray_service import RayService
@@ -53,6 +54,10 @@ async def sandbox_manager(rock_config: RockConfig, redis_provider: RedisProvider
     )
     return sandbox_manager
 
+@pytest.fixture
+async def ray_deployment_service(rock_config: RockConfig, ray_init_shutdown, ray_service):
+    ray_deployment_service = RayDeploymentService(ray_namespace=rock_config.ray.namespace, ray_service=ray_service)
+    return ray_deployment_service
 
 @pytest.fixture
 async def sandbox_proxy_service(rock_config: RockConfig, redis_provider: RedisProvider):

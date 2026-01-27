@@ -1,3 +1,4 @@
+import asyncio
 import ray
 import time
 
@@ -34,6 +35,31 @@ class RayService:
 
     def get_ray_rwlock(self):
         return self._ray_rwlock
+
+    async def async_ray_get_actor(self, sandbox_id: str):
+        """Async wrapper for ray.get_actor() using asyncio.to_thread for non-blocking execution."""
+        self.increment_ray_request_count()
+        try:
+            result = await asyncio.to_thread(ray.get_actor, sandbox_id, namespace=self._config.namespace)
+        except ValueError as e:
+            logger.error(f"ray get actor, actor {sandbox_id} not exist", exc_info=e)
+            raise e
+        except Exception as e:
+            logger.error("ray get actor failed", exc_info=e)
+            error_msg = str(e.args[0]) if len(e.args) > 0 else f"ray get actor failed, {str(e)}"
+            raise Exception(error_msg)
+        return result
+
+    async def async_ray_get(self, ray_future: ray.ObjectRef):
+        """Async wrapper for ray.get() using asyncio.to_thread for non-blocking execution."""
+        self.increment_ray_request_count()
+        try:
+            result = await asyncio.to_thread(ray.get, ray_future, timeout=60)
+        except Exception as e:
+            logger.error("ray get failed", exc_info=e)
+            error_msg = str(e.args[0]) if len(e.args) > 0 else f"ray get failed, {str(e)}"
+            raise Exception(error_msg)
+        return result
     
 
     def _setup_ray_reconnect_scheduler(self):

@@ -49,7 +49,11 @@ async def lifespan(app: FastAPI):
     env_vars.ROCK_ADMIN_ROLE = args.role
 
     # init redis provider
-    if args.env == "local":
+    if args.env == "test":
+        from fakeredis import aioredis
+        redis_provider = RedisProvider(host=None, port=None, password="")
+        redis_provider.client = aioredis.FakeRedis(decode_responses=True)
+    elif args.env == "local":
         redis_provider = None
     else:
         redis_provider = RedisProvider(

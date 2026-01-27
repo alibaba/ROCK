@@ -126,3 +126,43 @@ class ChownResponse(BaseModel):
 class ChmodResponse(BaseModel):
     success: bool = False
     message: str = ""
+
+
+class SystemResourceMetrics(BaseModel):
+    """System resource metrics"""
+
+    total_cpu: float = 0.0
+    """Total CPU cores"""
+
+    total_memory: float = 0.0
+    """Total memory in GB"""
+
+    available_cpu: float = 0.0
+    """Available CPU cores"""
+
+    available_memory: float = 0.0
+    """Available memory in GB"""
+
+    gpu_count: int = 0
+    """Total GPU count"""
+
+    available_gpu: int = 0
+    """Available GPU count"""
+
+    def get_cpu_utilization(self) -> float:
+        """Get CPU utilization rate (0.0 - 1.0)"""
+        if self.total_cpu == 0:
+            return 0.0
+        return (self.total_cpu - self.available_cpu) / self.total_cpu
+
+    def get_memory_utilization(self) -> float:
+        """Get memory utilization rate (0.0 - 1.0)"""
+        if self.total_memory == 0:
+            return 0.0
+        return (self.total_memory - self.available_memory) / self.total_memory
+
+    def get_gpu_utilization(self) -> float:
+        """Get GPU utilization rate (0.0 - 1.0)"""
+        if self.gpu_count == 0:
+            return 0.0
+        return (self.gpu_count - self.available_gpu) / self.gpu_count

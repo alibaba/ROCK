@@ -16,13 +16,14 @@ from rock.admin.core.ray_service import RayService
 from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
 from rock.config import RockConfig
 from rock.deployments.config import DockerDeploymentConfig
-from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sandbox.sandbox_manager import SandboxManager
+from rock.sandbox.service.env_service import RayEnvService
 from rock.utils.providers import RedisProvider
 from rock.admin.core.ray_service import RayService
 
 
 class GemManager(SandboxManager):
+    _env_service: RayEnvService
     def __init__(
         self,
         rock_config: RockConfig,
@@ -32,10 +33,11 @@ class GemManager(SandboxManager):
         enable_runtime_auto_clear: bool = False,
     ):
         super().__init__(rock_config, redis_provider, ray_namespace, ray_service, enable_runtime_auto_clear)
+        self._env_service = RayEnvService(ray_namespace=ray_namespace, ray_service=ray_service)
 
     async def env_make(self, env_id: str) -> EnvMakeResponse:
         config = DockerDeploymentConfig(image=env_vars.ROCK_ENVHUB_DEFAULT_DOCKER_IMAGE)
-        sandbox_start_response: SandboxStartResponse = await self.start_async(config=config)
+        sandbox_start_response: SandboxStartResponse = await self.submit(config=config)
 
         async def wait_until_alive(sandbox_id: str, interval: float = 1.0):
             """Internal polling method"""
@@ -53,44 +55,22 @@ class GemManager(SandboxManager):
         except asyncio.TimeoutError:
             raise Exception("Sandbox startup timeout after 300s")
 
-        sandbox_actor: SandboxActor = await self.async_ray_get_actor(sandbox_start_response.sandbox_id)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {sandbox_start_response.sandbox_id} not found to stop")
-        response = await self.async_ray_get(
-            sandbox_actor.env_make.remote(
-                EnvMakeRequest(
-                    env_id=env_id,
-                    sandbox_id=sandbox_start_response.sandbox_id,
-                )
+        make_response = await self._env_service.env_make(
+            EnvMakeRequest(
+                env_id=env_id,
+                sandbox_id=sandbox_start_response.sandbox_id,
             )
         )
-        return response
+        return make_response
 
     async def env_step(self, request: EnvStepRequest) -> EnvStepResponse:
-        sandbox_id = request.sandbox_id
-        sandbox_actor: SandboxActor = await self.async_ray_get_actor(sandbox_id)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {sandbox_id} not found to stop")
-        return await self.async_ray_get(sandbox_actor.env_step.remote(request))
+        return await self._env_service.env_step(request)
 
     async def env_reset(self, request: EnvResetRequest) -> EnvResetResponse:
-        sandbox_id = request.sandbox_id
-        sandbox_actor: SandboxActor = await self.async_ray_get_actor(sandbox_id)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {sandbox_id} not found to stop")
-        return await self.async_ray_get(sandbox_actor.env_reset.remote(request))
+        return await self._env_service.env_reset(request)
 
     async def env_close(self, request: EnvCloseRequest) -> EnvCloseResponse:
-        sandbox_id = request.sandbox_id
-        sandbox_actor: SandboxActor = await self.async_ray_get_actor(sandbox_id)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {sandbox_id} not found to stop")
-        response = await self.async_ray_get(sandbox_actor.env_close.remote(request))
-        await self.stop(sandbox_id=sandbox_id)
-        return response
+        return await self._env_service.env_close(request)
 
     async def env_list(self, sandbox_id: str) -> EnvListResponse:
-        sandbox_actor = await self.async_ray_get_actor(sandbox_id)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {sandbox_id} not found to stop")
-        return await self.async_ray_get(sandbox_actor.env_list.remote())
+        return await self._env_service.env_list(sandbox_id)

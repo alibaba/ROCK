@@ -13,6 +13,7 @@ from rock.actions import (
     UploadResponse,
     WriteFileResponse,
 )
+from rock.actions.response import ResponseStatus
 from rock.admin.proto.request import (
     SandboxBashAction,
     SandboxCloseBashSessionRequest,
@@ -52,7 +53,7 @@ async def start_async(
     x_experiment_id: str | None = Header(default="default", alias="X-Experiment-Id"),
     rock_authorization: str | None = Header(default="default", alias="X-Key"),
 ) -> RockResponse[SandboxStartResponse]:
-    sandbox_start_response = await sandbox_manager.start_async(
+    sandbox_start_response = await sandbox_manager.submit(
         DockerDeploymentConfig.from_request(request),
         user_info={
             "user_id": x_user_id,
@@ -106,14 +107,10 @@ async def create_session(request: SandboxCreateBashSessionRequest) -> RockRespon
 @sandbox_router.post("/run_in_session")
 @handle_exceptions(error_message="run in session failed")
 async def run(action: SandboxBashAction) -> RockResponse[BashObservation]:
-    return RockResponse(result=await sandbox_manager.run_in_session(action))
-
-
-@sandbox_router.post("/close_session")
-@handle_exceptions(error_message="close session failed")
-async def close_session(request: SandboxCloseBashSessionRequest) -> RockResponse[CloseBashSessionResponse]:
-    return RockResponse(result=await sandbox_manager.close_session(request))
-
+    result = await sandbox_manager.run_in_session(action)
+    if result.exit_code is not None and result.exit_code == -1:
+        return RockResponse(status=ResponseStatus.FAILED, error=result.failure_reason)
+    return RockResponse(result=result)
 
 @sandbox_router.post("/read_file")
 @handle_exceptions(error_message="read file failed")
@@ -135,7 +132,6 @@ async def upload(
     sandbox_id: str | None = Form(None),
 ) -> RockResponse[UploadResponse]:
     return RockResponse(result=await sandbox_manager.upload(file, target_path, sandbox_id))
-
 
 @sandbox_router.post("/stop")
 @handle_exceptions(error_message="stop sandbox failed")
