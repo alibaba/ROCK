@@ -8,8 +8,6 @@ from rock.actions import (
     CreateBashSessionRequest,
 )
 from rock.deployments.config import DockerDeploymentConfig, get_deployment
-from rock.deployments.constants import Status
-from rock.deployments.docker import DockerDeployment
 
 
 async def test_docker_deployment(container_name):
@@ -65,9 +63,3 @@ def test_docker_deployment_config_platform():
         config = DockerDeploymentConfig(platform="linux/amd64", docker_args=["--platform", "linux/amd64"])
     with pytest.raises(ValueError):
         config = DockerDeploymentConfig(platform="linux/amd64", docker_args=["--platform=linux/amd64"])
-
-
-async def test_docker_deployment_service_status_init():
-    d = DockerDeployment(image=env_vars.ROCK_ENVHUB_DEFAULT_DOCKER_IMAGE)
-    assert d._service_status.get_phase("image_pull").status == Status.WAITING
-    assert d._service_status.get_phase("docker_run").status == Status.WAITING

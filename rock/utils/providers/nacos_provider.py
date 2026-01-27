@@ -72,3 +72,7 @@ class NacosConfigProvider:
         except Exception as e:
             logger.error(f"Failed to add Nacos config watcher: {e}")
             raise
+
+    async def get_switch_status(self, switch_name: str, not_found_default: bool = False) -> bool:
+        config = await self.get_config() or {}
+        return bool((config.get("switch") or {}).get(switch_name, not_found_default))

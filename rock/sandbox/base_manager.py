@@ -1,9 +1,9 @@
 import asyncio
 import time
 
+import ray
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-import ray
 
 from rock.admin.core.redis_key import ALIVE_PREFIX
 from rock.admin.metrics.constants import MetricsConstants
@@ -125,7 +125,7 @@ class BaseManager:
         available_cpu = available_resources.get("CPU", 0)
         available_mem = available_resources.get("memory", 0) / 1024**3
         return total_cpu, total_mem, available_cpu, available_mem
-    
+
     async def _collect_sandbox_meta(self) -> tuple[int, dict[str, dict[str, str]]]:
         meta: dict = {}
         cnt = 0

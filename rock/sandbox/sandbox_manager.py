@@ -15,8 +15,9 @@ from rock.actions import (
     UploadResponse,
     WriteFileResponse,
 )
-from rock.actions.sandbox.response import State
+from rock.actions.sandbox.response import IsAliveResponse, State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
+from rock.admin.core.ray_service import RayService
 from rock.admin.core.redis_key import ALIVE_PREFIX, alive_sandbox_key, timeout_sandbox_key
 from rock.admin.metrics.decorator import monitor_sandbox_operation
 from rock.admin.proto.request import SandboxAction as Action
@@ -28,16 +29,22 @@ from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
 from rock.config import RockConfig, RuntimeConfig
 from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
-from rock.deployments.status import ServiceStatus
+from rock.deployments.constants import Port
+from rock.deployments.status import PersistedServiceStatus, ServiceStatus
 from rock.logger import init_logger
 from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
 from rock.sandbox.base_manager import BaseManager
 from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sdk.common.exceptions import BadRequestRockError
+from rock.utils import (
+    EAGLE_EYE_TRACE_ID,
+    HttpUtils,
+    trace_id_ctx_var,
+)
 from rock.utils.format import parse_memory_size
-from rock.utils.providers import RedisProvider
-from rock.admin.core.ray_service import RayService
+from rock.utils.providers.redis_provider import RedisProvider
+from rock.utils.service import build_sandbox_from_redis
 
 logger = init_logger(__name__)
 
@@ -213,13 +220,6 @@ class SandboxManager(BaseManager):
             await self._redis_provider.json_delete(timeout_sandbox_key(sandbox_id))
             logger.info(f"sandbox {sandbox_id} deleted from redis")
 
-    async def build_sandbox_from_redis(self, sandbox_id: str) -> SandboxInfo | None:
-        if self._redis_provider:
-            sandbox_status = await self._redis_provider.json_get(alive_sandbox_key(sandbox_id), "$")
-            if sandbox_status and len(sandbox_status) > 0:
-                return sandbox_status[0]
-        return None
-
     @monitor_sandbox_operation()
     async def get_status(self, sandbox_id) -> SandboxStatusResponse:
         async with self._ray_service.get_ray_rwlock().read_lock():
@@ -231,7 +231,7 @@ class SandboxManager(BaseManager):
                 alive = await self.async_ray_get(sandbox_actor.is_alive.remote())
                 sandbox_info: SandboxInfo = None
                 if self._redis_provider:
-                    sandbox_info = await self.build_sandbox_from_redis(sandbox_id)
+                    sandbox_info = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
                     if sandbox_info is None:
                         # The start() method will write to redis on the first call to get_status()
                         sandbox_info = await self.async_ray_get(sandbox_actor.sandbox_info.remote())
@@ -261,6 +261,109 @@ class SandboxManager(BaseManager):
                     cpus=sandbox_info.get("cpus"),
                     memory=sandbox_info.get("memory"),
                 )
+
+    async def _get_sandbox_info(self, sandbox_id: str) -> SandboxInfo:
+        """Get sandbox info, prioritize Redis, fallback to Ray Actor"""
+        if self._redis_provider:
+            sandbox_info = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
+        else:
+            sandbox_actor = await self.async_ray_get_actor(sandbox_id)
+            if sandbox_actor is None:
+                raise Exception(f"sandbox {sandbox_id} not found to get status")
+            sandbox_info = await self.async_ray_get(sandbox_actor.sandbox_info.remote())
+
+        if sandbox_info is None:
+            raise Exception(f"sandbox {sandbox_id} not found to get status")
+
+        return sandbox_info
+
+    async def _check_alive_status(
+    self, sandbox_id: str, host_ip: str, remote_status: ServiceStatus
+) -> bool:
+        """Check if sandbox is alive"""
+        try:
+            alive_resp = await HttpUtils.get(
+                url=f"http://{host_ip}:{remote_status.get_mapped_port(Port.PROXY)}/is_alive",
+                headers={
+                    "sandbox_id": sandbox_id,
+                    EAGLE_EYE_TRACE_ID: trace_id_ctx_var.get(),
+                },
+            )
+            return IsAliveResponse(**alive_resp).is_alive
+        except Exception:
+            return False
+
+    @monitor_sandbox_operation()
+    async def get_status_v2(self, sandbox_id) -> SandboxStatusResponse:
+        # 1. Get sandbox_info (unified exception handling)
+        sandbox_info = await self._get_sandbox_info(sandbox_id)
+
+        # 2. Parallel execution: update expire time & get remote status
+        host_ip = sandbox_info.get("host_ip")
+        _, remote_status = await asyncio.gather(
+            self._update_expire_time(sandbox_id),
+            self.get_remote_status(sandbox_id, host_ip),
+        )
+
+        # 3. Update sandbox_info and check alive status
+        sandbox_info.update(remote_status.to_dict())
+        is_alive = await self._check_alive_status(sandbox_id, host_ip, remote_status)
+        if is_alive:
+            sandbox_info["state"] = State.RUNNING
+
+        # 4. Persist to Redis if Redis exists
+        if self._redis_provider:
+            await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
+            logger.info(f"sandbox {sandbox_id} status is {remote_status}, write to redis")
+
+        # 5. Build and return response
+        return SandboxStatusResponse(
+            sandbox_id=sandbox_id,
+            status=remote_status.phases,
+            port_mapping=remote_status.get_port_mapping(),
+            state=sandbox_info.get("state"),
+            host_name=sandbox_info.get("host_name"),
+            host_ip=sandbox_info.get("host_ip"),
+            is_alive=is_alive,
+            image=sandbox_info.get("image"),
+            swe_rex_version=swe_version,
+            gateway_version=gateway_version,
+            user_id=sandbox_info.get("user_id"),
+            experiment_id=sandbox_info.get("experiment_id"),
+            namespace=sandbox_info.get("namespace"),
+            cpus=sandbox_info.get("cpus"),
+            memory=sandbox_info.get("memory"),
+        )
+
+    async def get_remote_status(self, sandbox_id: str, host_ip: str) -> ServiceStatus:
+        service_status_path = PersistedServiceStatus.gen_service_status_path(sandbox_id)
+        worker_rocklet_port = env_vars.ROCK_WORKER_ROCKLET_PORT if env_vars.ROCK_WORKER_ROCKLET_PORT else Port.PROXY
+        execute_url = f"http://{host_ip}:{worker_rocklet_port}/execute"
+        read_file_url = f"http://{host_ip}:{worker_rocklet_port}/read_file"
+        headers={"sandbox_id": sandbox_id, EAGLE_EYE_TRACE_ID: trace_id_ctx_var.get()}
+        find_file_rsp = await HttpUtils.post(
+            url=execute_url,
+            headers=headers,
+            data={"command": ["ls", service_status_path]},
+            read_timeout=60,
+        )
+
+        # When the file does not exist, exit_code = 2
+        if find_file_rsp.get("exit_code") and find_file_rsp.get("exit_code") == 2:
+            return ServiceStatus()
+
+        response: dict = await HttpUtils.post(
+            url=read_file_url,
+            headers=headers,
+            data={"path": service_status_path},
+            read_timeout=60,
+        )
+        if response.get("content"):
+            return ServiceStatus.from_content(response.get("content"))
+        error_msg = (
+            f"get_remote_status failed! {response.get('failure_reason') if response.get('failure_reason') else ''}"
+        )
+        raise Exception(error_msg)
 
     async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
         sandbox_actor = await self.async_ray_get_actor(request.sandbox_id)

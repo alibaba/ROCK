@@ -1,7 +1,10 @@
+import json
+import os
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+from rock import env_vars
 from rock.deployments.constants import Status
 
 
@@ -68,3 +71,57 @@ class ServiceStatus(BaseModel):
             port_mapping[int(port_value)] = mapping
 
         return cls(phases=phases, port_mapping=port_mapping)
+
+    @classmethod
+    def from_content(cls, content: str) -> "ServiceStatus":
+        """Create ServiceStatus from JSON file."""
+        try:
+            data = json.loads(content)
+            service_status = cls.from_dict(data)
+            return service_status
+        except Exception as e:
+            raise Exception(f"parse service status failed:{str(e)}")
+
+
+class PersistedServiceStatus(ServiceStatus):
+    json_path: str | None = None
+
+    def init_status_path(self, sandbox_id: str):
+        self.json_path = PersistedServiceStatus.gen_service_status_path(sandbox_id)
+        os.makedirs(os.path.dirname(self.json_path), exist_ok=True)
+
+    def _save_to_file(self):
+        """Save ServiceStatus to the file specified by json_path"""
+        if self.json_path:
+            try:
+                with open(self.json_path, "w") as f:
+                    json.dump(self.to_dict(), f, indent=2)
+            except Exception as e:
+                # Error handling to prevent file write failures from affecting the main process
+                raise Exception(f"save service status failed: {str(e)}")
+
+    def add_phase(self, phase_name: str, status: PhaseStatus):
+        super().add_phase(phase_name, status)
+        self._save_to_file()
+
+    def update_status(self, phase_name: str, status: Status, message: str):
+        super().update_status(phase_name, status, message)
+        self._save_to_file()
+
+    def add_port_mapping(self, local_port: int, container_port: int):
+        super().add_port_mapping(local_port, container_port)
+        self._save_to_file()
+
+    @classmethod
+    def from_content(cls, content: str) -> "ServiceStatus":
+        """Create ServiceStatus from JSON file."""
+        try:
+            data = json.loads(content)
+            service_status = cls.from_dict(data)
+            return service_status
+        except Exception as e:
+            raise Exception(f"parse service status failed:{str(e)}")
+
+    @staticmethod
+    def gen_service_status_path(sandbox_id: str) -> str:
+        return f"{env_vars.ROCK_SERVICE_STATUS_DIR}/{sandbox_id}.json"

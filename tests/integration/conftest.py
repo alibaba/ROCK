@@ -1,3 +1,4 @@
+import os
 import socket
 import subprocess
 import sys
@@ -96,7 +97,10 @@ def admin_client_fixture():
 @pytest.fixture(scope="session")
 def admin_remote_server():
     port = run_until_complete(find_free_port())
+    proxy_port = run_until_complete(find_free_port())
 
+    env = os.environ.copy()
+    env["ROCK_WORKER_ROCKLET_PORT"] = str(proxy_port)
     # Do not redirect stdout and stderr to pipes without reading from them, as this will cause the program to hang.
     process = subprocess.Popen(
         [
@@ -108,8 +112,19 @@ def admin_remote_server():
             "--port",
             str(port),
         ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=None,
+        stderr=None,
+        env=env,
+    )
+
+    rocklet_process = subprocess.Popen(
+        [
+            "rocklet",
+            "--port",
+            str(proxy_port),
+        ],
+        stdout=None,
+        stderr=None,
     )
 
     # Wait for the server to start
@@ -118,21 +133,28 @@ def admin_remote_server():
     for _ in range(max_retries):
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=1):
-                break
+                with socket.create_connection(("127.0.0.1", proxy_port), timeout=1):
+                    break
         except (TimeoutError, ConnectionRefusedError):
             time.sleep(retry_delay)
     else:
         process.kill()
+        rocklet_process.kill()
         pytest.fail("Server did not start within the expected time")
 
     logger.info(f"Admin server started on port {port}")
     yield RemoteServer(port)
 
     process.terminate()
+    rocklet_process.terminate()
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         process.kill()
+    try:
+        rocklet_process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        rocklet_process.kill()
 
 
 @pytest.fixture
