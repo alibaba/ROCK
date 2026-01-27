@@ -1,8 +1,4 @@
----
-sidebar_position: 3
----
-
-# RockAgent（实验性）
+# Rock Agent（实验性）
 
 RockAgent 是 ROCK 框架中的核心 Agent 实现，直接继承自 `Agent` 抽象基类。它提供了完整的 Agent 生命周期管理，包括环境初始化、ModelService 集成、命令执行等功能。
 使用sandbox.agent.install()以及sandbox.agent.run(prompt)就可以在Rock提供的Sandbox环境中安装和运行Agent
