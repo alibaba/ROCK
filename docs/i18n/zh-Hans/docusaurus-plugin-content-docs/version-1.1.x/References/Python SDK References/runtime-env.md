@@ -40,22 +40,17 @@ print(env.runtime_env_id in sandbox.runtime_envs)  # True
 包装命令，将 `bin_dir` 加入 PATH，确保优先使用运行时环境中的可执行文件。
 
 ```python
-# 默认 prepend=True，bin_dir 优先于系统 PATH
 wrapped = env.wrapped_cmd("node script.js")
 # 返回: bash -c 'export PATH=/tmp/rock-runtime-envs/node/22.18.0/xxx/runtime-env/bin:$PATH && node script.js'
-
 ```
 
 ## run
 
-在运行时环境中执行命令。内部基于 `wrapped_cmd` 实现，自动将 `bin_dir` 加入 PATH。
+在运行时环境中执行命令。内部基于 `wrapped_cmd` 实现
 
 ```python
 await env.run("node script.js")
 await env.run("npm install express")
-
-# 指定超时时间
-await env.run("npm install some-big-package", wait_timeout=1200)
 ```
 
 ## PythonRuntimeEnvConfig

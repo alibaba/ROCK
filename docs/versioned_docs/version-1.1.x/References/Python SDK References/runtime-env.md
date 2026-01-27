@@ -1,8 +1,8 @@
 # RuntimeEnv SDK Reference
 
-RuntimeEnv 模块用于在沙箱中管理语言运行时环境（目前提供了 Python / Node.js）。
+The RuntimeEnv module is used to manage language runtime environments in the sandbox (currently providing Python / Node.js).
 
-## 快速开始(使用示例)
+## Quick Start (Example)
 
 ```python
 from rock.sdk.sandbox import Sandbox
@@ -21,7 +21,7 @@ await env.run("node --version")
 
 ## RuntimeEnv.create
 
-异步工厂方法，根据配置创建 RuntimeEnv 实例并初始化，自动注册到 `sandbox.runtime_envs`。
+An async factory method that creates and initializes a RuntimeEnv instance based on the configuration, and automatically registers it to `sandbox.runtime_envs`.
 
 ```python
 from rock.sdk.sandbox.runtime_env import RuntimeEnv, NodeRuntimeEnvConfig
@@ -31,60 +31,54 @@ env = await RuntimeEnv.create(
     NodeRuntimeEnvConfig(version="22.18.0"),
 )
 
-# 自动注册，可通过 sandbox.runtime_envs[env.runtime_env_id] 访问
+# Auto-registered; accessible via sandbox.runtime_envs[env.runtime_env_id]
 print(env.runtime_env_id in sandbox.runtime_envs)  # True
 ```
 
 ## wrapped_cmd
 
-包装命令，将 `bin_dir` 加入 PATH，确保优先使用运行时环境中的可执行文件。
+Wraps a command by adding `bin_dir` to PATH to ensure executables from the runtime environment are used with priority.
 
 ```python
-# 默认 prepend=True，bin_dir 优先于系统 PATH
 wrapped = env.wrapped_cmd("node script.js")
-# 返回: bash -c 'export PATH=/tmp/rock-runtime-envs/node/22.18.0/xxx/runtime-env/bin:$PATH && node script.js'
-
+# Returns: bash -c 'export PATH=/tmp/rock-runtime-envs/node/22.18.0/xxx/runtime-env/bin:$PATH && node script.js'
 ```
 
 ## run
 
-在运行时环境中执行命令。内部基于 `wrapped_cmd` 实现，自动将 `bin_dir` 加入 PATH。
+Executes a command within the runtime environment. Internally implemented based on `wrapped_cmd`.
 
 ```python
 await env.run("node script.js")
 await env.run("npm install express")
-
-# 指定超时时间
-await env.run("npm install some-big-package", wait_timeout=1200)
 ```
 
 ## PythonRuntimeEnvConfig
 
-| 字段 | 类型 | 默认值 | 说明 |
+| Field | Type | Default | Description |
 |------|------|--------|------|
-| `type` | `Literal["python"]` | `"python"` | 类型标识 |
-| `version` | `"3.11" \| "3.12" \| "default"` | `"default"` | Python 版本，默认 3.11 |
-| `pip` | `list[str] \| str \| None` | `None` | pip 包列表或 requirements.txt 路径 |
-| `pip_index_url` | `str \| None` | 环境变量 | pip 镜像源 |
+| `type` | `Literal["python"]` | `"python"` | Type identifier |
+| `version` | `"3.11" \| "3.12" \| "default"` | `"default"` | Python version; default is 3.11 |
+| `pip` | `list[str] \| str \| None` | `None` | List of pip packages or a requirements.txt path |
+| `pip_index_url` | `str \| None` | Environment variable | pip index mirror |
 
 ## NodeRuntimeEnvConfig
 
-| 字段 | 类型 | 默认值 | 说明 |
+| Field | Type | Default | Description |
 |------|------|--------|------|
-| `type` | `Literal["node"]` | `"node"` | 类型标识 |
-| `version` | `"22.18.0" \| "default"` | `"default"` | Node 版本，默认 22.18.0 |
-| `npm_registry` | `str \| None` | `None` | npm 镜像源 |
+| `type` | `Literal["node"]` | `"node"` | Type identifier |
+| `version` | `"22.18.0" \| "default"` | `"default"` | Node version; default is 22.18.0 |
+| `npm_registry` | `str \| None` | `None` | npm registry mirror |
 
-## 自定义 RuntimeEnv 实现约束
+## Constraints for Custom RuntimeEnv Implementations
 
-自定义 RuntimeEnv 需遵循以下规则：
+A custom RuntimeEnv must follow these rules:
 
-1. **定义 `runtime_env_type` 类属性**：作为类型标识符，用于自动注册到 RuntimeEnv 工厂
-2. **重写 `_get_install_cmd()`**：返回安装命令
-3. **安装命令最后必须**：将目录重命名为 `runtime-env`
+1. **Define the `runtime_env_type` class attribute**: used as a type identifier for automatic registration into the RuntimeEnv factory
+2. **Override `_get_install_cmd()`**: return the install command
+3. **The install command must end with**: renaming the directory to `runtime-env`
 
-
-## NodeRuntimeEnv 简化版实现示例
+## Simplified NodeRuntimeEnv Implementation Example
 
 ```python
 from rock.sdk.sandbox.runtime_env import RuntimeEnv, RuntimeEnvConfig
@@ -92,17 +86,17 @@ from typing import Literal
 from pydantic import Field
 from typing_extensions import override
 
-# Config class: defines configuration type, used by RuntimeEnv.create() for routing
+# Config class: defines the config type so RuntimeEnv.create() can route to the corresponding implementation
 class NodeRuntimeEnvConfig(RuntimeEnvConfig):
     type: Literal["node"] = "node"  # Must match runtime_env_type
 
-# RuntimeEnv implementation: defines how to install and run this runtime
+# RuntimeEnv implementation class: defines how to install and run this runtime environment
 class NodeRuntimeEnv(RuntimeEnv):
     runtime_env_type = "node"  # Auto-registered to RuntimeEnv._REGISTRY
 
     @override
     def _get_install_cmd(self) -> str:
-        # Download Node binary and extract, rename to runtime-env
+        # Download the Node binary tarball and extract it, then rename to runtime-env
         return (
             "wget -q -O node.tar.xz https://npmmirror.com/mirrors/node/v22.18.0/node-v22.18.0-linux-x64.tar.xz && "
             "tar -xf node.tar.xz && "
