@@ -5,6 +5,7 @@ import clsx from 'clsx';
 import dayjs from 'dayjs';
 import CountUp from 'react-countup';
 import Translate from '@docusaurus/Translate';
+import { gsap } from 'gsap';
 import Header from './Header';
 
 import styles from './styles.module.css';
@@ -128,6 +129,44 @@ export default ({ currentLocale }) => {
     fetch('/ROCK/stats.json').then(res => res.json()).then(data => {
       setTodayStat(data[today]);
     })
+  }, []);
+
+  // 鼠标跟随边框高亮效果
+  useEffect(() => {
+    const featuresSection = featuresRef.current;
+    if (!featuresSection) return;
+
+    const cards = featuresSection.querySelectorAll(`.${styles.card}`);
+
+    const handleMouseMove = (e) => {
+      const rect = featuresSection.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      cards.forEach((card) => {
+        const cardRect = card.getBoundingClientRect();
+        const cardX = cardRect.left - rect.left;
+        const cardY = cardRect.top - rect.top;
+
+        // 计算鼠标相对于卡片的位置
+        const relativeX = mouseX - cardX;
+        const relativeY = mouseY - cardY;
+
+        // 使用 gsap 动画更新 CSS 变量
+        gsap.to(card, {
+          '--mouse-x': `${relativeX}px`,
+          '--mouse-y': `${relativeY}px`,
+          duration: 0.2,
+          ease: 'power2.out'
+        });
+      });
+    };
+
+    featuresSection.addEventListener('mousemove', handleMouseMove);
+
+    return () => {
+      featuresSection.removeEventListener('mousemove', handleMouseMove);
+    };
   }, []);
 
   return <ConfigProvider theme={{ algorithm: theme.darkAlgorithm }}>

@@ -179,6 +179,51 @@
         box-sizing: border-box;
         border: 1px solid rgba(255, 255, 255, 0.2);
         padding: 32px;
+        position: relative;
+        --mouse-x: 50%;
+        --mouse-y: 50%;
+        overflow: hidden;
+        
+        &::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: 32px;
+          padding: 2px;
+          background: linear-gradient(
+            rgba(255, 255, 255, 0.1),
+            rgba(255, 255, 255, 0.05)
+          );
+          -webkit-mask: 
+            linear-gradient(#fff 0 0) content-box, 
+            linear-gradient(#fff 0 0);
+          -webkit-mask-composite: xor;
+          mask-composite: exclude;
+          pointer-events: none;
+          z-index: 1;
+        }
+        
+        &::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: 32px;
+          padding: 2px;
+          background: radial-gradient(
+            400px circle at var(--mouse-x) var(--mouse-y),
+            rgba(120, 80, 255, 1),
+            rgba(120, 80, 255, 0.6) 30%,
+            transparent 50%
+          );
+          -webkit-mask: 
+            linear-gradient(#fff 0 0) content-box, 
+            linear-gradient(#fff 0 0);
+          -webkit-mask-composite: xor;
+          mask-composite: exclude;
+          opacity: 1;
+          pointer-events: none;
+          z-index: 2;
+        }
         .subTitle {
           margin-top: 16px;
           font-family: Inter;
