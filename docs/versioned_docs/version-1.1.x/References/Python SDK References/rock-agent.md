@@ -126,7 +126,7 @@ Initialize Agent environment.
 Execute Agent task.
 
 **Flow:**
-1. Replace `{prompt}` placeholder in command
+1. Replace `${prompt}` placeholder in command
 2. Replace `${working_dir}` placeholder
 3. If `project_path` is configured, execute `cd project_path`
 4. Start agent process

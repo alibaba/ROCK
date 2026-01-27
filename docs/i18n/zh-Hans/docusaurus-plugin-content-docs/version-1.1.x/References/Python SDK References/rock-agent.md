@@ -126,7 +126,7 @@ await sandbox.agent.run(prompt="hello")
 执行 Agent 任务。
 
 **流程：**
-1. 替换命令中的 `{prompt}` 占位符
+1. 替换命令中的 `${prompt}` 占位符
 2. 替换 `${working_dir}` 占位符
 3. 如果配置了 `project_path`，执行 `cd project_path`
 4. 启动agent进程
