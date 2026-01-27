@@ -1,4 +1,4 @@
-# RockAgent (Experimental)
+# Rock Agent (Experimental)
 
 RockAgent is the core Agent implementation in the ROCK framework, inheriting directly from the `Agent` abstract base class. It provides complete Agent lifecycle management including environment initialization, ModelService integration, and command execution.
 Use `sandbox.agent.install()` and `sandbox.agent.run(prompt)` to install and run Agent in the ROCK Sandbox environment.
