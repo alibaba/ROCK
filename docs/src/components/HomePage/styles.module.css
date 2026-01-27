@@ -190,10 +190,7 @@
           inset: 0;
           border-radius: 32px;
           padding: 2px;
-          background: linear-gradient(
-            rgba(255, 255, 255, 0.1),
-            rgba(255, 255, 255, 0.05)
-          );
+          background: transparent;
           -webkit-mask: 
             linear-gradient(#fff 0 0) content-box, 
             linear-gradient(#fff 0 0);
