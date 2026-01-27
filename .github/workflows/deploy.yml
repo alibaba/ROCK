@@ -1,7 +1,14 @@
+# .github/workflows/deploy.yml
+
 name: GitHub Pages
 
 on:
   push:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/deploy.yml'
+      - 'docs/**'
   pull_request:
 
 jobs:
@@ -35,7 +42,8 @@ jobs:
 
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
+        if: github.ref == 'refs/heads/master'
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./docs/build
-          keep_files: true
+          keep_files: true 
