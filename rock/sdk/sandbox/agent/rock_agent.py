@@ -186,7 +186,7 @@ class RockAgent(Agent):
         self.config: RockAgentConfig | None = None
         self.agent_session: str | None = None
 
-    async def install(self, config: str | RockAgentConfig) -> None:
+    async def install(self, config: str | RockAgentConfig = "rock_agent_config.yaml") -> None:
         """Install and initialize RockAgent.
 
         Args:
