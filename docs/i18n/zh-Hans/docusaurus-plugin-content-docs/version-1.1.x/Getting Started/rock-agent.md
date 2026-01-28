@@ -8,7 +8,7 @@ Rock Agent 是 ROCK 提供的 AI Agent 运行框架，支持在沙箱环境中�
 
 ## 前置条件
 
-- ROCK Admin 服务已启动：`rock admin start`
+- 确保有可用的ROCK服务, 如果需要本地拉起服务端, 参考[快速启动](quickstart.md)
 
 ## 使用示例
 

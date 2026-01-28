@@ -7,8 +7,7 @@ sidebar_position: 4
 Rock Agent is an AI Agent runtime framework provided by ROCK, supporting various types of Agents running in sandbox environments.
 
 ## Prerequisites
-
-- ROCK Admin service is running: `rock admin start`
+- Make sure you have a working ROCK service, if you need to locally start the service side, refer to [Quick Start](quickstart.md).
 
 ## Examples
 
