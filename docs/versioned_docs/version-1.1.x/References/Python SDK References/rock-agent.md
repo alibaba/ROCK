@@ -115,7 +115,9 @@ Initialize Agent environment.
 5. Execute `post_init_cmds`
 
 **Parameters:**
-- `config`: YAML config file path or `RockAgentConfig` object
+- `config`: Agent configuration file, supports two input methods:
+  - **String path**: YAML config file path, default value like `"rock_agent_config.yaml"`
+  - **RockAgentConfig object**: Directly pass a `RockAgentConfig` instance
 
 ### run(prompt)
 

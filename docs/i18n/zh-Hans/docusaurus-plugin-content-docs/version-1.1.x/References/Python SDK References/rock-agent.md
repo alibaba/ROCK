@@ -115,7 +115,9 @@ await sandbox.agent.run(prompt="hello")
 5. 执行 `post_init_cmds`
 
 **参数：**
-- `config`: YAML 配置文件路径或 `RockAgentConfig` 对象
+- `config`: Agent 配置文件，支持两种传入方式：
+  - **字符串路径**: YAML 配置文件路径，默认值为 `"rock_agent_config.yaml"`
+  - **RockAgentConfig 对象**: 直接传入 `RockAgentConfig` 实例
 
 ### run(prompt)
 
