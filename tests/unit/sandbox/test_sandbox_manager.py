@@ -83,18 +83,13 @@ async def test_ray_actor_is_alive(sandbox_manager):
 @pytest.mark.asyncio
 async def test_user_info_set_success(sandbox_manager):
     user_info = {"user_id": "test_user_id", "experiment_id": "test_experiment_id"}
-    response = await sandbox_manager.start_async(RayDeploymentConfig(), user_info=user_info)
+    response = await sandbox_manager.start_async(RayDeploymentConfig(cpus=0.5, memory="1g"), user_info=user_info)
     sandbox_id = response.sandbox_id
 
-    cnt = 0
-    while True:
-        is_alive_response = await sandbox_manager._is_actor_alive(sandbox_id)
-        if is_alive_response:
-            break
-        time.sleep(1)
-        cnt += 1
-        if cnt > 60:
-            raise Exception("sandbox not alive")
+    await check_sandbox_status_until_alive(
+        sandbox_manager=sandbox_manager,
+        sandbox_id=sandbox_id,
+    )
 
     is_alive_response = await sandbox_manager._is_actor_alive(sandbox_id)
     assert is_alive_response
