@@ -166,5 +166,6 @@ markers = [
     "slow: marks tests as slow",
     "integration: marks tests as integration tests",
     "need_ray: need ray start",
-    "need_admin: need admin start"
+    "need_admin: need admin start",
+    "need_admin_and_network: need install from network"
 ]

@@ -78,7 +78,7 @@ async def _run_agent_with_model_service(
     return agent_result.output
 
 
-@pytest.mark.need_admin
+@pytest.mark.need_admin_and_network
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
 async def test_rock_agent_run_iflow(sandbox_instance: Sandbox, monkeypatch) -> None:
@@ -86,7 +86,7 @@ async def test_rock_agent_run_iflow(sandbox_instance: Sandbox, monkeypatch) -> N
     assert "Hello! I am ROCK" in output
 
 
-@pytest.mark.need_admin
+@pytest.mark.need_admin_and_network
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
 async def test_rock_agent_run_langgraph(sandbox_instance: Sandbox, monkeypatch) -> None:

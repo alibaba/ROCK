@@ -9,7 +9,7 @@ from tests.integration.conftest import SKIP_IF_NO_DOCKER
 logger = init_logger(__name__)
 
 
-@pytest.mark.need_admin
+@pytest.mark.need_admin_and_network
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
 async def test_model_service_install_and_start(sandbox_instance: Sandbox):

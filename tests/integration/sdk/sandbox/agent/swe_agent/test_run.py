@@ -106,7 +106,7 @@ async def _init_git_repository(sandbox: Sandbox, repo_path: str) -> None:
             raise RuntimeError(f"Failed to execute: {cmd}")
 
 
-@pytest.mark.need_admin
+@pytest.mark.need_admin_and_network
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
 @pytest.mark.skip

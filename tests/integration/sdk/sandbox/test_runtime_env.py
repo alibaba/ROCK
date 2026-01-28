@@ -6,7 +6,7 @@ from rock.sdk.sandbox.runtime_env.base import RuntimeEnv
 from tests.integration.conftest import SKIP_IF_NO_DOCKER
 
 
-@pytest.mark.need_admin
+@pytest.mark.need_admin_and_network
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
 async def test_python_runtime_env(sandbox_instance: Sandbox):
@@ -18,7 +18,7 @@ async def test_python_runtime_env(sandbox_instance: Sandbox):
     assert "3.11" in result.output
 
 
-@pytest.mark.need_admin
+@pytest.mark.need_admin_and_network
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
 async def test_node_runtime_env(sandbox_instance: Sandbox):

@@ -20,7 +20,7 @@ async def _verify_exists(sandbox: Sandbox, directory_path: str, items: set[str])
     logger.info(f"Directory {directory_path} contents: {result.stdout}")
 
 
-@pytest.mark.need_admin
+@pytest.mark.need_admin_and_network
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
 async def test_swe_agent_initialization(sandbox_instance: Sandbox):

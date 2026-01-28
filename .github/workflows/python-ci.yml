@@ -28,7 +28,7 @@ jobs:
       run: |
         mkdir -p data/logs
         echo "🚀 Running fast tests..."
-        uv run pytest -n auto -m "not need_ray and not need_admin" --reruns 1
+        uv run pytest -n auto -m "not need_ray and not need_admin and not need_admin_and_network" --reruns 1
 
     - name: Run tests need ray
       if: success()
@@ -41,3 +41,9 @@ jobs:
       run: |
         echo "🔐 Running admin tests..."
         uv run pytest -n auto -m "need_admin" --reruns 1
+
+    - name: Run tests need admin and network
+      if: success()
+      run: |
+        echo "🔐 Running admin and network tests..."
+        uv run pytest -n auto -m "need_admin_and_network" --reruns 1
