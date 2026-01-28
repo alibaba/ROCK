@@ -18,7 +18,20 @@ jobs:
 
     - name: Cleanup old files in /tmp/ray
       run: |
-        target="$(readlink -f /tmp/ray 2>/dev/null || echo /tmp/ray)"; [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 1 -type d -name 'session_*' -mmin +60 -exec rm -rf {} + || true
+        target="$(readlink -f /tmp/ray 2>/dev/null || echo /tmp/ray)"
+        [ -d "$target" ] || exit 0
+
+        echo "ray dir: $target"
+        echo "Before:"
+        du -sh "$target" 2>/dev/null || true
+
+        echo "Will delete (older than 60min):"
+        find "$target" -mindepth 1 -maxdepth 1 -type d -name 'session_*' -mmin +60 -print -exec du -sh {} \; || true
+
+        find "$target" -mindepth 1 -maxdepth 1 -type d -name 'session_*' -mmin +60 -exec rm -rf -- {} + || true
+
+        echo "After:"
+        du -sh "$target" 2>/dev/null || true
 
     - name: Set up project (install dependencies without building)
       run: |
