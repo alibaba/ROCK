@@ -109,18 +109,14 @@ async def _init_git_repository(sandbox: Sandbox, repo_path: str) -> None:
 @pytest.mark.need_admin_and_network
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
-@pytest.mark.skip
 async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
     """Test SWE-Agent installation with integrated model service."""
 
-    python_install_cmd = _get_python_install_cmd()
     project_path = "/root/test_swe_agent"
     test_instance_id = "test_instance_id"
     try:
         # Initialize SWE-Agent configuration
-        model_service_config = ModelServiceConfig(
-            python_install_cmd=python_install_cmd,
-        )
+        model_service_config = ModelServiceConfig()
 
         run_single_config = DEFAULT_RUN_SINGLE_CONFIG.copy()
         run_single_config["agent"]["model"]["name"] = "openai/Qwen3-Coder-Plus"
@@ -128,17 +124,15 @@ async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
         run_single_config["agent"]["model"]["api_key"] = "just_a_test_key"
 
         swe_agent_config = SweAgentConfig(
-            agent_type="swe-agent",
-            version="unknown",
             default_run_single_config=run_single_config,
             model_service_config=model_service_config,
-            python_install_cmd=python_install_cmd,
+            project_path=project_path,
+            instance_id=test_instance_id,
         )
 
         # Initialize and setup the agent
         sandbox_instance.agent = SweAgent(sandbox_instance)
         await sandbox_instance.agent.install(swe_agent_config)
-        await sandbox_instance.agent.start_model_service()
 
         # Verify health check
         result = await sandbox_instance.execute(Command(command=["bash", "-c", "curl -s http://localhost:8080/health"]))
@@ -152,15 +146,7 @@ async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
         inference_gen = call_model_inference_generator()
 
         # Run agent and model service in parallel
-        agent_run_task = asyncio.create_task(
-            sandbox_instance.agent.run(
-                problem_statement="rename 1.txt to 2.txt",
-                project_path=project_path,
-                instance_id=test_instance_id,
-                agent_run_timeout=1800,
-                agent_run_check_interval=30,
-            )
-        )
+        agent_run_task = asyncio.create_task(sandbox_instance.agent.run(prompt="rename 1.txt to 2.txt"))
 
         whale_service_task = asyncio.create_task(model_service_loop(sandbox_instance.agent, inference_gen))
 
@@ -172,7 +158,7 @@ async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
                 logger.error(f"Task {i} failed: {type(result).__name__}: {str(result)}")
 
         patch_path = (
-            f"{swe_agent_config.swe_agent_workdir}/{test_instance_id}/{test_instance_id}/{test_instance_id}.patch"
+            f"{swe_agent_config.agent_installed_dir}/{test_instance_id}/{test_instance_id}/{test_instance_id}.patch"
         )
 
         file_content = await sandbox_instance.arun(cmd=f"cat {patch_path}", mode=RunMode.NOHUP)
