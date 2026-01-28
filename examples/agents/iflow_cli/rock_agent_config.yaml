@@ -1,0 +1,11 @@
+run_cmd: "iflow -p ${prompt} --yolo"
+
+runtime_env_config:
+  type: node
+  npm_registry: "https://registry.npmmirror.com"
+  custom_install_cmd: "npm i -g @iflow-ai/iflow-cli@latest"
+
+env:
+  IFLOW_API_KEY: "" # Enter your API key
+  IFLOW_BASE_URL: "" # Enter your base url
+  IFLOW_MODEL_NAME: "" # Enter your model name 
