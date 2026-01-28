@@ -116,7 +116,7 @@ async def test_swe_agent_run(sandbox_instance: Sandbox) -> None:
     test_instance_id = "test_instance_id"
     try:
         # Initialize SWE-Agent configuration
-        model_service_config = ModelServiceConfig()
+        model_service_config = ModelServiceConfig(enabled=True)
 
         run_single_config = DEFAULT_RUN_SINGLE_CONFIG.copy()
         run_single_config["agent"]["model"]["name"] = "openai/Qwen3-Coder-Plus"
