@@ -23,3 +23,4 @@ class SandboxInfo(TypedDict, total=False):
     memory: str
     create_time: str
     start_time: str
+    stop_time: str

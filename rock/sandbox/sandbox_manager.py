@@ -19,6 +19,7 @@ from rock.actions.sandbox.response import IsAliveResponse, State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.core.ray_service import RayService
 from rock.admin.core.redis_key import ALIVE_PREFIX, alive_sandbox_key, timeout_sandbox_key
+from rock.admin.metrics.billing import log_billing_info
 from rock.admin.metrics.decorator import monitor_sandbox_operation
 from rock.admin.proto.request import ClusterInfo, UserInfo
 from rock.admin.proto.request import SandboxAction as Action
@@ -204,6 +205,10 @@ class SandboxManager(BaseManager):
     async def stop(self, sandbox_id):
         async with self._ray_service.get_ray_rwlock().read_lock():
             logger.info(f"stop sandbox {sandbox_id}")
+            sandbox_info: SandboxInfo = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
+            if sandbox_info and sandbox_info.get("start_time"):
+                sandbox_info["stop_time"] = get_iso8601_timestamp()
+                log_billing_info(sandbox_info=sandbox_info)
             try:
                 sandbox_actor = await self.async_ray_get_actor(sandbox_id)
             except ValueError as e:
