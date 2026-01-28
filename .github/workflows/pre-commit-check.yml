@@ -16,8 +16,17 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Install uv
+      uses: astral-sh/setup-uv@v2
+      with:
+        version: "latest"
+        enable-cache: true
+
+    - name: Set up Python 3.11
+      run: uv python install 3.11
+
     - name: Set up project
-      run: uv sync --all-extras --group test --python 3.11
+      run: uv sync --all-extras --all-groups
 
     - name: Install pre-commit hooks
       run: uv run pre-commit install
