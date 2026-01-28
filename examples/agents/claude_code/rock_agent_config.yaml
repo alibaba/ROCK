@@ -6,5 +6,4 @@ runtime_env_config:
 
 env:
   ANTHROPIC_BASE_URL: "" # Enter your anthropic base url
-  ANTHROPIC_AUTH_TOKEN: "" # Enter your anthropic auth token
-  ANTHROPIC_API_KEY: "" # Keep this empty
+  ANTHROPIC_API_KEY: "" # Enter your anthropic api key

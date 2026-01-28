@@ -64,9 +64,8 @@ runtime_env_config:
   custom_install_cmd: "npm install -g @anthropic-ai/claude-code"
 
 env:
-  ANTHROPIC_BASE_URL: "" # Enter your Anthropic base URL
-  ANTHROPIC_AUTH_TOKEN: "" # Enter your auth token
-  ANTHROPIC_API_KEY: "" # Leave empty
+  ANTHROPIC_BASE_URL: "" # Enter your anthropic base url
+  ANTHROPIC_API_KEY: "" # Enter your anthropic api key
 ```
 
 ## Related Documentation
