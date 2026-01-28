@@ -77,7 +77,7 @@ async def timeout_middleware(request: Request, call_next):
     except asyncio.TimeoutError:
         msg = f"Request processing timed out after {REQUEST_TIMEOUT_SECONDS} seconds."
         logger.error(msg)
-        return JSONResponse(status_code=HTTP_504_GATEWAY_TIMEOUT, content={"detail": msg})
+        return JSONResponse(status_code=HTTP_504_GATEWAY_TIMEOUT, content={"failure_reason": msg, "exit_code": 124})
 
 
 @app.exception_handler(Exception)

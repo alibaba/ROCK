@@ -52,7 +52,7 @@ async def create_session(request: SandboxCreateBashSessionRequest) -> RockRespon
 @handle_exceptions(error_message="run in session failed")
 async def run(action: SandboxBashAction) -> RockResponse[BashObservation]:
     result = await sandbox_proxy_service.run_in_session(action)
-    if result.exit_code is not None and result.exit_code == -1:
+    if result.exit_code is not None and result.exit_code != 0:
         return RockResponse(status=ResponseStatus.FAILED, error=result.failure_reason)
     return RockResponse(result=result)
 
