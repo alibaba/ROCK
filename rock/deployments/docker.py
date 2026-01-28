@@ -275,7 +275,7 @@ class DockerDeployment(AbstractDeployment):
 
         if self._container_name is None:
             self.set_container_name(self._get_container_name())
-        self._service_status.init_status_path(sandbox_id=self._container_name)
+        self._service_status.set_sandbox_id(self._container_name)
         executor = get_executor()
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(executor, self._pull_image)

@@ -84,21 +84,28 @@ class ServiceStatus(BaseModel):
 
 
 class PersistedServiceStatus(ServiceStatus):
-    json_path: str | None = None
+    _json_path: str | None = None
+    _status_path_initialized: bool = False
+    sandbox_id: str | None = None
 
-    def init_status_path(self, sandbox_id: str):
-        self.json_path = PersistedServiceStatus.gen_service_status_path(sandbox_id)
-        os.makedirs(os.path.dirname(self.json_path), exist_ok=True)
+    def set_sandbox_id(self, sandbox_id: str):
+        self.sandbox_id = sandbox_id
 
     def _save_to_file(self):
-        """Save ServiceStatus to the file specified by json_path"""
-        if self.json_path:
-            try:
-                with open(self.json_path, "w") as f:
-                    json.dump(self.to_dict(), f, indent=2)
-            except Exception as e:
-                # Error handling to prevent file write failures from affecting the main process
-                raise Exception(f"save service status failed: {str(e)}")
+        """Save ServiceStatus to the file specified by _json_path"""
+        if self.sandbox_id is None:
+            return
+
+        if not self._status_path_initialized:
+            self._json_path = PersistedServiceStatus.gen_service_status_path(self.sandbox_id)
+            os.makedirs(os.path.dirname(self._json_path), exist_ok=True)
+            self._status_path_initialized = True
+        try:
+            with open(self._json_path, "w") as f:
+                json.dump(self.to_dict(), f, indent=2)
+        except Exception as e:
+            # Error handling to prevent file write failures from affecting the main process
+            raise Exception(f"save service status failed: {str(e)}")
 
     def add_phase(self, phase_name: str, status: PhaseStatus):
         super().add_phase(phase_name, status)
