@@ -360,10 +360,8 @@ class SandboxManager(BaseManager):
         )
         if response.get("content"):
             return ServiceStatus.from_content(response.get("content"))
-        error_msg = (
-            f"get_remote_status failed! {response.get('failure_reason') if response.get('failure_reason') else ''}"
-        )
-        raise Exception(error_msg)
+        logger.warning(f"{service_status_path} exists, but content is empty")
+        return ServiceStatus()
 
     async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
         sandbox_actor = await self.async_ray_get_actor(request.sandbox_id)
