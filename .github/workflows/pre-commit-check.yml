@@ -1,0 +1,26 @@
+name: Pre-commit Check
+
+on:
+  push:
+    branches:
+      - master
+      - release/**
+  pull_request:
+    branches:
+      - master
+      - release/**
+
+jobs:
+  precommit:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up project
+      run: uv sync --all-extras --group test --python 3.11
+
+    - name: Install pre-commit hooks
+      run: uv run pre-commit install
+
+    - name: Run pre-commit checks
+      run: uv run pre-commit run --show-diff-on-failure
