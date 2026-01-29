@@ -104,3 +104,30 @@ class NodeRuntimeEnv(RuntimeEnv):
             "mv node-v22.18.0-linux-x64 runtime-env"
         )
 ```
+
+## 加速基础环境安装
+
+`PythonRuntimeEnv` 默认从 <https://github.com/astral-sh/python-build-standalone/releases/> 下载 Python 安装包。若网络不可达或下载较慢，可通过环境变量 `ROCK_RTENV_PYTHON_V31114_INSTALL_CMD` 或 `ROCK_RTENV_PYTHON_V31212_INSTALL_CMD` 覆盖默认安装命令（例如切换到内网源/镜像源）。
+
+默认值示例：
+
+```python
+"ROCK_RTENV_PYTHON_V31114_INSTALL_CMD": lambda: os.getenv(
+    "ROCK_RTENV_PYTHON_V31114_INSTALL_CMD",
+    "[ -f cpython31114.tar.gz ] && rm cpython31114.tar.gz; [ -d python ] && rm -rf python; "
+    "wget -q -O cpython31114.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20251120/cpython-3.11.14+20251120-x86_64-unknown-linux-gnu-install_only.tar.gz "
+    "&& tar -xzf cpython31114.tar.gz && mv python runtime-env",
+),
+```
+
+例如，替换为镜像源下载：
+
+```bash
+export ROCK_RTENV_PYTHON_V31114_INSTALL_CMD='[ -f cpython31114.tar.gz ] && rm cpython31114.tar.gz; [ -d python ] && rm -rf python; wget -q -O cpython31114.tar.gz https://mirror.nju.edu.cn/github-release/astral-sh/python-build-standalone/20251209/cpython-3.11.14+20251209-x86_64-unknown-linux-gnu-install_only.tar.gz && tar -xzf cpython31114.tar.gz && mv python runtime-env'
+```
+
+请确保该命令执行完成后，会在 `runtime_env` 的默认工作目录下生成 `runtime-env` 目录，并且 `${workdir}/runtime-env/bin/` 下包含对应可执行文件，例如：
+
+- `${workdir}/runtime-env/bin/python`
+
+Node 环境同理，可通过修改环境变量 `ROCK_RTENV_NODE_V22180_INSTALL_CMD` 来指定更快的下载/安装命令。

@@ -103,3 +103,30 @@ class NodeRuntimeEnv(RuntimeEnv):
             "mv node-v22.18.0-linux-x64 runtime-env"
         )
 ```
+
+## Speeding Up Base Runtime Installation
+
+`PythonRuntimeEnv` downloads Python packages from <https://github.com/astral-sh/python-build-standalone/releases/> by default. If the network is unavailable or slow, you can override the default install command via `ROCK_RTENV_PYTHON_V31114_INSTALL_CMD` or `ROCK_RTENV_PYTHON_V31212_INSTALL_CMD` (e.g., switch to an internal registry or a mirror).
+
+Default value example:
+
+```python
+"ROCK_RTENV_PYTHON_V31114_INSTALL_CMD": lambda: os.getenv(
+    "ROCK_RTENV_PYTHON_V31114_INSTALL_CMD",
+    "[ -f cpython31114.tar.gz ] && rm cpython31114.tar.gz; [ -d python ] && rm -rf python; "
+    "wget -q -O cpython31114.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20251120/cpython-3.11.14+20251120-x86_64-unknown-linux-gnu-install_only.tar.gz "
+    "&& tar -xzf cpython31114.tar.gz && mv python runtime-env",
+),
+```
+
+For example, override it to download from a mirror:
+
+```bash
+export ROCK_RTENV_PYTHON_V31114_INSTALL_CMD='[ -f cpython31114.tar.gz ] && rm cpython31114.tar.gz; [ -d python ] && rm -rf python; wget -q -O cpython31114.tar.gz https://mirror.nju.edu.cn/github-release/astral-sh/python-build-standalone/20251209/cpython-3.11.14+20251209-x86_64-unknown-linux-gnu-install_only.tar.gz && tar -xzf cpython31114.tar.gz && mv python runtime-env'
+```
+
+Make sure the command creates a `runtime-env` directory under the default working directory of `runtime_env`, and that `${workdir}/runtime-env/bin/` contains the expected executables, e.g.:
+
+- `${workdir}/runtime-env/bin/python`
+
+The same applies to Node.js: you can override the install command via `ROCK_RTENV_NODE_V22180_INSTALL_CMD` to use a faster download/install method.
