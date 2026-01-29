@@ -8,6 +8,7 @@ import websockets
 from aliyunsdkcore import client
 from aliyunsdkcore.request import CommonRequest
 from fastapi import UploadFile
+from starlette.status import HTTP_504_GATEWAY_TIMEOUT
 
 from rock import env_vars
 from rock.actions import (
@@ -269,6 +270,8 @@ class SandboxProxyService:
             )
             if response.status_code == 511:
                 return {"exit_code": -1, "failure_reason": response.json()["rockletexception"]["message"]}
+            if response.status_code == HTTP_504_GATEWAY_TIMEOUT:
+                return {"exit_code": -1, "failure_reason": response.json()["detail"]}
             return response.json()
         except httpx.RequestError as e:
             # Handle network-level errors, such as DNS resolution failure, connection timeout, etc.
