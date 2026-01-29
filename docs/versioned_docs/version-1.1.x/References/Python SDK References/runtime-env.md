@@ -106,7 +106,7 @@ class NodeRuntimeEnv(RuntimeEnv):
 
 ## Speeding Up Base Runtime Installation
 
-`PythonRuntimeEnv` downloads Python packages from <https://github.com/astral-sh/python-build-standalone/releases/> by default. If the network is unavailable or slow, you can override the default install command via `ROCK_RTENV_PYTHON_V31114_INSTALL_CMD` or `ROCK_RTENV_PYTHON_V31212_INSTALL_CMD` (e.g., switch to an internal registry or a mirror).
+`PythonRuntimeEnv` downloads Python packages from https://github.com/astral-sh/python-build-standalone/releases/ by default. If the network is unavailable or slow, you can override the default install command via `ROCK_RTENV_PYTHON_V31114_INSTALL_CMD` or `ROCK_RTENV_PYTHON_V31212_INSTALL_CMD` (e.g., switch to an internal registry or a mirror).
 
 Default value example:
 

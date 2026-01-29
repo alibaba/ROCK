@@ -107,7 +107,7 @@ class NodeRuntimeEnv(RuntimeEnv):
 
 ## 加速基础环境安装
 
-`PythonRuntimeEnv` 默认从 <https://github.com/astral-sh/python-build-standalone/releases/> 下载 Python 安装包。若网络不可达或下载较慢，可通过环境变量 `ROCK_RTENV_PYTHON_V31114_INSTALL_CMD` 或 `ROCK_RTENV_PYTHON_V31212_INSTALL_CMD` 覆盖默认安装命令（例如切换到内网源/镜像源）。
+`PythonRuntimeEnv` 默认从 https://github.com/astral-sh/python-build-standalone/releases/ 下载 Python 安装包。若网络不可达或下载较慢，可通过环境变量 `ROCK_RTENV_PYTHON_V31114_INSTALL_CMD` 或 `ROCK_RTENV_PYTHON_V31212_INSTALL_CMD` 覆盖默认安装命令（例如切换到内网源/镜像源）。
 
 默认值示例：
 
