@@ -14,28 +14,47 @@ class ModelServiceCommand(Command):
     """
     Command for managing the model service.
 
-    Provides subcommands to start, stop, and monitor the model service,
-    which can run in 'local' mode (using a sandboxed local LLM) or 'proxy'
-    mode (forwarding requests to an external endpoint).
+    This command provides a complete set of subcommands to manage the model service,
+    which can run in 'local' mode (using a sandboxed local LLM) or 'proxy' mode
+    (forwarding requests to an external endpoint). The service acts as an API server
+    that handles LLM requests and agent process monitoring.
 
-    Examples:
-        # Start local model service on default port 8080
+    Subcommands:
+        start   - Start the model service (local or proxy mode)
+        stop    - Stop the running model service
+        watch-agent - Monitor an agent process and send SESSION_END on exit
+        anti-call-llm - Process LLM responses to prevent recursive calls
+
+    Common Usage Examples:
+
+        # Start local model service with default settings (127.0.0.1:8080)
         rock model-service start --type local
 
-        # Start with custom port
-        rock model-service start --type local --port 9000
+        # Start with custom host and port
+        rock model-service start --type local --host 0.0.0.0 --port 9000
 
         # Start with a configuration file
         rock model-service start --type local --config-file config.yaml
 
-        # Start proxy mode with external endpoint
+        # Start proxy mode forwarding to external endpoint
         rock model-service start --type proxy --proxy-url https://api.openai.com/v1
 
-        # Start with custom retry behavior
-        rock model-service start --type proxy --retryable-status-codes 429,500,502
+        # Start proxy with custom retry behavior
+        rock model-service start --type proxy \\
+            --proxy-url https://your-endpoint.com/v1 \\
+            --retryable-status-codes 429,500,502 \\
+            --request-timeout 30
+
+        # Monitor an agent process (sends SESSION_END when process exits)
+        rock model-service watch-agent --pid 12345 --host 127.0.0.1 --port 8080
 
         # Stop the running service
         rock model-service stop
+
+    Note:
+        - The local mode requires a sandboxed environment with model files
+        - PID file is stored at: data/cli/model/pid.txt
+        - Service health check available at: http://host:port/health
     """
 
     name = "model-service"
