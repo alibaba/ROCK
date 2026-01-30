@@ -37,7 +37,7 @@ class ModelServiceCommand(Command):
         rock model-service start --type local --config-file config.yaml
 
         # Start proxy mode forwarding to external endpoint
-        rock model-service start --type proxy --proxy-bas-url https://api.openai.com/v1
+        rock model-service start --type proxy --proxy-base-url https://api.openai.com/v1
 
         # Start proxy with custom retry behavior
         rock model-service start --type proxy \\
