@@ -4,7 +4,8 @@ import pytest
 from httpx import ReadTimeout
 
 from rock.actions.sandbox.response import Observation
-from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX
+from rock.common.constants import PID_PREFIX
+from rock.common.constants import PID_SUFFIX
 from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.sandbox.config import SandboxConfig
 

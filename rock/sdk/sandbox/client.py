@@ -38,7 +38,8 @@ from rock.actions import (
     WriteFileRequest,
     WriteFileResponse,
 )
-from rock.sdk.common.constants import PID_PREFIX, PID_SUFFIX, RunModeType
+from rock.common.constants import PID_PREFIX, PID_SUFFIX
+from rock.sdk.common.constants import RunModeType
 from rock.sdk.common.exceptions import (
     BadRequestRockError,
     InternalServerRockError,

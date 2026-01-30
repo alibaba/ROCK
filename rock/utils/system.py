@@ -11,7 +11,7 @@ from pathlib import Path
 from threading import Lock
 
 from rock import env_vars
-from rock.sdk.common.constants import PID_PREFIX
+from rock.common.constants import PID_PREFIX
 
 logger = logging.getLogger(__name__)
 
