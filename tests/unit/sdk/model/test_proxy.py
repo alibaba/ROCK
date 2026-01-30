@@ -8,7 +8,7 @@ from httpx import ASGITransport, AsyncClient, HTTPStatusError, Request, Response
 
 from rock.sdk.model.server.api.proxy import perform_llm_request, proxy_router
 from rock.sdk.model.server.config import ModelServiceConfig
-from rock.sdk.model.server.main import lifespan
+from rock.sdk.model.server.main import create_config_from_args, lifespan
 
 # Initialize a temporary FastAPI application for testing the router
 test_app = FastAPI()
@@ -217,3 +217,206 @@ async def test_lifespan_invalid_config_path():
     # Expect FileNotFoundError when loading from non-existent file
     with pytest.raises(FileNotFoundError):
         ModelServiceConfig.from_file("/tmp/non_existent_file.yml")
+
+
+@pytest.mark.asyncio
+async def test_proxy_url_overrides_proxy_rules(tmp_path):
+    """
+    Test that when proxy_url is set, all requests are forwarded to that URL,
+    bypassing proxy_rules entirely.
+    """
+    config = ModelServiceConfig()
+    config.proxy_url = "https://custom-endpoint.example.com/v1"
+
+    test_app = FastAPI()
+    test_app.state.model_service_config = config
+    test_app.include_router(proxy_router)
+
+    with patch("rock.sdk.model.server.api.proxy.perform_llm_request", new_callable=AsyncMock) as mock_request:
+        mock_resp = MagicMock(spec=Response)
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"id": "chat-123", "choices": []}
+        mock_request.return_value = mock_resp
+
+        transport = ASGITransport(app=test_app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            # Even when requesting gpt-3.5-turbo, should forward to proxy_url
+            payload = {"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hello"}]}
+            response = await ac.post("/v1/chat/completions", json=payload)
+
+        assert response.status_code == 200
+        # Verify request was sent to proxy_url
+        call_args = mock_request.call_args[0]
+        assert call_args[0] == "https://custom-endpoint.example.com/v1/chat/completions"
+
+
+@pytest.mark.asyncio
+async def test_config_loads_host_and_port_from_file(tmp_path):
+    """
+    Test that ModelServiceConfig correctly loads host and port from config file.
+    """
+    conf_file = tmp_path / "proxy.yml"
+    conf_file.write_text(
+        yaml.dump({"host": "127.0.0.1", "port": 9000, "proxy_rules": {"my-model": "http://my-backend"}})
+    )
+
+    config = ModelServiceConfig.from_file(str(conf_file))
+
+    assert config.host == "127.0.0.1"
+    assert config.port == 9000
+    assert config.proxy_rules["my-model"] == "http://my-backend"
+
+
+def test_config_default_host_and_port():
+    """
+    Test default values for host and port.
+    """
+    config = ModelServiceConfig()
+
+    assert config.host == "0.0.0.0"
+    assert config.port == 8080
+
+
+@pytest.mark.asyncio
+async def test_config_loads_retryable_status_codes_from_file(tmp_path):
+    """
+    Test that ModelServiceConfig correctly loads retryable_status_codes from config file.
+    """
+    conf_file = tmp_path / "proxy.yml"
+    conf_file.write_text(yaml.dump({"retryable_status_codes": [429, 500, 502, 503]}))
+
+    config = ModelServiceConfig.from_file(str(conf_file))
+
+    assert config.retryable_status_codes == [429, 500, 502, 503]
+
+
+def test_config_default_retryable_status_codes():
+    """
+    Test default values for retryable_status_codes.
+    """
+    config = ModelServiceConfig()
+
+    assert config.retryable_status_codes == [429, 500]
+
+
+@pytest.mark.asyncio
+async def test_perform_llm_request_respects_custom_retryable_codes():
+    """
+    Test that custom retryable_status_codes are respected (502 retries, 401 does not).
+    """
+    config = ModelServiceConfig()
+    config.retryable_status_codes = [502, 503, 504]  # Custom retryable status codes
+
+    client_post_path = "rock.sdk.model.server.api.proxy.http_client.post"
+
+    with patch(client_post_path, new_callable=AsyncMock) as mock_post, patch(
+        "rock.utils.retry.asyncio.sleep", return_value=None
+    ):
+        # 502 should retry (in custom list)
+        resp_502 = MagicMock(spec=Response)
+        resp_502.status_code = 502
+        error_502 = HTTPStatusError("Bad Gateway", request=MagicMock(spec=Request), response=resp_502)
+
+        resp_200 = MagicMock(spec=Response)
+        resp_200.status_code = 200
+        resp_200.json.return_value = {"ok": True}
+
+        # Sequence: 502 fail, then 200 success
+        mock_post.side_effect = [error_502, resp_200]
+
+        result = await perform_llm_request("http://fake.url", {}, {}, config)
+
+        assert result.status_code == 200
+        assert mock_post.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_perform_llm_request_non_retryable_code_not_retried():
+    """
+    Test that 401 (not in custom retryable_status_codes) does not trigger retry.
+    """
+    config = ModelServiceConfig()
+    config.retryable_status_codes = [502, 503, 504]  # Custom retryable status codes, excluding 401
+
+    client_post_path = "rock.sdk.model.server.api.proxy.http_client.post"
+
+    with patch(client_post_path, new_callable=AsyncMock) as mock_post:
+        # 401 should not retry (not in custom list)
+        resp_401 = MagicMock(spec=Response)
+        resp_401.status_code = 401
+        resp_401.json.return_value = {"error": "Invalid API Key"}
+
+        mock_post.return_value = resp_401
+
+        result = await perform_llm_request("http://fake.url", {}, {}, config)
+
+        assert result.status_code == 401
+        assert mock_post.call_count == 1  # No retry
+
+
+def test_cli_args_override_config_file(tmp_path):
+    """
+    Test that CLI arguments override config file settings.
+    This tests the logic in create_config_from_args().
+    """
+    import argparse
+
+    # Create args with config file and CLI parameters
+    conf_file = tmp_path / "proxy.yml"
+    conf_file.write_text(
+        yaml.dump(
+            {
+                "host": "192.168.1.1",
+                "port": 8080,
+                "proxy_url": "https://config-url.example.com/v1",
+                "retryable_status_codes": [429, 500],
+                "request_timeout": 60,
+            }
+        )
+    )
+
+    args = argparse.Namespace(
+        config_file=str(conf_file),
+        host="0.0.0.0",  # CLI overrides config file
+        port=9000,  # CLI overrides config file
+        proxy_url="https://cli-url.example.com/v1",  # CLI overrides config file
+        retryable_status_codes="502,503",  # CLI overrides config file
+        request_timeout=30,  # CLI overrides config file
+    )
+
+    config = create_config_from_args(args)
+
+    # Verify CLI arguments override config file
+    assert config.host == "0.0.0.0"
+    assert config.port == 9000
+    assert config.proxy_url == "https://cli-url.example.com/v1"
+    assert config.retryable_status_codes == [502, 503]
+    assert config.request_timeout == 30
+
+
+@pytest.mark.asyncio
+async def test_config_file_overrides_defaults(tmp_path):
+    """
+    Test that config file values override default values.
+    """
+    conf_file = tmp_path / "proxy.yml"
+    conf_file.write_text(
+        yaml.dump(
+            {
+                "host": "10.0.0.1",
+                "port": 8888,
+                "request_timeout": 300,
+                "proxy_rules": {"test-model": "http://test-backend"},
+            }
+        )
+    )
+
+    config = ModelServiceConfig.from_file(str(conf_file))
+
+    # Verify config file overrides defaults
+    assert config.host == "10.0.0.1"
+    assert config.port == 8888
+    assert config.request_timeout == 300
+    assert config.proxy_rules["test-model"] == "http://test-backend"
+    # Verify other fields remain as defaults
+    assert config.proxy_url is None
