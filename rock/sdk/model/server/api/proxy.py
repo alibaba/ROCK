@@ -87,6 +87,11 @@ async def chat_completions(body: dict[str, Any], request: Request):
 
     # Step 3: Strategy Enforcement
     # Force non-streaming mode for the MVP phase to ensure stability.
+    if body.get("stream") is True:
+        raise HTTPException(
+            status_code=400,
+            detail="Streaming requests (stream=True) are not supported in the current version. Please set stream=False or omit the stream parameter.",
+        )
     body["stream"] = False
 
     try:
