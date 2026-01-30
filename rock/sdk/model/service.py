@@ -63,26 +63,26 @@ class ModelService:
         )
         pid = process.pid
 
-        success = await self._wait_service_available(timeout_seconds)
+        success = await self._wait_service_available(timeout_seconds, host or "127.0.0.1", port or 8080)
         if not success:
             await self.stop(str(pid))
             raise Exception("Model service start failed")
 
         return str(pid)
 
-    async def start_watch_agent(self, agent_pid: int):
+    async def start_watch_agent(self, agent_pid: int, host: str = "127.0.0.1", port: int = 8080):
         async with httpx.AsyncClient() as client:
-            await client.post("http://127.0.0.1:8080/v1/agent/watch", json={"pid": agent_pid})
+            await client.post(f"http://{host}:{port}/v1/agent/watch", json={"pid": agent_pid})
 
     async def stop(self, pid: str):
         subprocess.run(["kill", "-9", pid])
 
-    async def _wait_service_available(self, timeout_seconds: int) -> bool:
+    async def _wait_service_available(self, timeout_seconds: int, host: str = "127.0.0.1", port: int = 8080) -> bool:
         start = datetime.now()
         while (datetime.now() - start).seconds < timeout_seconds:
             try:
                 async with httpx.AsyncClient() as client:
-                    response = await client.get("http://127.0.0.1:8080/health")
+                    response = await client.get(f"http://{host}:{port}/health")
                     if response.status_code == 200:
                         return True
             except httpx.HTTPError:

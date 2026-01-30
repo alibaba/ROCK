@@ -72,7 +72,7 @@ class ModelServiceCommand(Command):
             agent_pid = args.pid
             logger.info(f"start to watch agent process, pid: {agent_pid}")
             model_service = ModelService()
-            await model_service.start_watch_agent(agent_pid)
+            await model_service.start_watch_agent(agent_pid, host=args.host, port=args.port)
             return
         if "stop" == sub_command:
             if not await self._model_service_exist():
@@ -169,6 +169,18 @@ class ModelServiceCommand(Command):
             required=True,
             type=int,
             help="pid of agent process to watch",
+        )
+        watch_agent_parser.add_argument(
+            "--host",
+            type=str,
+            default="127.0.0.1",
+            help="Server host",
+        )
+        watch_agent_parser.add_argument(
+            "--port",
+            type=int,
+            default=8080,
+            help="Server port",
         )
 
         # rock model-service stop
