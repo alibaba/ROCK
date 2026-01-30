@@ -1,3 +1,5 @@
+import json
+import os
 from typing import Any
 
 import httpx
@@ -5,10 +7,19 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from rock.logger import init_logger
-from rock.sdk.model.server.config import ModelServiceConfig
+from rock.sdk.model.server.config import TRAJ_FILE, ModelServiceConfig
 from rock.utils import retry_async
 
 logger = init_logger(__name__)
+
+
+def _write_traj(data: dict):
+    """Write traj data to file in JSONL format."""
+    if TRAJ_FILE:
+        os.makedirs(os.path.dirname(TRAJ_FILE), exist_ok=True)
+        with open(TRAJ_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(data, ensure_ascii=False) + "\n")
+
 
 proxy_router = APIRouter()
 
@@ -30,6 +41,15 @@ async def perform_llm_request(url: str, body: dict, headers: dict, config: Model
     is in the explicit retryable whitelist.
     """
     response = await http_client.post(url, json=body, headers=headers, timeout=config.request_timeout)
+
+    # Log traj: request and response as one record
+    _write_traj(
+        {
+            "request": body,
+            "response": response.json(),
+        }
+    )
+
     status_code = response.status_code
 
     # Check against the explicit whitelist

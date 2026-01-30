@@ -14,6 +14,7 @@ SERVICE_PORT = 8080
 # Log file configuration
 LOG_DIR = env_vars.ROCK_MODEL_SERVICE_DATA_DIR
 LOG_FILE = LOG_DIR + "/LLMService.log"
+TRAJ_FILE = LOG_DIR + "/LLMTraj.jsonl"
 
 # Polling configuration
 POLLING_INTERVAL_SECONDS = 0.1  # seconds
