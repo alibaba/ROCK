@@ -1,5 +1,3 @@
-import json
-import os
 from typing import Any
 
 import httpx
@@ -7,18 +5,11 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from rock.logger import init_logger
-from rock.sdk.model.server.config import TRAJ_FILE, ModelServiceConfig
+from rock.sdk.model.server.config import ModelServiceConfig
+from rock.sdk.model.server.utils import record_traj
 from rock.utils import retry_async
 
 logger = init_logger(__name__)
-
-
-def _write_traj(data: dict):
-    """Write traj data to file in JSONL format."""
-    if TRAJ_FILE:
-        os.makedirs(os.path.dirname(TRAJ_FILE), exist_ok=True)
-        with open(TRAJ_FILE, "a", encoding="utf-8") as f:
-            f.write(json.dumps(data, ensure_ascii=False) + "\n")
 
 
 proxy_router = APIRouter()
@@ -31,25 +22,16 @@ http_client = httpx.AsyncClient()
 @retry_async(
     max_attempts=6,
     delay_seconds=2.0,
-    backoff=2.0, # Exponential backoff (2s, 4s, 8s, 16s, 32s).
-    jitter=True, # Adds randomness to prevent "thundering herd" effect on the backend.
-    exceptions=(httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError)
+    backoff=2.0,  # Exponential backoff (2s, 4s, 8s, 16s, 32s).
+    jitter=True,  # Adds randomness to prevent "thundering herd" effect on the backend.
+    exceptions=(httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError),
 )
 async def perform_llm_request(url: str, body: dict, headers: dict, config: ModelServiceConfig):
     """
-    Forwards the request and triggers retry ONLY if the status code 
+    Forwards the request and triggers retry ONLY if the status code
     is in the explicit retryable whitelist.
     """
     response = await http_client.post(url, json=body, headers=headers, timeout=config.request_timeout)
-
-    # Log traj: request and response as one record
-    _write_traj(
-        {
-            "request": body,
-            "response": response.json(),
-        }
-    )
-
     status_code = response.status_code
 
     # Check against the explicit whitelist
@@ -70,12 +52,15 @@ def get_base_url(model_name: str, config: ModelServiceConfig) -> str:
     rules = config.proxy_rules
     base_url = rules.get(model_name) or rules.get("default")
     if not base_url:
-        raise HTTPException(status_code=400, detail=f"Model '{model_name}' is not configured and no 'default' rule found.")
+        raise HTTPException(
+            status_code=400, detail=f"Model '{model_name}' is not configured and no 'default' rule found."
+        )
 
     return base_url.rstrip("/")
 
 
 @proxy_router.post("/v1/chat/completions")
+@record_traj
 async def chat_completions(body: dict[str, Any], request: Request):
     """
     OpenAI-compatible chat completions proxy endpoint.
@@ -119,9 +104,9 @@ async def chat_completions(body: dict[str, Any], request: Request):
                 "error": {
                     "message": f"LLM backend error: {error_text}",
                     "type": "proxy_retry_failed",
-                    "code": status_code
+                    "code": status_code,
                 }
-            }
+            },
         )
     except Exception as e:
         logger.error(f"Unexpected proxy error: {str(e)}")

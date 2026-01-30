@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from rock.logger import init_logger
 from rock.sdk.model.server.config import LOG_FILE
 from rock.sdk.model.server.file_handler import FileHandler
+from rock.sdk.model.server.utils import record_traj
 
 logger = init_logger(__name__)
 
@@ -71,6 +72,7 @@ async def start_watch_agent(body: dict[str, Any], request: Request):
 
 
 @local_router.post("/v1/chat/completions")
+@record_traj
 async def chat_completions(body: dict[str, Any], request: Request):
     """
     OpenAI-compatible chat completions endpoint.
