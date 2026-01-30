@@ -11,6 +11,33 @@ logger = logging.getLogger(__name__)
 
 
 class ModelServiceCommand(Command):
+    """
+    Command for managing the model service.
+
+    Provides subcommands to start, stop, and monitor the model service,
+    which can run in 'local' mode (using a sandboxed local LLM) or 'proxy'
+    mode (forwarding requests to an external endpoint).
+
+    Examples:
+        # Start local model service on default port 8080
+        rock model-service start --type local
+
+        # Start with custom port
+        rock model-service start --type local --port 9000
+
+        # Start with a configuration file
+        rock model-service start --type local --config-file config.yaml
+
+        # Start proxy mode with external endpoint
+        rock model-service start --type proxy --proxy-url https://api.openai.com/v1
+
+        # Start with custom retry behavior
+        rock model-service start --type proxy --retryable-status-codes 429,500,502
+
+        # Stop the running service
+        rock model-service stop
+    """
+
     name = "model-service"
 
     DEFAULT_MODEL_SERVICE_DIR = "data/cli/model"
@@ -28,7 +55,15 @@ class ModelServiceCommand(Command):
                 return
             logger.info("start model service")
             model_service = ModelService()
-            pid = await model_service.start(model_service_type=args.type, config_file=args.config_file)
+            pid = await model_service.start(
+                model_service_type=args.type,
+                config_file=args.config_file,
+                host=args.host,
+                port=args.port,
+                proxy_url=args.proxy_url,
+                retryable_status_codes=args.retryable_status_codes,
+                request_timeout=args.request_timeout,
+            )
             logger.info(f"model service started, pid: {pid}")
             with open(self.DEFAULT_MODEL_SERVICE_PID_FILE, "w") as f:
                 f.write(pid)
@@ -93,6 +128,36 @@ class ModelServiceCommand(Command):
             type=str,
             default=None,
             help="Path to the configuration YAML file",
+        )
+        start_parser.add_argument(
+            "--host",
+            type=str,
+            default=None,
+            help="Server host address. Overrides config file.",
+        )
+        start_parser.add_argument(
+            "--port",
+            type=int,
+            default=None,
+            help="Server port. Overrides config file.",
+        )
+        start_parser.add_argument(
+            "--proxy-url",
+            type=str,
+            default=None,
+            help="Direct proxy URL (e.g., https://your-endpoint.com/v1). Takes precedence over config file.",
+        )
+        start_parser.add_argument(
+            "--retryable-status-codes",
+            type=str,
+            default=None,
+            help="Retryable status codes, comma-separated (e.g., '429,500,502'). Overrides config file.",
+        )
+        start_parser.add_argument(
+            "--request-timeout",
+            type=int,
+            default=None,
+            help="Request timeout in seconds. Overrides config file.",
         )
 
         watch_agent_parser = model_service_subparsers.add_parser(

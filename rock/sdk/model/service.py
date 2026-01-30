@@ -9,7 +9,14 @@ import httpx
 
 class ModelService:
     def start_sandbox_service(
-        self, model_service_type: str = "local", config_file: str | None = None
+        self,
+        model_service_type: str = "local",
+        config_file: str | None = None,
+        host: str | None = None,
+        port: int | None = None,
+        proxy_url: str | None = None,
+        retryable_status_codes: str | None = None,
+        request_timeout: int | None = None,
     ) -> subprocess.Popen:
         """start sandbox service"""
         current_file = Path(__file__).resolve()
@@ -21,13 +28,39 @@ class ModelService:
         cmd = [sys.executable, "-m", "main", "--type", model_service_type]
         if config_file:
             cmd.extend(["--config-file", config_file])
+        if host:
+            cmd.extend(["--host", host])
+        if port:
+            cmd.extend(["--port", str(port)])
+        if proxy_url:
+            cmd.extend(["--proxy-url", proxy_url])
+        if retryable_status_codes:
+            cmd.extend(["--retryable-status-codes", retryable_status_codes])
+        if request_timeout:
+            cmd.extend(["--request-timeout", str(request_timeout)])
         process = subprocess.Popen(cmd, cwd=str(service_dir))
         return process
 
     async def start(
-        self, timeout_seconds: int = 30, model_service_type: str = "local", config_file: str | None = None
+        self,
+        timeout_seconds: int = 30,
+        model_service_type: str = "local",
+        config_file: str | None = None,
+        host: str | None = None,
+        port: int | None = None,
+        proxy_url: str | None = None,
+        retryable_status_codes: str | None = None,
+        request_timeout: int | None = None,
     ) -> str:
-        process = self.start_sandbox_service(model_service_type=model_service_type, config_file=config_file)
+        process = self.start_sandbox_service(
+            model_service_type=model_service_type,
+            config_file=config_file,
+            host=host,
+            port=port,
+            proxy_url=proxy_url,
+            retryable_status_codes=retryable_status_codes,
+            request_timeout=request_timeout,
+        )
         pid = process.pid
 
         success = await self._wait_service_available(timeout_seconds)
