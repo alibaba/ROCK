@@ -14,45 +14,39 @@ async def _assert_contains(env: RuntimeEnv, cmd: str, expected: str):
 @pytest.mark.need_admin_and_network
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "version,expected",
-    [
-        (None, "3.11"),
-        ("default", "3.11"),
-        ("3.11", "3.11"),
-        ("3.12", "3.12"),
-    ],
-)
-async def test_python_runtime_env_versions(sandbox_instance: Sandbox, version: str | None, expected: str):
-    env = await RuntimeEnv.create(sandbox_instance, PythonRuntimeEnvConfig(version=version))
-    await _assert_contains(env, "python --version", expected)
+async def test_runtime_envs(sandbox_instance: Sandbox):
+    # Python: implicit default
+    env = await RuntimeEnv.create(sandbox_instance, PythonRuntimeEnvConfig())
+    await _assert_contains(env, "python --version", "3.11")
 
+    # Python: explicit default
+    env = await RuntimeEnv.create(sandbox_instance, PythonRuntimeEnvConfig(version="default"))
+    await _assert_contains(env, "python --version", "3.11")
 
-@pytest.mark.need_admin_and_network
-@SKIP_IF_NO_DOCKER
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "version,expected",
-    [
-        (None, "22.18.0"),
-        ("default", "22.18.0"),
-        ("22.18.0", "22.18.0"),
-    ],
-)
-async def test_node_runtime_env_versions(sandbox_instance: Sandbox, version: str | None, expected: str):
-    env = await RuntimeEnv.create(sandbox_instance, NodeRuntimeEnvConfig(version=version))
-    await _assert_contains(env, "node --version", expected)
+    # Python: pinned
+    env = await RuntimeEnv.create(sandbox_instance, PythonRuntimeEnvConfig(version="3.11"))
+    await _assert_contains(env, "python --version", "3.11")
 
+    env = await RuntimeEnv.create(sandbox_instance, PythonRuntimeEnvConfig(version="3.12"))
+    await _assert_contains(env, "python --version", "3.12")
 
-@pytest.mark.need_admin_and_network
-@SKIP_IF_NO_DOCKER
-@pytest.mark.asyncio
-async def test_node_runtime_env_symlinks(sandbox_instance: Sandbox):
+    # Node: implicit default
+    env = await RuntimeEnv.create(sandbox_instance, NodeRuntimeEnvConfig())
+    await _assert_contains(env, "node --version", "22.18.0")
+
+    # Node: explicit default
+    env = await RuntimeEnv.create(sandbox_instance, NodeRuntimeEnvConfig(version="default"))
+    await _assert_contains(env, "node --version", "22.18.0")
+
+    # Node: pinned
+    env = await RuntimeEnv.create(sandbox_instance, NodeRuntimeEnvConfig(version="22.18.0"))
+    await _assert_contains(env, "node --version", "22.18.0")
+
+    # Node: symlinks
     symlink_dir = "/usr/local/bin"
     cfg = NodeRuntimeEnvConfig(version="22.18.0", extra_symlink_dir=symlink_dir)
     await RuntimeEnv.create(sandbox_instance, cfg)
 
     for exe in cfg.extra_symlink_executables:
-        symlink_path = f"{symlink_dir}/{exe}"
-        r = await sandbox_instance.arun(f"test -L {symlink_path}")
-        assert r.exit_code == 0, f"Symlink {symlink_path} was not created"
+        r = await sandbox_instance.arun(f"test -L {symlink_dir}/{exe}")
+        assert r.exit_code == 0, f"Symlink {exe} was not created"
