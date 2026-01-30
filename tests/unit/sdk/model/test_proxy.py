@@ -220,13 +220,13 @@ async def test_lifespan_invalid_config_path():
 
 
 @pytest.mark.asyncio
-async def test_proxy_url_overrides_proxy_rules(tmp_path):
+async def test_proxy_base_url_overrides_proxy_rules(tmp_path):
     """
-    Test that when proxy_url is set, all requests are forwarded to that URL,
+    Test that when proxy_base_url is set, all requests are forwarded to that URL,
     bypassing proxy_rules entirely.
     """
     config = ModelServiceConfig()
-    config.proxy_url = "https://custom-endpoint.example.com/v1"
+    config.proxy_base_url = "https://custom-endpoint.example.com/v1"
 
     test_app = FastAPI()
     test_app.state.model_service_config = config
@@ -240,12 +240,12 @@ async def test_proxy_url_overrides_proxy_rules(tmp_path):
 
         transport = ASGITransport(app=test_app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            # Even when requesting gpt-3.5-turbo, should forward to proxy_url
+            # Even when requesting gpt-3.5-turbo, should forward to proxy_base_url
             payload = {"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hello"}]}
             response = await ac.post("/v1/chat/completions", json=payload)
 
         assert response.status_code == 200
-        # Verify request was sent to proxy_url
+        # Verify request was sent to proxy_base_url
         call_args = mock_request.call_args[0]
         assert call_args[0] == "https://custom-endpoint.example.com/v1/chat/completions"
 
@@ -368,7 +368,7 @@ def test_cli_args_override_config_file(tmp_path):
             {
                 "host": "192.168.1.1",
                 "port": 8080,
-                "proxy_url": "https://config-url.example.com/v1",
+                "proxy_base_url": "https://config-url.example.com/v1",
                 "retryable_status_codes": [429, 500],
                 "request_timeout": 60,
             }
@@ -379,7 +379,7 @@ def test_cli_args_override_config_file(tmp_path):
         config_file=str(conf_file),
         host="0.0.0.0",  # CLI overrides config file
         port=9000,  # CLI overrides config file
-        proxy_url="https://cli-url.example.com/v1",  # CLI overrides config file
+        proxy_base_url="https://cli-url.example.com/v1",  # CLI overrides config file
         retryable_status_codes="502,503",  # CLI overrides config file
         request_timeout=30,  # CLI overrides config file
     )
@@ -389,7 +389,7 @@ def test_cli_args_override_config_file(tmp_path):
     # Verify CLI arguments override config file
     assert config.host == "0.0.0.0"
     assert config.port == 9000
-    assert config.proxy_url == "https://cli-url.example.com/v1"
+    assert config.proxy_base_url == "https://cli-url.example.com/v1"
     assert config.retryable_status_codes == [502, 503]
     assert config.request_timeout == 30
 
@@ -419,4 +419,4 @@ async def test_config_file_overrides_defaults(tmp_path):
     assert config.request_timeout == 300
     assert config.proxy_rules["test-model"] == "http://test-backend"
     # Verify other fields remain as defaults
-    assert config.proxy_url is None
+    assert config.proxy_base_url is None

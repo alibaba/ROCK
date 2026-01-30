@@ -44,11 +44,11 @@ def get_base_url(model_name: str, config: ModelServiceConfig) -> str:
     """
     Selects the target backend URL based on model name matching.
 
-    If proxy_url is configured, it takes precedence over proxy_rules.
+    If proxy_base_url is configured, it takes precedence over proxy_rules.
     """
-    # If direct proxy URL is configured, return it directly (bypass model name matching)
-    if config.proxy_url:
-        return config.proxy_url.rstrip("/")
+    # If direct proxy base URL is configured, return it directly (bypass model name matching)
+    if config.proxy_base_url:
+        return config.proxy_base_url.rstrip("/")
 
     if not model_name:
         raise HTTPException(status_code=400, detail="Model name is required for routing.")

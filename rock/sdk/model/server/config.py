@@ -32,8 +32,8 @@ class ModelServiceConfig(BaseModel):
     port: int = 8080
     """Server port."""
 
-    proxy_url: str | None = Field(default=None)
-    """Direct proxy URL, takes precedence over proxy_rules."""
+    proxy_base_url: str | None = Field(default=None)
+    """Direct proxy base URL, takes precedence over proxy_rules."""
 
     proxy_rules: dict[str, str] = Field(
         default_factory=lambda: {

@@ -14,7 +14,7 @@ class ModelService:
         config_file: str | None = None,
         host: str | None = None,
         port: int | None = None,
-        proxy_url: str | None = None,
+        proxy_base_url: str | None = None,
         retryable_status_codes: str | None = None,
         request_timeout: int | None = None,
     ) -> subprocess.Popen:
@@ -32,8 +32,8 @@ class ModelService:
             cmd.extend(["--host", host])
         if port:
             cmd.extend(["--port", str(port)])
-        if proxy_url:
-            cmd.extend(["--proxy-url", proxy_url])
+        if proxy_base_url:
+            cmd.extend(["--proxy-base-url", proxy_base_url])
         if retryable_status_codes:
             cmd.extend(["--retryable-status-codes", retryable_status_codes])
         if request_timeout:
@@ -48,7 +48,7 @@ class ModelService:
         config_file: str | None = None,
         host: str | None = None,
         port: int | None = None,
-        proxy_url: str | None = None,
+        proxy_base_url: str | None = None,
         retryable_status_codes: str | None = None,
         request_timeout: int | None = None,
     ) -> str:
@@ -57,7 +57,7 @@ class ModelService:
             config_file=config_file,
             host=host,
             port=port,
-            proxy_url=proxy_url,
+            proxy_base_url=proxy_base_url,
             retryable_status_codes=retryable_status_codes,
             request_timeout=request_timeout,
         )

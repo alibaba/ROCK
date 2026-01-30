@@ -37,11 +37,11 @@ class ModelServiceCommand(Command):
         rock model-service start --type local --config-file config.yaml
 
         # Start proxy mode forwarding to external endpoint
-        rock model-service start --type proxy --proxy-url https://api.openai.com/v1
+        rock model-service start --type proxy --proxy-bas-url https://api.openai.com/v1
 
         # Start proxy with custom retry behavior
         rock model-service start --type proxy \\
-            --proxy-url https://your-endpoint.com/v1 \\
+            --proxy-base-url https://your-endpoint.com/v1 \\
             --retryable-status-codes 429,500,502 \\
             --request-timeout 30
 
@@ -79,7 +79,7 @@ class ModelServiceCommand(Command):
                 config_file=args.config_file,
                 host=args.host,
                 port=args.port,
-                proxy_url=args.proxy_url,
+                proxy_base_url=args.proxy_base_url,
                 retryable_status_codes=args.retryable_status_codes,
                 request_timeout=args.request_timeout,
             )
@@ -161,10 +161,10 @@ class ModelServiceCommand(Command):
             help="Server port. Overrides config file.",
         )
         start_parser.add_argument(
-            "--proxy-url",
+            "--proxy-base-url",
             type=str,
             default=None,
-            help="Direct proxy URL (e.g., https://your-endpoint.com/v1). Takes precedence over config file.",
+            help="Direct proxy base URL (e.g., https://your-endpoint.com/v1). Takes precedence over config file.",
         )
         start_parser.add_argument(
             "--retryable-status-codes",

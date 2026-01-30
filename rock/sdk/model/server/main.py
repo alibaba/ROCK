@@ -89,9 +89,9 @@ def create_config_from_args(args) -> ModelServiceConfig:
     if args.port:
         config.port = args.port
         logger.info(f"port set from command line: {args.port}")
-    if args.proxy_url:
-        config.proxy_url = args.proxy_url
-        logger.info(f"proxy_url set from command line: {args.proxy_url}")
+    if args.proxy_base_url:
+        config.proxy_base_url = args.proxy_base_url
+        logger.info(f"proxy_base_url set from command line: {args.proxy_base_url}")
     if args.retryable_status_codes:
         codes = [int(c.strip()) for c in args.retryable_status_codes.split(",")]
         config.retryable_status_codes = codes
@@ -127,10 +127,10 @@ if __name__ == "__main__":
         help="Server port. Overrides config file.",
     )
     parser.add_argument(
-        "--proxy-url",
+        "--proxy-base-url",
         type=str,
         default=None,
-        help="Direct proxy URL (e.g., https://your-endpoint.com/v1). Takes precedence over config file.",
+        help="Direct proxy base URL (e.g., https://your-endpoint.com/v1). Takes precedence over config file.",
     )
     parser.add_argument(
         "--retryable-status-codes",
