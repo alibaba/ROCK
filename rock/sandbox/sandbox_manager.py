@@ -100,7 +100,7 @@ class SandboxManager(BaseManager):
         sandbox_actor.set_experiment_id.remote(experiment_id)
         sandbox_actor.set_namespace.remote(namespace)
 
-    def _build_sandbox_info_metadata(
+    async def _build_sandbox_info_metadata(
         self, sandbox_info: SandboxInfo, user_info: UserInfo, cluster_info: ClusterInfo
     ) -> None:
         sandbox_info["memory"] = convert_to_gb(sandbox_info.get("memory"))
@@ -109,6 +109,7 @@ class SandboxManager(BaseManager):
         sandbox_info["namespace"] = user_info.get("namespace", "default")
         sandbox_info["cluster_name"] = cluster_info.get("cluster_name", "default")
         rock_auth = user_info.get("rock_authorization", "default")
+        await self.refresh_aes_key()
         sandbox_info["rock_authorization_encrypted"] = self._aes_encrypter.encrypt(rock_auth)
         sandbox_info["state"] = State.PENDING
         sandbox_info["create_time"] = get_iso8601_timestamp()
@@ -141,7 +142,7 @@ class SandboxManager(BaseManager):
                 env_vars.ROCK_SANDBOX_EXPIRE_TIME_KEY: stop_time,
             }
             sandbox_info: SandboxInfo = await self._ray_service.async_ray_get(sandbox_actor.sandbox_info.remote())
-            self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)
+            await self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)
             if self._redis_provider:
                 await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
                 await self._redis_provider.json_set(timeout_sandbox_key(sandbox_id), "$", auto_clear_time_dict)
