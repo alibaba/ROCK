@@ -391,7 +391,7 @@ export default ({ currentLocale }) => {
           </div>
           <div className={styles.statItem}>
             <div className={styles.statNumber}>
-              {startCounting && <CountUp end={todayStat?.issues?.total || 89} />}
+              {startCounting && <CountUp end={todayStat?.prs?.total || 212} />}
             </div>
             <div className={styles.statDesc}>
               <Translate>
