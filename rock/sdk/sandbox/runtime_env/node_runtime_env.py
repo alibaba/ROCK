@@ -36,6 +36,9 @@ class NodeRuntimeEnvConfig(RuntimeEnvConfig):
     npm_registry: str | None = Field(default=None)
     """NPM registry URL. If set, will run 'npm config set registry <url>' during init."""
 
+    extra_symlink_executables: list[str] = Field(default=["node", "npm", "npx"])
+    """List of Node.js executables to symlink."""
+
 
 class NodeRuntimeEnv(RuntimeEnv):
     """Node runtime env.
