@@ -28,7 +28,7 @@ class ModelServiceCommand(Command):
                 return
             logger.info("start model service")
             model_service = ModelService()
-            pid = await model_service.start(model_service_type=args.type)
+            pid = await model_service.start(model_service_type=args.type, config_file=args.config_file)
             logger.info(f"model service started, pid: {pid}")
             with open(self.DEFAULT_MODEL_SERVICE_PID_FILE, "w") as f:
                 f.write(pid)
@@ -87,6 +87,12 @@ class ModelServiceCommand(Command):
             choices=["local", "proxy"],
             default="local",
             help="Type of model service (local/proxy)",
+        )
+        start_parser.add_argument(
+            "--config-file",
+            type=str,
+            default=None,
+            help="Path to the configuration YAML file",
         )
 
         watch_agent_parser = model_service_subparsers.add_parser(
