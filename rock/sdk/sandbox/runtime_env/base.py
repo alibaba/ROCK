@@ -79,6 +79,8 @@ class RuntimeEnv(ABC):
         self._env = runtime_env_config.env
         self._install_timeout = runtime_env_config.install_timeout
         self._custom_install_cmd = runtime_env_config.custom_install_cmd
+        self._extra_symlink_dir = runtime_env_config.extra_symlink_dir
+        self._extra_symlink_executables = runtime_env_config.extra_symlink_executables
 
         # Unique ID for this runtime env instance
 
@@ -133,6 +135,9 @@ class RuntimeEnv(ABC):
         # Execute custom install command after _post_init
         if self._custom_install_cmd:
             await self._do_custom_install()
+
+        # Create symlinks for executables
+        await self._create_sys_path_links()
 
         self._initialized = True
 
@@ -230,3 +235,17 @@ class RuntimeEnv(ABC):
             wait_timeout=self._install_timeout,
             error_msg="custom_install_cmd failed",
         )
+
+    async def _create_sys_path_links(self) -> None:
+        """Create symlinks in target directory for executables."""
+        if self._extra_symlink_dir is None:
+            return
+        if not self._extra_symlink_executables:
+            return
+
+        # Build a single command with all symlinks
+        links = " && ".join(
+            f"ln -sf {shlex.quote(f'{self.bin_dir}/{exe}')} {shlex.quote(f'{self._extra_symlink_dir}/{exe}')}"
+            for exe in self._extra_symlink_executables
+        )
+        await self.run(links)

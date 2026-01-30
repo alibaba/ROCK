@@ -47,6 +47,9 @@ class PythonRuntimeEnvConfig(RuntimeEnvConfig):
     pip_index_url: str | None = Field(default=env_vars.ROCK_PIP_INDEX_URL)
     """Pip index URL for package installation. If set, will use this mirror."""
 
+    extra_symlink_executables: list[str] = Field(default=["python", "python3", "pip", "pip3"])
+    """List of Python executables to symlink."""
+
 
 class PythonRuntimeEnv(RuntimeEnv):
     """Python runtime env.
