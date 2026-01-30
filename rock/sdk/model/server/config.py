@@ -28,19 +28,25 @@ SESSION_END_MARKER = "SESSION_END"
 
 
 class ModelServiceConfig(BaseModel):
-    proxy_url: str | None = None  # Direct proxy URL, takes precedence over proxy_rules
+    """Configuration for the LLM Model Service."""
+
+    proxy_url: str | None = Field(default=None)
+    """Direct proxy URL, takes precedence over proxy_rules."""
+
     proxy_rules: dict[str, str] = Field(
         default_factory=lambda: {
             "gpt-3.5-turbo": "https://api.openai.com/v1",
             "default": "https://api-inference.modelscope.cn/v1",
-        }
+        },
     )
+    """Mapping of model names to backend URLs."""
 
-    # Only these codes will trigger a retry.
-    # Codes not in this list (e.g., 400, 401, 403, or certain 5xx/6xx) will fail immediately.
     retryable_status_codes: list[int] = Field(default_factory=lambda: [429, 500])
+    """List of status codes that trigger retry. Only these codes will trigger a retry.
+    Codes not in this list (e.g., 400, 401, 403, or certain 5xx/6xx) will fail immediately."""
 
-    request_timeout: int = 120
+    request_timeout: int = Field(default=120)
+    """Request timeout in seconds."""
 
     @classmethod
     def from_file(cls, config_path: str | None = None):
