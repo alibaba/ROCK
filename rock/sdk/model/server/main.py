@@ -10,97 +10,97 @@ from fastapi.responses import JSONResponse
 from rock.logger import init_logger
 from rock.sdk.model.server.api.local import init_local_api, local_router
 from rock.sdk.model.server.api.proxy import proxy_router
-from rock.sdk.model.server.config import SERVICE_HOST, SERVICE_PORT, ModelServiceConfig
+from rock.sdk.model.server.config import ModelServiceConfig
 
 # Configure logging
 logger = init_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI, config: ModelServiceConfig):
     """Application lifespan context manager."""
     logger.info("LLM Service started")
-    config_path = getattr(app.state, "config_path", None)
-    proxy_url = getattr(app.state, "proxy_url", None)
-    retryable_status_codes = getattr(app.state, "retryable_status_codes", None)
-    request_timeout = getattr(app.state, "request_timeout", None)
-    if config_path:
-        try:
-            app.state.model_service_config = ModelServiceConfig.from_file(config_path)
-            # Command line arguments take precedence over config file
-            if proxy_url:
-                app.state.model_service_config.proxy_url = proxy_url
-                logger.info(f"Override proxy_url from command line: {proxy_url}")
-            logger.info(f"Model Service Config loaded from: {config_path}")
-        except Exception as e:
-            logger.error(f"Failed to load config from {config_path}: {e}")
-            raise e
-    else:
-        app.state.model_service_config = ModelServiceConfig()
-        if proxy_url:
-            app.state.model_service_config.proxy_url = proxy_url
-            logger.info(f"proxy_url set from command line: {proxy_url}")
-        else:
-            logger.info("No config file specified. Using default config settings.")
-
-    # Override retryable_status_codes
-    if retryable_status_codes:
-        codes = [int(c.strip()) for c in retryable_status_codes.split(",")]
-        app.state.model_service_config.retryable_status_codes = codes
-        logger.info(f"Override retryable_status_codes: {codes}")
-
-    # Override request_timeout
-    if request_timeout:
-        app.state.model_service_config.request_timeout = request_timeout
-        logger.info(f"Override request_timeout: {request_timeout}s")
-
+    app.state.model_service_config = config
     yield
     logger.info("LLM Service shutting down")
 
 
-# Create FastAPI app
-app = FastAPI(
-    title="LLM Service",
-    description="Sandbox LLM Service for Agent and Roll communication",
-    version="1.0.0",
-    lifespan=lifespan,
-)
-
-
-@app.get("/health")
-async def health():
-    """Health check endpoint."""
-    return {"status": "healthy"}
-
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    """Global exception handler."""
-    logger.error(f"Unhandled exception: {exc}", exc_info=True)
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"error": {"message": str(exc), "type": "internal_error", "code": "internal_error"}},
+def create_app(config: ModelServiceConfig) -> FastAPI:
+    """Create FastAPI app with the given config."""
+    app = FastAPI(
+        title="LLM Service",
+        description="Sandbox LLM Service for Agent and Roll communication",
+        version="1.0.0",
+        lifespan=lambda app: lifespan(app, config),
     )
+
+    @app.get("/health")
+    async def health():
+        """Health check endpoint."""
+        return {"status": "healthy"}
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request, exc):
+        """Global exception handler."""
+        logger.error(f"Unhandled exception: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"error": {"message": str(exc), "type": "internal_error", "code": "internal_error"}},
+        )
+
+    return app
 
 
 def main(
     model_servie_type: str,
-    config_file: str | None,
-    proxy_url: str | None,
-    retryable_status_codes: str | None,
-    request_timeout: int | None,
+    config: ModelServiceConfig,
 ):
-    logger.info(f"Starting LLM Service on {SERVICE_HOST}:{SERVICE_PORT}, type: {model_servie_type}")
-    app.state.config_path = config_file
-    app.state.proxy_url = proxy_url
-    app.state.retryable_status_codes = retryable_status_codes
-    app.state.request_timeout = request_timeout
+    """Run the LLM Service."""
+    # Create app and add router
+    app = create_app(config)
     if model_servie_type == "local":
         asyncio.run(init_local_api())
         app.include_router(local_router, prefix="", tags=["local"])
     else:
         app.include_router(proxy_router, prefix="", tags=["proxy"])
-    uvicorn.run(app, host=SERVICE_HOST, port=SERVICE_PORT, log_level="info", reload=False)
+
+    logger.info(f"Starting LLM Service on {config.host}:{config.port}, type: {model_servie_type}")
+    uvicorn.run(app, host=config.host, port=config.port, log_level="info", reload=False)
+
+
+def create_config_from_args(args) -> ModelServiceConfig:
+    """Create ModelServiceConfig from command line arguments."""
+    # Build config from file or defaults
+    if args.config_file:
+        try:
+            config = ModelServiceConfig.from_file(args.config_file)
+            logger.info(f"Model Service Config loaded from: {args.config_file}")
+        except Exception as e:
+            logger.error(f"Failed to load config from {args.config_file}: {e}")
+            raise e
+    else:
+        config = ModelServiceConfig()
+        logger.info("No config file specified. Using default config settings.")
+
+    # Command line arguments override config
+    if args.host:
+        config.host = args.host
+        logger.info(f"host set from command line: {args.host}")
+    if args.port:
+        config.port = args.port
+        logger.info(f"port set from command line: {args.port}")
+    if args.proxy_url:
+        config.proxy_url = args.proxy_url
+        logger.info(f"proxy_url set from command line: {args.proxy_url}")
+    if args.retryable_status_codes:
+        codes = [int(c.strip()) for c in args.retryable_status_codes.split(",")]
+        config.retryable_status_codes = codes
+        logger.info(f"retryable_status_codes set from command line: {codes}")
+    if args.request_timeout:
+        config.request_timeout = args.request_timeout
+        logger.info(f"request_timeout set from command line: {args.request_timeout}s")
+
+    return config
 
 
 if __name__ == "__main__":
@@ -113,6 +113,18 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="Path to the configuration YAML file. If not set, default values will be used.",
+    )
+    parser.add_argument(
+        "--host",
+        type=str,
+        default=None,
+        help="Server host address. Overrides config file.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Server port. Overrides config file.",
     )
     parser.add_argument(
         "--proxy-url",
@@ -130,10 +142,6 @@ if __name__ == "__main__":
         "--request-timeout", type=int, default=None, help="Request timeout in seconds. Overrides config file."
     )
     args = parser.parse_args()
-    model_servie_type = args.type
-    config_file = args.config_file
-    proxy_url = args.proxy_url
-    retryable_status_codes = args.retryable_status_codes
-    request_timeout = args.request_timeout
 
-    main(model_servie_type, config_file, proxy_url, retryable_status_codes, request_timeout)
+    config = create_config_from_args(args)
+    main(args.type, config)
