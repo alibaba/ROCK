@@ -20,13 +20,13 @@ http_client = httpx.AsyncClient()
 @retry_async(
     max_attempts=6,
     delay_seconds=2.0,
-    backoff=2.0, # Exponential backoff (2s, 4s, 8s, 16s, 32s).
-    jitter=True, # Adds randomness to prevent "thundering herd" effect on the backend.
-    exceptions=(httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError)
+    backoff=2.0,  # Exponential backoff (2s, 4s, 8s, 16s, 32s).
+    jitter=True,  # Adds randomness to prevent "thundering herd" effect on the backend.
+    exceptions=(httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError),
 )
 async def perform_llm_request(url: str, body: dict, headers: dict, config: ModelServiceConfig):
     """
-    Forwards the request and triggers retry ONLY if the status code 
+    Forwards the request and triggers retry ONLY if the status code
     is in the explicit retryable whitelist.
     """
     response = await http_client.post(url, json=body, headers=headers, timeout=config.request_timeout)
@@ -43,14 +43,22 @@ async def perform_llm_request(url: str, body: dict, headers: dict, config: Model
 def get_base_url(model_name: str, config: ModelServiceConfig) -> str:
     """
     Selects the target backend URL based on model name matching.
+
+    If proxy_base_url is configured, it takes precedence over proxy_rules.
     """
+    # If direct proxy base URL is configured, return it directly (bypass model name matching)
+    if config.proxy_base_url:
+        return config.proxy_base_url.rstrip("/")
+
     if not model_name:
         raise HTTPException(status_code=400, detail="Model name is required for routing.")
 
     rules = config.proxy_rules
     base_url = rules.get(model_name) or rules.get("default")
     if not base_url:
-        raise HTTPException(status_code=400, detail=f"Model '{model_name}' is not configured and no 'default' rule found.")
+        raise HTTPException(
+            status_code=400, detail=f"Model '{model_name}' is not configured and no 'default' rule found."
+        )
 
     return base_url.rstrip("/")
 
@@ -79,6 +87,11 @@ async def chat_completions(body: dict[str, Any], request: Request):
 
     # Step 3: Strategy Enforcement
     # Force non-streaming mode for the MVP phase to ensure stability.
+    if body.get("stream") is True:
+        raise HTTPException(
+            status_code=400,
+            detail="Streaming requests (stream=True) are not supported in the current version. Please set stream=False or omit the stream parameter.",
+        )
     body["stream"] = False
 
     try:
@@ -99,11 +112,11 @@ async def chat_completions(body: dict[str, Any], request: Request):
                 "error": {
                     "message": f"LLM backend error: {error_text}",
                     "type": "proxy_retry_failed",
-                    "code": status_code
+                    "code": status_code,
                 }
-            }
+            },
         )
     except Exception as e:
         logger.error(f"Unexpected proxy error: {str(e)}")
-        # Raise standard 500 for non-HTTP related coding or system errors
+        # Raise standard 500 for non-HTTP related errors or system errors
         raise HTTPException(status_code=500, detail=str(e))

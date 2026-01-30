@@ -7,10 +7,6 @@ from rock import env_vars
 
 """Configuration for LLM Service."""
 
-# Service configuration
-SERVICE_HOST = "0.0.0.0"
-SERVICE_PORT = 8080
-
 # Log file configuration
 LOG_DIR = env_vars.ROCK_MODEL_SERVICE_DATA_DIR
 LOG_FILE = LOG_DIR + "/LLMService.log"
@@ -28,28 +24,42 @@ SESSION_END_MARKER = "SESSION_END"
 
 
 class ModelServiceConfig(BaseModel):
+    """Configuration for the LLM Model Service."""
+
+    host: str = "0.0.0.0"
+    """Server host address."""
+
+    port: int = 8080
+    """Server port."""
+
+    proxy_base_url: str | None = Field(default=None)
+    """Direct proxy base URL, takes precedence over proxy_rules."""
+
     proxy_rules: dict[str, str] = Field(
         default_factory=lambda: {
             "gpt-3.5-turbo": "https://api.openai.com/v1",
-            "default": "https://api-inference.modelscope.cn/v1"
-        }
+            "default": "https://api-inference.modelscope.cn/v1",
+        },
     )
+    """Mapping of model names to backend URLs."""
 
-    # Only these codes will trigger a retry.
-    # Codes not in this list (e.g., 400, 401, 403, or certain 5xx/6xx) will fail immediately.
-    retryable_status_codes: list[int] = Field(
-        default_factory=lambda: [429, 500]
-    )
+    retryable_status_codes: list[int] = Field(default_factory=lambda: [429, 500])
+    """List of status codes that trigger retry. Only these codes will trigger a retry.
+    Codes not in this list (e.g., 400, 401, 403, or certain 5xx/6xx) will fail immediately."""
 
-    request_timeout: int = 120
+    request_timeout: int = Field(default=120)
+    """Request timeout in seconds."""
 
     @classmethod
     def from_file(cls, config_path: str | None = None):
         """
-        Factory method to create a config instance.
+        Factory method to create a config instance from a YAML file.
 
         Args:
             config_path: Path to the YAML file. If None, returns default config.
+
+        Returns:
+            ModelServiceConfig instance.
         """
         if not config_path:
             return cls()
