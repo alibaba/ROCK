@@ -45,7 +45,9 @@ async def mock_arun(cmd: str, response_limited_bytes: int = 1024 * 64):
             print(str(e))
             break
     nohup_resp = await d.runtime.run_in_session(
-        BashAction(command=f"head -c {response_limited_bytes} {out_file}", session=session_name)
+        BashAction(
+            command=f"head -c {response_limited_bytes} {out_file}", session=session_name
+        )
     )
     yield pid, nohup_resp.output
     await d.runtime.run_in_session(
