@@ -37,7 +37,7 @@ from rock.logger import init_logger
 from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
 from rock.sandbox.base_manager import BaseManager
-from rock.sandbox.deployment.abstract import AbstractDeployment
+from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
 from rock.utils import (
@@ -64,14 +64,14 @@ class SandboxManager(BaseManager):
         ray_namespace: str = env_vars.ROCK_RAY_NAMESPACE,
         ray_service: RayService | None = None,
         enable_runtime_auto_clear: bool = False,
-        deployment: AbstractDeployment | None = None,
+        operator: AbstractOperator | None = None,
     ):
         super().__init__(
             rock_config, redis_provider=redis_provider, enable_runtime_auto_clear=enable_runtime_auto_clear
         )
         self._ray_service = ray_service
         self._ray_namespace = ray_namespace
-        self._deployment = deployment
+        self._operator = operator
         self._aes_encrypter = AESEncryption()
         logger.info("sandbox service init success")
 
