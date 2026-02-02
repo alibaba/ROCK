@@ -13,4 +13,4 @@ env:
 model_service_config:
   enabled: true
   type: proxy
-  start_cmd: rock model-service start --type ${type} --proxy-base-url BASE_URL # You should replace BASE_URL with IFLOW_BASE_URL value
+  start_cmd: "rock model-service start --type ${type} --proxy-base-url <IFLOW_BASE_URL>" # replace <> value
