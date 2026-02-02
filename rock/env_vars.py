@@ -103,7 +103,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
     ),
     "ROCK_RTENV_NODE_V22180_INSTALL_CMD": lambda: os.getenv(
         "ROCK_RTENV_NODE_V22180_INSTALL_CMD",
-        "[ -f node.tar.xz ] && rm node.tar.xz; [ -d node ] && rm -rf node; wget -q -O node.tar.xz --tries=10 --waitretry=2 https://npmmirror.com/mirrors/node/v22.18.0/node-v22.18.0-linux-x64.tar.xz && tar -xf node.tar.xz && mv node-v22.18.0-linux-x64 runtime-env",
+        "[ -f node.tar.xz ] && rm node.tar.xz; [ -d node ] && rm -rf node; wget -q -O node.tar.xz --tries=10 --waitretry=2 https://nodejs.org/dist/v22.18.0/node-v22.18.0-linux-x64.tar.xz && tar -xf node.tar.xz && mv node-v22.18.0-linux-x64 runtime-env",
     ),
     "ROCK_AGENT_PRE_INIT_BASH_CMD_LIST": lambda: json.loads(os.getenv("ROCK_AGENT_PRE_INIT_BASH_CMD_LIST", "[]")),
     "ROCK_AGENT_IFLOW_CLI_INSTALL_CMD": lambda: os.getenv(
