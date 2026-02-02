@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 
     # Model Service Config
     ROCK_MODEL_SERVICE_DATA_DIR: str
+    ROCK_MODEL_SERVICE_TRAJ_APPEND_MODE: bool | None = None
 
     # RuntimeEnv
     ROCK_RTENV_PYTHON_V31114_INSTALL_CMD: str
@@ -93,6 +94,8 @@ environment_variables: dict[str, Callable[[], Any]] = {
         "ROCK_CLI_DEFAULT_CONFIG_PATH", Path.home() / ".rock" / "config.ini"
     ),
     "ROCK_MODEL_SERVICE_DATA_DIR": lambda: os.getenv("ROCK_MODEL_SERVICE_DATA_DIR", "/data/logs"),
+    "ROCK_MODEL_SERVICE_TRAJ_APPEND_MODE": lambda: os.getenv("ROCK_MODEL_SERVICE_TRAJ_APPEND_MODE", "false").lower()
+    == "true",
     "ROCK_RTENV_PYTHON_V31114_INSTALL_CMD": lambda: os.getenv(
         "ROCK_RTENV_PYTHON_V31114_INSTALL_CMD",
         "[ -f cpython31114.tar.gz ] && rm cpython31114.tar.gz; [ -d python ] && rm -rf python; wget -q -O cpython31114.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20251120/cpython-3.11.14+20251120-x86_64-unknown-linux-gnu-install_only.tar.gz && tar -xzf cpython31114.tar.gz && mv python runtime-env",
