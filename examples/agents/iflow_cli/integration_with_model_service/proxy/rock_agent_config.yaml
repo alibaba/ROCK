@@ -1,0 +1,16 @@
+run_cmd: "iflow -p ${prompt} --yolo"
+
+runtime_env_config:
+  type: node
+  npm_registry: "https://registry.npmmirror.com"
+  custom_install_cmd: "npm i -g @iflow-ai/iflow-cli@latest"
+
+env:
+  IFLOW_API_KEY: "" # Enter your API key
+  IFLOW_BASE_URL: "http://localhost:8080/v1" # Enter your base url
+  IFLOW_MODEL_NAME: "" # Enter your model name 
+
+model_service_config:
+  enabled: true
+  type: proxy
+  start_cmd: rock model-service start --type ${type} --proxy-base-url BASE_URL # You should replace BASE_URL with IFLOW_BASE_URL value
