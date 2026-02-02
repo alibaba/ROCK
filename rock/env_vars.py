@@ -112,7 +112,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
     ),
     "ROCK_MODEL_SERVICE_INSTALL_CMD": lambda: os.getenv(
         "ROCK_MODEL_SERVICE_INSTALL_CMD",
-        "pip install rl_rock[model-service]",
+        'pip install "rl_rock[model-service]==1.0.0" -i https://mirrors.aliyun.com/pypi/simple',
     ),
     "ROCK_TIME_ZONE": lambda: os.getenv("ROCK_TIME_ZONE", "Asia/Shanghai"),
 }
