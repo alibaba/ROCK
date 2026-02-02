@@ -7,8 +7,8 @@ runtime_env_config:
 
 env:
   IFLOW_API_KEY: "xxxx" # Not important, just a placeholder
-  IFLOW_BASE_URL: "http://localhost:8080/v1" # Enter your base url
-  IFLOW_MODEL_NAME: "" # Enter your model name 
+  IFLOW_BASE_URL: "http://localhost:8080/v1"
+  IFLOW_MODEL_NAME: "<MODEL_NAME>"   # replace
 
 model_service_config:
   enabled: true
