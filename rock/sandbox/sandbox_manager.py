@@ -81,32 +81,6 @@ class SandboxManager(BaseManager):
             logger.error(f"update aes key failed, error: {e}")
             raise InternalServerRockError(f"update aes key failed, {str(e)}")
 
-    async def async_ray_get(self, ray_future: ray.ObjectRef):
-        self._ray_service.increment_ray_request_count()
-        loop = asyncio.get_running_loop()
-        try:
-            result = await loop.run_in_executor(self._executor, lambda r: ray.get(r, timeout=60), ray_future)
-        except Exception as e:
-            logger.error("ray get failed", exc_info=e)
-            error_msg = str(e.args[0]) if len(e.args) > 0 else f"ray get failed, {str(e)}"
-            raise Exception(error_msg)
-        return result
-
-    async def async_ray_get_actor(self, sandbox_id: str):
-        self._ray_service.increment_ray_request_count()
-        loop = asyncio.get_running_loop()
-        try:
-            result = await loop.run_in_executor(
-                self._executor, ray.get_actor, self.deployment_manager.get_actor_name(sandbox_id), self._ray_namespace
-            )
-        except ValueError as e:
-            logger.error(f"ray get actor, actor {sandbox_id} not exist", exc_info=e)
-            raise e
-        except Exception as e:
-            logger.error("ray get actor failed", exc_info=e)
-            error_msg = str(e.args[0]) if len(e.args) > 0 else f"ray get actor failed, {str(e)}"
-            raise Exception(error_msg)
-        return result
 
     async def _check_sandbox_exists_in_redis(self, config: DeploymentConfig):
         if isinstance(config, DockerDeploymentConfig) and config.container_name:
@@ -163,7 +137,7 @@ class SandboxManager(BaseManager):
                 env_vars.ROCK_SANDBOX_AUTO_CLEAR_TIME_KEY: str(docker_deployment_config.auto_clear_time),
                 env_vars.ROCK_SANDBOX_EXPIRE_TIME_KEY: stop_time,
             }
-            sandbox_info: SandboxInfo = await self.async_ray_get(sandbox_actor.sandbox_info.remote())
+            sandbox_info: SandboxInfo = await self._ray_service.async_ray_get(sandbox_actor.sandbox_info.remote())
             self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)
             if self._redis_provider:
                 await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
@@ -184,7 +158,7 @@ class SandboxManager(BaseManager):
 
         sandbox_actor: SandboxActor = await deployment.creator_actor(actor_name)
 
-        await self.async_ray_get(sandbox_actor.start.remote())
+        await self._ray_service.async_ray_get(sandbox_actor.start.remote())
         logger.info(f"sandbox {sandbox_id} is started")
 
         while not await self._is_actor_alive(sandbox_id):
@@ -197,8 +171,8 @@ class SandboxManager(BaseManager):
 
         return SandboxStartResponse(
             sandbox_id=sandbox_id,
-            host_name=await self.async_ray_get(sandbox_actor.host_name.remote()),
-            host_ip=await self.async_ray_get(sandbox_actor.host_ip.remote()),
+            host_name=await self._ray_service.async_ray_get(sandbox_actor.host_name.remote()),
+            host_ip=await self._ray_service.async_ray_get(sandbox_actor.host_ip.remote()),
         )
 
     @monitor_sandbox_operation()
@@ -210,12 +184,13 @@ class SandboxManager(BaseManager):
                 sandbox_info["stop_time"] = get_iso8601_timestamp()
                 log_billing_info(sandbox_info=sandbox_info)
             try:
-                sandbox_actor = await self.async_ray_get_actor(sandbox_id)
+                actor_name = self.deployment_manager.get_actor_name(sandbox_id)
+                sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
             except ValueError as e:
                 await self._clear_redis_keys(sandbox_id)
                 raise Exception(f"sandbox {sandbox_id} not found to stop, {str(e)}")
             logger.info(f"start to stop run time {sandbox_id}")
-            await self.async_ray_get(sandbox_actor.stop.remote())
+            await self._ray_service.async_ray_get(sandbox_actor.stop.remote())
             logger.info(f"run time stop over {sandbox_id}")
             ray.kill(sandbox_actor)
             try:
@@ -227,11 +202,12 @@ class SandboxManager(BaseManager):
 
     async def get_mount(self, sandbox_id):
         async with self._ray_service.get_ray_rwlock().read_lock():
-            sandbox_actor = await self.async_ray_get_actor(sandbox_id)
+            actor_name = self.deployment_manager.get_actor_name(sandbox_id)
+            sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
             if sandbox_actor is None:
                 await self._clear_redis_keys(sandbox_id)
                 raise Exception(f"sandbox {sandbox_id} not found to get mount")
-            result = await self.async_ray_get(sandbox_actor.get_mount.remote())
+            result = await self._ray_service.async_ray_get(sandbox_actor.get_mount.remote())
             logger.info(f"get_mount: {result}")
             return result
 
@@ -239,12 +215,13 @@ class SandboxManager(BaseManager):
     async def commit(self, sandbox_id, image_tag: str, username: str, password: str) -> CommandResponse:
         async with self._ray_service.get_ray_rwlock().read_lock():
             logger.info(f"commit sandbox {sandbox_id}")
-            sandbox_actor = await self.async_ray_get_actor(sandbox_id)
+            actor_name = self.deployment_manager.get_actor_name(sandbox_id)
+            sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
             if sandbox_actor is None:
                 await self._clear_redis_keys(sandbox_id)
                 raise Exception(f"sandbox {sandbox_id} not found to commit")
             logger.info(f"begin to commit {sandbox_id} to {image_tag}")
-            result = await self.async_ray_get(sandbox_actor.commit.remote(image_tag, username, password))
+            result = await self._ray_service.async_ray_get(sandbox_actor.commit.remote(image_tag, username, password))
             logger.info(f"commit {sandbox_id} to {image_tag} finished, result {result}")
             return result
 
@@ -257,25 +234,26 @@ class SandboxManager(BaseManager):
     @monitor_sandbox_operation()
     async def get_status(self, sandbox_id) -> SandboxStatusResponse:
         async with self._ray_service.get_ray_rwlock().read_lock():
-            sandbox_actor = await self.async_ray_get_actor(sandbox_id)
+            actor_name = self.deployment_manager.get_actor_name(sandbox_id)
+            sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
             if sandbox_actor is None:
                 raise Exception(f"sandbox {sandbox_id} not found to get status")
             else:
-                remote_status: ServiceStatus = await self.async_ray_get(sandbox_actor.get_status.remote())
-                alive = await self.async_ray_get(sandbox_actor.is_alive.remote())
+                remote_status: ServiceStatus = await self._ray_service.async_ray_get(sandbox_actor.get_status.remote())
+                alive = await self._ray_service.async_ray_get(sandbox_actor.is_alive.remote())
                 sandbox_info: SandboxInfo = None
                 if self._redis_provider:
                     sandbox_info = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
                     if sandbox_info is None:
                         # The start() method will write to redis on the first call to get_status()
-                        sandbox_info = await self.async_ray_get(sandbox_actor.sandbox_info.remote())
+                        sandbox_info = await self._ray_service.async_ray_get(sandbox_actor.sandbox_info.remote())
                     sandbox_info.update(remote_status.to_dict())
                     self._update_sandbox_alive_info(sandbox_info, alive.is_alive)
                     await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
                     await self._update_expire_time(sandbox_id)
                     logger.info(f"sandbox {sandbox_id} status is {sandbox_info}, write to redis")
                 else:
-                    sandbox_info = await self.async_ray_get(sandbox_actor.sandbox_info.remote())
+                    sandbox_info = await self._ray_service.async_ray_get(sandbox_actor.sandbox_info.remote())
 
                 return SandboxStatusResponse(
                     sandbox_id=sandbox_id,
@@ -300,10 +278,11 @@ class SandboxManager(BaseManager):
         if self._redis_provider:
             sandbox_info = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
         else:
-            sandbox_actor = await self.async_ray_get_actor(sandbox_id)
+            actor_name = self.deployment_manager.get_actor_name(sandbox_id)
+            sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
             if sandbox_actor is None:
                 raise Exception(f"sandbox {sandbox_id} not found to get status")
-            sandbox_info = await self.async_ray_get(sandbox_actor.sandbox_info.remote())
+            sandbox_info = await self._ray_service.async_ray_get(sandbox_actor.sandbox_info.remote())
 
         if sandbox_info is None:
             raise Exception(f"sandbox {sandbox_id} not found to get status")
@@ -401,56 +380,63 @@ class SandboxManager(BaseManager):
         return ServiceStatus()
 
     async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
-        sandbox_actor = await self.async_ray_get_actor(request.sandbox_id)
+        actor_name = self.deployment_manager.get_actor_name(request.sandbox_id)
+        sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
         if sandbox_actor is None:
             raise Exception(f"sandbox {request.sandbox_id} not found to create session")
         await self._update_expire_time(request.sandbox_id)
-        return await self.async_ray_get(sandbox_actor.create_session.remote(request))
+        return await self._ray_service.async_ray_get(sandbox_actor.create_session.remote(request))
 
     @monitor_sandbox_operation()
     async def run_in_session(self, action: Action) -> BashObservation:
-        sandbox_actor = await self.async_ray_get_actor(action.sandbox_id)
+        actor_name = self.deployment_manager.get_actor_name(action.sandbox_id)
+        sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
         if sandbox_actor is None:
             raise Exception(f"sandbox {action.sandbox_id} not found to run in session")
         await self._update_expire_time(action.sandbox_id)
-        return await self.async_ray_get(sandbox_actor.run_in_session.remote(action))
+        return await self._ray_service.async_ray_get(sandbox_actor.run_in_session.remote(action))
 
     async def close_session(self, request: CloseBashSessionRequest) -> CloseBashSessionResponse:
-        sandbox_actor = await self.async_ray_get_actor(request.sandbox_id)
+        actor_name = self.deployment_manager.get_actor_name(request.sandbox_id)
+        sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
         if sandbox_actor is None:
             raise Exception(f"sandbox {request.sandbox_id} not found to close session")
         await self._update_expire_time(request.sandbox_id)
-        return await self.async_ray_get(sandbox_actor.close_session.remote(request))
+        return await self._ray_service.async_ray_get(sandbox_actor.close_session.remote(request))
 
     async def execute(self, command: Command) -> CommandResponse:
-        sandbox_actor = await self.async_ray_get_actor(command.sandbox_id)
+        actor_name = self.deployment_manager.get_actor_name(command.sandbox_id)
+        sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
         if sandbox_actor is None:
             raise Exception(f"sandbox {command.sandbox_id} not found to execute")
         await self._update_expire_time(command.sandbox_id)
-        return await self.async_ray_get(sandbox_actor.execute.remote(command))
+        return await self._ray_service.async_ray_get(sandbox_actor.execute.remote(command))
 
     async def read_file(self, request: ReadFileRequest) -> ReadFileResponse:
-        sandbox_actor = await self.async_ray_get_actor(request.sandbox_id)
+        actor_name = self.deployment_manager.get_actor_name(request.sandbox_id)
+        sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
         if sandbox_actor is None:
             raise Exception(f"sandbox {request.sandbox_id} not found to read file")
         await self._update_expire_time(request.sandbox_id)
-        return await self.async_ray_get(sandbox_actor.read_file.remote(request))
+        return await self._ray_service.async_ray_get(sandbox_actor.read_file.remote(request))
 
     @monitor_sandbox_operation()
     async def write_file(self, request: WriteFileRequest) -> WriteFileResponse:
-        sandbox_actor = await self.async_ray_get_actor(request.sandbox_id)
+        actor_name = self.deployment_manager.get_actor_name(request.sandbox_id)
+        sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
         if sandbox_actor is None:
             raise Exception(f"sandbox {request.sandbox_id} not found to write file")
         await self._update_expire_time(request.sandbox_id)
-        return await self.async_ray_get(sandbox_actor.write_file.remote(request))
+        return await self._ray_service.async_ray_get(sandbox_actor.write_file.remote(request))
 
     @monitor_sandbox_operation()
     async def upload(self, file: UploadFile, target_path: str, sandbox_id: str) -> UploadResponse:
-        sandbox_actor = await self.async_ray_get_actor(sandbox_id)
+        actor_name = self.deployment_manager.get_actor_name(sandbox_id)
+        sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
         if sandbox_actor is None:
             raise Exception(f"sandbox {sandbox_id} not found to upload file")
         await self._update_expire_time(sandbox_id)
-        return await self.async_ray_get(sandbox_actor.upload.remote(file, target_path))
+        return await self._ray_service.async_ray_get(sandbox_actor.upload.remote(file, target_path))
 
     async def _is_expired(self, sandbox_id):
         timeout_dict = await self._redis_provider.json_get(timeout_sandbox_key(sandbox_id), "$")
@@ -466,7 +452,8 @@ class SandboxManager(BaseManager):
 
     async def _is_actor_alive(self, sandbox_id):
         try:
-            actor = await self.async_ray_get_actor(sandbox_id)
+            actor_name = self.deployment_manager.get_actor_name(sandbox_id)
+            actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
             return actor is not None
         except Exception as e:
             logger.error("get actor failed", exc_info=e)
@@ -491,8 +478,9 @@ class SandboxManager(BaseManager):
                 continue
 
     async def get_sandbox_statistics(self, sandbox_id):
-        sandbox_actor = await self.async_ray_get_actor(sandbox_id)
-        resource_metrics = await self.async_ray_get(sandbox_actor.get_sandbox_statistics.remote())
+        actor_name = self.deployment_manager.get_actor_name(sandbox_id)
+        sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
+        resource_metrics = await self._ray_service.async_ray_get(sandbox_actor.get_sandbox_statistics.remote())
         return resource_metrics
 
     async def _update_expire_time(self, sandbox_id):

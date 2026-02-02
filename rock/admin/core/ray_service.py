@@ -1,4 +1,6 @@
+import asyncio
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import ray
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -13,11 +15,12 @@ logger = init_logger(__name__)
 
 
 class RayService:
-    def __init__(self, config: RayConfig):
+    def __init__(self, config: RayConfig, executor: ThreadPoolExecutor = None):
         self._config = config
         self._ray_rwlock = AsyncRWLock()
         self._ray_reqeust_count = 0
         self._ray_establish_time = time.time()
+        self._executor = executor or ThreadPoolExecutor(max_workers=10)
 
     def init(self):
         ray.init(
@@ -76,3 +79,58 @@ class RayService:
                 )
         except InternalServerRockError as e:
             logger.warning("Reconnect ray cluster timeout, skip reconnectting", exc_info=e)
+
+    async def async_ray_get(self, ray_future: ray.ObjectRef, timeout: int = 60):
+        """
+        Asynchronously get the result of a Ray ObjectRef.
+        
+        Args:
+            ray_future: Ray ObjectRef to get result from
+            timeout: Timeout in seconds for the ray.get operation
+            
+        Returns:
+            The result from the Ray ObjectRef
+            
+        Raises:
+            Exception: If ray.get fails
+        """
+        self.increment_ray_request_count()
+        loop = asyncio.get_running_loop()
+        try:
+            result = await loop.run_in_executor(self._executor, lambda r: ray.get(r, timeout=timeout), ray_future)
+        except Exception as e:
+            logger.error("ray get failed", exc_info=e)
+            error_msg = str(e.args[0]) if len(e.args) > 0 else f"ray get failed, {str(e)}"
+            raise Exception(error_msg)
+        return result
+
+    async def async_ray_get_actor(self, actor_name: str, namespace: str = None):
+        """
+        Asynchronously get a Ray actor by name.
+        
+        Args:
+            actor_name: Name of the actor to retrieve
+            namespace: Ray namespace (optional, uses config namespace if not provided)
+            
+        Returns:
+            The Ray actor handle
+            
+        Raises:
+            ValueError: If actor does not exist
+            Exception: If ray.get_actor fails
+        """
+        self.increment_ray_request_count()
+        namespace = namespace or self._config.namespace
+        loop = asyncio.get_running_loop()
+        try:
+            result = await loop.run_in_executor(
+                self._executor, ray.get_actor, actor_name, namespace
+            )
+        except ValueError as e:
+            logger.error(f"ray get actor, actor {actor_name} not exist", exc_info=e)
+            raise e
+        except Exception as e:
+            logger.error("ray get actor failed", exc_info=e)
+            error_msg = str(e.args[0]) if len(e.args) > 0 else f"ray get actor failed, {str(e)}"
+            raise Exception(error_msg)
+        return result

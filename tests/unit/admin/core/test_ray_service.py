@@ -3,8 +3,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from rock.admin.core.ray_service import RayService
+from rock.deployments.config import RayDeploymentConfig
+from rock.deployments.ray import RayDeployment
+from rock.sandbox.sandbox_actor import SandboxActor
 
 
+@pytest.mark.need_ray
 @pytest.mark.asyncio
 async def test_reconnect_ray_calls_ray_shutdown_and_init_and_reset_counters(ray_service: RayService):
     service = ray_service
@@ -45,6 +49,7 @@ async def test_reconnect_ray_calls_ray_shutdown_and_init_and_reset_counters(ray_
         assert service._ray_establish_time != old_establish_time
 
 
+@pytest.mark.need_ray
 @pytest.mark.asyncio
 async def test_reconnect_ray_skip_when_reader_exists_and_write_lock_timeout(ray_service: RayService):
     service = ray_service
@@ -67,3 +72,18 @@ async def test_reconnect_ray_skip_when_reader_exists_and_write_lock_timeout(ray_
 
         assert service._ray_request_count == old_count
         assert service._ray_establish_time == old_est
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_ray_get(ray_service):
+    service = ray_service
+    config = RayDeploymentConfig(image="python:3.11")
+    deployment: RayDeployment = RayDeployment.from_config(config)
+    actor = SandboxActor.options(**{"name": "test", "lifetime": "detached"}).remote(config, deployment)
+    await service.async_ray_get(actor.start.remote())
+    result = await service.async_ray_get(actor.host_name.remote())
+    assert result is not None
+    actor = await service.async_ray_get_actor("test", "rock-sandbox-test")
+    assert actor is not None
+    await service.async_ray_get(actor.stop.remote())
