@@ -61,6 +61,8 @@ await env.run("npm install express")
 | `version` | `"3.11" \| "3.12" \| "default"` | `"default"` | Python version; default is 3.11 |
 | `pip` | `list[str] \| str \| None` | `None` | List of pip packages or a requirements.txt path |
 | `pip_index_url` | `str \| None` | Environment variable | pip index mirror |
+| `extra_symlink_dir` | `str \| None` | `None` | Target directory for executable symlinks |
+| `extra_symlink_executables` | `list[str]` | `["python", "python3", "pip", "pip3"]` | List of executables to symlink |
 
 ## NodeRuntimeEnvConfig
 
@@ -69,6 +71,8 @@ await env.run("npm install express")
 | `type` | `Literal["node"]` | `"node"` | Type identifier |
 | `version` | `"22.18.0" \| "default"` | `"default"` | Node version; default is 22.18.0 |
 | `npm_registry` | `str \| None` | `None` | npm registry mirror |
+| `extra_symlink_dir` | `str \| None` | `None` | Target directory for executable symlinks |
+| `extra_symlink_executables` | `list[str]` | `["node", "npm", "npx"]` | List of executables to symlink |
 
 ## Constraints for Custom RuntimeEnv Implementations
 

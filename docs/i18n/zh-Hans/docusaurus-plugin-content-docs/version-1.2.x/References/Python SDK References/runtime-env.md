@@ -61,6 +61,8 @@ await env.run("npm install express")
 | `version` | `"3.11" \| "3.12" \| "default"` | `"default"` | Python 版本，默认 3.11 |
 | `pip` | `list[str] \| str \| None` | `None` | pip 包列表或 requirements.txt 路径 |
 | `pip_index_url` | `str \| None` | 环境变量 | pip 镜像源 |
+| `extra_symlink_dir` | `str \| None` | `None` | 符号链接的目标目录 |
+| `extra_symlink_executables` | `list[str]` | `["python", "python3", "pip", "pip3"]` | 要创建符号链接的可执行文件列表 |
 
 ## NodeRuntimeEnvConfig
 
@@ -69,6 +71,8 @@ await env.run("npm install express")
 | `type` | `Literal["node"]` | `"node"` | 类型标识 |
 | `version` | `"22.18.0" \| "default"` | `"default"` | Node 版本，默认 22.18.0 |
 | `npm_registry` | `str \| None` | `None` | npm 镜像源 |
+| `extra_symlink_dir` | `str \| None` | `None` | 符号链接的目标目录 |
+| `extra_symlink_executables` | `list[str]` | `["node", "npm", "npx"]` | 要创建符号链接的可执行文件列表 |
 
 ## 自定义 RuntimeEnv 实现约束
 
