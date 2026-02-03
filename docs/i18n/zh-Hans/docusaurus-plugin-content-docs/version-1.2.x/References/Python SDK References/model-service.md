@@ -50,11 +50,20 @@ result = await model_service.anti_call_llm(
 ### start 命令
 开始模型服务进程
 ```bash
-rock model-service start --type [local|proxy]
+rock model-service start --type [local|proxy] [选项]
 ```
 
 参数:
-- `--type`: 模型服务类型，可选 `local` 或 `proxy`，默认为 `local`
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `--type` | str | `local` | 服务类型：`local` 或 `proxy` |
+| `--config-file` | str | None | 配置文件路径 |
+| `--host` | str | None | 服务器地址（覆盖配置） |
+| `--port` | int | None | 服务器端口（覆盖配置） |
+| `--proxy-base-url` | str | None | 代理基础 URL |
+| `--retryable-status-codes` | str | None | 可重试状态码，逗号分隔 |
+| `--request-timeout` | int | None | 请求超时秒数 |
 
 ### watch-agent 命令
 监控代理进程，当进程退出时发送 SESSION_END 消息
@@ -242,6 +251,21 @@ result = await model_service.anti_call_llm(
 ### 日志配置
 - `LOG_FILE`: 用以通信的日志文件路径，包含请求和响应数据
 
+### 轨迹（Traj）日志记录
+模型服务将 LLM 调用轨迹（traj）记录到 JSONL 文件中，用于调试和分析。
+
+| 环境变量 | 默认值 | 说明 |
+|----------|--------|------|
+| `ROCK_MODEL_SERVICE_DATA_DIR` | `/data/logs` | traj 日志文件目录 |
+| `ROCK_MODEL_SERVICE_TRAJ_APPEND_MODE` | `false` | 追加模式（true/false） |
+
+**traj 文件位置**: `{DATA_DIR}/LLMTraj.jsonl`
+
+**traj 文件格式**（JSONL - 每行一个 JSON 对象）：
+```json
+{"request": {...}, "response": {...}}
+```
+
 ### 轮询配置
 - `POLLING_INTERVAL_SECONDS`: 轮询间隔，默认为 `0.1` 秒
 - `REQUEST_TIMEOUT`: 请求超时时间，默认为无限
@@ -251,3 +275,24 @@ result = await model_service.anti_call_llm(
 - `REQUEST_START_MARKER` / `REQUEST_END_MARKER`
 - `RESPONSE_START_MARKER` / `RESPONSE_END_MARKER`
 - `SESSION_END_MARKER`
+
+### ModelServiceConfig（服务端）
+
+服务端配置类定义了模型服务如何处理请求：
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `host` | str | `"0.0.0.0"` | 服务器地址 |
+| `port` | int | `8080` | 服务器端口 |
+| `proxy_base_url` | str \| None | `None` | 直接代理 URL |
+| `proxy_rules` | dict | 见下方 | 模型名称到 URL 的映射 |
+| `retryable_status_codes` | list[int] | `[429, 500]` | 可重试的 HTTP 状态码 |
+| `request_timeout` | int | `120` | 请求超时时间（秒） |
+
+**默认 proxy_rules**:
+```python
+{
+    "gpt-3.5-turbo": "https://api.openai.com/v1",
+    "default": "https://api-inference.modelscope.cn/v1",
+}
+```

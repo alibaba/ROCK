@@ -50,11 +50,20 @@ To use the model service via CLI, ROCK provides a set of CLI commands that can b
 ### start command
 Start the model service process
 ```bash
-rock model-service start --type [local|proxy]
+rock model-service start --type [local|proxy] [options]
 ```
 
 Parameters:
-- `--type`: Model service type, optional `local` or `proxy`, defaults to `local`
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `--type` | str | `local` | Service type: `local` or `proxy` |
+| `--config-file` | str | None | Path to configuration file |
+| `--host` | str | None | Server host address (overrides config) |
+| `--port` | int | None | Server port (overrides config) |
+| `--proxy-base-url` | str | None | Proxy base URL |
+| `--retryable-status-codes` | str | None | Comma-separated list of retryable status codes |
+| `--request-timeout` | int | None | Request timeout in seconds |
 
 ### watch-agent command
 Monitor the agent process and send a SESSION_END message when the process exits
@@ -242,6 +251,21 @@ result = await model_service.anti_call_llm(
 ### Log Configuration
 - `LOG_FILE`: Log file path used for communication, containing request and response data
 
+### Trajectory (Traj) Logging
+The model service records LLM call trajectories (traj) to a JSONL file for debugging and analysis.
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `ROCK_MODEL_SERVICE_DATA_DIR` | `/data/logs` | Directory for traj log files |
+| `ROCK_MODEL_SERVICE_TRAJ_APPEND_MODE` | `false` | Append mode (true/false) |
+
+**Traj file location**: `{DATA_DIR}/LLMTraj.jsonl`
+
+**Traj file format** (JSONL - one JSON object per line):
+```json
+{"request": {...}, "response": {...}}
+```
+
 ### Polling Configuration
 - `POLLING_INTERVAL_SECONDS`: Polling interval, defaults to `0.1` seconds
 - `REQUEST_TIMEOUT`: Request timeout, defaults to unlimited
@@ -251,3 +275,24 @@ Defines markers used to distinguish different types of messages in the log file:
 - `REQUEST_START_MARKER` / `REQUEST_END_MARKER`
 - `RESPONSE_START_MARKER` / `RESPONSE_END_MARKER`
 - `SESSION_END_MARKER`
+
+### ModelServiceConfig (Server-side)
+
+The server-side configuration class defines how the model service handles requests:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `host` | str | `"0.0.0.0"` | Server host address |
+| `port` | int | `8080` | Server port |
+| `proxy_base_url` | str \| None | `None` | Direct proxy URL |
+| `proxy_rules` | dict | See below | Model name to URL mapping |
+| `retryable_status_codes` | list[int] | `[429, 500]` | Retryable HTTP status codes |
+| `request_timeout` | int | `120` | Request timeout in seconds |
+
+**Default proxy_rules**:
+```python
+{
+    "gpt-3.5-turbo": "https://api.openai.com/v1",
+    "default": "https://api-inference.modelscope.cn/v1",
+}
+```
