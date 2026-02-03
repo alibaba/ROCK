@@ -46,14 +46,16 @@ async def _get_user_info(redis_provider: RedisProvider, sandbox_id: str):
         if user_info is not None and len(user_info) > 0:
             user_id = user_info[0].get("user_id")
             experiment_id = user_info[0].get("experiment_id")
+            namespace = user_info[0].get("namespace")
             return (
                 user_id if user_id is not None else "default",
                 experiment_id if experiment_id is not None else "default",
+                namespace if namespace is not None else "default",
             )
-    return "default", "default"
+    return "default", "default", "default"
 
 
-def _build_attributes(op_name: str, sandbox_id: str, f, user_id: str, experiment_id: str):
+def _build_attributes(op_name: str, sandbox_id: str, f, user_id: str, experiment_id: str, namespace: str):
     """Build attributes for metrics"""
     return {
         "operation": op_name,
@@ -61,6 +63,7 @@ def _build_attributes(op_name: str, sandbox_id: str, f, user_id: str, experiment
         "method": f.__name__,
         "user_id": user_id,
         "experiment_id": experiment_id,
+        "namespace": namespace,
     }
 
 
@@ -77,7 +80,7 @@ def _record_metrics(metrics_monitor: MetricsMonitor, result, attributes: dict, s
     """Record metrics after function execution"""
     # Update sandbox_id from result if available
     attributes = _update_sandbox_id_from_result(result, attributes)
-    
+
     # Record success or failure
     if isinstance(result, Exception):
         error_attrs = {**attributes, "error_type": type(result).__name__}
@@ -85,12 +88,12 @@ def _record_metrics(metrics_monitor: MetricsMonitor, result, attributes: dict, s
         raise result
     else:
         metrics_monitor.record_counter_by_name(f"{metric_prefix}.success", 1, attributes)
-    
+
     # Record response time and total requests
     rt_ms = (time.perf_counter() - start_time) * 1000
     metrics_monitor.record_gauge_by_name(f"{metric_prefix}.rt", rt_ms, attributes)
     metrics_monitor.record_counter_by_name(f"{metric_prefix}.total", 1, attributes)
-    
+
     return result
 
 
@@ -125,10 +128,10 @@ def monitor_sandbox_operation(
                 )
 
                 redis_provider: RedisProvider = getattr(self, "_redis_provider", None)
-                user_id, experiment_id = await _get_user_info(redis_provider, sandbox_id)
+                user_id, experiment_id, namespace = await _get_user_info(redis_provider, sandbox_id)
 
                 # Build attributes
-                attributes = _build_attributes(op_name, sandbox_id, f, user_id, experiment_id)
+                attributes = _build_attributes(op_name, sandbox_id, f, user_id, experiment_id, namespace)
 
                 start_time = time.perf_counter()
 
@@ -159,10 +162,10 @@ def monitor_sandbox_operation(
 
                 redis_provider: RedisProvider = getattr(self, "_redis_provider", None)
                 # For sync functions, we need to run the async function in a blocking way
-                user_id, experiment_id = asyncio.run(_get_user_info(redis_provider, sandbox_id))
+                user_id, experiment_id, namespace = asyncio.run(_get_user_info(redis_provider, sandbox_id))
 
                 # Build attributes
-                attributes = _build_attributes(op_name, sandbox_id, f, user_id, experiment_id)
+                attributes = _build_attributes(op_name, sandbox_id, f, user_id, experiment_id, namespace)
 
                 start_time = time.perf_counter()
 
