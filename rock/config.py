@@ -32,6 +32,7 @@ class WarmupConfig:
 
 @dataclass
 class NacosConfig:
+    server_addresses: str = ""
     endpoint: str = ""
     group: str = ""
     data_id: str = ""
@@ -166,6 +167,7 @@ class RockConfig:
 
         if self.nacos.endpoint:
             self.nacos_provider = NacosConfigProvider(
+                server_addresses=self.nacos.server_addresses,
                 endpoint=self.nacos.endpoint,
                 namespace="",
                 data_id=self.nacos.data_id,
