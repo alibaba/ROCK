@@ -33,6 +33,7 @@ class BaseActor:
     _env: str = "dev"
     _user_id: str = "default"
     _experiment_id: str = "default"
+    _namespace = "default"
 
     def __init__(
         self,
@@ -150,6 +151,7 @@ class BaseActor:
                 attributes = {"sandbox_id": sandbox_id, "env": self._env, "role": self._role, "host": self.host}
                 attributes["user_id"] = self._user_id
                 attributes["experiment_id"] = self._experiment_id
+                attributes["namespace"] = self._namespace
                 self._gauges["cpu"].set(metrics["cpu"], attributes=attributes)
                 self._gauges["mem"].set(metrics["mem"], attributes=attributes)
                 self._gauges["disk"].set(metrics["disk"], attributes=attributes)

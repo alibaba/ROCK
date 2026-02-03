@@ -854,6 +854,8 @@ class Sandbox(AbstractSandbox):
             headers["X-User-Id"] = self.config.user_id
         if self.config.experiment_id:
             headers["X-Experiment-Id"] = self.config.experiment_id
+        if self.config.namespace:
+            headers["X-Namespace"] = self.config.namespace
 
     def _is_token_expired(self) -> bool:
         try:
