@@ -1,0 +1,11 @@
+run_cmd: "source ~/.bashrc && cursor-agent -p ${prompt}"
+
+runtime_env_config:
+  custom_install_cmd: "curl https://cursor.com/install -fsS | bash"
+
+post_init_cmds:
+  - command: echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+    timeout_seconds: 30
+
+env:
+  CURSOR_API_KEY: "<API_KEY>"         # replace
