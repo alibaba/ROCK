@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     ROCK_TIME_ZONE: str = "Asia/Shanghai"
 
     # Scheduler
-    DOCUUM_INSTALL_URL: str | None = None
+    ROCK_DOCUUM_INSTALL_URL: str | None = None
 
     # OSS Config
     ROCK_OSS_ENABLE: bool = False
@@ -120,8 +120,8 @@ environment_variables: dict[str, Callable[[], Any]] = {
         'pip install "rl_rock[model-service]==1.0.0" -i https://mirrors.aliyun.com/pypi/simple',
     ),
     "ROCK_TIME_ZONE": lambda: os.getenv("ROCK_TIME_ZONE", "Asia/Shanghai"),
-    "DOCUUM_INSTALL_URL": lambda: os.getenv(
-        "DOCUUM_INSTALL_URL", "https://raw.githubusercontent.com/stepchowfun/docuum/main/install.sh"
+    "ROCK_DOCUUM_INSTALL_URL": lambda: os.getenv(
+        "ROCK_DOCUUM_INSTALL_URL", "https://raw.githubusercontent.com/stepchowfun/docuum/main/install.sh"
     ),
 }
 

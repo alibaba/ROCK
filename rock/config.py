@@ -82,24 +82,24 @@ class StandardSpec:
 
 @dataclass
 class TaskConfig:
-    """单个任务配置"""
+    """Configuration for a single scheduled task."""
 
-    task_class: str = ""  # 任务类的完整路径
-    enabled: bool = True  # 是否启用
-    interval_seconds: int = 3600  # 执行间隔（秒）
-    params: dict = field(default_factory=dict)  # 任务特定参数
+    task_class: str = ""  # Fully qualified class path of the task
+    enabled: bool = True  # Whether the task is enabled
+    interval_seconds: int = 3600  # Execution interval in seconds
+    params: dict = field(default_factory=dict)  # Task-specific parameters
 
 
 @dataclass
 class SchedulerConfig:
-    """调度器配置"""
+    """Scheduler configuration."""
 
     enabled: bool = False
     worker_cache_ttl: int = 3600
     tasks: list[TaskConfig] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        # 将 dict 列表转换为 TaskConfig 列表
+        # Convert list of dicts to list of TaskConfig objects
         if self.tasks and isinstance(self.tasks[0], dict):
             self.tasks = [TaskConfig(**task) for task in self.tasks]
 

@@ -44,7 +44,9 @@ class ImageCleanupTask(BaseTask):
     async def run_action(self, runtime: RemoteSandboxRuntime) -> dict:
         """Run docuum image cleanup action."""
         # Check if docuum exists, install if not
-        check_and_install_cmd = f"command -v docuum > /dev/null 2>&1 || curl {env_vars.DOCUUM_INSTALL_URL} -LSfs | sh"
+        check_and_install_cmd = (
+            f"command -v docuum > /dev/null 2>&1 || curl {env_vars.ROCK_DOCUUM_INSTALL_URL} -LSfs | sh"
+        )
         await runtime.execute(Command(command=check_and_install_cmd, shell=True))
 
         docuum_dir = env_vars.ROCK_LOGGING_PATH if env_vars.ROCK_LOGGING_PATH else "/tmp"
