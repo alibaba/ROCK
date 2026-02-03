@@ -27,6 +27,7 @@ class WarmupConfig:
 
 @dataclass
 class NacosConfig:
+    server_addresses: str = ""
     endpoint: str = ""
     group: str = ""
     data_id: str = ""
@@ -66,10 +67,12 @@ class ProxyServiceConfig:
 class DatabaseConfig:
     url: str = ""
 
+
 @dataclass
 class StandardSpec:
     memory: str = "8g"
     cpus: int = 2
+
 
 @dataclass
 class RuntimeConfig:
@@ -157,6 +160,7 @@ class RockConfig:
 
         if self.nacos.endpoint:
             self.nacos_provider = NacosConfigProvider(
+                server_addresses=self.nacos.server_addresses,
                 endpoint=self.nacos.endpoint,
                 namespace="",
                 data_id=self.nacos.data_id,
