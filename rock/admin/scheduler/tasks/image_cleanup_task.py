@@ -1,8 +1,10 @@
 # rock/admin/scheduler/tasks/image_cleanup_task.py
 from rock import env_vars
+from rock.admin.proto.request import SandboxCommand as Command
 from rock.admin.scheduler.task_base import BaseTask, IdempotencyType, TaskStatusEnum
 from rock.common.constants import PID_PREFIX, PID_SUFFIX, SCHEDULER_LOG_NAME
 from rock.logger import init_logger
+from rock.sandbox.remote_sandbox import RemoteSandboxRuntime
 from rock.utils.system import extract_nohup_pid
 
 logger = init_logger(name="image_clean", file_name=SCHEDULER_LOG_NAME)
@@ -39,15 +41,15 @@ class ImageCleanupTask(BaseTask):
             threshold=threshold,
         )
 
-    async def run_action(self, ip: str) -> dict:
+    async def run_action(self, runtime: RemoteSandboxRuntime) -> dict:
         """Run docuum image cleanup action."""
         # Check if docuum exists, install if not
         check_and_install_cmd = f"command -v docuum > /dev/null 2>&1 || curl {env_vars.DOCUUM_INSTALL_URL} -LSfs | sh"
-        await self.worker_client.execute(ip, check_and_install_cmd)
+        await runtime.execute(Command(command=check_and_install_cmd, shell=True))
 
         docuum_dir = env_vars.ROCK_LOGGING_PATH if env_vars.ROCK_LOGGING_PATH else "/tmp"
         command = f"nohup docuum --threshold {self.threshold} > {docuum_dir}/docuum.log 2>&1 & echo {PID_PREFIX}${{!}}{PID_SUFFIX}"
-        result = await self.worker_client.execute(ip, command)
+        result = await runtime.execute(Command(command=command, shell=True))
 
         pid = extract_nohup_pid(result.stdout)
 

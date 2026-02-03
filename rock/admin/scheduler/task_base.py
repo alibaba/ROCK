@@ -2,14 +2,19 @@
 import asyncio
 import json
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
 from rock import env_vars
-from rock.admin.scheduler.worker_client import WorkerClient
+from rock.admin.proto.request import SandboxCommand as Command
+from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
+from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.common.constants import SCHEDULER_LOG_NAME
+from rock.deployments.constants import Port
 from rock.logger import init_logger
+from rock.sandbox.remote_sandbox import RemoteSandboxRuntime
 
 logger = init_logger(name="task_base", file_name=SCHEDULER_LOG_NAME)
 
@@ -67,8 +72,20 @@ class BaseTask(ABC):
         self.type = type
         self.interval_seconds = interval_seconds
         self.idempotency = idempotency
-        self.worker_client = WorkerClient()
         self.status_file_path = f"{env_vars.ROCK_SCHEDULER_STATUS_DIR}/{type}_status.json"
+        self._executor = ThreadPoolExecutor(max_workers=100)
+
+    def _get_runtime(self, ip: str) -> RemoteSandboxRuntime:
+        """Create a new RemoteSandboxRuntime instance for the given worker IP.
+
+        Each call creates a new instance to ensure thread-safety in concurrent scenarios.
+        The shared thread pool executor is reused across all instances.
+        """
+        return RemoteSandboxRuntime(
+            host=ip,
+            port=Port.PROXY.value,
+            executor=self._executor,
+        )
 
     @classmethod
     def from_config(cls, task_config) -> "BaseTask":
@@ -86,19 +103,19 @@ class BaseTask(ABC):
         )
 
     @abstractmethod
-    async def run_action(self, ip: str) -> dict:
+    async def run_action(self, runtime: RemoteSandboxRuntime) -> dict:
         """
         Run the task action. Must be implemented by subclasses.
 
         Args:
-            ip: Worker IP address
+            runtime: RemoteSandboxRuntime instance for the worker
 
         Returns:
             Result dict, e.g. {"pid": 123, ...}
         """
         pass
 
-    async def single_run(self, ip: str) -> dict:
+    async def single_run(self, runtime: RemoteSandboxRuntime, ip: str) -> dict:
         """
         Run task on a single worker with unified status management.
 
@@ -111,17 +128,17 @@ class BaseTask(ABC):
             status=TaskStatusEnum.PENDING,
             last_run=datetime.now().isoformat(),
         )
-        await self.save_task_status(ip, status)
+        await self.save_task_status(runtime, status)
 
         try:
-            # Execute the action
-            result = await self.run_action(ip)
+            # Run the action
+            result = await self.run_action(runtime)
 
             # Update status
             status.status = result.get("status")
             status.pid = result.get("pid")
             status.extra = result
-            await self.save_task_status(ip, status)
+            await self.save_task_status(runtime, status)
 
             return result
 
@@ -129,42 +146,42 @@ class BaseTask(ABC):
             # Mark as FAILED
             status.status = TaskStatusEnum.FAILED
             status.error = str(e)
-            await self.save_task_status(ip, status)
+            await self.save_task_status(runtime, status)
             logger.error(f"execute task on worker error:[{e}]")
 
-    async def get_task_status(self, ip: str) -> TaskStatus | None:
+    async def get_task_status(self, runtime: RemoteSandboxRuntime) -> TaskStatus | None:
         """Get task status from worker."""
         try:
-            await self.worker_client.execute(ip, f"ls {self.status_file_path}")
+            await runtime.execute(Command(command=f"ls {self.status_file_path}", shell=True))
         except Exception:
             logger.info(f"{self.status_file_path} not found")
             return None
 
-        content = await self.worker_client.read_file(ip, self.status_file_path)
-        if content:
+        response = await runtime.read_file(ReadFileRequest(path=self.status_file_path))
+        if response.content:
             try:
-                return TaskStatus.from_json(content)
+                return TaskStatus.from_json(response.content)
             except Exception:
                 pass
         return None
 
-    async def save_task_status(self, ip: str, status: TaskStatus):
+    async def save_task_status(self, runtime: RemoteSandboxRuntime, status: TaskStatus):
         """Save task status to worker file."""
-        await self.worker_client.write_file(ip, self.status_file_path, status.to_json())
+        await runtime.write_file(WriteFileRequest(path=self.status_file_path, content=status.to_json()))
 
-    async def should_run(self, ip: str) -> bool:
+    async def should_run(self, runtime: RemoteSandboxRuntime) -> bool:
         """Determine if the task should be run."""
         if self.idempotency == IdempotencyType.IDEMPOTENT:
             return True
 
         # For non-idempotent tasks, check status
-        status = await self.get_task_status(ip)
+        status = await self.get_task_status(runtime)
         if status is None:
             return True
 
         # Check if process is still running
         if status.pid and status.status == TaskStatusEnum.RUNNING:
-            pid_exists = await self.worker_client.check_pid_exists(ip, status.pid)
+            pid_exists = await runtime.check_pid_exists(status.pid)
             if pid_exists:
                 return False  # Process still running, skip
         if status.pid is None and status.status == TaskStatusEnum.FAILED:
@@ -174,13 +191,14 @@ class BaseTask(ABC):
 
     async def run_on_worker(self, ip: str) -> bool:
         """Run task on a single worker."""
+        runtime = self._get_runtime(ip)
         try:
             # Check if should run
-            if not await self.should_run(ip):
+            if not await self.should_run(runtime):
                 return True
 
             # Run task (status managed in single_run)
-            await self.single_run(ip)
+            await self.single_run(runtime, ip)
             return True
 
         except Exception:

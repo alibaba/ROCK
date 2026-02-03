@@ -249,6 +249,13 @@ class RemoteSandboxRuntime(AbstractSandbox):
             msg += traceback.format_exc()
             return {}
 
+    async def check_pid_exists(self, pid: int) -> bool:
+        """Check if a process exists on the remote host."""
+        result = await self.execute(
+            Command(command=f"kill -0 {pid} 2>/dev/null && echo 'exists' || echo 'not_exists'", shell=True)
+        )
+        return result.stdout.strip() == "exists"
+
     async def upload(self, request: UploadRequest) -> UploadResponse:
         """Uploads a file"""
         source = Path(request.source_path).resolve()
