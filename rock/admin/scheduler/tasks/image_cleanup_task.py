@@ -13,46 +13,36 @@ class ImageCleanupTask(BaseTask):
 
     def __init__(
         self,
-        name: str = "image_cleanup",
         interval_seconds: int = 3600,
-        idempotency: IdempotencyType = IdempotencyType.NON_IDEMPOTENT,
         threshold: str = "1T",
     ):
         """
         Initialize image cleanup task.
 
         Args:
-            name: Task name
             interval_seconds: Execution interval, default 1 hour
-            idempotency: Idempotency type
             threshold: Disk threshold to trigger cleanup, default 1T
         """
         super().__init__(
-            name=name,
+            type="image_cleanup",
             interval_seconds=interval_seconds,
-            idempotency=idempotency,
+            idempotency=IdempotencyType.NON_IDEMPOTENT,
         )
         self.threshold = threshold
 
     @classmethod
     def from_config(cls, task_config) -> "ImageCleanupTask":
         """Create task instance from config."""
-        idempotency = IdempotencyType.IDEMPOTENT if task_config.idempotent else IdempotencyType.NON_IDEMPOTENT
         threshold = task_config.params.get("threshold", "1T")
         return cls(
-            name=task_config.name,
             interval_seconds=task_config.interval_seconds,
-            idempotency=idempotency,
             threshold=threshold,
         )
 
-    async def execute_action(self, ip: str) -> dict:
-        """Execute docuum image cleanup action."""
+    async def run_action(self, ip: str) -> dict:
+        """Run docuum image cleanup action."""
         # Check if docuum exists, install if not
-        check_and_install_cmd = (
-            "command -v docuum > /dev/null 2>&1 || "
-            f"curl {env_vars.DOCUUM_INSTALL_URL} -LSfs | sh"
-        )
+        check_and_install_cmd = f"command -v docuum > /dev/null 2>&1 || curl {env_vars.DOCUUM_INSTALL_URL} -LSfs | sh"
         await self.worker_client.execute(ip, check_and_install_cmd)
 
         docuum_dir = env_vars.ROCK_LOGGING_PATH if env_vars.ROCK_LOGGING_PATH else "/tmp"

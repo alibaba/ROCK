@@ -52,19 +52,18 @@ class TaskFactory:
         """Register all enabled tasks from config."""
         for task_config in scheduler_config.tasks:
             if not task_config.enabled:
-                logger.info(f"Task '{task_config.name}' is disabled, skipping")
+                logger.info(f"Task '{task_config.task_class}' is disabled, skipping")
                 continue
 
             if not task_config.task_class:
-                logger.warning(f"Task '{task_config.name}' has no task_class, skipping")
+                logger.warning(f"Task '{task_config.task_class}' has no task_class, skipping")
                 continue
 
             try:
                 task = cls.create_task(task_config)
                 TaskRegistry.register(task)
                 logger.info(
-                    f"Registered task '{task.name}' with interval {task.interval_seconds}s, "
-                    f"idempotent={task_config.idempotent}"
+                    f"Registered task '{task.type}' with interval {task.interval_seconds}s"
                 )
             except Exception as e:
-                logger.error(f"Failed to create task '{task_config.name}': {e}")
+                logger.error(f"Failed to create task '{task_config.task_class}': {e}")

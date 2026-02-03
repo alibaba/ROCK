@@ -1,9 +1,9 @@
 # rock/admin/scheduler/scheduler.py
 import asyncio
-from datetime import datetime, timedelta, timezone
 import multiprocessing as mp
 import signal
 import time
+from datetime import datetime, timedelta
 from multiprocessing import Process
 
 import pytz
@@ -20,137 +20,177 @@ from rock.logger import init_logger
 logger = init_logger(name="scheduler", file_name=SCHEDULER_LOG_NAME)
 
 
-# Worker IP cache (module-level, used in subprocess)
-_worker_cache_ips: list[str] = []
-_worker_cache_time: float = 0.0
-_worker_cache_ttl: int = 60
+class WorkerIPCache:
+    """Manages Ray worker IP caching with TTL-based expiration."""
 
+    def __init__(self, ray_address: str, ray_namespace: str, cache_ttl: int = 60):
+        self.ray_address = ray_address
+        self.ray_namespace = ray_namespace
+        self.cache_ttl = cache_ttl
+        self._cached_ips: list[str] = []
+        self._cache_time: float = 0.0
 
-def _get_alive_workers(ray_address: str, ray_namespace: str, force_refresh: bool = False) -> list[str]:
-    """Get alive worker IPs from Ray cluster with caching."""
-    global _worker_cache_ips, _worker_cache_time
+    def _is_cache_expired(self) -> bool:
+        """Check if the cache has expired."""
+        return (time.time() - self._cache_time) > self.cache_ttl
 
-    try:
-        current_time = time.time()
-        cache_expired = (current_time - _worker_cache_time) > _worker_cache_ttl
+    def _fetch_worker_ips_from_ray(self) -> list[str]:
+        """Connect to Ray and fetch alive worker IPs."""
+        logger.info("Refreshing worker IP cache from Ray cluster")
 
-        if force_refresh or cache_expired or not _worker_cache_ips:
-            logger.info("Refreshing worker IP cache from Ray cluster")
-
-            # Track if connection was initialized by this call
-            should_shutdown = False
-            if not ray.is_initialized():
-                logger.info(f"Ray start init with address[{ray_address}] and namespace[{ray_namespace}]")
-                ray.init(address=ray_address, namespace=ray_namespace)
-                should_shutdown = True
-            else:
-                logger.info("Ray has already inintialized")
-
-            try:
-                nodes = ray.nodes()
-                alive_ips = []
-                for node in nodes:
-                    if node.get("Alive", False) and node.get("Resources", {}).get("CPU", 0) > 0:
-                        ip = node.get("NodeManagerAddress", "").split(":")[0]
-                        if ip:
-                            alive_ips.append(ip)
-
-                _worker_cache_ips = alive_ips
-                _worker_cache_time = current_time
-                logger.info(f"Worker cache updated, found {len(_worker_cache_ips)} workers")
-            finally:
-                # Disconnect if initialized by this call to reduce Ray head load
-                if should_shutdown:
-                    ray.shutdown()
-                    logger.debug("Ray connection closed after fetching worker IPs")
-
-        return _worker_cache_ips
-    except Exception as e:
-        logger.error(f"Failed to get alive workers: {e}")
-        # Ensure connection cleanup on exception
-        if ray.is_initialized():
-            try:
-                ray.shutdown()
-            except Exception:
-                pass
-        return _worker_cache_ips if _worker_cache_ips else []
-
-
-async def _execute_task(task: BaseTask, ray_address: str, ray_namespace: str):
-    """Execute a single task."""
-    try:
-        worker_ips = _get_alive_workers(ray_address, ray_namespace)
-        if worker_ips:
-            logger.info(f"Running task '{task.name}' on {len(worker_ips)} workers")
-            await task.run(worker_ips)
+        should_shutdown = False
+        if not ray.is_initialized():
+            logger.info(f"Ray start init with address[{self.ray_address}] and namespace[{self.ray_namespace}]")
+            ray.init(address=self.ray_address, namespace=self.ray_namespace)
+            should_shutdown = True
         else:
-            logger.warning(f"No alive workers found for task '{task.name}'")
-    except Exception as e:
-        logger.error(f"Task '{task.name}' failed: {e}")
+            logger.info("Ray has already initialized")
+
+        try:
+            nodes = ray.nodes()
+            alive_ips = []
+            for node in nodes:
+                if node.get("Alive", False) and node.get("Resources", {}).get("CPU", 0) > 0:
+                    ip = node.get("NodeManagerAddress", "").split(":")[0]
+                    if ip:
+                        alive_ips.append(ip)
+            return alive_ips
+        finally:
+            if should_shutdown:
+                ray.shutdown()
+                logger.debug("Ray connection closed after fetching worker IPs")
+
+    def refresh(self) -> list[str]:
+        """Force refresh the worker IP cache."""
+        try:
+            self._cached_ips = self._fetch_worker_ips_from_ray()
+            self._cache_time = time.time()
+            logger.info(f"Worker cache updated, found {len(self._cached_ips)} workers")
+            return self._cached_ips
+        except Exception as e:
+            logger.error(f"Failed to refresh worker cache: {e}")
+            if ray.is_initialized():
+                try:
+                    ray.shutdown()
+                except Exception:
+                    pass
+            return self._cached_ips
+
+    def get_alive_workers(self, force_refresh: bool = False) -> list[str]:
+        """Get alive worker IPs, refreshing cache if needed."""
+        try:
+            if force_refresh or self._is_cache_expired() or not self._cached_ips:
+                return self.refresh()
+            return self._cached_ips
+        except Exception as e:
+            logger.error(f"Failed to get alive workers: {e}")
+            return self._cached_ips if self._cached_ips else []
 
 
-async def _run_scheduler_async(
-    scheduler_config: SchedulerConfig,
-    ray_address: str,
-    ray_namespace: str,
-):
-    """Core async logic for running the scheduler."""
-    global _worker_cache_ttl
-    _worker_cache_ttl = scheduler_config.worker_cache_ttl
-    local_tz = pytz.timezone(env_vars.ROCK_TIME_ZONE)
-    scheduler = AsyncIOScheduler(timezone=local_tz)
+class TaskScheduler:
+    """Manages task scheduling using APScheduler."""
 
-    # Register tasks in subprocess
-    from rock.admin.scheduler.task_factory import TaskFactory
+    def __init__(
+        self,
+        scheduler_config: SchedulerConfig,
+        ray_address: str,
+        ray_namespace: str,
+    ):
+        self.scheduler_config = scheduler_config
+        self.ray_address = ray_address
+        self.ray_namespace = ray_namespace
+        self.local_tz = pytz.timezone(env_vars.ROCK_TIME_ZONE)
+        self._scheduler: AsyncIOScheduler | None = None
+        self._stop_event: asyncio.Event | None = None
+        self._worker_cache: WorkerIPCache | None = None
 
-    TaskFactory.register_all_tasks(scheduler_config)
-
-    # Add all tasks to scheduler
-    for task in TaskRegistry.get_all_tasks().values():
-        scheduler.add_job(
-            _execute_task,
-            trigger="interval",
-            seconds=task.interval_seconds,
-            args=[task, ray_address, ray_namespace],
-            id=task.name,
-            name=task.name,
-            replace_existing=True,
-            next_run_time=datetime.now(local_tz) + timedelta(seconds=3),
+    def _init_worker_cache(self) -> None:
+        """Initialize the worker IP cache."""
+        self._worker_cache = WorkerIPCache(
+            ray_address=self.ray_address,
+            ray_namespace=self.ray_namespace,
+            cache_ttl=self.scheduler_config.worker_cache_ttl,
         )
-        logger.info(f"Added job '{task.name}' with interval {task.interval_seconds}s")
 
-    # Start scheduler in event loop
-    scheduler.start()
-    logger.info("Scheduler started")
+    def _register_tasks(self) -> None:
+        """Register all tasks from configuration."""
+        from rock.admin.scheduler.task_factory import TaskFactory
 
-    # Create event for graceful shutdown
-    stop_event = asyncio.Event()
+        TaskFactory.register_all_tasks(self.scheduler_config)
 
-    def signal_handler(signum, frame):
-        logger.info("Received signal, shutting down scheduler")
-        stop_event.set()
+    async def _run_task(self, task: BaseTask) -> None:
+        """Run a single task on alive workers."""
+        try:
+            worker_ips = self._worker_cache.get_alive_workers()
+            if worker_ips:
+                logger.info(f"Running task '{task.type}' on {len(worker_ips)} workers")
+                await task.run(worker_ips)
+            else:
+                logger.warning(f"No alive workers found for task '{task.type}'")
+        except Exception as e:
+            logger.error(f"Task '{task.type}' failed: {e}")
 
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
+    def _add_jobs(self) -> None:
+        """Add all registered tasks as scheduler jobs."""
+        for task in TaskRegistry.get_all_tasks().values():
+            self._scheduler.add_job(
+                self._run_task,
+                trigger="interval",
+                seconds=task.interval_seconds,
+                args=[task],
+                id=task.type,
+                name=task.type,
+                replace_existing=True,
+                next_run_time=datetime.now(self.local_tz) + timedelta(seconds=2),
+            )
+            logger.info(f"Added job '{task.type}' with interval {task.interval_seconds}s")
 
-    try:
-        # Wait for stop signal
-        await stop_event.wait()
-    except (KeyboardInterrupt, SystemExit):
-        pass
-    finally:
-        scheduler.shutdown(wait=False)
-        logger.info("Scheduler stopped")
+    def _setup_signal_handlers(self) -> None:
+        """Setup signal handlers for graceful shutdown."""
+
+        def signal_handler(signum, frame):
+            logger.info("Received signal, shutting down scheduler")
+            if self._stop_event:
+                self._stop_event.set()
+
+        signal.signal(signal.SIGTERM, signal_handler)
+        signal.signal(signal.SIGINT, signal_handler)
+
+    async def run(self) -> None:
+        """Run the scheduler until stopped."""
+        self._init_worker_cache()
+        self._register_tasks()
+
+        self._scheduler = AsyncIOScheduler(timezone=self.local_tz)
+        self._add_jobs()
+
+        # Pre-cache worker IPs before starting
+        self._worker_cache.refresh()
+
+        self._scheduler.start()
+        logger.info("Scheduler started")
+
+        self._stop_event = asyncio.Event()
+        self._setup_signal_handlers()
+
+        try:
+            await self._stop_event.wait()
+        except (KeyboardInterrupt, SystemExit):
+            pass
+        finally:
+            self._scheduler.shutdown(wait=False)
+            logger.info("Scheduler stopped")
 
 
 def _run_scheduler_in_process(
     scheduler_config: SchedulerConfig,
     ray_address: str,
     ray_namespace: str,
-):
-    """Run scheduler in a separate process."""
+) -> None:
+    """Entry point for running scheduler in a separate process."""
     try:
-        asyncio.run(_run_scheduler_async(scheduler_config, ray_address, ray_namespace))
+        task_scheduler = TaskScheduler(scheduler_config, ray_address, ray_namespace)
+        asyncio.run(task_scheduler.run())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Scheduler process interrupted")
 
@@ -163,16 +203,14 @@ class SchedulerProcess:
         self.ray_address = ray_address
         self.ray_namespace = ray_namespace
         self._process: Process | None = None
-        # Use spawn to avoid inheriting Ray connection state from parent
         self._ctx = mp.get_context("spawn")
 
-    def start(self):
+    def start(self) -> None:
         """Start the scheduler process."""
         if self._process and self._process.is_alive():
             logger.warning("Scheduler process is already running")
             return
 
-        # Use spawn context so subprocess won't inherit parent's Ray state
         self._process = self._ctx.Process(
             target=_run_scheduler_in_process,
             args=(self.scheduler_config, self.ray_address, self.ray_namespace),
@@ -181,7 +219,7 @@ class SchedulerProcess:
         self._process.start()
         logger.info(f"Scheduler process started with PID: {self._process.pid}")
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the scheduler process."""
         if self._process and self._process.is_alive():
             self._process.terminate()

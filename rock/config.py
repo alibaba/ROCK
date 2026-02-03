@@ -84,11 +84,9 @@ class StandardSpec:
 class TaskConfig:
     """单个任务配置"""
 
-    name: str = ""  # 任务名称
     task_class: str = ""  # 任务类的完整路径
     enabled: bool = True  # 是否启用
     interval_seconds: int = 3600  # 执行间隔（秒）
-    idempotent: bool = True  # 是否为幂等任务
     params: dict = field(default_factory=dict)  # 任务特定参数
 
 

@@ -10,7 +10,7 @@ class TaskRegistry:
     @classmethod
     def register(cls, task: BaseTask):
         """Register a task."""
-        cls._tasks[task.name] = task
+        cls._tasks[task.type] = task
 
     @classmethod
     def get_task(cls, name: str) -> BaseTask:

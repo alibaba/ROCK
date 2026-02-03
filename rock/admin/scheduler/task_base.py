@@ -26,7 +26,7 @@ class TaskStatusEnum(str, Enum):
 
     PENDING = "pending"
     RUNNING = "running"
-    COMPLETED = "completed"
+    SUCCESS = "success"
     FAILED = "failed"
 
 
@@ -60,15 +60,15 @@ class BaseTask(ABC):
 
     def __init__(
         self,
-        name: str,
+        type: str,
         interval_seconds: int,
         idempotency: IdempotencyType = IdempotencyType.IDEMPOTENT,
     ):
-        self.name = name
+        self.type = type
         self.interval_seconds = interval_seconds
         self.idempotency = idempotency
         self.worker_client = WorkerClient()
-        self.status_file_path = f"{env_vars.ROCK_SCHEDULER_STATUS_DIR}/{name}_status.json"
+        self.status_file_path = f"{env_vars.ROCK_SCHEDULER_STATUS_DIR}/{type}_status.json"
 
     @classmethod
     def from_config(cls, task_config) -> "BaseTask":
@@ -81,17 +81,14 @@ class BaseTask(ABC):
         Returns:
             Task instance
         """
-        idempotency = IdempotencyType.IDEMPOTENT if task_config.idempotent else IdempotencyType.NON_IDEMPOTENT
         return cls(
-            name=task_config.name,
             interval_seconds=task_config.interval_seconds,
-            idempotency=idempotency,
         )
 
     @abstractmethod
-    async def execute_action(self, ip: str) -> dict:
+    async def run_action(self, ip: str) -> dict:
         """
-        Execute the task action. Must be implemented by subclasses.
+        Run the task action. Must be implemented by subclasses.
 
         Args:
             ip: Worker IP address
@@ -101,15 +98,15 @@ class BaseTask(ABC):
         """
         pass
 
-    async def execute_on_worker(self, ip: str) -> dict:
+    async def single_run(self, ip: str) -> dict:
         """
-        Execute task on a single worker with unified status management.
+        Run task on a single worker with unified status management.
 
-        Status flow: PENDING -> RUNNING -> COMPLETED/FAILED
+        Status flow: PENDING -> RUNNING -> SUCCESS/FAILED
         """
         # Initialize status as PENDING
         status = TaskStatus(
-            task_name=self.name,
+            task_name=self.type,
             worker_ip=ip,
             status=TaskStatusEnum.PENDING,
             last_run=datetime.now().isoformat(),
@@ -118,7 +115,7 @@ class BaseTask(ABC):
 
         try:
             # Execute the action
-            result = await self.execute_action(ip)
+            result = await self.run_action(ip)
 
             # Update status
             status.status = result.get("status")
@@ -155,8 +152,8 @@ class BaseTask(ABC):
         """Save task status to worker file."""
         await self.worker_client.write_file(ip, self.status_file_path, status.to_json())
 
-    async def should_execute(self, ip: str) -> bool:
-        """Determine if the task should be executed."""
+    async def should_run(self, ip: str) -> bool:
+        """Determine if the task should be run."""
         if self.idempotency == IdempotencyType.IDEMPOTENT:
             return True
 
@@ -178,16 +175,15 @@ class BaseTask(ABC):
     async def run_on_worker(self, ip: str) -> bool:
         """Run task on a single worker."""
         try:
-            # Check if should execute
-            if not await self.should_execute(ip):
+            # Check if should run
+            if not await self.should_run(ip):
                 return True
 
-            # Execute task (status managed in execute_on_worker)
-            await self.execute_on_worker(ip)
+            # Run task (status managed in single_run)
+            await self.single_run(ip)
             return True
 
         except Exception:
-            # Exception handled in execute_on_worker
             return False
 
     async def run(self, worker_ips: list[str]):
