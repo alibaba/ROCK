@@ -112,7 +112,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # 停止调度器进程
+    # stop scheduler process
     if scheduler_process:
         scheduler_process.stop()
         logger.info("Scheduler process stopped")
