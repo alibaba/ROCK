@@ -38,7 +38,7 @@ async def redis_provider():
     await provider.close_pool()
 
 @pytest.fixture
-def ray_service(rock_config: RockConfig):
+def ray_service(rock_config: RockConfig, ray_init_shutdown):
     ray_service = RayService(rock_config.ray)
     return ray_service
 
