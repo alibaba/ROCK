@@ -13,7 +13,7 @@ logger = init_logger(name="worker_client", file_name=SCHEDULER_LOG_NAME)
 class WorkerClient:
     """HTTP client for worker nodes with connection pooling."""
 
-    def __init__(self, timeout: int = 30, max_connections: int = 100, max_keepalive_connections: int = 20):
+    def __init__(self, timeout: int = 85, max_connections: int = 200, max_keepalive_connections: int = 20):
         """
         Initialize WorkerClient with connection pool settings.
 
