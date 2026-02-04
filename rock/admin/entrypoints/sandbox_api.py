@@ -49,6 +49,7 @@ async def start_async(
     request: SandboxStartRequest,
     x_user_id: str | None = Header(default="default", alias="X-User-Id"),
     x_experiment_id: str | None = Header(default="default", alias="X-Experiment-Id"),
+    x_namespace: str | None = Header(default="default", alias="X-Namespace"),
     rock_authorization: str | None = Header(default="default", alias="X-Key"),
 ) -> RockResponse[SandboxStartResponse]:
     sandbox_start_response = await sandbox_manager.start_async(
@@ -57,6 +58,7 @@ async def start_async(
             "user_id": x_user_id,
             "experiment_id": x_experiment_id,
             "rock_authorization": rock_authorization,
+            "namespace": x_namespace,
         },
     )
     return RockResponse(result=sandbox_start_response)
