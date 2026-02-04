@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     ROCK_LOGGING_FILE_NAME: str | None = None
     ROCK_LOGGING_LEVEL: str | None = None
     ROCK_SERVICE_STATUS_DIR: str | None = None
+    ROCK_SCHEDULER_STATUS_DIR: str | None = None
     ROCK_CONFIG: str | None = None
     ROCK_CONFIG_DIR_NAME: str | None = None
     ROCK_BASE_URL: str | None = "http://localhost:8080"
@@ -24,6 +25,9 @@ if TYPE_CHECKING:
     ROCK_SANDBOX_EXPIRE_TIME_KEY: str | None = "expire_time"
     ROCK_SANDBOX_AUTO_CLEAR_TIME_KEY: str | None = "auto_clear_time"
     ROCK_TIME_ZONE: str = "Asia/Shanghai"
+
+    # Scheduler
+    ROCK_DOCUUM_INSTALL_URL: str | None = None
 
     # OSS Config
     ROCK_OSS_ENABLE: bool = False
@@ -43,6 +47,7 @@ if TYPE_CHECKING:
 
     # Model Service Config
     ROCK_MODEL_SERVICE_DATA_DIR: str
+    ROCK_MODEL_SERVICE_TRAJ_APPEND_MODE: bool | None = None
 
     # RuntimeEnv
     ROCK_RTENV_PYTHON_V31114_INSTALL_CMD: str
@@ -62,6 +67,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_LOGGING_FILE_NAME": lambda: os.getenv("ROCK_LOGGING_FILE_NAME", "rocklet.log"),
     "ROCK_LOGGING_LEVEL": lambda: os.getenv("ROCK_LOGGING_LEVEL", "INFO"),
     "ROCK_SERVICE_STATUS_DIR": lambda: os.getenv("ROCK_SERVICE_STATUS_DIR", "/data/service_status"),
+    "ROCK_SCHEDULER_STATUS_DIR": lambda: os.getenv("ROCK_SCHEDULER_STATUS_DIR", "/data/scheduler_status"),
     "ROCK_CONFIG": lambda: os.getenv("ROCK_CONFIG"),
     "ROCK_CONFIG_DIR_NAME": lambda: os.getenv("ROCK_CONFIG_DIR_NAME", "rock-conf"),
     "ROCK_BASE_URL": lambda: os.getenv("ROCK_BASE_URL", "http://localhost:8080"),
@@ -93,6 +99,8 @@ environment_variables: dict[str, Callable[[], Any]] = {
         "ROCK_CLI_DEFAULT_CONFIG_PATH", Path.home() / ".rock" / "config.ini"
     ),
     "ROCK_MODEL_SERVICE_DATA_DIR": lambda: os.getenv("ROCK_MODEL_SERVICE_DATA_DIR", "/data/logs"),
+    "ROCK_MODEL_SERVICE_TRAJ_APPEND_MODE": lambda: os.getenv("ROCK_MODEL_SERVICE_TRAJ_APPEND_MODE", "false").lower()
+    == "true",
     "ROCK_RTENV_PYTHON_V31114_INSTALL_CMD": lambda: os.getenv(
         "ROCK_RTENV_PYTHON_V31114_INSTALL_CMD",
         "[ -f cpython31114.tar.gz ] && rm cpython31114.tar.gz; [ -d python ] && rm -rf python; wget -q -O cpython31114.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20251120/cpython-3.11.14+20251120-x86_64-unknown-linux-gnu-install_only.tar.gz && tar -xzf cpython31114.tar.gz && mv python runtime-env",
@@ -112,9 +120,12 @@ environment_variables: dict[str, Callable[[], Any]] = {
     ),
     "ROCK_MODEL_SERVICE_INSTALL_CMD": lambda: os.getenv(
         "ROCK_MODEL_SERVICE_INSTALL_CMD",
-        'pip install "rl_rock[model-service]==1.0.0" -i https://mirrors.aliyun.com/pypi/simple',
+        "pip install rl_rock[model-service]",
     ),
     "ROCK_TIME_ZONE": lambda: os.getenv("ROCK_TIME_ZONE", "Asia/Shanghai"),
+    "ROCK_DOCUUM_INSTALL_URL": lambda: os.getenv(
+        "ROCK_DOCUUM_INSTALL_URL", "https://raw.githubusercontent.com/stepchowfun/docuum/main/install.sh"
+    ),
 }
 
 

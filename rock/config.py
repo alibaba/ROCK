@@ -82,6 +82,30 @@ class StandardSpec:
 
 
 @dataclass
+class TaskConfig:
+    """Configuration for a single scheduled task."""
+
+    task_class: str = ""  # Fully qualified class path of the task
+    enabled: bool = True  # Whether the task is enabled
+    interval_seconds: int = 3600  # Execution interval in seconds
+    params: dict = field(default_factory=dict)  # Task-specific parameters
+
+
+@dataclass
+class SchedulerConfig:
+    """Scheduler configuration."""
+
+    enabled: bool = False
+    worker_cache_ttl: int = 3600
+    tasks: list[TaskConfig] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        # Convert list of dicts to list of TaskConfig objects
+        if self.tasks and isinstance(self.tasks[0], dict):
+            self.tasks = [TaskConfig(**task) for task in self.tasks]
+
+
+@dataclass
 class RuntimeConfig:
     enable_auto_clear: bool = False
     project_root: str = field(default_factory=lambda: env_vars.ROCK_PROJECT_ROOT)
@@ -122,6 +146,7 @@ class RockConfig:
     oss: OssConfig = field(default_factory=OssConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     proxy_service: ProxyServiceConfig = field(default_factory=ProxyServiceConfig)
+    scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     nacos_provider: NacosConfigProvider | None = None
 
     @classmethod
@@ -159,6 +184,8 @@ class RockConfig:
             kwargs["runtime"] = RuntimeConfig(**config["runtime"])
         if "proxy_service" in config:
             kwargs["proxy_service"] = ProxyServiceConfig(**config["proxy_service"])
+        if "scheduler" in config:
+            kwargs["scheduler"] = SchedulerConfig(**config["scheduler"])
 
         return cls(**kwargs)
 

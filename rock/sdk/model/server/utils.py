@@ -10,9 +10,13 @@ from rock.sdk.model.server.config import TRAJ_FILE
 
 def _write_traj(data: dict):
     """Write traj data to file in JSONL format."""
+    from rock import env_vars
+
+    append = env_vars.ROCK_MODEL_SERVICE_TRAJ_APPEND_MODE
     if TRAJ_FILE:
         os.makedirs(os.path.dirname(TRAJ_FILE), exist_ok=True)
-        with open(TRAJ_FILE, "a", encoding="utf-8") as f:
+        mode = "a" if append else "w"
+        with open(TRAJ_FILE, mode, encoding="utf-8") as f:
             f.write(json.dumps(data, ensure_ascii=False) + "\n")
 
 

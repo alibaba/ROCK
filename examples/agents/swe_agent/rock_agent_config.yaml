@@ -1,0 +1,30 @@
+run_cmd: >
+  sweagent run
+  --problem_statement.type text
+  --problem_statement.text ${prompt}
+  --env.repo.type local
+  --env.repo.path "$(pwd)"
+  --env.deployment.type local
+  --agent.tools.execution_timeout 1000
+  --agent.model.per_instance_cost_limit 0
+  --agent.model.total_cost_limit 0
+  --agent.model.name custom_openai/<MODEL_NAME>
+  --agent.model.api_base <BASE_URL>
+  --agent.model.api_key <API_KEY>
+# replace <MODEL_NAME> <BASE_URL> <API_KEY>; keep others as-is
+# if repo not at workspace root: --env.repo.type preexisting --env.repo.repo_name testbed
+
+runtime_env_config:
+  type: python
+  version: "3.12"
+  custom_install_cmd: >
+    git clone https://github.com/SWE-agent/SWE-agent.git
+    && cd SWE-agent
+    && pip install -e .
+
+project_path: "/tmp/testbed"
+
+# SWE-agent requires an existing repository, so we need to initialize one. 
+post_init_cmds:
+  - command: "mkdir -p /tmp/testbed && cd /tmp/testbed && git init && echo init >README.md && git add README.md && git -c user.email=test@example.com -c user.name='Test User' commit -m 'Initial commit'"
+    timeout_seconds: 30

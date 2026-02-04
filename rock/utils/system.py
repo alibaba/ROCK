@@ -221,3 +221,22 @@ def get_iso8601_timestamp(timestamp: int = None, timezone: str = None):
     else:
         time = datetime.datetime.now(tz)
     return time.isoformat(timespec="seconds")
+
+def is_primary_pod() -> bool:
+    """
+    Check if the current pod is the primary pod (index 0).
+    Reads /etc/hostname file and parses the pod index from the pod name.
+    Hostname format example: rock-admin-write-nt-gray-0.rock-admin-write-nt-gray-hs.chatos.svc.cluster.local
+    """
+    try:
+        with open("/etc/hostname") as f:
+            hostname = f.read().strip()
+        # Extract pod name (content before the first dot)
+        pod_name = hostname.split(".")[0]
+        # Extract index (number after the last hyphen)
+        pod_index = pod_name.rsplit("-", 1)[-1]
+        return pod_index == "0"
+    except Exception as e:
+        # If unable to read or parse, default to True (for local dev environment, etc.)
+        logger.warning(f"Failed to determine pod index from hostname: {e}, defaulting to primary")
+        return True

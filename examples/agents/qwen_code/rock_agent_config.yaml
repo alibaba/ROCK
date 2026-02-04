@@ -1,0 +1,11 @@
+run_cmd: "qwen -y ${prompt}"
+
+runtime_env_config:
+  type: node
+  npm_registry: "https://registry.npmmirror.com"
+  custom_install_cmd: "npm install -g @qwen-code/qwen-code@latest"
+
+env:
+  OPENAI_API_KEY: "<API_KEY>"         # replace
+  OPENAI_BASE_URL: "<BASE_URL>"       # replace
+  OPENAI_MODEL: "<MODEL_NAME>"        # replace

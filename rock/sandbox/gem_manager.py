@@ -53,10 +53,11 @@ class GemManager(SandboxManager):
         except asyncio.TimeoutError:
             raise Exception("Sandbox startup timeout after 300s")
 
-        sandbox_actor: SandboxActor = await self.async_ray_get_actor(sandbox_start_response.sandbox_id)
+        actor_name = self.deployment_manager.get_actor_name(sandbox_start_response.sandbox_id)
+        sandbox_actor: SandboxActor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
         if sandbox_actor is None:
             raise Exception(f"sandbox {sandbox_start_response.sandbox_id} not found to stop")
-        response = await self.async_ray_get(
+        response = await self._ray_service.async_ray_get(
             sandbox_actor.env_make.remote(
                 EnvMakeRequest(
                     env_id=env_id,
@@ -68,29 +69,33 @@ class GemManager(SandboxManager):
 
     async def env_step(self, request: EnvStepRequest) -> EnvStepResponse:
         sandbox_id = request.sandbox_id
-        sandbox_actor: SandboxActor = await self.async_ray_get_actor(sandbox_id)
+        actor_name = self.deployment_manager.get_actor_name(sandbox_id)
+        sandbox_actor: SandboxActor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
         if sandbox_actor is None:
             raise Exception(f"sandbox {sandbox_id} not found to stop")
-        return await self.async_ray_get(sandbox_actor.env_step.remote(request))
+        return await self._ray_service.async_ray_get(sandbox_actor.env_step.remote(request))
 
     async def env_reset(self, request: EnvResetRequest) -> EnvResetResponse:
         sandbox_id = request.sandbox_id
-        sandbox_actor: SandboxActor = await self.async_ray_get_actor(sandbox_id)
+        actor_name = self.deployment_manager.get_actor_name(sandbox_id)
+        sandbox_actor: SandboxActor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
         if sandbox_actor is None:
             raise Exception(f"sandbox {sandbox_id} not found to stop")
-        return await self.async_ray_get(sandbox_actor.env_reset.remote(request))
+        return await self._ray_service.async_ray_get(sandbox_actor.env_reset.remote(request))
 
     async def env_close(self, request: EnvCloseRequest) -> EnvCloseResponse:
         sandbox_id = request.sandbox_id
-        sandbox_actor: SandboxActor = await self.async_ray_get_actor(sandbox_id)
+        actor_name = self.deployment_manager.get_actor_name(sandbox_id)
+        sandbox_actor: SandboxActor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
         if sandbox_actor is None:
             raise Exception(f"sandbox {sandbox_id} not found to stop")
-        response = await self.async_ray_get(sandbox_actor.env_close.remote(request))
+        response = await self._ray_service.async_ray_get(sandbox_actor.env_close.remote(request))
         await self.stop(sandbox_id=sandbox_id)
         return response
 
     async def env_list(self, sandbox_id: str) -> EnvListResponse:
-        sandbox_actor = await self.async_ray_get_actor(sandbox_id)
+        actor_name = self.deployment_manager.get_actor_name(sandbox_id)
+        sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
         if sandbox_actor is None:
             raise Exception(f"sandbox {sandbox_id} not found to stop")
-        return await self.async_ray_get(sandbox_actor.env_list.remote())
+        return await self._ray_service.async_ray_get(sandbox_actor.env_list.remote())

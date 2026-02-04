@@ -18,6 +18,7 @@ from rock.admin.entrypoints.sandbox_api import sandbox_router, set_sandbox_manag
 from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_sandbox_proxy_service
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
 from rock.admin.gem.api import gem_router, set_env_service
+from rock.admin.scheduler.scheduler import SchedulerProcess
 from rock.config import RockConfig
 from rock.logger import init_logger
 from rock.sandbox.gem_manager import GemManager
@@ -25,6 +26,7 @@ from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sandbox.service.warmup_service import WarmupService
 from rock.utils import EAGLE_EYE_TRACE_ID, sandbox_id_ctx_var, trace_id_ctx_var
 from rock.utils.providers import RedisProvider
+from rock.utils.system import is_primary_pod
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--env", type=str, default="local")
@@ -59,6 +61,9 @@ async def lifespan(app: FastAPI):
         )
         await redis_provider.init_pool()
 
+    # init scheduler process
+    scheduler_process = None
+
     # init sandbox service
     if args.role == "admin":
         # init ray service
@@ -88,6 +93,17 @@ async def lifespan(app: FastAPI):
         set_warmup_service(warmup_service)
         set_env_service(sandbox_manager)
 
+        if rock_config.scheduler.enabled and is_primary_pod():
+            scheduler_process = SchedulerProcess(
+                scheduler_config=rock_config.scheduler,
+                ray_address=rock_config.ray.address,
+                ray_namespace=rock_config.ray.namespace,
+            )
+            scheduler_process.start()
+            logger.info("Scheduler process started on primary pod")
+        elif rock_config.scheduler.enabled:
+            logger.info("Scheduler process skipped on non-primary pod")
+
     else:
         sandbox_manager = SandboxProxyService(rock_config=rock_config, redis_provider=redis_provider)
         set_sandbox_proxy_service(sandbox_manager)
@@ -95,6 +111,11 @@ async def lifespan(app: FastAPI):
     logger.info("rock-admin start")
 
     yield
+
+    # stop scheduler process
+    if scheduler_process:
+        scheduler_process.stop()
+        logger.info("Scheduler process stopped")
 
     if redis_provider:
         await redis_provider.close_pool()
