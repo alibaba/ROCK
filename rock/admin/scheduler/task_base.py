@@ -151,10 +151,9 @@ class BaseTask(ABC):
 
     async def get_task_status(self, runtime: RemoteSandboxRuntime) -> TaskStatus | None:
         """Get task status from worker."""
-        try:
-            await runtime.execute(Command(command=f"ls {self.status_file_path}", shell=True))
-        except Exception:
-            logger.info(f"{self.status_file_path} not found")
+        check_file_resp = await runtime.execute(Command(command=f"ls {self.status_file_path}", shell=True))
+        if check_file_resp.exit_code == 2:
+            logger.info(f"task status file not exist: {self.status_file_path}")
             return None
 
         response = await runtime.read_file(ReadFileRequest(path=self.status_file_path))
