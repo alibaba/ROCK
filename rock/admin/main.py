@@ -49,6 +49,14 @@ async def lifespan(app: FastAPI):
         else env_vars.ROCK_CONFIG
     )
     rock_config = RockConfig.from_env(config_file_path)
+
+    # Override scheduler config from Nacos if available
+    if rock_config.nacos_provider:
+        nacos_config = await rock_config.nacos_provider.get_config()
+        if nacos_config and "scheduler" in nacos_config:
+            rock_config.scheduler = SchedulerConfig(**nacos_config["scheduler"])
+            logger.info(f"Overrode scheduler config from Nacos with {len(rock_config.scheduler.tasks)} tasks")
+
     env_vars.ROCK_ADMIN_ENV = args.env
     env_vars.ROCK_ADMIN_ROLE = args.role
 

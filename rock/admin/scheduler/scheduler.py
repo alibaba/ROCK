@@ -155,7 +155,7 @@ class TaskScheduler:
             new_scheduler_config = SchedulerConfig(**config_dict["scheduler"])
             # Schedule the async reload on the event loop (thread-safe)
             if self._event_loop and self._event_loop.is_running():
-                asyncio.run_coroutine_threadsafe(self._reload_tasks(new_scheduler_config), self._event_loop)
+                asyncio.run_coroutine_threadsafe(self._reload_scheduler_config(new_scheduler_config), self._event_loop)
             else:
                 logger.warning("Event loop not available, cannot reload tasks dynamically")
         except yaml.YAMLError as e:
@@ -163,11 +163,71 @@ class TaskScheduler:
         except Exception as e:
             logger.error(f"Failed to process Nacos config change: {e}")
 
-    async def _reload_tasks(self, new_scheduler_config: SchedulerConfig) -> None:
-        """Reload scheduler tasks based on new config: add new, remove deleted, update changed."""
-        from rock.admin.scheduler.task_factory import TaskFactory
-
+    async def _reload_scheduler_config(self, new_scheduler_config: SchedulerConfig) -> None:
+        """Reload scheduler config: handle enabled, worker_cache_ttl, and task changes."""
+        old_scheduler_config = self.scheduler_config
         self.scheduler_config = new_scheduler_config
+
+        # Handle enabled change: disabled
+        if old_scheduler_config.enabled and not new_scheduler_config.enabled:
+            self._pause_all_tasks()
+            logger.info("Scheduler disabled via Nacos config, all tasks paused")
+            return
+
+        # Handle worker_cache_ttl change
+        if old_scheduler_config.worker_cache_ttl != new_scheduler_config.worker_cache_ttl:
+            self._worker_cache.cache_ttl = new_scheduler_config.worker_cache_ttl
+            logger.info(
+                f"Updated worker_cache_ttl: "
+                f"{old_scheduler_config.worker_cache_ttl}s -> {new_scheduler_config.worker_cache_ttl}s"
+            )
+
+        # Handle task changes (only if scheduler is enabled)
+        newly_added_tasks: set[str] = set()
+        if new_scheduler_config.enabled:
+            newly_added_tasks = await self._reload_tasks(new_scheduler_config)
+
+        # Handle enabled change: re-enabled
+        # Resume AFTER task reload, excluding newly added tasks (already scheduled by _reload_tasks)
+        if not old_scheduler_config.enabled and new_scheduler_config.enabled:
+            self._resume_all_tasks(exclude_task_types=newly_added_tasks)
+            logger.info("Scheduler re-enabled via Nacos config, all tasks resumed")
+
+    def _pause_all_tasks(self) -> None:
+        """Pause all scheduled jobs by removing them from the scheduler."""
+        for task_type in list(TaskRegistry.get_all_tasks().keys()):
+            try:
+                self._scheduler.pause_job(task_type)
+                logger.info(f"Paused task '{task_type}'")
+            except Exception as e:
+                logger.warning(f"Failed to pause job '{task_type}': {e}")
+
+    def _resume_all_tasks(self, exclude_task_types: set[str] | None = None) -> None:
+        """Resume paused jobs and trigger immediate execution, excluding specified tasks."""
+        excluded = exclude_task_types or set()
+        for index, task_type in enumerate(TaskRegistry.get_all_tasks().keys()):
+            if task_type in excluded:
+                continue
+            try:
+                self._scheduler.resume_job(task_type)
+                job = self._scheduler.get_job(task_type)
+                if job:
+                    job.modify(next_run_time=datetime.now(self.local_tz) + timedelta(seconds=index * 60 + 2))
+                logger.info(f"Resumed task '{task_type}' with next run in {index * 60 + 2}s")
+            except Exception as e:
+                logger.warning(f"Failed to resume job '{task_type}': {e}")
+
+    @staticmethod
+    def _task_params_changed(existing_task: BaseTask, new_task: BaseTask) -> bool:
+        """Compare subclass-specific attributes to detect parameter changes."""
+        base_attrs = {"type", "interval_seconds", "idempotency", "status_file_path", "_executor"}
+        existing_params = {k: v for k, v in existing_task.__dict__.items() if k not in base_attrs}
+        new_params = {k: v for k, v in new_task.__dict__.items() if k not in base_attrs}
+        return existing_params != new_params
+
+    async def _reload_tasks(self, new_scheduler_config: SchedulerConfig) -> set[str]:
+        """Reload scheduler tasks based on new config. Returns the set of newly added task types."""
+        from rock.admin.scheduler.task_factory import TaskFactory
 
         # Build a map of new task configs keyed by task_class
         new_task_configs: dict[str, TaskConfig] = {}
@@ -176,8 +236,6 @@ class TaskScheduler:
                 new_task_configs[task_config.task_class] = task_config
 
         current_tasks = TaskRegistry.get_all_tasks()
-
-        # Build reverse mapping: task.type -> task_class (from current registered tasks)
         current_task_types = set(current_tasks.keys())
 
         # Build new tasks to determine which types will exist
@@ -205,9 +263,10 @@ class TaskScheduler:
         tasks_to_add = new_task_types - current_task_types
         tasks_to_update = new_task_types & current_task_types
 
-        for task_type in tasks_to_add:
+        for index, task_type in enumerate(tasks_to_add):
             task, task_config = new_tasks_by_type[task_type]
             TaskRegistry.register(task)
+            start_delay = index * 60 + 2
             self._scheduler.add_job(
                 self._run_task,
                 trigger="interval",
@@ -216,23 +275,36 @@ class TaskScheduler:
                 id=task.type,
                 name=task.type,
                 replace_existing=True,
-                next_run_time=datetime.now(self.local_tz) + timedelta(seconds=2),
+                next_run_time=datetime.now(self.local_tz) + timedelta(seconds=start_delay),
             )
-            logger.info(f"Added new task '{task_type}' with interval {task.interval_seconds}s")
+            logger.info(
+                f"Added new task '{task_type}' with interval {task.interval_seconds}s, first run in {start_delay}s"
+            )
+
+        actually_updated = 0
+        immediately_scheduled_tasks: set[str] = set()
+        # Start delay offset continues from where tasks_to_add left off
+        rerun_delay_index = len(tasks_to_add)
 
         for task_type in tasks_to_update:
             existing_task = current_tasks[task_type]
             new_task, task_config = new_tasks_by_type[task_type]
 
-            # Check if interval or params changed
-            # Update registry and job args regardless of interval change
+            # Check if task config actually changed
+            interval_changed = existing_task.interval_seconds != new_task.interval_seconds
+            params_changed = self._task_params_changed(existing_task, new_task)
+
+            if not interval_changed and not params_changed:
+                continue
+
+            actually_updated += 1
             TaskRegistry.unregister(task_type)
             TaskRegistry.register(new_task)
             job = self._scheduler.get_job(task_type)
             if job:
                 job.modify(args=[new_task])
 
-            if existing_task.interval_seconds != new_task.interval_seconds:
+            if interval_changed:
                 self._scheduler.reschedule_job(
                     task_type,
                     trigger="interval",
@@ -243,10 +315,19 @@ class TaskScheduler:
                     f"{existing_task.interval_seconds}s -> {new_task.interval_seconds}s"
                 )
 
+            if params_changed and job:
+                start_delay = rerun_delay_index * 60 + 2
+                rerun_delay_index += 1
+                job.modify(next_run_time=datetime.now(self.local_tz) + timedelta(seconds=start_delay))
+                immediately_scheduled_tasks.add(task_type)
+                logger.info(f"Updated task '{task_type}' params, scheduled re-run in {start_delay}s")
+
         logger.info(
             f"Task reload complete: added={len(tasks_to_add)}, "
-            f"removed={len(tasks_to_remove)}, updated={len(tasks_to_update)}"
+            f"removed={len(tasks_to_remove)}, updated={actually_updated}, "
+            f"unchanged={len(tasks_to_update) - actually_updated}"
         )
+        return tasks_to_add | immediately_scheduled_tasks
 
     def _register_tasks(self) -> None:
         """Register all tasks from configuration."""
@@ -268,7 +349,7 @@ class TaskScheduler:
 
     def _add_jobs(self) -> None:
         """Add all registered tasks as scheduler jobs."""
-        for task in TaskRegistry.get_all_tasks().values():
+        for index, task in enumerate(TaskRegistry.get_all_tasks().values()):
             self._scheduler.add_job(
                 self._run_task,
                 trigger="interval",
@@ -277,7 +358,7 @@ class TaskScheduler:
                 id=task.type,
                 name=task.type,
                 replace_existing=True,
-                next_run_time=datetime.now(self.local_tz) + timedelta(seconds=2),
+                next_run_time=datetime.now(self.local_tz) + timedelta(seconds=index * 60 + 2),
             )
             logger.info(f"Added job '{task.type}' with interval {task.interval_seconds}s")
 
