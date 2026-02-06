@@ -13,6 +13,16 @@ class TaskRegistry:
         cls._tasks[task.type] = task
 
     @classmethod
+    def unregister(cls, task_type: str) -> BaseTask | None:
+        """Unregister a task by type and return it."""
+        return cls._tasks.pop(task_type, None)
+
+    @classmethod
+    def clear(cls):
+        """Remove all registered tasks."""
+        cls._tasks.clear()
+
+    @classmethod
     def get_task(cls, name: str) -> BaseTask:
         """Get a task by name."""
         return cls._tasks.get(name)
