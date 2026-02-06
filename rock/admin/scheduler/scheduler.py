@@ -1,5 +1,8 @@
 # rock/admin/scheduler/scheduler.py
 import asyncio
+import hashlib
+import json
+import logging
 import multiprocessing as mp
 import signal
 import time
@@ -8,14 +11,16 @@ from multiprocessing import Process
 
 import pytz
 import ray
+import yaml
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from rock import env_vars
 from rock.admin.scheduler.task_base import BaseTask
 from rock.admin.scheduler.task_registry import TaskRegistry
 from rock.common.constants import SCHEDULER_LOG_NAME
-from rock.config import SchedulerConfig
+from rock.config import NacosConfig, SchedulerConfig, TaskConfig
 from rock.logger import init_logger
+from rock.utils.providers import NacosConfigProvider
 
 logger = init_logger(name="scheduler", file_name=SCHEDULER_LOG_NAME)
 
@@ -88,21 +93,26 @@ class WorkerIPCache:
 
 
 class TaskScheduler:
-    """Manages task scheduling using APScheduler."""
+    """Manages task scheduling using APScheduler with optional Nacos dynamic config."""
 
     def __init__(
         self,
         scheduler_config: SchedulerConfig,
         ray_address: str,
         ray_namespace: str,
+        nacos_config: NacosConfig | None = None,
     ):
         self.scheduler_config = scheduler_config
         self.ray_address = ray_address
         self.ray_namespace = ray_namespace
+        self.nacos_config = nacos_config
         self.local_tz = pytz.timezone(env_vars.ROCK_TIME_ZONE)
         self._scheduler: AsyncIOScheduler | None = None
         self._stop_event: asyncio.Event | None = None
         self._worker_cache: WorkerIPCache | None = None
+        self._nacos_provider: NacosConfigProvider | None = None
+        self._event_loop: asyncio.AbstractEventLoop | None = None
+        self._last_scheduler_config_hash: str | None = None
 
     def _init_worker_cache(self) -> None:
         """Initialize the worker IP cache."""
@@ -110,6 +120,171 @@ class TaskScheduler:
             ray_address=self.ray_address,
             ray_namespace=self.ray_namespace,
             cache_ttl=self.scheduler_config.worker_cache_ttl,
+        )
+
+    def _init_nacos_provider(self) -> None:
+        """Initialize Nacos config provider and register listener for scheduler config changes."""
+        if not self.nacos_config or not self.nacos_config.endpoint:
+            logger.info("Nacos config not provided, skipping Nacos dynamic config")
+            return
+
+        self._nacos_provider = NacosConfigProvider(
+            endpoint=self.nacos_config.endpoint,
+            namespace="",
+            data_id=self.nacos_config.data_id,
+            group=self.nacos_config.group,
+        )
+
+        # Override the default update callback with our scheduler-aware callback
+        self._nacos_provider._update_callback = self._on_nacos_config_changed
+        self._nacos_provider.add_listener()
+
+        # Suppress noisy nacos logs
+        logging.getLogger("nacos.client").setLevel(logging.WARNING)
+        logging.getLogger("do-pulling").setLevel(logging.WARNING)
+        logging.getLogger("process-polling-result").setLevel(logging.WARNING)
+
+        logger.info("Nacos dynamic config listener registered for scheduler")
+
+    def _load_scheduler_config_from_nacos(self) -> SchedulerConfig | None:
+        """Synchronously load scheduler config from Nacos."""
+        if not self._nacos_provider:
+            return None
+
+        try:
+            config_str = self._nacos_provider.client.get_config(
+                self._nacos_provider.data_id, self._nacos_provider.group
+            )
+            if not config_str:
+                return None
+
+            config_dict = yaml.safe_load(config_str)
+            if not config_dict or "scheduler" not in config_dict:
+                logger.warning("No 'scheduler' section found in Nacos config")
+                return None
+
+            # Initialize the config hash so subsequent change callbacks can skip if unchanged
+            scheduler_raw = json.dumps(config_dict["scheduler"], sort_keys=True)
+            self._last_scheduler_config_hash = hashlib.md5(scheduler_raw.encode()).hexdigest()
+
+            nacos_scheduler_config = SchedulerConfig(**config_dict["scheduler"])
+            logger.info(f"Loaded scheduler config from Nacos with {len(nacos_scheduler_config.tasks)} tasks")
+            return nacos_scheduler_config
+        except Exception as e:
+            logger.error(f"Failed to load scheduler config from Nacos: {e}")
+            return None
+
+    def _on_nacos_config_changed(self, new_config: dict) -> None:
+        """Callback invoked by Nacos watcher when config changes (runs in Nacos polling thread)."""
+        logger.info("Nacos config changed, checking scheduler section...")
+        try:
+            config_dict = yaml.safe_load(new_config["content"])
+            if not config_dict or "scheduler" not in config_dict:
+                logger.warning("No 'scheduler' section in updated Nacos config, skipping")
+                return
+
+            # Compare scheduler section hash to avoid unnecessary reloads
+            scheduler_raw = json.dumps(config_dict["scheduler"], sort_keys=True)
+            config_hash = hashlib.md5(scheduler_raw.encode()).hexdigest()
+            if config_hash == self._last_scheduler_config_hash:
+                logger.info("Scheduler config unchanged, skipping reload")
+                return
+            self._last_scheduler_config_hash = config_hash
+
+            new_scheduler_config = SchedulerConfig(**config_dict["scheduler"])
+            # Schedule the async reload on the event loop (thread-safe)
+            if self._event_loop and self._event_loop.is_running():
+                asyncio.run_coroutine_threadsafe(self._reload_tasks(new_scheduler_config), self._event_loop)
+            else:
+                logger.warning("Event loop not available, cannot reload tasks dynamically")
+        except yaml.YAMLError as e:
+            logger.error(f"Failed to parse updated Nacos YAML config: {e}")
+        except Exception as e:
+            logger.error(f"Failed to process Nacos config change: {e}")
+
+    async def _reload_tasks(self, new_scheduler_config: SchedulerConfig) -> None:
+        """Reload scheduler tasks based on new config: add new, remove deleted, update changed."""
+        from rock.admin.scheduler.task_factory import TaskFactory
+
+        self.scheduler_config = new_scheduler_config
+
+        # Build a map of new task configs keyed by task_class
+        new_task_configs: dict[str, TaskConfig] = {}
+        for task_config in new_scheduler_config.tasks:
+            if task_config.enabled and task_config.task_class:
+                new_task_configs[task_config.task_class] = task_config
+
+        current_tasks = TaskRegistry.get_all_tasks()
+
+        # Build reverse mapping: task.type -> task_class (from current registered tasks)
+        current_task_types = set(current_tasks.keys())
+
+        # Build new tasks to determine which types will exist
+        new_tasks_by_type: dict[str, tuple[BaseTask, TaskConfig]] = {}
+        for task_class_path, task_config in new_task_configs.items():
+            try:
+                task = TaskFactory.create_task(task_config)
+                new_tasks_by_type[task.type] = (task, task_config)
+            except Exception as e:
+                logger.error(f"Failed to create task from config '{task_class_path}': {e}")
+
+        new_task_types = set(new_tasks_by_type.keys())
+
+        # Remove tasks that are no longer in config
+        tasks_to_remove = current_task_types - new_task_types
+        for task_type in tasks_to_remove:
+            TaskRegistry.unregister(task_type)
+            try:
+                self._scheduler.remove_job(task_type)
+                logger.info(f"Removed task '{task_type}'")
+            except Exception as e:
+                logger.warning(f"Failed to remove job '{task_type}': {e}")
+
+        # Add or update tasks
+        tasks_to_add = new_task_types - current_task_types
+        tasks_to_update = new_task_types & current_task_types
+
+        for task_type in tasks_to_add:
+            task, task_config = new_tasks_by_type[task_type]
+            TaskRegistry.register(task)
+            self._scheduler.add_job(
+                self._run_task,
+                trigger="interval",
+                seconds=task.interval_seconds,
+                args=[task],
+                id=task.type,
+                name=task.type,
+                replace_existing=True,
+                next_run_time=datetime.now(self.local_tz) + timedelta(seconds=2),
+            )
+            logger.info(f"Added new task '{task_type}' with interval {task.interval_seconds}s")
+
+        for task_type in tasks_to_update:
+            existing_task = current_tasks[task_type]
+            new_task, task_config = new_tasks_by_type[task_type]
+
+            # Check if interval or params changed
+            # Update registry and job args regardless of interval change
+            TaskRegistry.unregister(task_type)
+            TaskRegistry.register(new_task)
+            job = self._scheduler.get_job(task_type)
+            if job:
+                job.modify(args=[new_task])
+
+            if existing_task.interval_seconds != new_task.interval_seconds:
+                self._scheduler.reschedule_job(
+                    task_type,
+                    trigger="interval",
+                    seconds=new_task.interval_seconds,
+                )
+                logger.info(
+                    f"Updated task '{task_type}' interval: "
+                    f"{existing_task.interval_seconds}s -> {new_task.interval_seconds}s"
+                )
+
+        logger.info(
+            f"Task reload complete: added={len(tasks_to_add)}, "
+            f"removed={len(tasks_to_remove)}, updated={len(tasks_to_update)}"
         )
 
     def _register_tasks(self) -> None:
@@ -158,7 +333,19 @@ class TaskScheduler:
 
     async def run(self) -> None:
         """Run the scheduler until stopped."""
+        self._event_loop = asyncio.get_running_loop()
+
         self._init_worker_cache()
+
+        # Try loading scheduler config from Nacos first, fall back to local config
+        self._init_nacos_provider()
+        nacos_scheduler_config = self._load_scheduler_config_from_nacos()
+        if nacos_scheduler_config:
+            self.scheduler_config = nacos_scheduler_config
+            logger.info("Using scheduler config from Nacos")
+        else:
+            logger.info("Using local scheduler config (Nacos not available or no scheduler section)")
+
         self._register_tasks()
 
         self._scheduler = AsyncIOScheduler(timezone=self.local_tz)
@@ -181,13 +368,21 @@ class TaskScheduler:
             self._scheduler.shutdown(wait=False)
             logger.info("Scheduler stopped")
 
+
 class SchedulerProcess:
     """Scheduler process manager - runs APScheduler in a separate process."""
 
-    def __init__(self, scheduler_config: SchedulerConfig, ray_address: str, ray_namespace: str):
+    def __init__(
+        self,
+        scheduler_config: SchedulerConfig,
+        ray_address: str,
+        ray_namespace: str,
+        nacos_config: "NacosConfig | None" = None,
+    ):
         self.scheduler_config = scheduler_config
         self.ray_address = ray_address
         self.ray_namespace = ray_namespace
+        self.nacos_config = nacos_config
         self._process: Process | None = None
         self._ctx = mp.get_context("spawn")
 
@@ -196,10 +391,11 @@ class SchedulerProcess:
         scheduler_config: SchedulerConfig,
         ray_address: str,
         ray_namespace: str,
+        nacos_config: "NacosConfig | None" = None,
     ) -> None:
         """Entry point for running scheduler in a separate process."""
         try:
-            task_scheduler = TaskScheduler(scheduler_config, ray_address, ray_namespace)
+            task_scheduler = TaskScheduler(scheduler_config, ray_address, ray_namespace, nacos_config)
             asyncio.run(task_scheduler.run())
         except (KeyboardInterrupt, SystemExit):
             logger.info("Scheduler process interrupted")
@@ -212,8 +408,8 @@ class SchedulerProcess:
 
         self._process = self._ctx.Process(
             target=self._run_scheduler_in_process,
-            args=(self.scheduler_config, self.ray_address, self.ray_namespace),
-            daemon=True,
+            args=(self.scheduler_config, self.ray_address, self.ray_namespace, self.nacos_config),
+            daemon=False,
         )
         self._process.start()
         logger.info(f"Scheduler process started with PID: {self._process.pid}")

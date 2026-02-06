@@ -26,7 +26,6 @@ from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sandbox.service.warmup_service import WarmupService
 from rock.utils import EAGLE_EYE_TRACE_ID, sandbox_id_ctx_var, trace_id_ctx_var
 from rock.utils.providers import RedisProvider
-from rock.utils.system import is_primary_pod
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--env", type=str, default="local")
@@ -93,11 +92,13 @@ async def lifespan(app: FastAPI):
         set_warmup_service(warmup_service)
         set_env_service(sandbox_manager)
 
-        if rock_config.scheduler.enabled and is_primary_pod():
+        # if rock_config.scheduler.enabled and is_primary_pod():
+        if rock_config.scheduler.enabled:
             scheduler_process = SchedulerProcess(
                 scheduler_config=rock_config.scheduler,
                 ray_address=rock_config.ray.address,
                 ray_namespace=rock_config.ray.namespace,
+                nacos_config=rock_config.nacos if rock_config.nacos.endpoint else None,
             )
             scheduler_process.start()
             logger.info("Scheduler process started on primary pod")
