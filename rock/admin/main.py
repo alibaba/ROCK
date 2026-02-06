@@ -29,7 +29,6 @@ from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sandbox.service.warmup_service import WarmupService
 from rock.utils import EAGLE_EYE_TRACE_ID, sandbox_id_ctx_var, trace_id_ctx_var
 from rock.utils.providers import RedisProvider
-from rock.utils.system import is_primary_pod
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--env", type=str, default="local")
