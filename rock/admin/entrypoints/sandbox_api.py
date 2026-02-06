@@ -13,6 +13,7 @@ from rock.actions import (
     UploadResponse,
     WriteFileResponse,
 )
+from rock.actions.response import ResponseStatus
 from rock.admin.proto.request import (
     SandboxBashAction,
     SandboxCloseBashSessionRequest,
@@ -103,7 +104,10 @@ async def create_session(request: SandboxCreateBashSessionRequest) -> RockRespon
 @sandbox_router.post("/run_in_session")
 @handle_exceptions(error_message="run in session failed")
 async def run(action: SandboxBashAction) -> RockResponse[BashObservation]:
-    return RockResponse(result=await sandbox_manager.run_in_session(action))
+    result = await sandbox_manager.run_in_session(action)
+    if result.exit_code is not None and result.exit_code == -1:
+        return RockResponse(status=ResponseStatus.FAILED, error=result.failure_reason)
+    return RockResponse(result=result)
 
 
 @sandbox_router.post("/close_session")
