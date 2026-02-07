@@ -882,8 +882,22 @@ class Sandbox(AbstractSandbox):
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     async def close_session(self, request: CloseSessionRequest) -> CloseSessionResponse:
-        # TODO: implement this
-        pass
+        url = f"{self._url}/close_session"
+        headers = self._build_headers()
+        data = {
+            "sandbox_id": self.sandbox_id,
+            **request.model_dump(),
+        }
+        try:
+            response = await HttpUtils.post(url, headers, data)
+        except Exception as e:
+            raise Exception(f"Failed to close session: {str(e)}, post url {url}")
+
+        logging.debug(f"Close session response: {response}")
+        if "Success" != response.get("status"):
+            raise Exception(f"Failed to close session: {response}")
+        result: dict = response.get("result")  # type: ignore
+        return CloseSessionResponse(**result)
 
     async def close(self) -> CloseResponse:
         await self.stop()
