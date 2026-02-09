@@ -422,6 +422,7 @@ class SandboxProxyService:
         headers: Headers,
     ) -> JSONResponse | StreamingResponse | Response:
         """HTTP POST proxy that supports both streaming (SSE) and non-streaming responses."""
+        await self._update_expire_time(sandbox_id)
 
         EXCLUDED_HEADERS = {"host", "content-length", "transfer-encoding"}
 
