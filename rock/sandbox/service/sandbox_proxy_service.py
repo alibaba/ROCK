@@ -414,19 +414,18 @@ class SandboxProxyService:
                 return False
         return True
 
-    async def http_proxy(
+    async def post_proxy(
         self,
         sandbox_id: str,
         target_path: str,
-        method: str,
         body: dict | None,
         headers: Headers,
     ) -> JSONResponse | StreamingResponse | Response:
-        """Generic HTTP proxy method that supports both streaming (SSE) and non-streaming responses."""
+        """HTTP POST proxy that supports both streaming (SSE) and non-streaming responses."""
 
         EXCLUDED_HEADERS = {"host", "content-length", "transfer-encoding"}
 
-        def filter_headers(raw_headers) -> dict:
+        def filter_headers(raw_headers: Headers) -> dict:
             return {k: v for k, v in raw_headers.items() if k.lower() not in EXCLUDED_HEADERS}
 
         status_list = await self.get_service_status(sandbox_id)
@@ -444,7 +443,7 @@ class SandboxProxyService:
         try:
             resp = await client.send(
                 client.build_request(
-                    method=method,
+                    method="POST",
                     url=target_url,
                     json=payload,
                     headers=request_headers,

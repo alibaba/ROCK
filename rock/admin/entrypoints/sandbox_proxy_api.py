@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import Any
 
-from fastapi import APIRouter, File, Form, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, File, Form, Request, UploadFile, WebSocket, WebSocketDisconnect
 
 from rock.actions import (
     BashObservation,
@@ -131,9 +131,13 @@ async def get_token():
     return RockResponse(result=result)
 
 
+@sandbox_proxy_router.post("/sandboxes/{sandbox_id}/proxy")
 @sandbox_proxy_router.post("/sandboxes/{sandbox_id}/proxy/{path:path}")
-@sandbox_proxy_router.get("/sandboxes/{sandbox_id}/proxy/{path:path}")
-@handle_exceptions(error_message="http proxy failed")
-async def http_proxy(sandbox_id: str, path: str, request: Request, body: dict[str, Any] = None):
-    method = request.method
-    return await sandbox_proxy_service.http_proxy(sandbox_id, path, method, body, request.headers)
+@handle_exceptions(error_message="post proxy failed")
+async def post_proxy(
+    sandbox_id: str,
+    request: Request,
+    path: str = "",
+    body: dict[str, Any] = Body(None),
+):
+    return await sandbox_proxy_service.post_proxy(sandbox_id, path, body, request.headers)
