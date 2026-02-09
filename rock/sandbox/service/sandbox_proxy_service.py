@@ -1,6 +1,8 @@
 import asyncio  # noqa: I001
 import json
 import time
+from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.datastructures import Headers
 
 import httpx
 import oss2
@@ -411,3 +413,71 @@ class SandboxProxyService:
             if filter_key not in sandbox_info or sandbox_info[filter_key] != filter_value:
                 return False
         return True
+
+    async def http_proxy(
+        self,
+        sandbox_id: str,
+        target_path: str,
+        method: str,
+        body: dict | None,
+        headers: Headers,
+    ) -> JSONResponse | StreamingResponse:
+        """Generic HTTP proxy method that supports both streaming (SSE) and non-streaming responses."""
+
+        EXCLUDED_HEADERS = {"host", "content-length", "transfer-encoding"}
+
+        def filter_headers(raw_headers) -> dict:
+            """Remove hop-by-hop / unsafe headers that should not be forwarded."""
+            return {k: v for k, v in raw_headers.items() if k.lower() not in EXCLUDED_HEADERS}
+
+        status_list = await self.get_service_status(sandbox_id)
+        service_status = ServiceStatus.from_dict(status_list[0])
+
+        host_ip = status_list[0].get("host_ip")
+        port = service_status.get_mapped_port(Port.SERVER)
+        target_url = f"http://{host_ip}:{port}/{target_path}"
+
+        request_headers = filter_headers(headers)
+        payload = body or {}
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(None)) as client:
+            response = await client.request(
+                method=method,
+                url=target_url,
+                json=payload,
+                headers=request_headers,
+                timeout=120,
+            )
+
+            response_headers = filter_headers(response.headers)
+            content_type = response.headers.get("content-type", "")
+            is_sse = "text/event-stream" in content_type
+
+            if is_sse:
+
+                async def event_stream():
+                    """Stream SSE bytes from upstream to downstream."""
+                    if response.status_code >= 400:
+                        # For error responses, forward the full payload and stop streaming.
+                        yield await response.aread()
+                        return
+
+                    async for chunk in response.aiter_bytes():
+                        if chunk:
+                            yield chunk
+
+                return StreamingResponse(
+                    event_stream(),
+                    media_type="text/event-stream",
+                    headers=response_headers,
+                )
+
+            # Non-streaming: read full body and return as JSON when appropriate.
+            raw_content = await response.aread()
+            content = response.json() if "application/json" in content_type else raw_content
+
+            return JSONResponse(
+                status_code=response.status_code,
+                content=content,
+                headers=response_headers,
+            )
