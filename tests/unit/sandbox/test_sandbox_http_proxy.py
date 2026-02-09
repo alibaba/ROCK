@@ -30,11 +30,27 @@ class Handler(BaseHTTPRequestHandler):
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length) if content_length else b"{}"
         data = json.loads(body)
-        response = {"path": self.path, "echo": data}
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps(response).encode())
+
+        if self.path == "/stream":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            for i in range(3):
+                chunk = {"index": i, "echo": data}
+                self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
+                self.wfile.flush()
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+        else:
+            response = {"path": self.path, "echo": data}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode())
+
+    def log_message(self, format, *args):
+        pass
 
 HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
 """
@@ -123,6 +139,38 @@ async def test_post_proxy(sandbox_manager: SandboxManager, sandbox_proxy_service
         response_body = json.loads(result.body)
         assert response_body["echo"] == {}
         assert response_body["path"] == "/health"
+
+        # Test SSE streaming response
+        result = await sandbox_proxy_service.post_proxy(
+            sandbox_id=sandbox_id,
+            target_path="stream",
+            body={"msg": "hello"},
+            headers=mock_headers,
+        )
+        assert result.status_code == 200
+        assert result.media_type == "text/event-stream"
+
+        # Collect all streamed chunks
+        chunks = []
+        async for chunk in result.body_iterator:
+            if isinstance(chunk, bytes):
+                chunk = chunk.decode()
+            chunks.append(chunk)
+
+        full_response = "".join(chunks)
+        logger.info(f"streaming response: {full_response}")
+
+        # Verify SSE format and content
+        assert "data: [DONE]" in full_response
+
+        events = [line for line in full_response.strip().split("\n\n") if line.startswith("data: ")]
+        data_events = [e for e in events if e != "data: [DONE]"]
+
+        assert len(data_events) == 3
+        for i, event in enumerate(data_events):
+            event_data = json.loads(event.replace("data: ", ""))
+            assert event_data["index"] == i
+            assert event_data["echo"] == {"msg": "hello"}
 
     finally:
         try:
