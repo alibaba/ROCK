@@ -37,6 +37,7 @@ async def managed_sandbox(
     image: str = "python:3.11",
     memory: str = "2g",
     cpus: float = 0.5,
+    auto_clear_seconds: int = 60 * 60,
 ):
     """Context manager that handles sandbox lifecycle with read/write separation.
 
@@ -53,7 +54,13 @@ async def managed_sandbox(
     base_url = "http://127.0.0.1:9000"
     proxy_url = "http://127.0.0.1:9001/apis/envs/sandbox/v1"
 
-    config = SandboxConfig(base_url=base_url, image=image, memory=memory, cpus=cpus)
+    config = SandboxConfig(
+        base_url=base_url,
+        image=image,
+        memory=memory,
+        cpus=cpus,
+        auto_clear_seconds=auto_clear_seconds,
+    )
     sandbox = Sandbox(config)
 
     # Write operation: create sandbox via admin server
