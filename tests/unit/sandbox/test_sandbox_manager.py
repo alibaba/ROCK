@@ -143,7 +143,7 @@ async def test_get_system_resource_info(sandbox_manager):
 @pytest.mark.asyncio
 async def test_get_status_state(sandbox_manager):
     response = await sandbox_manager.start_async(
-        DockerDeploymentConfig(),
+        DockerDeploymentConfig(cpus=0.5, memory="1g"),
     )
     sandbox_id = response.sandbox_id
     await check_sandbox_status_until_alive(sandbox_manager, sandbox_id)
@@ -157,7 +157,9 @@ async def test_get_status_state(sandbox_manager):
 async def test_sandbox_start_with_sandbox_id(sandbox_manager):
     try:
         sandbox_id = uuid.uuid4().hex
-        response = await sandbox_manager.start_async(DockerDeploymentConfig(container_name=sandbox_id))
+        response = await sandbox_manager.start_async(
+            DockerDeploymentConfig(container_name=sandbox_id, cpus=0.5, memory="1g")
+        )
         assert response.sandbox_id == sandbox_id
         await check_sandbox_status_until_alive(sandbox_manager, sandbox_id)
         with pytest.raises(BadRequestRockError) as e:
