@@ -18,7 +18,7 @@ from rock.sdk.sandbox.config import SandboxConfig
 #
 # Prerequisites:
 #   1. Start Redis:
-#      docker run -d --name redis-local -p 6379:6379 redis:latest
+#      docker run -d -p 6379:6379 redis/redis-stack-server:latest
 #   2. Start admin server:
 #      rock admin start --env local-proxy --role admin --port 8080
 #   3. Start proxy server:
