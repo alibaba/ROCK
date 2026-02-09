@@ -9,7 +9,7 @@ import oss2
 import websockets
 from aliyunsdkcore import client
 from aliyunsdkcore.request import CommonRequest
-from fastapi import UploadFile
+from fastapi import Response, UploadFile
 from starlette.status import HTTP_504_GATEWAY_TIMEOUT
 
 from rock import env_vars
@@ -421,13 +421,12 @@ class SandboxProxyService:
         method: str,
         body: dict | None,
         headers: Headers,
-    ) -> JSONResponse | StreamingResponse:
+    ) -> JSONResponse | StreamingResponse | Response:
         """Generic HTTP proxy method that supports both streaming (SSE) and non-streaming responses."""
 
         EXCLUDED_HEADERS = {"host", "content-length", "transfer-encoding"}
 
         def filter_headers(raw_headers) -> dict:
-            """Remove hop-by-hop / unsafe headers that should not be forwarded."""
             return {k: v for k, v in raw_headers.items() if k.lower() not in EXCLUDED_HEADERS}
 
         status_list = await self.get_service_status(sandbox_id)
@@ -440,44 +439,66 @@ class SandboxProxyService:
         request_headers = filter_headers(headers)
         payload = body or {}
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(None)) as client:
-            response = await client.request(
-                method=method,
-                url=target_url,
-                json=payload,
-                headers=request_headers,
-                timeout=120,
+        client = httpx.AsyncClient(timeout=httpx.Timeout(None))
+
+        try:
+            resp = await client.send(
+                client.build_request(
+                    method=method,
+                    url=target_url,
+                    json=payload,
+                    headers=request_headers,
+                    timeout=120,
+                ),
+                stream=True,
             )
+        except Exception:
+            await client.aclose()
+            raise
 
-            response_headers = filter_headers(response.headers)
-            content_type = response.headers.get("content-type", "")
-            is_sse = "text/event-stream" in content_type
+        content_type = resp.headers.get("content-type", "")
+        is_sse = "text/event-stream" in content_type
+        response_headers = filter_headers(resp.headers)
 
-            if is_sse:
+        if is_sse:
 
-                async def event_stream():
-                    """Stream SSE bytes from upstream to downstream."""
-                    if response.status_code >= 400:
-                        # For error responses, forward the full payload and stop streaming.
-                        yield await response.aread()
+            async def event_stream():
+                """Forward upstream bytes to downstream as soon as they arrive."""
+                try:
+                    if resp.status_code >= 400:
+                        yield await resp.aread()
                         return
 
-                    async for chunk in response.aiter_bytes():
+                    async for chunk in resp.aiter_bytes():
                         if chunk:
                             yield chunk
+                finally:
+                    await resp.aclose()
+                    await client.aclose()
 
-                return StreamingResponse(
-                    event_stream(),
-                    media_type="text/event-stream",
+            return StreamingResponse(
+                event_stream(),
+                status_code=resp.status_code,
+                media_type="text/event-stream",
+                headers=response_headers,
+            )
+
+        try:
+            raw_content = await resp.aread()
+
+            if "application/json" in content_type:
+                return JSONResponse(
+                    status_code=resp.status_code,
+                    content=resp.json(),
                     headers=response_headers,
                 )
 
-            # Non-streaming: read full body and return as JSON when appropriate.
-            raw_content = await response.aread()
-            content = response.json() if "application/json" in content_type else raw_content
-
-            return JSONResponse(
-                status_code=response.status_code,
-                content=content,
+            return Response(
+                status_code=resp.status_code,
+                content=raw_content,
+                media_type=content_type or "application/octet-stream",
                 headers=response_headers,
             )
+        finally:
+            await resp.aclose()
+            await client.aclose()
