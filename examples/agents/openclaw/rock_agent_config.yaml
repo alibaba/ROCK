@@ -1,0 +1,15 @@
+working_dir: "."
+
+run_cmd: OPENCLAW_CONFIG_PATH=${working_dir}/openclaw.json nohup openclaw gateway >> /root/gateway.log 2>&1 &
+
+runtime_env_config:
+  type: node
+  npm_registry: https://registry.npmmirror.com
+  custom_install_cmd: npm install -g openclaw@latest
+  install_timeout: 1200
+
+env:
+  OPENAI_BASE_URL: <<OPENAI_BASE_URL>> # Replace
+  OPENAI_API_KEY: <<OPENAI_API_KEY>> # Replace
+  OPENAI_MODEL_NAME: <<OPENAI_MODEL_NAME>> # Replace
+  OPENCLAW_GATEWAY_TOKEN: <<OPENCLAW_GATEWAY_TOKEN>> # Enter your OpenClaw Gateway token, for example: "OPENCLAW"
