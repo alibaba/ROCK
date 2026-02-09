@@ -29,9 +29,11 @@ class AdminCommand(CliCommand):
 
     async def _admin_start(self, args: argparse.Namespace):
         """Start admin service"""
-        env = getattr(args, "env", None)
+        env = getattr(args, "env", "local")
+        role = getattr(args, "role", "admin")
+        port = getattr(args, "port", 8080)
 
-        subprocess.Popen(["admin", "--env", env])
+        subprocess.Popen(["admin", "--env", env, "--role", role, "--port", str(port)])
 
     async def _admin_stop(self, args: argparse.Namespace):
         """Stop admin service"""
@@ -112,6 +114,10 @@ class AdminCommand(CliCommand):
         # admin start
         admin_start_parser = admin_subparsers.add_parser("start", help="Start admin service")
         admin_start_parser.add_argument("--env", default="local", help="admin service env")
+        admin_start_parser.add_argument(
+            "--role", default="admin", choices=["admin", "proxy"], help="admin service role (admin or proxy)"
+        )
+        admin_start_parser.add_argument("--port", type=int, default=8080, help="admin service port")
 
         # admin stop
         admin_subparsers.add_parser("stop", help="Stop admin service")

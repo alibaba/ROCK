@@ -1,0 +1,15 @@
+ray:
+    runtime_env:
+        working_dir: ./
+        pip: ./requirements_sandbox_actor.txt
+    namespace: "rock-sandbox-local"
+
+warmup:
+    images:
+      - "python:3.11"
+
+# to start admin proxy in local, redis is required
+# quickest way to start redis local: "docker run -d --name redis-dev -p 6379:6379 redis:latest"
+redis:
+    host: localhost
+    port: 6379
