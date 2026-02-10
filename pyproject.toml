@@ -46,7 +46,8 @@ admin = [
     "boto3",
     "ray[default]==2.43.0",
     "pip",
-    "cryptography==39.0.1"
+    "cryptography==39.0.1",
+    "kubernetes>=35.0.0",  # For K8S operator support
 ]
 
 rocklet = [

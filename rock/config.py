@@ -105,6 +105,14 @@ class SchedulerConfig:
 
 
 @dataclass
+class K8sConfig:
+    """Kubernetes configuration for K8s operator."""
+    kubeconfig_path: str | None = None
+    namespace: str = 'rock'
+    templates: dict[str, dict] = field(default_factory=dict)
+
+
+@dataclass
 class RuntimeConfig:
     enable_auto_clear: bool = False
     project_root: str = field(default_factory=lambda: env_vars.ROCK_PROJECT_ROOT)
@@ -139,6 +147,7 @@ class RuntimeConfig:
 @dataclass
 class RockConfig:
     ray: RayConfig = field(default_factory=RayConfig)
+    k8s: K8sConfig = field(default_factory=K8sConfig)
     warmup: WarmupConfig = field(default_factory=WarmupConfig)
     nacos: NacosConfig = field(default_factory=NacosConfig)
     redis: RedisConfig = field(default_factory=RedisConfig)
@@ -170,6 +179,8 @@ class RockConfig:
         kwargs = {}
         if "ray" in config:
             kwargs["ray"] = RayConfig(**config["ray"])
+        if "k8s" in config:
+            kwargs["k8s"] = K8sConfig(**config["k8s"])
         if "warmup" in config:
             kwargs["warmup"] = WarmupConfig(**config["warmup"])
         if "nacos" in config:

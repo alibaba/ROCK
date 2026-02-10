@@ -13,7 +13,7 @@ async def run_sandbox():
     Default admin server port is 8080.
     """
     # Create sandbox configuration
-    config = SandboxConfig(image="python:3.11", memory="8g", cpus=2.0)
+    config = SandboxConfig(image="hub.docker.alibaba-inc.com/chatos/python:3.11", memory="2g", cpus=1.0)
 
     # Create sandbox instance
     sandbox = Sandbox(config)
