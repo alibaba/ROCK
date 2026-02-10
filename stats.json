@@ -992,5 +992,19 @@
       "total": 253,
       "open": 7
     }
+  },
+  "2026-02-10": {
+    "stars": 327,
+    "forks": 37,
+    "contributors": 13,
+    "issues": {
+      "total": 202,
+      "open": 57,
+      "fixRate": 71
+    },
+    "prs": {
+      "total": 260,
+      "open": 8
+    }
   }
 }
