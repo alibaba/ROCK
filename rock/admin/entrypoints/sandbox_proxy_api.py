@@ -1,7 +1,8 @@
 import asyncio
 import logging
+from typing import Any
 
-from fastapi import APIRouter, File, Form, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, File, Form, Request, UploadFile, WebSocket, WebSocketDisconnect
 
 from rock.actions import (
     BashObservation,
@@ -35,6 +36,7 @@ sandbox_proxy_service: SandboxProxyService
 def set_sandbox_proxy_service(service: SandboxProxyService):
     global sandbox_proxy_service
     sandbox_proxy_service = service
+
 
 @sandbox_proxy_router.post("/execute")
 @handle_exceptions(error_message="execute command failed")
@@ -127,3 +129,15 @@ async def websocket_proxy(websocket: WebSocket, id: str, path: str = ""):
 async def get_token():
     result = await asyncio.to_thread(sandbox_proxy_service.gen_oss_sts_token)
     return RockResponse(result=result)
+
+
+@sandbox_proxy_router.post("/sandboxes/{sandbox_id}/proxy")
+@sandbox_proxy_router.post("/sandboxes/{sandbox_id}/proxy/{path:path}")
+@handle_exceptions(error_message="post proxy failed")
+async def post_proxy(
+    sandbox_id: str,
+    request: Request,
+    path: str = "",
+    body: dict[str, Any] = Body(None),
+):
+    return await sandbox_proxy_service.post_proxy(sandbox_id, path, body, request.headers)

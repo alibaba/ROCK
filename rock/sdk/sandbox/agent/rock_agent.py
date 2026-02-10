@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import yaml
 from httpx import ReadTimeout
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 
 from rock import env_vars
 from rock.actions import CreateBashSessionRequest, Observation
@@ -96,31 +96,6 @@ class RockAgentConfig(AgentConfig):
 
     model_service_config: ModelServiceConfig = Field(default_factory=ModelServiceConfig)
     """ModelService configuration for LLM integration."""
-
-    @field_validator("run_cmd")
-    @classmethod
-    def _validate_run_cmd(cls, v: str | None) -> str | None:
-        """Validate run_cmd contains required {prompt} placeholder.
-
-        Args:
-            v: The run command string.
-
-        Returns:
-            The validated run command.
-
-        Raises:
-            ValueError: If run_cmd is provided but doesn't contain {prompt}.
-        """
-        if v is not None:
-            if "{prompt}" not in v:
-                raise ValueError(f"run_cmd must contain exactly one {{prompt}} placeholder. Got: {v!r}")
-            # Check for exactly one occurrence
-            prompt_count = v.count("{prompt}")
-            if prompt_count != 1:
-                raise ValueError(
-                    f"run_cmd must contain exactly one {{prompt}} placeholder, found {prompt_count}. Got: {v!r}"
-                )
-        return v
 
     @model_validator(mode="after")
     def _validate_timeout_consistency(self) -> RockAgentConfig:

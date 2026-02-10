@@ -120,6 +120,14 @@ class Sandbox(AbstractSandbox):
     def cluster(self) -> str:
         return self._cluster
 
+    @property
+    def url(self) -> str:
+        return self._url
+
+    @url.setter
+    def url(self, value: str):
+        self._url = value
+
     def _build_headers(self) -> dict[str, str]:
         """Build basic request headers."""
         headers = {

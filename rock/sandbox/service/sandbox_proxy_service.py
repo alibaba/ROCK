@@ -1,13 +1,15 @@
 import asyncio  # noqa: I001
 import json
 import time
+from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.datastructures import Headers
 
 import httpx
 import oss2
 import websockets
 from aliyunsdkcore import client
 from aliyunsdkcore.request import CommonRequest
-from fastapi import UploadFile
+from fastapi import Response, UploadFile
 from starlette.status import HTTP_504_GATEWAY_TIMEOUT
 
 from rock import env_vars
@@ -411,3 +413,92 @@ class SandboxProxyService:
             if filter_key not in sandbox_info or sandbox_info[filter_key] != filter_value:
                 return False
         return True
+
+    async def post_proxy(
+        self,
+        sandbox_id: str,
+        target_path: str,
+        body: dict | None,
+        headers: Headers,
+    ) -> JSONResponse | StreamingResponse | Response:
+        """HTTP POST proxy that supports both streaming (SSE) and non-streaming responses."""
+        await self._update_expire_time(sandbox_id)
+
+        EXCLUDED_HEADERS = {"host", "content-length", "transfer-encoding"}
+
+        def filter_headers(raw_headers: Headers) -> dict:
+            return {k: v for k, v in raw_headers.items() if k.lower() not in EXCLUDED_HEADERS}
+
+        status_list = await self.get_service_status(sandbox_id)
+        service_status = ServiceStatus.from_dict(status_list[0])
+
+        host_ip = status_list[0].get("host_ip")
+        port = service_status.get_mapped_port(Port.SERVER)
+        target_url = f"http://{host_ip}:{port}/{target_path}"
+
+        request_headers = filter_headers(headers)
+        payload = body or {}
+
+        client = httpx.AsyncClient(timeout=httpx.Timeout(None))
+
+        try:
+            resp = await client.send(
+                client.build_request(
+                    method="POST",
+                    url=target_url,
+                    json=payload,
+                    headers=request_headers,
+                    timeout=120,
+                ),
+                stream=True,
+            )
+        except Exception:
+            await client.aclose()
+            raise
+
+        content_type = resp.headers.get("content-type", "")
+        is_sse = "text/event-stream" in content_type
+        response_headers = filter_headers(resp.headers)
+
+        if is_sse:
+
+            async def event_stream():
+                """Forward upstream bytes to downstream as soon as they arrive."""
+                try:
+                    if resp.status_code >= 400:
+                        yield await resp.aread()
+                        return
+
+                    async for chunk in resp.aiter_bytes():
+                        if chunk:
+                            yield chunk
+                finally:
+                    await resp.aclose()
+                    await client.aclose()
+
+            return StreamingResponse(
+                event_stream(),
+                status_code=resp.status_code,
+                media_type="text/event-stream",
+                headers=response_headers,
+            )
+
+        try:
+            raw_content = await resp.aread()
+
+            if "application/json" in content_type:
+                return JSONResponse(
+                    status_code=resp.status_code,
+                    content=resp.json(),
+                    headers=response_headers,
+                )
+
+            return Response(
+                status_code=resp.status_code,
+                content=raw_content,
+                media_type=content_type or "application/octet-stream",
+                headers=response_headers,
+            )
+        finally:
+            await resp.aclose()
+            await client.aclose()
