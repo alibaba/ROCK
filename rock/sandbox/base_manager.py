@@ -31,7 +31,10 @@ class BaseManager:
         self.rock_config = rock_config
         self._executor = get_executor()
         self._redis_provider = redis_provider
-        self.metrics_monitor = MetricsMonitor.create(export_interval_millis=20_000)
+        self.metrics_monitor = MetricsMonitor.create(
+            export_interval_millis=20_000,
+            metrics_endpoint=rock_config.runtime.metrics_endpoint,
+        )
         self._report_interval = 10
         self._check_job_interval = 180
         self._sandbox_meta = {}

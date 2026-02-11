@@ -24,25 +24,36 @@ class MetricsMonitor:
         env: str = "daily",
         role: str = "test",
         export_interval_millis: int = 10000,
+        endpoint: str = "",
     ):
         patch_view_instrument_match()
         self._init_basic_attributes(host, port, pod, env, role)
+        self.endpoint = endpoint or f"http://{self.host}:{self.port}/v1/metrics"
         self._init_telemetry(export_interval_millis)
         self.counters: dict[str, Counter] = {}
         self.gauges: dict[str, _Gauge] = {}
         self._register_metrics()
         logger.info(
-            f"Initializing MetricsCollector with host={host}, port={port}, pod={pod}, " f"env={env}, role={role}"
+            f"Initializing MetricsCollector with host={host}, port={port}, pod={pod}, "
+            f"env={env}, role={role}, endpoint={self.endpoint}"
         )
 
     @classmethod
-    def create(cls, export_interval_millis: int = 20000) -> "MetricsMonitor":
+    def create(cls, export_interval_millis: int = 20000, metrics_endpoint: str = "") -> "MetricsMonitor":
         host, port = get_uniagent_endpoint()
         pod = get_instance_id()
         env = env_vars.ROCK_ADMIN_ENV
         role = env_vars.ROCK_ADMIN_ROLE
         logger.info(f"Initializing MetricsCollector with host={host}, port={port}, " f"env={env}, role={role}")
-        return cls(host=host, port=port, pod=pod, env=env, role=role, export_interval_millis=export_interval_millis)
+        return cls(
+            host=host,
+            port=port,
+            pod=pod,
+            env=env,
+            role=role,
+            export_interval_millis=export_interval_millis,
+            endpoint=metrics_endpoint,
+        )
 
     def _register_metrics(self):
         """Register all monitoring metrics"""
@@ -61,9 +72,15 @@ class MetricsMonitor:
         )
         # Single sandbox resource utilization metrics (percentage of allocated resources)
         self._register_gauge(MetricsConstants.SANDBOX_CPU, "Single sandbox CPU usage percentage of allocated resources")
-        self._register_gauge(MetricsConstants.SANDBOX_MEM, "Single sandbox memory usage percentage of allocated resources")
-        self._register_gauge(MetricsConstants.SANDBOX_DISK, "Single sandbox disk usage percentage of allocated resources")
-        self._register_gauge(MetricsConstants.SANDBOX_NET, "Single sandbox network usage percentage of allocated resources")
+        self._register_gauge(
+            MetricsConstants.SANDBOX_MEM, "Single sandbox memory usage percentage of allocated resources"
+        )
+        self._register_gauge(
+            MetricsConstants.SANDBOX_DISK, "Single sandbox disk usage percentage of allocated resources"
+        )
+        self._register_gauge(
+            MetricsConstants.SANDBOX_NET, "Single sandbox network usage percentage of allocated resources"
+        )
 
         # Ray cluster resource metrics (total and available resources)
         self._register_gauge(MetricsConstants.TOTAL_CPU_RESOURCE, "Total CPU resource in Ray cluster")
@@ -100,7 +117,7 @@ class MetricsMonitor:
         if self.env == "dev":
             self.metric_reader = InMemoryMetricReader()
         else:
-            self.otlp_exporter = OTLPMetricExporter(endpoint=f"http://{self.host}:{self.port}/v1/metrics")
+            self.otlp_exporter = OTLPMetricExporter(endpoint=self.endpoint)
             self.metric_reader = PeriodicExportingMetricReader(
                 self.otlp_exporter,
                 export_interval_millis=export_interval_millis,

@@ -1,0 +1,53 @@
+{
+  "agents": {
+    "defaults": {
+      "maxConcurrent": 4,
+      "subagents": { "maxConcurrent": 8 },
+      "compaction": { "mode": "safeguard" },
+      "workspace": "/root/.openclaw/workspace",
+      "model": {
+        "primary": "custom_openai/${OPENAI_MODEL_NAME}"
+      }
+    }
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "custom_openai": {
+        "baseUrl": "${OPENAI_BASE_URL}",
+        "apiKey": "${OPENAI_API_KEY}",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "${OPENAI_MODEL_NAME}",
+            "name": "${OPENAI_MODEL_NAME}"
+          }
+        ]
+      }
+    }
+  },
+  "gateway": {
+    "mode": "local",
+    "auth": {
+      "mode": "token",
+      "token": "${OPENCLAW_GATEWAY_TOKEN}"
+    },
+    "port": 8080,
+    "bind": "lan",
+    "controlUi": {
+      "enabled": true,
+      "allowInsecureAuth": true
+    },
+    "http": {
+      "endpoints": {
+        "chatCompletions": { "enabled": true }
+      }
+    },
+    "trustedProxies": [
+      "127.0.0.1/32",
+      "172.17.0.0/16"
+    ]
+  },
+  "plugins": { "entries": {} },
+  "messages": { "ackReactionScope": "group-mentions" }
+}

@@ -111,8 +111,10 @@ class RuntimeConfig:
     project_root: str = field(default_factory=lambda: env_vars.ROCK_PROJECT_ROOT)
     python_env_path: str = field(default_factory=lambda: env_vars.ROCK_PYTHON_ENV_PATH)
     envhub_db_url: str = field(default_factory=lambda: env_vars.ROCK_ENVHUB_DB_URL)
+    operator_type: str = "ray"
     standard_spec: StandardSpec = field(default_factory=StandardSpec)
     max_allowed_spec: StandardSpec = field(default_factory=lambda: StandardSpec(cpus=16, memory="64g"))
+    metrics_endpoint: str = ""
 
     def __post_init__(self) -> None:
         # Convert dict to StandardSpec if needed
