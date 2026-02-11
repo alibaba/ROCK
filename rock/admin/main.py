@@ -80,6 +80,7 @@ async def lifespan(app: FastAPI):
         operator_context = OperatorContext(
             runtime_config=rock_config.runtime,
             ray_service=ray_service,
+            k8s_config=rock_config.k8s,
         )
         operator = OperatorFactory.create_operator(operator_context)
 
