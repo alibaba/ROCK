@@ -113,6 +113,7 @@ class RuntimeConfig:
     operator_type: str = "ray"
     standard_spec: StandardSpec = field(default_factory=StandardSpec)
     max_allowed_spec: StandardSpec = field(default_factory=lambda: StandardSpec(cpus=16, memory="64g"))
+    metrics_endpoint: str = ""
 
     def __post_init__(self) -> None:
         # Convert dict to StandardSpec if needed
