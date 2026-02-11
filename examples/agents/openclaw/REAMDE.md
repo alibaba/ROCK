@@ -1,8 +1,9 @@
 # OpenClaw Demo Guide
 
-## Prerequisites
+## Prerequisites(Important)
 
-> If you don't have a running ROCK server, please follow the Quick Start guide to set one up first.
+> If you don't have a running ROCK server, please follow the [Quick Start guide](https://alibaba.github.io/ROCK/docs/Getting%20Started/quickstart/) to try set one up first.
+
 
 ## 1. Activate Virtual Environment
 

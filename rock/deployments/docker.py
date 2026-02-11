@@ -145,6 +145,23 @@ class DockerDeployment(AbstractDeployment):
     def _get_token(self) -> str:
         return str(uuid.uuid4())
 
+    def _build_runtime_args(self) -> list[str]:
+        """Build runtime-specific docker arguments.
+
+        Returns kata runtime args if use_kata_runtime is enabled,
+        otherwise returns the default --privileged flag.
+        """
+        if self._config.use_kata_runtime:
+            return [
+                "--cap-add=ALL",
+                "--security-opt",
+                "seccomp=unconfined",
+                "--runtime=io.containerd.kata.v2",
+                "--sysctl",
+                "net.ipv4.ip_forward=1",
+            ]
+        return ["--privileged"]
+
     def _get_rocklet_start_cmd(self) -> list[str]:
         cmd = self._runtime_env.get_rocklet_start_cmd()
 
@@ -314,6 +331,7 @@ class DockerDeployment(AbstractDeployment):
         env_arg.extend(["-e", f"ROCK_TIME_ZONE={env_vars.ROCK_TIME_ZONE}"])
 
         time.sleep(random.randint(0, 5))
+        runtime_args = self._build_runtime_args()
         cmds = [
             "docker",
             "run",
@@ -322,7 +340,7 @@ class DockerDeployment(AbstractDeployment):
             *env_arg,
             *rm_arg,
             *volume_args,
-            "--privileged",
+            *runtime_args,
             "-p",
             f"{self._config.port}:{Port.PROXY}",
             "-p",
