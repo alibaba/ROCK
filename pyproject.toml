@@ -46,7 +46,8 @@ admin = [
     "boto3",
     "ray[default]==2.43.0",
     "pip",
-    "cryptography==39.0.1"
+    "cryptography==39.0.1",
+    "fakeredis[json]",
 ]
 
 rocklet = [
@@ -111,7 +112,6 @@ test = [
     "pytest-trio",
     "pytest-twisted",
     "pytest-env",
-    "fakeredis[json]",
 ]
 
 [tool.setuptools.packages.find]

@@ -54,6 +54,11 @@ async def lifespan(app: FastAPI):
     # init redis provider
     if args.env == "local":
         redis_provider = None
+    elif args.env == "test":
+        from fakeredis import aioredis
+
+        redis_provider = RedisProvider(host=None, port=None, password="")
+        redis_provider.client = aioredis.FakeRedis(decode_responses=True)
     else:
         redis_provider = RedisProvider(
             host=rock_config.redis.host,
