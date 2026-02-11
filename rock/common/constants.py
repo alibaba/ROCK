@@ -1,4 +1,5 @@
 GET_STATUS_SWITCH = "get_status_v2_enabled"
+KATA_RUNTIME_SWITCH = "kata_runtime_enabled"
 PID_PREFIX = "PIDSTART"
 PID_SUFFIX = "PIDEND"
 SCHEDULER_LOG_NAME = "scheduler.log"

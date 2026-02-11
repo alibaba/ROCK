@@ -37,6 +37,7 @@ from rock.sandbox import __version__ as gateway_version
 from rock.sandbox.base_manager import BaseManager
 from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.sandbox_actor import SandboxActor
+from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
 from rock.utils import (
     EAGLE_EYE_TRACE_ID,
@@ -71,6 +72,7 @@ class SandboxManager(BaseManager):
         self._ray_namespace = ray_namespace
         self._operator = operator
         self._aes_encrypter = AESEncryption()
+        self._proxy_service = SandboxProxyService(rock_config=rock_config, redis_provider=redis_provider)
         if redis_provider:
             self._operator.set_redis_provider(redis_provider)
         logger.info("sandbox service init success")
@@ -318,63 +320,28 @@ class SandboxManager(BaseManager):
         return ServiceStatus()
 
     async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
-        actor_name = self.deployment_manager.get_actor_name(request.sandbox_id)
-        sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {request.sandbox_id} not found to create session")
-        await self._update_expire_time(request.sandbox_id)
-        return await self._ray_service.async_ray_get(sandbox_actor.create_session.remote(request))
+        return await self._proxy_service.create_session(request)
 
     @monitor_sandbox_operation()
     async def run_in_session(self, action: Action) -> BashObservation:
-        actor_name = self.deployment_manager.get_actor_name(action.sandbox_id)
-        sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {action.sandbox_id} not found to run in session")
-        await self._update_expire_time(action.sandbox_id)
-        return await self._ray_service.async_ray_get(sandbox_actor.run_in_session.remote(action))
+        return await self._proxy_service.run_in_session(action)
 
     async def close_session(self, request: CloseBashSessionRequest) -> CloseBashSessionResponse:
-        actor_name = self.deployment_manager.get_actor_name(request.sandbox_id)
-        sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {request.sandbox_id} not found to close session")
-        await self._update_expire_time(request.sandbox_id)
-        return await self._ray_service.async_ray_get(sandbox_actor.close_session.remote(request))
+        return await self._proxy_service.close_session(request)
 
     async def execute(self, command: Command) -> CommandResponse:
-        actor_name = self.deployment_manager.get_actor_name(command.sandbox_id)
-        sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {command.sandbox_id} not found to execute")
-        await self._update_expire_time(command.sandbox_id)
-        return await self._ray_service.async_ray_get(sandbox_actor.execute.remote(command))
+        return await self._proxy_service.execute(command)
 
     async def read_file(self, request: ReadFileRequest) -> ReadFileResponse:
-        actor_name = self.deployment_manager.get_actor_name(request.sandbox_id)
-        sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {request.sandbox_id} not found to read file")
-        await self._update_expire_time(request.sandbox_id)
-        return await self._ray_service.async_ray_get(sandbox_actor.read_file.remote(request))
+        return await self._proxy_service.read_file(request)
 
     @monitor_sandbox_operation()
     async def write_file(self, request: WriteFileRequest) -> WriteFileResponse:
-        actor_name = self.deployment_manager.get_actor_name(request.sandbox_id)
-        sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {request.sandbox_id} not found to write file")
-        await self._update_expire_time(request.sandbox_id)
-        return await self._ray_service.async_ray_get(sandbox_actor.write_file.remote(request))
+        return await self._proxy_service.write_file(request)
 
     @monitor_sandbox_operation()
     async def upload(self, file: UploadFile, target_path: str, sandbox_id: str) -> UploadResponse:
-        actor_name = self.deployment_manager.get_actor_name(sandbox_id)
-        sandbox_actor = await self._ray_service.async_ray_get_actor(actor_name, self._ray_namespace)
-        if sandbox_actor is None:
-            raise Exception(f"sandbox {sandbox_id} not found to upload file")
-        await self._update_expire_time(sandbox_id)
-        return await self._ray_service.async_ray_get(sandbox_actor.upload.remote(file, target_path))
+        return await self._proxy_service.upload(file, target_path, sandbox_id)
 
     async def _is_expired(self, sandbox_id):
         timeout_dict = await self._redis_provider.json_get(timeout_sandbox_key(sandbox_id), "$")
