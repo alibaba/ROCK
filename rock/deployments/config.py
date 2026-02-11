@@ -97,6 +97,9 @@ class DockerDeploymentConfig(DeploymentConfig):
     enable_auto_clear: bool = False
     """Enable automatic container cleanup based on auto_clear_time."""
 
+    use_kata_runtime: bool = False
+    """Whether to use kata container runtime (io.containerd.kata.v2) instead of --privileged mode."""
+
     # TODO: Refine these fields in future versions
     actor_resource: str | None = None
     """Resource type for actor allocation (to be refined)."""
