@@ -194,7 +194,7 @@ class RockConfig:
     def __post_init__(self) -> None:
         logger.info(f"init RockConfig: {self}")
 
-        if self.nacos.endpoint:
+        if self.nacos.endpoint or self.nacos.server_addresses:
             self.nacos_provider = NacosConfigProvider(
                 server_addresses=self.nacos.server_addresses,
                 endpoint=self.nacos.endpoint,
