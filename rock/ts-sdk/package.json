@@ -1,0 +1,62 @@
+{
+  "name": "rl-rock",
+  "version": "1.2.1",
+  "description": "ROCK TypeScript SDK - Sandbox management and agent framework",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "sandbox",
+    "agent",
+    "llm",
+    "ai",
+    "rock"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.8.0"
+  },
+  "dependencies": {
+    "ali-oss": "^6.21.0",
+    "axios": "^1.7.9",
+    "winston": "^3.17.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/ali-oss": "^6.16.11",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.10.5",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Timandes/ROCK.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Timandes/ROCK/issues"
+  },
+  "homepage": "https://github.com/Timandes/ROCK#readme"
+}
