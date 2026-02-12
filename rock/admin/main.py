@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI):
     # init redis provider
     if args.env == "local":
         redis_provider = None
-    elif args.env == "test":
+    elif args.env == "test" or args.env == "dev":
         from fakeredis import aioredis
 
         redis_provider = RedisProvider(host=None, port=None, password="")
@@ -80,6 +80,7 @@ async def lifespan(app: FastAPI):
         operator_context = OperatorContext(
             runtime_config=rock_config.runtime,
             ray_service=ray_service,
+            k8s_config=rock_config.k8s,
         )
         operator = OperatorFactory.create_operator(operator_context)
 
