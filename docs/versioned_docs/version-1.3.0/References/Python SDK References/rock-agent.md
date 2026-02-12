@@ -88,11 +88,17 @@ use_deploy_working_dir_as_fallback: true        # Whether to fall back to deploy
 ```yaml
 run_cmd: "python main.py --prompt ${prompt}"    # Agent execution command, must contain ${prompt} (default: None)
 
+skip_wrap_run_cmd: false                       # Skip wrapping run_cmd with PATH (default: false)
+
 # Timeout configuration
 agent_install_timeout: 600                      # Installation timeout in seconds (default: 600)
 agent_run_timeout: 1800                         # Run timeout in seconds (default: 1800)
 agent_run_check_interval: 30                    # Check interval in seconds (default: 30)
 ```
+
+**`skip_wrap_run_cmd`**:
+- `false` (default): Wraps the command with `export PATH=<bin_dir>:$PATH &&` to ensure runtime environment executables are used
+- `true`: Skips PATH wrapping, runs the command directly with `bash -c`
 
 ### Initialization Hooks
 
@@ -206,6 +212,7 @@ Rock Agent supports replacing the following placeholders in the configuration fi
 
 - `${prompt}`: Required in run_cmd, will be replaced with the prompt passed to `run(prompt)`
 - `${working_dir}`: Optional, will be replaced with the actual working directory path in sandbox, also supported in init_cmds and run_cmd
+- `${bin_dir}`: Optional, will be replaced with the runtime environment's bin directory path
 
 **Example**:
 ```yaml
