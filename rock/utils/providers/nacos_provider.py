@@ -15,18 +15,20 @@ class NacosConfigProvider:
 
     def __init__(
         self,
+        server_addresses: str,
         endpoint: str,
         data_id: str,
         group: str,
         namespace: str = "",
     ):
+        self.server_addresses = server_addresses
         self.endpoint = endpoint
         self.namespace = namespace
         self.data_id = data_id
         self.group = group
         self.config_cache: Any | None = None
 
-        self.client = nacos.NacosClient(endpoint=self.endpoint, namespace=self.namespace)
+        self.client = nacos.NacosClient(server_addresses=self.server_addresses, endpoint=self.endpoint, namespace=self.namespace)
 
     async def get_config(self) -> Any:
         """
