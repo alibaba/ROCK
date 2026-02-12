@@ -72,29 +72,25 @@ class Deploy:
         return target_path
 
     def format(self, template: str, **kwargs: str) -> str:
-        """Format command template using string.Template.
+        """Format command template supporting ${} and <<>> syntax.
 
-        Args:
-            template: Command template containing placeholders like ${working_dir}.
-            **kwargs: Additional variable replacements, e.g., prompt="xxx" replaces ${prompt}.
-
-        Returns:
-            The formatted command.
-
-        Raises:
-            RuntimeError: If working_dir has not been deployed.
+        Only <<key>> where key is a known variable will be replaced.
+        Other occurrences of << >> are left untouched.
 
         Example:
-            >>> deploy.format("mv ${working_dir}/config.json /root/.app/")
-            "mv /tmp/rock_workdir_abc123/config.json /root/.app/"
+            >>> deploy.format("cat <<working_dir>>/file")
+            "cat /tmp/rock_workdir_abc123/file"
 
-            >>> deploy.format("cat ${working_dir}/${prompt}", prompt="test.txt")
-            "cat /tmp/rock_workdir_abc123/test.txt"
+            >>> deploy.format("echo $((3 << 2 >> 1))")  # 不受影响
+            "echo $((3 << 2 >> 1))"
         """
         subs = {
             **kwargs,
             **({"working_dir": self._working_dir} if self._working_dir else {}),
         }
         subs = {k: v for k, v in subs.items() if v is not None}
+
+        for key in subs:
+            template = template.replace(f"<<{key}>>", f"${{{key}}}")
 
         return Template(template).safe_substitute(subs)
