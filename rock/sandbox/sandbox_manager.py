@@ -218,7 +218,7 @@ class SandboxManager(BaseManager):
 
     @monitor_sandbox_operation()
     async def get_status(self, sandbox_id, use_rocklet: bool = False) -> SandboxStatusResponse:
-        if use_rocklet and self._redis_provider:
+        if use_rocklet and self._redis_provider and self.rock_config.runtime.operator_type != "k8s":
             sandbox_info: SandboxInfo = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
             host_ip = sandbox_info.get("host_ip")
             remote_status = await self.get_remote_status(sandbox_id, host_ip)
