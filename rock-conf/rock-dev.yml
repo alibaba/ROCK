@@ -49,9 +49,3 @@ k8s:
 runtime:
   # Operator type: 'ray' or 'k8s'
   operator_type: "k8s"
-
-# Redis configuration (required for K8s mode)
-redis:
-  host: "xxx"
-  port: xxx
-  password: "xxx"

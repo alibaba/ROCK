@@ -1,40 +1,10 @@
 """Unit tests for K8sApiClient."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
-import asyncio
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
-try:
-    from rock.sandbox.operator.k8s.api_client import K8sApiClient
-    from kubernetes import client
-    K8S_AVAILABLE = True
-except ImportError:
-    K8S_AVAILABLE = False
-
-
-pytestmark = pytest.mark.skipif(not K8S_AVAILABLE, reason="kubernetes library not available")
-
-
-@pytest.fixture
-def mock_api_client():
-    """Create mock K8S ApiClient."""
-    return MagicMock(spec=client.ApiClient)
-
-
-@pytest.fixture
-def k8s_api_client(mock_api_client):
-    """Create K8sApiClient instance."""
-    return K8sApiClient(
-        api_client=mock_api_client,
-        group="sandbox.opensandbox.io",
-        version="v1alpha1",
-        plural="batchsandboxes",
-        namespace="rock-test",
-        qps=5.0,
-        burst=10,
-        watch_timeout_seconds=60,
-        watch_reconnect_delay_seconds=5,
-    )
+from rock.sandbox.operator.k8s.api_client import K8sApiClient
 
 
 class TestK8sApiClient:

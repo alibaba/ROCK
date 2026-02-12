@@ -1,87 +1,13 @@
 """Unit tests for K8sOperator."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-
-try:
-    from rock.sandbox.operator.k8s.operator import K8sOperator
-    K8S_AVAILABLE = True
-except ImportError:
-    K8S_AVAILABLE = False
 
 from rock.actions.sandbox.response import State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.config import K8sConfig
-from rock.deployments.config import DeploymentConfig
-from rock.deployments.abstract import AbstractDeployment
-
-
-pytestmark = pytest.mark.skipif(not K8S_AVAILABLE, reason="kubernetes library not available")
-
-
-class MockDeploymentConfig(DeploymentConfig):
-    """Mock deployment config for testing."""
-    image: str = "python:3.11"
-    cpus: float = 2
-    memory: str = "4Gi"
-    container_name: str | None = None
-    template_name: str = "default"
-    auto_clear_time_minutes: int = 30
-    
-    def get_deployment(self) -> AbstractDeployment:
-        """Mock implementation."""
-        return MagicMock()
-
-
-@pytest.fixture
-def k8s_config():
-    """Create K8sConfig with required templates."""
-    return K8sConfig(
-        kubeconfig_path=None,
-        templates={
-            "default": {
-                "namespace": "rock-test",
-                "ports": {
-                    "proxy": 8000,
-                    "server": 8080,
-                    "ssh": 22,
-                },
-                "template": {
-                    "metadata": {"labels": {"app": "test"}},
-                    "spec": {"containers": [{"name": "main", "image": "python:3.11"}]},
-                },
-            }
-        },
-    )
-
-
-@pytest.fixture
-def mock_provider():
-    """Create mock BatchSandboxProvider."""
-    provider = AsyncMock()
-    return provider
-
-
-@pytest.fixture
-def k8s_operator(k8s_config, mock_provider):
-    """Create K8sOperator instance with mock provider."""
-    with patch("rock.sandbox.operator.k8s.operator.BatchSandboxProvider", return_value=mock_provider):
-        operator = K8sOperator(k8s_config=k8s_config)
-        operator._provider = mock_provider
-        return operator
-
-
-@pytest.fixture
-def deployment_config():
-    """Create deployment configuration."""
-    return MockDeploymentConfig(
-        image="python:3.11",
-        cpus=2,
-        memory="4Gi",
-        container_name="test-sandbox",
-        template_name="default",
-    )
+from rock.sandbox.operator.k8s.operator import K8sOperator
 
 
 class TestK8sOperator:

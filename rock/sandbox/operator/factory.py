@@ -65,5 +65,5 @@ class OperatorFactory:
         else:
             raise ValueError(
                 f"Unsupported operator type: {operator_type}. "
-                f"Supported types: ray, kubernetes, k8s"
+                f"Supported types: ray, k8s"
             )

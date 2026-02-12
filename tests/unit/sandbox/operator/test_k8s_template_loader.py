@@ -2,49 +2,8 @@
 
 import pytest
 
-try:
-    from rock.sandbox.operator.k8s.template_loader import K8sTemplateLoader
-    from rock.sandbox.operator.k8s.constants import K8sConstants
-    K8S_AVAILABLE = True
-except ImportError:
-    K8S_AVAILABLE = False
-
-
-pytestmark = pytest.mark.skipif(not K8S_AVAILABLE, reason="kubernetes library not available")
-
-
-@pytest.fixture
-def basic_templates():
-    """Create basic template configuration."""
-    return {
-        "default": {
-            "ports": {
-                "proxy": 8000,
-                "server": 8080,
-                "ssh": 22,
-            },
-            "template": {
-                "metadata": {
-                    "labels": {"app": "rock-sandbox"}
-                },
-                "spec": {
-                    "containers": [{
-                        "name": "main",
-                        "image": "python:3.11",
-                    }]
-                }
-            }
-        }
-    }
-
-
-@pytest.fixture
-def template_loader(basic_templates):
-    """Create template loader instance."""
-    return K8sTemplateLoader(
-        templates=basic_templates,
-        default_namespace="rock-test"
-    )
+from rock.sandbox.operator.k8s.constants import K8sConstants
+from rock.sandbox.operator.k8s.template_loader import K8sTemplateLoader
 
 
 class TestK8sTemplateLoader:
