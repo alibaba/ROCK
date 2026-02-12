@@ -48,6 +48,7 @@ def ray_service(rock_config: RockConfig, ray_init_shutdown):
 @pytest.fixture
 def ray_operator(ray_service):
     ray_operator = RayOperator(ray_service)
+    ray_operator.set_nacos_provider(None)
     return ray_operator
 
 
