@@ -70,7 +70,11 @@ class K8sApiClient:
         self._initialized = False
     
     async def _rate_limit(self):
-        """Apply rate limiting before API call."""
+        """Apply rate limiting using token bucket algorithm.
+        
+        Ensures QPS (queries per second) limit is respected by calculating
+        minimum interval between requests based on configured QPS.
+        """
         async with self._lock:
             now = asyncio.get_event_loop().time()
             min_interval = 1.0 / self._qps
@@ -117,7 +121,17 @@ class K8sApiClient:
         return resource_version
     
     async def _watch_resources(self):
-        """Background task to watch resources and maintain cache."""
+        """Background task to watch resources and maintain cache.
+        
+        Implements Kubernetes Informer pattern:
+        1. Initial list-and-sync to populate cache
+        2. Continuous watch for ADDED/MODIFIED/DELETED events
+        3. Auto-reconnect on watch timeout or network failures
+        4. Re-sync on reconnect to avoid event loss
+        
+        The watch stream blocks in a thread to avoid blocking the event loop.
+        ResourceVersion is tracked to resume from the last seen event.
+        """
         # Initial sync
         resource_version = None
         try:

@@ -4062,7 +4062,7 @@ wheels = [
 
 [[package]]
 name = "rl-rock"
-version = "1.2.2"
+version = "1.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
@@ -4091,6 +4091,7 @@ admin = [
     { name = "bashlex" },
     { name = "boto3" },
     { name = "cryptography" },
+    { name = "fakeredis", extra = ["json"] },
     { name = "fastapi" },
     { name = "gem-llm" },
     { name = "kubernetes" },
@@ -4114,6 +4115,7 @@ all = [
     { name = "boto3" },
     { name = "cryptography" },
     { name = "docker" },
+    { name = "fakeredis", extra = ["json"] },
     { name = "fastapi" },
     { name = "gem-llm" },
     { name = "kubernetes" },
@@ -4160,7 +4162,6 @@ sandbox-actor = [
 
 [package.dev-dependencies]
 test = [
-    { name = "fakeredis", extra = ["json"] },
     { name = "iflow-cli-sdk" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -4190,6 +4191,7 @@ requires-dist = [
     { name = "build" },
     { name = "cryptography", marker = "extra == 'admin'", specifier = "==39.0.1" },
     { name = "docker", marker = "extra == 'builder'" },
+    { name = "fakeredis", extras = ["json"], marker = "extra == 'admin'" },
     { name = "fastapi", marker = "extra == 'model-service'" },
     { name = "fastapi", marker = "extra == 'rocklet'" },
     { name = "gem-llm", marker = "extra == 'builder'", specifier = ">=0.1.0" },
@@ -4235,7 +4237,6 @@ provides-extras = ["admin", "rocklet", "sandbox-actor", "builder", "model-servic
 
 [package.metadata.requires-dev]
 test = [
-    { name = "fakeredis", extras = ["json"] },
     { name = "iflow-cli-sdk", specifier = ">=0.1.1" },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pytest" },

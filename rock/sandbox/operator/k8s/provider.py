@@ -232,7 +232,15 @@ class BatchSandboxProvider(K8sProvider):
             return False
 
     async def _ensure_initialized(self):
-        """Ensure K8s client is initialized and start watch task."""
+        """Ensure K8s client is initialized and start watch task.
+        
+        Lazy initialization of K8S client and API abstraction layer:
+        1. Load kubeconfig (from file, in-cluster, or default)
+        2. Create K8sApiClient with rate limiting and caching
+        3. Start background watch task for cache synchronization
+        
+        Thread-safe: Uses _initialized flag to prevent duplicate initialization.
+        """
         if self._initialized:
             return
             
