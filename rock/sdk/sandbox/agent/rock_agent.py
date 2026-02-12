@@ -91,6 +91,9 @@ class RockAgentConfig(AgentConfig):
     run_cmd: str | None = Field(default=None)
     """Command to execute agent. Must contain exactly one {prompt} placeholder."""
 
+    skip_wrap_run_cmd: bool = Field(default=False)
+    """If True, skip wrapping run cmd with adding PATH to the beginning."""
+
     runtime_env_config: RuntimeEnvConfigType | None = Field(default_factory=PythonRuntimeEnvConfig)
     """Runtime environment configuration for the agent."""
 
@@ -389,13 +392,18 @@ class RockAgent(Agent):
     async def _create_agent_run_cmd(self, prompt: str) -> str:
         """Create agent run command.
 
-        Automatically performs deploy.format() to replace ${working_dir} and ${prompt} placeholders.
+        Automatically performs deploy.format() to replace ${working_dir}, ${prompt}, and ${bin_dir} placeholders.
 
         Args:
             prompt: The user prompt to substitute into {prompt} placeholder.
 
         Returns:
             str: The complete command string ready for execution.
+
+        Placeholders:
+            - ${working_dir}: Working directory path (if deployed)
+            - ${prompt}: User-provided prompt (shell-quoted)
+            - ${bin_dir}: Runtime environment bin directory
         """
         # Get project_path from config or deploy.working_dir based on config
         path = self.config.project_path
@@ -406,9 +414,18 @@ class RockAgent(Agent):
                 path = self.deploy.working_dir
             # else: path stays None, will run without cd
 
-        # Use deploy.format() to replace ${working_dir} and ${prompt}
-        run_cmd = self.deploy.format(self.config.run_cmd, prompt=shlex.quote(prompt))
-        wrapped_cmd = self.runtime_env.wrapped_cmd(run_cmd)
+        # Format run_cmd, replacing ${working_dir}, ${bin_dir} and ${prompt}
+        run_cmd = self.deploy.format(
+            self.config.run_cmd,
+            prompt=shlex.quote(prompt),
+            bin_dir=self.runtime_env.bin_dir,
+        )
+
+        # Skip wrap if configured - just run directly with bash -c
+        if self.config.skip_wrap_run_cmd:
+            wrapped_cmd = f"bash -c {shlex.quote(run_cmd)}"
+        else:
+            wrapped_cmd = self.runtime_env.wrapped_cmd(run_cmd)
 
         # If path exists, add mkdir and cd
         if path is not None:

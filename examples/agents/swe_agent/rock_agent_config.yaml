@@ -1,5 +1,5 @@
 run_cmd: >
-  sweagent run
+  ${bin_dir}/sweagent run
   --problem_statement.type text
   --problem_statement.text ${prompt}
   --env.repo.type local
@@ -13,6 +13,9 @@ run_cmd: >
   --agent.model.api_key <API_KEY>
 # replace <MODEL_NAME> <BASE_URL> <API_KEY>; keep others as-is
 # if repo not at workspace root: --env.repo.type preexisting --env.repo.repo_name testbed
+
+# Python Agent often meets python conflicts, so we need to avoid add RuntimeEnv to PATH in agent_run
+skip_wrap_run_cmd: true
 
 runtime_env_config:
   type: python
