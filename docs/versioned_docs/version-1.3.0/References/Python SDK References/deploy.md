@@ -23,10 +23,19 @@ target = await deploy.deploy_working_dir(
 
 ## format - Template Variable Substitution
 
+The `format` method supports two template syntaxes:
+
+- **`${variable}`** - Standard Python string template syntax
+- **`<<variable>>`** - Alternative syntax (converted to `${variable}` internally)
+
 ```python
 # After deploy_working_dir, use ${working_dir} placeholder
 cmd = deploy.format("mv ${working_dir}/config.json /root/.app/")
 # Result: mv /tmp/rock_workdir_abc123/config.json /root/.app/
+
+# Alternative <<>> syntax
+cmd = deploy.format("cat <<working_dir>>/file.txt")
+# Result: cat /tmp/rock_workdir_abc123/file.txt
 
 # Combine with custom variables
 cmd = deploy.format(
@@ -34,6 +43,10 @@ cmd = deploy.format(
     config_file="settings.json"
 )
 # Result: cat /tmp/rock_workdir_abc123/settings.json
+
+# Shell syntax is preserved
+cmd = deploy.format("echo $((3 << 2 >> 1))")
+# Result: echo $((3 << 2 >> 1))
 
 # Access working_dir directly
 if deploy.working_dir:
