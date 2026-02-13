@@ -2,18 +2,24 @@ import json
 
 import ray
 
-from rock.actions.sandbox.response import State
+from rock import env_vars
+from rock.actions.sandbox.response import IsAliveResponse, State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.core.ray_service import RayService
 from rock.admin.core.redis_key import alive_sandbox_key
+from rock.common.constants import GET_STATUS_SWITCH
 from rock.deployments.config import DockerDeploymentConfig
+from rock.deployments.constants import Port
 from rock.deployments.docker import DockerDeployment
-from rock.deployments.status import ServiceStatus
+from rock.deployments.status import PersistedServiceStatus, ServiceStatus
 from rock.logger import init_logger
 from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sdk.common.exceptions import BadRequestRockError
+from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var
 from rock.utils.format import parse_memory_size
+from rock.utils.http import HttpUtils
+from rock.utils.service import build_sandbox_from_redis
 
 logger = init_logger(__name__)
 
@@ -66,6 +72,16 @@ class RayOperator(AbstractOperator):
             return sandbox_info
 
     async def get_status(self, sandbox_id: str) -> SandboxInfo:
+        if self.use_rocklet():
+            sandbox_info: SandboxInfo = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
+            host_ip = sandbox_info.get("host_ip")
+            remote_status = await self.get_remote_status(sandbox_id, host_ip)
+            is_alive = await self._check_alive_status(sandbox_id, host_ip, remote_status)
+            # TODO: sink update state according to is_alive logic into SandboxInfo
+            if is_alive:
+                sandbox_info["state"] = State.RUNNING
+            sandbox_info.update(remote_status.to_dict())
+            return sandbox_info
         async with self._ray_service.get_ray_rwlock().read_lock():
             actor: SandboxActor = await self._ray_service.async_ray_get_actor(self._get_actor_name(sandbox_id))
             sandbox_info: SandboxInfo = await self._ray_service.async_ray_get(actor.sandbox_info.remote())
@@ -73,6 +89,7 @@ class RayOperator(AbstractOperator):
             sandbox_info["phases"] = remote_status.phases
             sandbox_info["port_mapping"] = remote_status.get_port_mapping()
             alive = await self._ray_service.async_ray_get(actor.is_alive.remote())
+            # TODO: sink update state according to is_alive logic into SandboxInfo
             if alive.is_alive:
                 sandbox_info["state"] = State.RUNNING
             if not self._redis_provider:
@@ -84,7 +101,6 @@ class RayOperator(AbstractOperator):
                 return redis_info
             else:
                 return sandbox_info
-            # return sandbox_info
 
     async def get_sandbox_info_from_redis(self, sandbox_id: str) -> SandboxInfo:
         sandbox_status = await self._redis_provider.json_get(alive_sandbox_key(sandbox_id), "$")
@@ -100,3 +116,52 @@ class RayOperator(AbstractOperator):
             logger.info(f"run time stop over {sandbox_id}")
             ray.kill(actor)
             return True
+
+    async def _check_alive_status(self, sandbox_id: str, host_ip: str, remote_status: ServiceStatus) -> bool:
+        """Check if sandbox is alive"""
+        try:
+            alive_resp = await HttpUtils.get(
+                url=f"http://{host_ip}:{remote_status.get_mapped_port(Port.PROXY)}/is_alive",
+                headers={
+                    "sandbox_id": sandbox_id,
+                    EAGLE_EYE_TRACE_ID: trace_id_ctx_var.get(),
+                },
+            )
+            return IsAliveResponse(**alive_resp).is_alive
+        except Exception:
+            return False
+
+    async def get_remote_status(self, sandbox_id: str, host_ip: str) -> ServiceStatus:
+        service_status_path = PersistedServiceStatus.gen_service_status_path(sandbox_id)
+        worker_rocklet_port = env_vars.ROCK_WORKER_ROCKLET_PORT if env_vars.ROCK_WORKER_ROCKLET_PORT else Port.PROXY
+        execute_url = f"http://{host_ip}:{worker_rocklet_port}/execute"
+        read_file_url = f"http://{host_ip}:{worker_rocklet_port}/read_file"
+        headers = {"sandbox_id": sandbox_id, EAGLE_EYE_TRACE_ID: trace_id_ctx_var.get()}
+        find_file_rsp = await HttpUtils.post(
+            url=execute_url,
+            headers=headers,
+            data={"command": ["ls", service_status_path]},
+            read_timeout=60,
+        )
+
+        # When the file does not exist, exit_code = 2
+        if find_file_rsp.get("exit_code") and find_file_rsp.get("exit_code") == 2:
+            return ServiceStatus()
+
+        response: dict = await HttpUtils.post(
+            url=read_file_url,
+            headers=headers,
+            data={"path": service_status_path},
+            read_timeout=60,
+        )
+        if response.get("content"):
+            return ServiceStatus.from_content(response.get("content"))
+        logger.warning(f"{service_status_path} exists, but content is empty")
+        return ServiceStatus()
+
+    def use_rocklet(self) -> bool:
+        if not self._nacos_provider:
+            return False
+        if self._nacos_provider.get_switch_status(GET_STATUS_SWITCH):
+            return True
+        return False

@@ -8,6 +8,7 @@ from rock.config import RuntimeConfig
 from rock.logger import init_logger
 from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.operator.ray import RayOperator
+from rock.utils.providers.nacos_provider import NacosConfigProvider
 
 logger = init_logger(__name__)
 
@@ -23,6 +24,7 @@ class OperatorContext:
 
     runtime_config: RuntimeConfig
     ray_service: RayService | None = None
+    nacos_provider: NacosConfigProvider | None = None
     # Future operator dependencies can be added here without breaking existing code
     # kubernetes_client: Any | None = None
     # docker_client: Any | None = None
@@ -55,6 +57,9 @@ class OperatorFactory:
             if context.ray_service is None:
                 raise ValueError("RayService is required for RayOperator")
             logger.info("Creating RayOperator")
-            return RayOperator(ray_service=context.ray_service)
+            ray_operator = RayOperator(ray_service=context.ray_service)
+            if context.nacos_provider is not None:
+                ray_operator.set_nacos_provider(context.nacos_provider)
+            return ray_operator
         else:
             raise ValueError(f"Unsupported operator type: {operator_type}. " f"Supported types: ray, kubernetes")

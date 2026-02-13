@@ -13,7 +13,7 @@ from rock.actions import (
     UploadResponse,
     WriteFileResponse,
 )
-from rock.actions.sandbox.response import IsAliveResponse, State
+from rock.actions.sandbox.response import State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.core.ray_service import RayService
 from rock.admin.core.redis_key import ALIVE_PREFIX, alive_sandbox_key, timeout_sandbox_key
@@ -29,8 +29,6 @@ from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
 from rock.config import RockConfig, RuntimeConfig
 from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
-from rock.deployments.constants import Port
-from rock.deployments.status import PersistedServiceStatus, ServiceStatus
 from rock.logger import init_logger
 from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
@@ -39,11 +37,6 @@ from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
-from rock.utils import (
-    EAGLE_EYE_TRACE_ID,
-    HttpUtils,
-    trace_id_ctx_var,
-)
 from rock.utils.crypto_utils import AESEncryption
 from rock.utils.format import convert_to_gb, parse_memory_size
 from rock.utils.providers.redis_provider import RedisProvider
@@ -217,20 +210,13 @@ class SandboxManager(BaseManager):
             logger.info(f"sandbox {sandbox_id} deleted from redis")
 
     @monitor_sandbox_operation()
-    async def get_status(self, sandbox_id, use_rocklet: bool = False) -> SandboxStatusResponse:
-        if use_rocklet and self._redis_provider:
-            sandbox_info: SandboxInfo = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
-            host_ip = sandbox_info.get("host_ip")
-            remote_status = await self.get_remote_status(sandbox_id, host_ip)
-            is_alive = await self._check_alive_status(sandbox_id, host_ip, remote_status)
-            sandbox_info.update(remote_status.to_dict())
-        else:
-            sandbox_info: SandboxInfo = await self._operator.get_status(sandbox_id=sandbox_id)
-            is_alive = sandbox_info.get("state") == State.RUNNING
+    async def get_status(self, sandbox_id) -> SandboxStatusResponse:
+        sandbox_info: SandboxInfo = await self._operator.get_status(sandbox_id=sandbox_id)
+        is_alive = sandbox_info.get("state") == State.RUNNING
         self._update_sandbox_alive_info(sandbox_info, is_alive)
         if self._redis_provider:
             await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
-            (self._update_expire_time(sandbox_id),)
+            await self._update_expire_time(sandbox_id)
         return SandboxStatusResponse(
             sandbox_id=sandbox_id,
             status=sandbox_info.get("phases"),
@@ -263,20 +249,6 @@ class SandboxManager(BaseManager):
             sandbox_info = deployment_info
         return sandbox_info
 
-    async def _check_alive_status(self, sandbox_id: str, host_ip: str, remote_status: ServiceStatus) -> bool:
-        """Check if sandbox is alive"""
-        try:
-            alive_resp = await HttpUtils.get(
-                url=f"http://{host_ip}:{remote_status.get_mapped_port(Port.PROXY)}/is_alive",
-                headers={
-                    "sandbox_id": sandbox_id,
-                    EAGLE_EYE_TRACE_ID: trace_id_ctx_var.get(),
-                },
-            )
-            return IsAliveResponse(**alive_resp).is_alive
-        except Exception:
-            return False
-
     def _update_sandbox_alive_info(self, sandbox_info: SandboxInfo, is_alive: bool) -> None:
         if is_alive:
             sandbox_info["state"] = State.RUNNING
@@ -289,35 +261,7 @@ class SandboxManager(BaseManager):
         Deprecated: Use get_status(sandbox_id, use_rocklet=True) instead.
         This method is kept for backward compatibility.
         """
-        return await self.get_status(sandbox_id, use_rocklet=True)
-
-    async def get_remote_status(self, sandbox_id: str, host_ip: str) -> ServiceStatus:
-        service_status_path = PersistedServiceStatus.gen_service_status_path(sandbox_id)
-        worker_rocklet_port = env_vars.ROCK_WORKER_ROCKLET_PORT if env_vars.ROCK_WORKER_ROCKLET_PORT else Port.PROXY
-        execute_url = f"http://{host_ip}:{worker_rocklet_port}/execute"
-        read_file_url = f"http://{host_ip}:{worker_rocklet_port}/read_file"
-        headers = {"sandbox_id": sandbox_id, EAGLE_EYE_TRACE_ID: trace_id_ctx_var.get()}
-        find_file_rsp = await HttpUtils.post(
-            url=execute_url,
-            headers=headers,
-            data={"command": ["ls", service_status_path]},
-            read_timeout=60,
-        )
-
-        # When the file does not exist, exit_code = 2
-        if find_file_rsp.get("exit_code") and find_file_rsp.get("exit_code") == 2:
-            return ServiceStatus()
-
-        response: dict = await HttpUtils.post(
-            url=read_file_url,
-            headers=headers,
-            data={"path": service_status_path},
-            read_timeout=60,
-        )
-        if response.get("content"):
-            return ServiceStatus.from_content(response.get("content"))
-        logger.warning(f"{service_status_path} exists, but content is empty")
-        return ServiceStatus()
+        return await self.get_status(sandbox_id)
 
     async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
         return await self._proxy_service.create_session(request)
