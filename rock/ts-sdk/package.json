@@ -32,7 +32,7 @@
     "rock"
   ],
   "author": "",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "engines": {
     "node": ">=20.8.0"
   },
