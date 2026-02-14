@@ -4,7 +4,7 @@
  * 演示如何创建、管理和使用沙箱环境
  */
 
-import { Sandbox, RunMode } from 'rl-rock';
+import { Sandbox, RunMode } from '../src';
 
 async function basicExample() {
   console.log('=== ROCK TypeScript SDK 基础示例 ===\n');
@@ -12,7 +12,7 @@ async function basicExample() {
   // 1. 创建沙箱
   console.log('1. 创建沙箱...');
   const sandbox = new Sandbox({
-    image: 'python:3.11',
+    image: 'reg.docker.alibaba-inc.com/yanan/python:3.11',
     baseUrl: process.env.ROCK_BASE_URL || 'http://localhost:8080',
     cluster: 'default',
     memory: '4g',
@@ -29,7 +29,7 @@ async function basicExample() {
     // 3. 检查状态
     console.log('3. 检查沙箱状态...');
     const status = await sandbox.getStatus();
-    console.log(`   状态: ${status.isAlive ? '运行中' : '已停止'}`);
+    console.log(`   状态: ${status.is_alive ? '运行中' : '已停止'}`);
     console.log(`   镜像: ${status.image}`);
 
     // 4. 执行简单命令
@@ -38,7 +38,7 @@ async function basicExample() {
       mode: RunMode.NORMAL,
     });
     console.log(`   输出: ${result.output.trim()}`);
-    console.log(`   退出码: ${result.exitCode}`);
+    console.log(`   退出码: ${result.exit_code}`);
 
     // 5. 使用 Python
     console.log('5. 运行 Python 代码...');
@@ -48,14 +48,11 @@ async function basicExample() {
     );
     console.log(`   Python 版本: ${pythonResult.output.trim().split('\n')[0]}`);
 
-    // 6. 安装包并运行
-    console.log('6. 安装包并运行...');
-    await sandbox.arun('pip install requests -q', { mode: RunMode.NORMAL });
-    const requestsResult = await sandbox.arun(
-      'python3 -c "import requests; print(f\'requests version: {requests.__version__}\')"',
-      { mode: RunMode.NORMAL }
-    );
-    console.log(`   ${requestsResult.output.trim()}`);
+    // 6. 文件操作示例
+    console.log('6. 文件操作...');
+    await sandbox.arun('echo "Hello ROCK" > /tmp/test.txt', { mode: RunMode.NORMAL });
+    const catResult = await sandbox.arun('cat /tmp/test.txt', { mode: RunMode.NORMAL });
+    console.log(`   文件内容: ${catResult.output.trim()}`);
 
   } finally {
     // 7. 清理

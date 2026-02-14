@@ -181,6 +181,9 @@ export class Sandbox extends AbstractSandbox {
       cpus: this.config.cpus,
     };
 
+    logger.debug(`Calling start_async API: ${url}`);
+    logger.debug(`Request data: ${JSON.stringify(data)}`);
+
     try {
       const response = await HttpUtils.post<{ status: string; result?: { sandbox_id?: string; host_name?: string; host_ip?: string } }>(
         url,
@@ -198,14 +201,36 @@ export class Sandbox extends AbstractSandbox {
       this.hostName = response.result?.host_name ?? null;
       this.hostIp = response.result?.host_ip ?? null;
 
+      logger.debug(`Sandbox ID: ${this.sandboxId}`);
+
       // Wait for sandbox to be alive
+      // First, wait a bit for the backend to process the start request
+      await sleep(2000);
+
       const startTime = Date.now();
+      const checkTimeout = 10000; // 10s timeout for each status check
+      const checkInterval = 3000; // 3s between checks
+
       while (Date.now() - startTime < this.config.startupTimeout * 1000) {
-        const status = await this.getStatus();
-        if (status.is_alive) {
-          return;
+        try {
+          logger.debug(`Checking status... (elapsed: ${Math.round((Date.now() - startTime) / 1000)}s)`);
+          // Use Promise.race to implement timeout for status check
+          const statusPromise = this.getStatus();
+          const timeoutPromise = new Promise<null>((_, reject) =>
+            setTimeout(() => reject(new Error('Status check timeout')), checkTimeout)
+          );
+
+          const status = await Promise.race([statusPromise, timeoutPromise]);
+          logger.debug(`Status result: ${JSON.stringify(status)}`);
+          if (status && status.is_alive) {
+            logger.debug('Sandbox is alive');
+            return;
+          }
+        } catch (e) {
+          // Status check may fail temporarily during startup, continue waiting
+          logger.debug(`Status check failed (will retry): ${e}`);
         }
-        await sleep(3000);
+        await sleep(checkInterval);
       }
 
       throw new Error(`Failed to start sandbox within ${this.config.startupTimeout}s`);
@@ -336,6 +361,7 @@ export class Sandbox extends AbstractSandbox {
     options: {
       session?: string;
       mode?: RunModeType;
+      timeout?: number;
       waitTimeout?: number;
       waitInterval?: number;
       responseLimitedBytesInNohup?: number;
@@ -346,12 +372,25 @@ export class Sandbox extends AbstractSandbox {
     const {
       session,
       mode = 'normal',
+      timeout = 300,
       waitTimeout = 300,
       waitInterval = 10,
     } = options;
 
+    const sessionName = session ?? 'default';
+
     if (mode === 'normal') {
-      return this.runInSession({ command: cmd, session: session ?? 'default' });
+      // Ensure session exists before running command (ignore if already exists)
+      try {
+        await this.createSession({ session: sessionName, startupSource: [], envEnable: false });
+      } catch (e) {
+        if (String(e).includes('already exists')) {
+          // Session already exists, reuse it
+        } else {
+          throw e;
+        }
+      }
+      return this.runInSession({ command: cmd, session: sessionName, timeout });
     }
 
     return this.arunWithNohup(cmd, options);
@@ -369,18 +408,27 @@ export class Sandbox extends AbstractSandbox {
     };
 
     try {
-      const response = await HttpUtils.post<{ status: string; result?: Observation }>(
+      // Convert timeout from seconds to milliseconds for axios
+      const timeoutMs = action.timeout ? action.timeout * 1000 : undefined;
+      const response = await HttpUtils.post<{ status: string; result?: Record<string, unknown> }>(
         url,
         headers,
         data,
-        action.timeout
+        timeoutMs
       );
 
       if (response.status !== 'Success') {
         throw new Error(`Failed to execute command: ${JSON.stringify(response)}`);
       }
 
-      return response.result!;
+      // Convert snake_case to camelCase
+      const raw = response.result!;
+      return {
+        output: raw.output as string,
+        exit_code: raw.exit_code as number | undefined,
+        failure_reason: raw.failure_reason as string | undefined,
+        expect_string: raw.expect_string as string | undefined,
+      };
     } catch (e) {
       throw new Error(`Failed to run in session: ${e}`);
     }
