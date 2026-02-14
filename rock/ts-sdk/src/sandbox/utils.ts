@@ -34,15 +34,15 @@ function getCallerLoggerName(): string {
 /**
  * Decorator to add timing and logging to functions
  */
-export function withTimeLogging(operationName: string) {
+export function withTimeLogging(operationName: string): MethodDecorator {
   return function (
     target: unknown,
-    propertyKey: string,
+    propertyKey: string | symbol,
     descriptor: PropertyDescriptor
   ): PropertyDescriptor {
     const originalMethod = descriptor.value;
 
-    descriptor.value = async function (...args: unknown[]) {
+    descriptor.value = async function (...args: unknown[]): Promise<unknown> {
       const startTime = Date.now();
       const name = getCallerLoggerName();
       const log = initLogger(name);

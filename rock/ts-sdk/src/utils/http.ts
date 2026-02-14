@@ -2,7 +2,7 @@
  * HTTP utilities using axios
  */
 
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from 'axios';
+import axios, { AxiosInstance, AxiosError } from 'axios';
 import https from 'https';
 import { PID_PREFIX, PID_SUFFIX } from '../common/constants.js';
 

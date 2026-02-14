@@ -3,7 +3,7 @@
  */
 
 import { existsSync, statSync } from 'fs';
-import { resolve, basename } from 'path';
+import { resolve } from 'path';
 import { randomUUID } from 'crypto';
 import { initLogger } from '../logger.js';
 import type { Sandbox } from './client.js';

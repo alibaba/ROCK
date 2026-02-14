@@ -2,10 +2,8 @@
  * Sandbox client - Core sandbox management
  */
 
-import axios, { AxiosInstance } from 'axios';
 import { randomUUID } from 'crypto';
 import { initLogger } from '../logger.js';
-import { envVars } from '../env_vars.js';
 import { HttpUtils } from '../utils/http.js';
 import { sleep } from '../utils/retry.js';
 import {
@@ -374,8 +372,6 @@ export class Sandbox extends AbstractSandbox {
       session,
       mode = 'normal',
       timeout = 300,
-      waitTimeout = 300,
-      waitInterval = 10,
     } = options;
 
     const sessionName = session ?? 'default';
@@ -681,7 +677,6 @@ export class SandboxGroup {
     };
 
     // Start with concurrency limit
-    const batches: Promise<void>[] = [];
     for (let i = 0; i < this.sandboxList.length; i += concurrency) {
       const batch = this.sandboxList.slice(i, i + concurrency);
       const promises = batch.map((sandbox, idx) => startSandbox(i + idx, sandbox));
