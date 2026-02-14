@@ -150,7 +150,7 @@ async function workflowExample() {
       { mode: RunMode.NORMAL, timeout: 60 }
     );
     console.log(`      测试输出:\n${testResult.output.split('\n').slice(0, 15).map(l => '        ' + l).join('\n')}`);
-    console.log(`      退出码: ${testResult.exit_code}`);
+    console.log(`      退出码: ${testResult.exitCode}`);
 
     // ==================== 阶段 4: 执行应用 ====================
     console.log('\n🚀 阶段 4: 执行应用');

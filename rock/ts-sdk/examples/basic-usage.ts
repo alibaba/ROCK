@@ -29,7 +29,7 @@ async function basicExample() {
     // 3. 检查状态
     console.log('3. 检查沙箱状态...');
     const status = await sandbox.getStatus();
-    console.log(`   状态: ${status.is_alive ? '运行中' : '已停止'}`);
+    console.log(`   状态: ${status.isAlive ? '运行中' : '已停止'}`);
     console.log(`   镜像: ${status.image}`);
 
     // 4. 执行简单命令
@@ -38,7 +38,7 @@ async function basicExample() {
       mode: RunMode.NORMAL,
     });
     console.log(`   输出: ${result.output.trim()}`);
-    console.log(`   退出码: ${result.exit_code}`);
+    console.log(`   退出码: ${result.exitCode}`);
 
     // 5. 使用 Python
     console.log('5. 运行 Python 代码...');

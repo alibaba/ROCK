@@ -119,7 +119,7 @@ print(result)
       sandboxes.map(async (sandbox, i) => {
         try {
           const alive = await sandbox.isAlive();
-          return { index: i, alive: alive.is_alive };
+          return { index: i, alive: alive.isAlive };
         } catch {
           return { index: i, alive: false };
         }

@@ -99,12 +99,12 @@ const bgResult = await sandbox.arun('python train.py', {
   outputFile: '/tmp/train.log', // 输出文件路径
 });
 
-// 结果结构 (使用 snake_case，与 Python SDK 和 API 保持一致)
+// 结果结构 (使用 camelCase，符合 TypeScript 规范)
 interface Observation {
   output: string;
-  exit_code: number;
-  failure_reason: string;
-  expect_string: string;
+  exitCode?: number;
+  failureReason: string;
+  expectString: string;
 }
 ```
 
@@ -461,10 +461,10 @@ async function withSandbox<T>(
 async function executeTask(sandbox: Sandbox) {
   const result = await sandbox.arun('task-command');
   
-  if (result.exit_code !== 0) {
+  if (result.exitCode !== 0) {
     // 命令执行失败，可重试
-    logger.warn(`Task failed: ${result.failure_reason}`);
-    return { success: false, error: result.failure_reason };
+    logger.warn(`Task failed: ${result.failureReason}`);
+    return { success: false, error: result.failureReason };
   }
   
   return { success: true, output: result.output };
@@ -509,19 +509,19 @@ try {
 
 ### 命名约定
 
-所有 API 响应字段使用 **snake_case**，与 Python SDK 和后端 API 保持一致：
+SDK 使用 **camelCase** 命名规范，符合 TypeScript 约定。HTTP 层自动处理 snake_case 到 camelCase 的转换：
 
 ```typescript
 // SandboxStatusResponse
-status.sandbox_id        // ✓ 正确
-status.sandboxId         // ✗ 错误
+status.sandboxId        // ✓ 正确
+status.sandbox_id       // ✗ 错误
 
 // Observation
-result.exit_code         // ✓ 正确
-result.exitCode          // ✗ 错误
+result.exitCode         // ✓ 正确
+result.exit_code        // ✗ 错误
 
-result.failure_reason    // ✓ 正确
-result.failureReason     // ✗ 错误
+result.failureReason    // ✓ 正确
+result.failure_reason   // ✗ 错误
 ```
 
 ### 主要类型
@@ -537,34 +537,34 @@ interface CreateBashSessionRequest { ... }
 interface WriteFileRequest { ... }
 interface ReadFileRequest { ... }
 
-// 响应类型 (snake_case)
+// 响应类型 (camelCase，符合 TypeScript 规范)
 interface Observation {
   output: string;
-  exit_code?: number;
-  failure_reason: string;
-  expect_string: string;
+  exitCode?: number;
+  failureReason: string;
+  expectString: string;
 }
 
 interface CommandResponse {
   stdout: string;
   stderr: string;
-  exit_code?: number;
+  exitCode?: number;
 }
 
 interface SandboxStatusResponse {
-  sandbox_id?: string;
-  host_name?: string;
-  host_ip?: string;
-  is_alive: boolean;
+  sandboxId?: string;
+  hostName?: string;
+  hostIp?: string;
+  isAlive: boolean;
   image?: string;
-  gateway_version?: string;
-  swe_rex_version?: string;
-  user_id?: string;
-  experiment_id?: string;
+  gatewayVersion?: string;
+  sweRexVersion?: string;
+  userId?: string;
+  experimentId?: string;
   namespace?: string;
   cpus?: number;
   memory?: string;
-  port_mapping?: Record<string, number>;
+  portMapping?: Record<string, number>;
   status?: Record<string, unknown>;
 }
 
@@ -586,9 +586,9 @@ process.env.ROCK_LOGGING_LEVEL = 'debug';
 // 获取沙箱状态
 const status = await sandbox.getStatus();
 console.log(status);
-console.log(`Sandbox ID: ${status.sandbox_id}`);
-console.log(`Is alive: ${status.is_alive}`);
-console.log(`Port mapping: ${JSON.stringify(status.port_mapping)}`);
+console.log(`Sandbox ID: ${status.sandboxId}`);
+console.log(`Is alive: ${status.isAlive}`);
+console.log(`Port mapping: ${JSON.stringify(status.portMapping)}`);
 ```
 
 ### Q: 如何处理大文件上传？

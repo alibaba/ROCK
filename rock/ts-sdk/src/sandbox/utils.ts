@@ -99,9 +99,9 @@ export async function arunWithRetry(
         waitInterval,
       });
 
-      if (result.exit_code !== 0) {
+      if (result.exitCode !== 0) {
         throw new Error(
-          `${errorMsg} with exit code: ${result.exit_code}, output: ${result.output}`
+          `${errorMsg} with exit code: ${result.exitCode}, output: ${result.output}`
         );
       }
       return result;

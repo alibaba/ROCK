@@ -52,7 +52,7 @@ print("任务完成!")
     
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`   执行完成，耗时: ${elapsed}秒`);
-    console.log(`   退出码: ${result.exit_code}`);
+    console.log(`   退出码: ${result.exitCode}`);
     console.log(`   输出:\n${result.output}`);
 
     // 3. 演示 ignoreOutput 模式
@@ -69,7 +69,7 @@ print("任务完成!")
       waitInterval: 2,       // 每2秒检查一次
       ignoreOutput: true,  // 不读取输出，适合超大输出
     });
-    console.log(`   任务状态: ${quickResult.exit_code === 0 ? '成功' : '失败'}`);
+    console.log(`   任务状态: ${quickResult.exitCode === 0 ? '成功' : '失败'}`);
     console.log(`   消息: ${quickResult.output}`);
 
     // 4. 并行执行多个任务
@@ -96,7 +96,7 @@ print("任务完成!")
     const parallelElapsed = ((Date.now() - parallelStart) / 1000).toFixed(1);
     console.log(`   并行任务完成，耗时: ${parallelElapsed}秒`);
     results.forEach((r, i) => {
-      console.log(`   任务 ${i}: 退出码=${r.exit_code}`);
+      console.log(`   任务 ${i}: 退出码=${r.exitCode}`);
     });
 
   } finally {

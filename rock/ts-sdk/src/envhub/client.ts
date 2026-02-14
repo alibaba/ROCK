@@ -46,13 +46,14 @@ export class EnvHubClient {
     extraSpec?: Record<string, unknown>;
   }): Promise<RockEnvInfo> {
     const url = `${this.baseUrl}/env/register`;
+    // Use camelCase - HTTP layer will convert to snake_case
     const payload = {
-      env_name: options.envName,
+      envName: options.envName,
       image: options.image,
       owner: options.owner ?? '',
       description: options.description ?? '',
       tags: options.tags ?? [],
-      extra_spec: options.extraSpec,
+      extraSpec: options.extraSpec,
     };
 
     try {
@@ -61,6 +62,7 @@ export class EnvHubClient {
         this.headers,
         payload
       );
+      // Response is already camelCase (converted by HTTP layer)
       return createRockEnvInfo(response);
     } catch (e) {
       throw new EnvHubError(`Failed to register environment: ${e}`);
@@ -72,7 +74,7 @@ export class EnvHubClient {
    */
   async getEnv(envName: string): Promise<RockEnvInfo> {
     const url = `${this.baseUrl}/env/get`;
-    const payload = { env_name: envName };
+    const payload = { envName };
 
     try {
       const response = await HttpUtils.post<Record<string, unknown>>(
@@ -117,7 +119,7 @@ export class EnvHubClient {
    */
   async deleteEnv(envName: string): Promise<boolean> {
     const url = `${this.baseUrl}/env/delete`;
-    const payload = { env_name: envName };
+    const payload = { envName };
 
     try {
       await HttpUtils.post(url, this.headers, payload);

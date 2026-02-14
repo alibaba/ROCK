@@ -52,7 +52,7 @@ export class LinuxFileSystem extends FileSystem {
     logger.info(`chown command: ${command.join(' ')}`);
 
     const response: CommandResponse = await this.sandbox.execute({ command, timeout: 300 });
-    if (response.exit_code !== 0) {
+    if (response.exitCode !== 0) {
       return { success: false, message: JSON.stringify(response) };
     }
     return { success: true, message: JSON.stringify(response) };
@@ -73,7 +73,7 @@ export class LinuxFileSystem extends FileSystem {
 
     logger.info(`chmod command: ${command.join(' ')}`);
     const response: CommandResponse = await this.sandbox.execute({ command, timeout: 300 });
-    if (response.exit_code !== 0) {
+    if (response.exitCode !== 0) {
       return { success: false, message: JSON.stringify(response) };
     }
     return { success: true, message: JSON.stringify(response) };
@@ -92,9 +92,9 @@ export class LinuxFileSystem extends FileSystem {
     // For now, return a placeholder observation
     return {
       output: `uploaded ${sourceDir} -> ${targetDir}`,
-      exit_code: 0,
-      failure_reason: '',
-      expect_string: '',
+      exitCode: 0,
+      failureReason: '',
+      expectString: '',
     };
   }
 }

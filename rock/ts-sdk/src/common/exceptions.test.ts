@@ -103,8 +103,8 @@ describe('fromRockException', () => {
     const response = fromRockException(error);
 
     expect(response.code).toBe(Codes.BAD_REQUEST);
-    expect(response.exit_code).toBe(1);
-    expect(response.failure_reason).toBe('Test error');
+    expect(response.exitCode).toBe(1);
+    expect(response.failureReason).toBe('Test error');
   });
 
   test('should handle exception without code', () => {
@@ -112,7 +112,7 @@ describe('fromRockException', () => {
     const response = fromRockException(error);
 
     expect(response.code).toBeUndefined();
-    expect(response.exit_code).toBe(1);
-    expect(response.failure_reason).toBe('Test error');
+    expect(response.exitCode).toBe(1);
+    expect(response.failureReason).toBe('Test error');
   });
 });

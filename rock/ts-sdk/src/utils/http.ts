@@ -5,6 +5,7 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import https from 'https';
 import { PID_PREFIX, PID_SUFFIX } from '../common/constants.js';
+import { objectToCamel, objectToSnake } from './case.js';
 
 /**
  * HTTP client configuration
@@ -40,6 +41,8 @@ export class HttpUtils {
 
   /**
    * Send POST request
+   * Automatically converts request body from camelCase to snake_case
+   * Automatically converts response from snake_case to camelCase
    */
   static async post<T = unknown>(
     url: string,
@@ -52,9 +55,13 @@ export class HttpUtils {
       headers,
     });
 
+    // Convert request body to snake_case for API
+    const snakeData = objectToSnake(data);
+
     try {
-      const response = await client.post<T>(url, data);
-      return response.data;
+      const response = await client.post<unknown>(url, snakeData);
+      // Convert response to camelCase for SDK users
+      return objectToCamel(response.data as object) as T;
     } catch (error) {
       if (error instanceof AxiosError) {
         throw new Error(`Failed to POST ${url}: ${error.message}`);
@@ -65,6 +72,7 @@ export class HttpUtils {
 
   /**
    * Send GET request
+   * Automatically converts response from snake_case to camelCase
    */
   static async get<T = unknown>(
     url: string,
@@ -73,8 +81,9 @@ export class HttpUtils {
     const client = this.createClient({ headers });
 
     try {
-      const response = await client.get<T>(url);
-      return response.data;
+      const response = await client.get<unknown>(url);
+      // Convert response to camelCase for SDK users
+      return objectToCamel(response.data as object) as T;
     } catch (error) {
       if (error instanceof AxiosError) {
         throw new Error(`Failed to GET ${url}: ${error.message}`);
@@ -84,7 +93,16 @@ export class HttpUtils {
   }
 
   /**
+   * Convert camelCase key to snake_case
+   */
+  private static camelToSnakeKey(key: string): string {
+    return key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+  }
+
+  /**
    * Send multipart/form-data request
+   * Automatically converts form data keys to snake_case
+   * Automatically converts response from snake_case to camelCase
    */
   static async postMultipart<T = unknown>(
     url: string,
@@ -94,29 +112,31 @@ export class HttpUtils {
   ): Promise<T> {
     const formData = new FormData();
 
-    // Add form fields
+    // Add form fields (convert keys to snake_case)
     if (data) {
       for (const [key, value] of Object.entries(data)) {
         if (value !== undefined && value !== null) {
-          formData.append(key, String(value));
+          const snakeKey = this.camelToSnakeKey(key);
+          formData.append(snakeKey, String(value));
         }
       }
     }
 
-    // Add files
+    // Add files (convert field names to snake_case)
     if (files) {
       for (const [fieldName, fileData] of Object.entries(files)) {
         if (fileData !== undefined && fileData !== null) {
+          const snakeFieldName = this.camelToSnakeKey(fieldName);
           if (Array.isArray(fileData)) {
             // [filename, content, contentType]
             const [filename, content, contentType] = fileData;
             const blob = new Blob([content], { type: contentType });
-            formData.append(fieldName, blob, filename);
+            formData.append(snakeFieldName, blob, filename);
           } else if (fileData instanceof Buffer) {
             const blob = new Blob([fileData], { type: 'application/octet-stream' });
-            formData.append(fieldName, blob, 'file');
+            formData.append(snakeFieldName, blob, 'file');
           } else if (fileData instanceof File) {
-            formData.append(fieldName, fileData);
+            formData.append(snakeFieldName, fileData);
           }
         }
       }
@@ -130,8 +150,9 @@ export class HttpUtils {
     });
 
     try {
-      const response = await client.post<T>(url, formData);
-      return response.data;
+      const response = await client.post<unknown>(url, formData);
+      // Convert response to camelCase for SDK users
+      return objectToCamel(response.data as object) as T;
     } catch (error) {
       if (error instanceof AxiosError) {
         throw new Error(`Failed to POST multipart ${url}: ${error.message}`);

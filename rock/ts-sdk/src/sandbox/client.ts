@@ -171,11 +171,12 @@ export class Sandbox extends AbstractSandbox {
     logger.info('Starting sandbox...');
     const url = `${this.url}/start_async`;
     const headers = this.buildHeaders();
+    // Use camelCase - HTTP layer will convert to snake_case
     const data = {
       image: this.config.image,
-      auto_clear_time: this.config.autoClearSeconds / 60,
-      auto_clear_time_minutes: this.config.autoClearSeconds / 60,
-      startup_timeout: this.config.startupTimeout,
+      autoClearTime: this.config.autoClearSeconds / 60,
+      autoClearTimeMinutes: this.config.autoClearSeconds / 60,
+      startupTimeout: this.config.startupTimeout,
       memory: this.config.memory,
       cpus: this.config.cpus,
     };
@@ -184,7 +185,7 @@ export class Sandbox extends AbstractSandbox {
     logger.debug(`Request data: ${JSON.stringify(data)}`);
 
     try {
-      const response = await HttpUtils.post<{ status: string; result?: { sandbox_id?: string; host_name?: string; host_ip?: string } }>(
+      const response = await HttpUtils.post<{ status: string; result?: { sandboxId?: string; hostName?: string; hostIp?: string } }>(
         url,
         headers,
         data
@@ -196,9 +197,10 @@ export class Sandbox extends AbstractSandbox {
         throw new Error(`Failed to start sandbox: ${JSON.stringify(response)}`);
       }
 
-      this.sandboxId = response.result?.sandbox_id ?? null;
-      this.hostName = response.result?.host_name ?? null;
-      this.hostIp = response.result?.host_ip ?? null;
+      // Response is already camelCase (converted by HTTP layer)
+      this.sandboxId = response.result?.sandboxId ?? null;
+      this.hostName = response.result?.hostName ?? null;
+      this.hostIp = response.result?.hostIp ?? null;
 
       logger.info(`Sandbox ID: ${this.sandboxId}`);
 
@@ -221,7 +223,7 @@ export class Sandbox extends AbstractSandbox {
 
           const status = await Promise.race([statusPromise, timeoutPromise]);
           logger.debug(`Status result: ${JSON.stringify(status)}`);
-          if (status && status.is_alive) {
+          if (status && status.isAlive) {
             logger.info('Sandbox is alive');
             return;
           }
@@ -244,7 +246,7 @@ export class Sandbox extends AbstractSandbox {
     try {
       const url = `${this.url}/stop`;
       const headers = this.buildHeaders();
-      await HttpUtils.post(url, headers, { sandbox_id: this.sandboxId });
+      await HttpUtils.post(url, headers, { sandboxId: this.sandboxId });
     } catch (e) {
       logger.warn(`Failed to stop sandbox, IGNORE: ${e}`);
     }
@@ -254,8 +256,8 @@ export class Sandbox extends AbstractSandbox {
     try {
       const status = await this.getStatus();
       return {
-        is_alive: status.is_alive,
-        message: status.host_name ?? '',
+        isAlive: status.isAlive,
+        message: status.hostName ?? '',
       };
     } catch (e) {
       throw new Error(`Failed to get is alive: ${e}`);
@@ -263,7 +265,7 @@ export class Sandbox extends AbstractSandbox {
   }
 
   async getStatus(): Promise<SandboxStatusResponse> {
-    const url = `${this.url}/get_status?sandbox_id=${this.sandboxId}`;
+    const url = `${this.url}/get_status?sandboxId=${this.sandboxId}`;
     const headers = this.buildHeaders();
     const response = await HttpUtils.get<{ status: string; result?: SandboxStatusResponse }>(url, headers);
 
@@ -280,7 +282,7 @@ export class Sandbox extends AbstractSandbox {
     const headers = this.buildHeaders();
     const data = {
       command: command.command,
-      sandbox_id: this.sandboxId,
+      sandboxId: this.sandboxId,
       timeout: command.timeout,
       cwd: command.cwd,
       env: command.env,
@@ -308,7 +310,7 @@ export class Sandbox extends AbstractSandbox {
     const url = `${this.url}/create_session`;
     const headers = this.buildHeaders();
     const data = {
-      sandbox_id: this.sandboxId,
+      sandboxId: this.sandboxId,
       ...request,
     };
 
@@ -333,7 +335,7 @@ export class Sandbox extends AbstractSandbox {
     const url = `${this.url}/close_session`;
     const headers = this.buildHeaders();
     const data = {
-      sandbox_id: this.sandboxId,
+      sandboxId: this.sandboxId,
       ...request,
     };
 
@@ -348,7 +350,7 @@ export class Sandbox extends AbstractSandbox {
         throw new Error(`Failed to close session: ${JSON.stringify(response)}`);
       }
 
-      return response.result ?? { session_type: 'bash' };
+      return response.result ?? { sessionType: 'bash' };
     } catch (e) {
       throw new Error(`Failed to close session: ${e}`);
     }
@@ -397,17 +399,17 @@ export class Sandbox extends AbstractSandbox {
     const url = `${this.url}/run_in_session`;
     const headers = this.buildHeaders();
     const data = {
-      action_type: 'bash',
+      actionType: 'bash',
       session: action.session,
       command: action.command,
-      sandbox_id: this.sandboxId,
+      sandboxId: this.sandboxId,
       timeout: action.timeout,
     };
 
     try {
       // Convert timeout from seconds to milliseconds for axios
       const timeoutMs = action.timeout ? action.timeout * 1000 : undefined;
-      const response = await HttpUtils.post<{ status: string; result?: Record<string, unknown> }>(
+      const response = await HttpUtils.post<{ status: string; result?: Observation }>(
         url,
         headers,
         data,
@@ -418,14 +420,8 @@ export class Sandbox extends AbstractSandbox {
         throw new Error(`Failed to execute command: ${JSON.stringify(response)}`);
       }
 
-      // Convert snake_case to camelCase
-      const raw = response.result!;
-      return {
-        output: raw.output as string,
-        exit_code: raw.exit_code as number | undefined,
-        failure_reason: raw.failure_reason as string | undefined,
-        expect_string: raw.expect_string as string | undefined,
-      };
+      // Response is already camelCase (converted by HTTP layer)
+      return response.result!;
     } catch (e) {
       throw new Error(`Failed to run in session: ${e}`);
     }
@@ -474,7 +470,7 @@ export class Sandbox extends AbstractSandbox {
     });
 
     // Check if nohup command failed (non-zero exit code and not undefined)
-    if (response.exit_code !== undefined && response.exit_code !== 0) {
+    if (response.exitCode !== undefined && response.exitCode !== 0) {
       return response;
     }
 
@@ -483,9 +479,9 @@ export class Sandbox extends AbstractSandbox {
     if (!pid) {
       return {
         output: 'Failed to submit command, nohup failed to extract PID',
-        exit_code: 1,
-        failure_reason: 'PID extraction failed',
-        expect_string: '',
+        exitCode: 1,
+        failureReason: 'PID extraction failed',
+        expectString: '',
       };
     }
 
@@ -496,9 +492,9 @@ export class Sandbox extends AbstractSandbox {
     if (ignoreOutput) {
       return {
         output: `Command executed in nohup mode. Output file: ${tmpFile}`,
-        exit_code: success ? 0 : 1,
-        failure_reason: success ? '' : 'Process did not complete successfully',
-        expect_string: '',
+        exitCode: success ? 0 : 1,
+        failureReason: success ? '' : 'Process did not complete successfully',
+        expectString: '',
       };
     }
 
@@ -513,9 +509,9 @@ export class Sandbox extends AbstractSandbox {
 
     return {
       output: outputResult.output,
-      exit_code: success ? 0 : 1,
-      failure_reason: success ? '' : 'Process did not complete successfully',
-      expect_string: '',
+      exitCode: success ? 0 : 1,
+      failureReason: success ? '' : 'Process did not complete successfully',
+      expectString: '',
     };
   }
 
@@ -536,8 +532,8 @@ export class Sandbox extends AbstractSandbox {
           session,
           timeout: effectiveTimeout,
         });
-        // If exit_code is 0, process is still running
-        if (result.exit_code === 0) {
+        // If exitCode is 0, process is still running
+        if (result.exitCode === 0) {
           await sleep(checkInterval * 1000);
         } else {
           // Process does not exist - completed
@@ -559,7 +555,7 @@ export class Sandbox extends AbstractSandbox {
     const data = {
       content: request.content,
       path: request.path,
-      sandbox_id: this.sandboxId,
+      sandboxId: this.sandboxId,
     };
 
     const response = await HttpUtils.post<{ status: string }>(url, headers, data);
@@ -578,7 +574,7 @@ export class Sandbox extends AbstractSandbox {
       path: request.path,
       encoding: request.encoding,
       errors: request.errors,
-      sandbox_id: this.sandboxId,
+      sandboxId: this.sandboxId,
     };
 
     const response = await HttpUtils.post<{ status: string; result?: { content: string } }>(
@@ -611,7 +607,7 @@ export class Sandbox extends AbstractSandbox {
       const response = await HttpUtils.postMultipart<{ status: string }>(
         url,
         headers,
-        { target_path: targetPath, sandbox_id: this.sandboxId ?? '' },
+        { targetPath: targetPath, sandboxId: this.sandboxId ?? '' },
         { file: [fileName, fileBuffer, 'application/octet-stream'] }
       );
 

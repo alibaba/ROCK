@@ -6,9 +6,7 @@ import {
   EnvHubClientConfigSchema,
   RockEnvInfoSchema,
   createRockEnvInfo,
-  rockEnvInfoToDict,
 } from './schema.js';
-import type { RockEnvInfo } from './schema.js';
 
 describe('EnvHubClientConfigSchema', () => {
   test('should use default baseUrl', () => {
@@ -50,12 +48,12 @@ describe('RockEnvInfoSchema', () => {
 });
 
 describe('createRockEnvInfo', () => {
-  test('should convert snake_case to camelCase', () => {
+  test('should parse camelCase data (after HTTP layer conversion)', () => {
     const env = createRockEnvInfo({
-      env_name: 'test-env',
+      envName: 'test-env',
       image: 'python:3.11',
-      create_at: '2024-01-01',
-      extra_spec: { key: 'value' },
+      createAt: '2024-01-01',
+      extraSpec: { key: 'value' },
     });
 
     expect(env.envName).toBe('test-env');
@@ -63,33 +61,13 @@ describe('createRockEnvInfo', () => {
     expect(env.extraSpec).toEqual({ key: 'value' });
   });
 
-  test('should accept camelCase input', () => {
+  test('should handle minimal data', () => {
     const env = createRockEnvInfo({
       envName: 'test-env',
       image: 'python:3.11',
     });
 
     expect(env.envName).toBe('test-env');
-  });
-});
-
-describe('rockEnvInfoToDict', () => {
-  test('should convert to snake_case', () => {
-    const env: RockEnvInfo = {
-      envName: 'test-env',
-      image: 'python:3.11',
-      owner: 'user',
-      createAt: '2024-01-01',
-      updateAt: '2024-01-02',
-      description: 'test',
-      tags: ['tag1'],
-      extraSpec: { key: 'value' },
-    };
-
-    const dict = rockEnvInfoToDict(env);
-
-    expect(dict.env_name).toBe('test-env');
-    expect(dict.create_at).toBe('2024-01-01');
-    expect(dict.extra_spec).toEqual({ key: 'value' });
+    expect(env.image).toBe('python:3.11');
   });
 });

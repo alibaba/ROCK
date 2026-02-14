@@ -224,18 +224,18 @@ TypeScript SDK 与 Python SDK API 基本一致，主要差异：
 
 ### 响应字段命名
 
-API 响应字段使用 **snake_case**，与 Python SDK 保持一致：
+SDK 使用 **camelCase** 命名规范，符合 TypeScript 约定。HTTP 层自动处理 snake_case 到 camelCase 的转换：
 
 ```typescript
-// 响应示例
+// 响应示例 - 使用 camelCase
 const status = await sandbox.getStatus();
-console.log(status.sandbox_id);    // 不是 sandboxId
-console.log(status.host_name);     // 不是 hostName
-console.log(status.is_alive);      // 不是 isAlive
+console.log(status.sandboxId);    // ✓ 正确
+console.log(status.hostName);     // ✓ 正确
+console.log(status.isAlive);      // ✓ 正确
 
 const result = await sandbox.arun('ls');
-console.log(result.exit_code);     // 不是 exitCode
-console.log(result.failure_reason); // 不是 failureReason
+console.log(result.exitCode);     // ✓ 正确
+console.log(result.failureReason);// ✓ 正确
 ```
 
 ## License

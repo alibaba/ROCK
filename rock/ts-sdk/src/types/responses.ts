@@ -1,6 +1,7 @@
 /**
  * Response types
- * Note: All field names use snake_case to match Python SDK and API response
+ * All field names use camelCase for TypeScript convention
+ * HTTP layer automatically converts from API snake_case
  */
 
 import { z } from 'zod';
@@ -11,8 +12,8 @@ import { Codes } from './codes.js';
  */
 export const SandboxResponseSchema = z.object({
   code: z.nativeEnum(Codes).optional(),
-  exit_code: z.number().optional(),
-  failure_reason: z.string().optional(),
+  exitCode: z.number().optional(),
+  failureReason: z.string().optional(),
 });
 
 export type SandboxResponse = z.infer<typeof SandboxResponseSchema>;
@@ -21,7 +22,7 @@ export type SandboxResponse = z.infer<typeof SandboxResponseSchema>;
  * Is alive response
  */
 export const IsAliveResponseSchema = z.object({
-  is_alive: z.boolean(),
+  isAlive: z.boolean(),
   message: z.string().default(''),
 });
 
@@ -29,20 +30,19 @@ export type IsAliveResponse = z.infer<typeof IsAliveResponseSchema>;
 
 /**
  * Sandbox status response
- * Note: API returns snake_case fields
  */
 export const SandboxStatusResponseSchema = z.object({
-  sandbox_id: z.string().optional(),
+  sandboxId: z.string().optional(),
   status: z.record(z.unknown()).optional(),
-  port_mapping: z.record(z.unknown()).optional(),
-  host_name: z.string().optional(),
-  host_ip: z.string().optional(),
-  is_alive: z.boolean().default(true),
+  portMapping: z.record(z.unknown()).optional(),
+  hostName: z.string().optional(),
+  hostIp: z.string().optional(),
+  isAlive: z.boolean().default(true),
   image: z.string().optional(),
-  gateway_version: z.string().optional(),
-  swe_rex_version: z.string().optional(),
-  user_id: z.string().optional(),
-  experiment_id: z.string().optional(),
+  gatewayVersion: z.string().optional(),
+  sweRexVersion: z.string().optional(),
+  userId: z.string().optional(),
+  experimentId: z.string().optional(),
   namespace: z.string().optional(),
   cpus: z.number().optional(),
   memory: z.string().optional(),
@@ -57,7 +57,7 @@ export type SandboxStatusResponse = z.infer<typeof SandboxStatusResponseSchema>;
 export const CommandResponseSchema = z.object({
   stdout: z.string().default(''),
   stderr: z.string().default(''),
-  exit_code: z.number().optional(),
+  exitCode: z.number().optional(),
 });
 
 export type CommandResponse = z.infer<typeof CommandResponseSchema>;
@@ -87,7 +87,7 @@ export type ReadFileResponse = z.infer<typeof ReadFileResponseSchema>;
 export const UploadResponseSchema = z.object({
   success: z.boolean().default(false),
   message: z.string().default(''),
-  file_name: z.string().optional(),
+  fileName: z.string().optional(),
 });
 
 export type UploadResponse = z.infer<typeof UploadResponseSchema>;
@@ -97,9 +97,9 @@ export type UploadResponse = z.infer<typeof UploadResponseSchema>;
  */
 export const ObservationSchema = z.object({
   output: z.string().default(''),
-  exit_code: z.number().optional(),
-  failure_reason: z.string().default(''),
-  expect_string: z.string().default(''),
+  exitCode: z.number().optional(),
+  failureReason: z.string().default(''),
+  expectString: z.string().default(''),
 });
 
 export type Observation = z.infer<typeof ObservationSchema>;
@@ -109,7 +109,7 @@ export type Observation = z.infer<typeof ObservationSchema>;
  */
 export const CreateSessionResponseSchema = z.object({
   output: z.string().default(''),
-  session_type: z.literal('bash').default('bash'),
+  sessionType: z.literal('bash').default('bash'),
 });
 
 export type CreateSessionResponse = z.infer<typeof CreateSessionResponseSchema>;
@@ -118,7 +118,7 @@ export type CreateSessionResponse = z.infer<typeof CreateSessionResponseSchema>;
  * Close session response
  */
 export const CloseSessionResponseSchema = z.object({
-  session_type: z.literal('bash').default('bash'),
+  sessionType: z.literal('bash').default('bash'),
 });
 
 export type CloseSessionResponse = z.infer<typeof CloseSessionResponseSchema>;

@@ -39,6 +39,7 @@
   "dependencies": {
     "ali-oss": "^6.21.0",
     "axios": "^1.7.9",
+    "ts-case-convert": "^2.1.0",
     "winston": "^3.17.0",
     "zod": "^3.24.1"
   },

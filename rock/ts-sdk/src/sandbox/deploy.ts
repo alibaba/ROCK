@@ -58,8 +58,8 @@ export class Deploy {
 
     // Upload directory
     const uploadResult = await this.sandbox.getFs().uploadDir(localAbs, target);
-    if (uploadResult.exit_code !== 0) {
-      throw new Error(`Failed to upload directory: ${uploadResult.failure_reason}`);
+    if (uploadResult.exitCode !== 0) {
+      throw new Error(`Failed to upload directory: ${uploadResult.failureReason}`);
     }
 
     // Update working directory

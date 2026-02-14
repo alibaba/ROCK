@@ -58,7 +58,7 @@ export class Process {
       if (!writeResult.success) {
         const errorMsg = `Failed to upload script: ${writeResult.message}`;
         logger.error(errorMsg);
-        return { output: errorMsg, exit_code: 1, failure_reason: 'Script upload failed', expect_string: '' };
+        return { output: errorMsg, exitCode: 1, failureReason: 'Script upload failed', expectString: '' };
       }
 
       // Execute script
@@ -72,7 +72,7 @@ export class Process {
     } catch (e) {
       const errorMsg = `Script execution failed: ${e}`;
       logger.error(errorMsg);
-      return { output: errorMsg, exit_code: 1, failure_reason: errorMsg, expect_string: '' };
+      return { output: errorMsg, exitCode: 1, failureReason: errorMsg, expectString: '' };
     } finally {
       // Cleanup script if requested
       if (cleanup) {
