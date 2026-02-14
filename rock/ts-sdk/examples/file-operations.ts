@@ -87,10 +87,10 @@ async function fileOperationsExample() {
     // 5. 文件权限操作
     console.log('5. 文件权限操作...');
     
-    const fs = sandbox.getFs();
+    const sandboxFs = sandbox.getFs();
     
     // 修改权限
-    await fs.chmod({
+    await sandboxFs.chmod({
       paths: ['/workspace/project/src/index.js'],
       mode: '755',
       recursive: false,
