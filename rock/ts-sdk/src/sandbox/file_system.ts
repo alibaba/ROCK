@@ -4,7 +4,7 @@
 
 import { initLogger } from '../logger.js';
 import type { Observation, CommandResponse } from '../types/responses.js';
-import type { Command, ChownRequest, ChmodRequest } from '../types/requests.js';
+import type { ChownRequest, ChmodRequest } from '../types/requests.js';
 import type { AbstractSandbox } from './client.js';
 
 const logger = initLogger('rock.sandbox.fs');
@@ -82,7 +82,7 @@ export class LinuxFileSystem extends FileSystem {
   async uploadDir(
     sourceDir: string,
     targetDir: string,
-    extractTimeout: number = 600
+    _extractTimeout: number = 600
   ): Promise<Observation> {
     // Simplified implementation - would need tar/untar logic
     // This is a placeholder that would be implemented with actual

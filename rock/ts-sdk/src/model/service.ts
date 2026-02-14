@@ -5,9 +5,6 @@
 import { spawn, ChildProcess } from 'child_process';
 import { resolve } from 'path';
 import axios from 'axios';
-import { initLogger } from '../logger.js';
-
-const logger = initLogger('rock.model.service');
 
 /**
  * Model service configuration

@@ -88,6 +88,7 @@ export class ModelClient {
   /**
    * Pop request from log file
    */
+  // eslint-disable-next-line no-constant-condition
   async popRequest(index: number): Promise<string> {
     while (true) {
       const lastRequestLine = await this.readLastRequestLine();
@@ -109,6 +110,7 @@ export class ModelClient {
   /**
    * Wait for first request
    */
+  // eslint-disable-next-line no-constant-condition
   async waitForFirstRequest(): Promise<void> {
     while (true) {
       if (!existsSync(this.logFile)) {
