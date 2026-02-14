@@ -202,7 +202,7 @@ export class Sandbox extends AbstractSandbox {
       const startTime = Date.now();
       while (Date.now() - startTime < this.config.startupTimeout * 1000) {
         const status = await this.getStatus();
-        if (status.isAlive) {
+        if (status.is_alive) {
           return;
         }
         await sleep(3000);
@@ -230,8 +230,8 @@ export class Sandbox extends AbstractSandbox {
     try {
       const status = await this.getStatus();
       return {
-        isAlive: status.isAlive,
-        message: status.hostName ?? '',
+        is_alive: status.is_alive,
+        message: status.host_name ?? '',
       };
     } catch (e) {
       throw new Error(`Failed to get is alive: ${e}`);
@@ -324,7 +324,7 @@ export class Sandbox extends AbstractSandbox {
         throw new Error(`Failed to close session: ${JSON.stringify(response)}`);
       }
 
-      return response.result ?? {};
+      return response.result ?? { session_type: 'bash' };
     } catch (e) {
       throw new Error(`Failed to close session: ${e}`);
     }
@@ -423,7 +423,7 @@ export class Sandbox extends AbstractSandbox {
       timeout: 30,
     });
 
-    if (response.exitCode !== 0) {
+    if (response.exit_code !== 0) {
       return response;
     }
 
@@ -432,9 +432,9 @@ export class Sandbox extends AbstractSandbox {
     if (!pid) {
       return {
         output: 'Failed to submit command, nohup failed to extract PID',
-        exitCode: 1,
-        failureReason: 'PID extraction failed',
-        expectString: '',
+        exit_code: 1,
+        failure_reason: 'PID extraction failed',
+        expect_string: '',
       };
     }
 
@@ -445,9 +445,9 @@ export class Sandbox extends AbstractSandbox {
     if (ignoreOutput) {
       return {
         output: `Command executed in nohup mode. Output file: ${tmpFile}`,
-        exitCode: success ? 0 : 1,
-        failureReason: success ? '' : 'Process did not complete successfully',
-        expectString: '',
+        exit_code: success ? 0 : 1,
+        failure_reason: success ? '' : 'Process did not complete successfully',
+        expect_string: '',
       };
     }
 
@@ -462,9 +462,9 @@ export class Sandbox extends AbstractSandbox {
 
     return {
       output: outputResult.output,
-      exitCode: success ? 0 : 1,
-      failureReason: success ? '' : 'Process did not complete successfully',
-      expectString: '',
+      exit_code: success ? 0 : 1,
+      failure_reason: success ? '' : 'Process did not complete successfully',
+      expect_string: '',
     };
   }
 

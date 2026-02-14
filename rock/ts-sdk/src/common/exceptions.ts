@@ -90,9 +90,8 @@ export function raiseForCode(code: Codes | null | undefined, message: string): v
 export function fromRockException(e: RockException): SandboxResponse {
   return {
     code: e.code ?? undefined,
-    exitCode: 1,
-    failureReason: e.message,
-  };
+      exit_code: 1,
+      failure_reason: e.message,  };
 }
 
 // Helper functions for code checking

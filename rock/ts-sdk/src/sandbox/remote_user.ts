@@ -48,7 +48,7 @@ export class LinuxRemoteUser extends RemoteUser {
 
       logger.info(`user add execute response: ${JSON.stringify(response)}`);
 
-      if (response.exitCode !== 0) {
+      if (response.exit_code !== 0) {
         return false;
       }
 
@@ -66,7 +66,7 @@ export class LinuxRemoteUser extends RemoteUser {
         timeout: 30,
       });
 
-      if (response.exitCode === 0) {
+      if (response.exit_code === 0) {
         logger.info(`user ${userName} already exists`);
         return true;
       }
