@@ -222,7 +222,6 @@ export class Sandbox extends AbstractSandbox {
           );
 
           const status = await Promise.race([statusPromise, timeoutPromise]);
-          logger.debug(`Status result: ${JSON.stringify(status)}`);
           if (status && status.isAlive) {
             logger.info('Sandbox is alive');
             return;
@@ -265,7 +264,7 @@ export class Sandbox extends AbstractSandbox {
   }
 
   async getStatus(): Promise<SandboxStatusResponse> {
-    const url = `${this.url}/get_status?sandboxId=${this.sandboxId}`;
+    const url = `${this.url}/get_status?sandbox_id=${this.sandboxId}`;
     const headers = this.buildHeaders();
     const response = await HttpUtils.get<{ status: string; result?: SandboxStatusResponse }>(url, headers);
 

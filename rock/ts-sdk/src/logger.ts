@@ -56,9 +56,9 @@ const fileFormat = winston.format.combine(
  * Get log level from environment
  */
 function getLogLevel(): string {
-  const level = envVars.ROCK_LOGGING_LEVEL.toUpperCase();
+  const level = envVars.ROCK_LOGGING_LEVEL.toLowerCase();
   if (level in levels) {
-    return level.toLowerCase();
+    return level;
   }
   return 'info';
 }
