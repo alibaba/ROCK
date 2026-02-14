@@ -93,7 +93,7 @@ async function workflowExample() {
   console.log('演示：创建 Python 项目、部署、测试、运行\n');
 
   const sandbox = new Sandbox({
-    image: 'python:3.11',
+    image: 'reg.docker.alibaba-inc.com/yanan/python:3.11',
     baseUrl: process.env.ROCK_BASE_URL || 'http://localhost:8080',
     cluster: 'default',
     memory: '4g',
@@ -146,7 +146,7 @@ async function workflowExample() {
 
     console.log('  3.1 运行单元测试...');
     const testResult = await sandbox.arun(
-      'cd /workspace/my-project && python3 -m pytest test_calculator.py -v',
+      'cd /workspace/my-project && python3 test_calculator.py',
       { mode: RunMode.NORMAL, timeout: 60 }
     );
     console.log(`      测试输出:\n${testResult.output.split('\n').slice(0, 15).map(l => '        ' + l).join('\n')}`);
