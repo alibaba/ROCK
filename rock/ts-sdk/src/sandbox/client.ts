@@ -170,6 +170,7 @@ export class Sandbox extends AbstractSandbox {
 
   // Lifecycle methods
   async start(): Promise<void> {
+    logger.info('Starting sandbox...');
     const url = `${this.url}/start_async`;
     const headers = this.buildHeaders();
     const data = {
@@ -201,7 +202,7 @@ export class Sandbox extends AbstractSandbox {
       this.hostName = response.result?.host_name ?? null;
       this.hostIp = response.result?.host_ip ?? null;
 
-      logger.debug(`Sandbox ID: ${this.sandboxId}`);
+      logger.info(`Sandbox ID: ${this.sandboxId}`);
 
       // Wait for sandbox to be alive
       // First, wait a bit for the backend to process the start request
@@ -213,7 +214,7 @@ export class Sandbox extends AbstractSandbox {
 
       while (Date.now() - startTime < this.config.startupTimeout * 1000) {
         try {
-          logger.debug(`Checking status... (elapsed: ${Math.round((Date.now() - startTime) / 1000)}s)`);
+          logger.info(`Checking status... (elapsed: ${Math.round((Date.now() - startTime) / 1000)}s)`);
           // Use Promise.race to implement timeout for status check
           const statusPromise = this.getStatus();
           const timeoutPromise = new Promise<null>((_, reject) =>
@@ -223,7 +224,7 @@ export class Sandbox extends AbstractSandbox {
           const status = await Promise.race([statusPromise, timeoutPromise]);
           logger.debug(`Status result: ${JSON.stringify(status)}`);
           if (status && status.is_alive) {
-            logger.debug('Sandbox is alive');
+            logger.info('Sandbox is alive');
             return;
           }
         } catch (e) {
@@ -457,8 +458,13 @@ export class Sandbox extends AbstractSandbox {
     const timestamp = Date.now();
     const tmpSession = session ?? `bash-${timestamp}`;
 
-    if (!session) {
+    // Ensure session exists (ignore if already exists)
+    try {
       await this.createSession({ session: tmpSession, startupSource: [], envEnable: false });
+    } catch (e) {
+      if (!String(e).includes('already exists')) {
+        throw e;
+      }
     }
 
     const tmpFile = outputFile ?? `/tmp/tmp_${timestamp}.out`;
@@ -471,7 +477,8 @@ export class Sandbox extends AbstractSandbox {
       timeout: 30,
     });
 
-    if (response.exit_code !== 0) {
+    // Check if nohup command failed (non-zero exit code and not undefined)
+    if (response.exit_code !== undefined && response.exit_code !== 0) {
       return response;
     }
 
@@ -523,17 +530,23 @@ export class Sandbox extends AbstractSandbox {
     waitInterval: number
   ): Promise<boolean> {
     const startTime = Date.now();
-    const checkInterval = Math.max(5, waitInterval);
-    const effectiveInterval = Math.min(checkInterval * 2, waitTimeout);
+    const checkInterval = Math.max(1, waitInterval);
+    const effectiveTimeout = Math.min(checkInterval * 2, waitTimeout);
 
     while (Date.now() - startTime < waitTimeout * 1000) {
       try {
-        await this.runInSession({
+        const result = await this.runInSession({
           command: `kill -0 ${pid}`,
           session,
-          timeout: effectiveInterval,
+          timeout: effectiveTimeout,
         });
-        await sleep(checkInterval * 1000);
+        // If exit_code is 0, process is still running
+        if (result.exit_code === 0) {
+          await sleep(checkInterval * 1000);
+        } else {
+          // Process does not exist - completed
+          return true;
+        }
       } catch {
         // Process does not exist - completed
         return true;

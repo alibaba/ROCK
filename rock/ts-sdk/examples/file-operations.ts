@@ -4,7 +4,7 @@
  * 演示文件上传、下载、读写等操作
  */
 
-import { Sandbox, RunMode } from 'rl-rock';
+import { Sandbox, RunMode } from '../src';
 import * as fs from 'fs';
 import * as path from 'path';
 

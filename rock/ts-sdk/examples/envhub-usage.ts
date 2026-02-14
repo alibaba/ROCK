@@ -4,7 +4,7 @@
  * 演示环境注册和管理
  */
 
-import { EnvHubClient, EnvHubClientConfig } from 'rl-rock';
+import { EnvHubClient, EnvHubClientConfig } from '../src';
 
 async function envHubExample() {
   console.log('=== ROCK TypeScript SDK EnvHub 示例 ===\n');
