@@ -19,7 +19,7 @@ from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_s
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
 from rock.admin.gem.api import gem_router, set_env_service
 from rock.admin.scheduler.scheduler import SchedulerProcess
-from rock.config import RockConfig
+from rock.config import RockConfig, SchedulerConfig
 from rock.logger import init_logger
 from rock.sandbox.gem_manager import GemManager
 from rock.sandbox.operator.factory import OperatorContext, OperatorFactory
@@ -27,7 +27,6 @@ from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sandbox.service.warmup_service import WarmupService
 from rock.utils import EAGLE_EYE_TRACE_ID, sandbox_id_ctx_var, trace_id_ctx_var
 from rock.utils.providers import RedisProvider
-from rock.utils.system import is_primary_pod
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--env", type=str, default="local")
@@ -48,6 +47,14 @@ async def lifespan(app: FastAPI):
         else env_vars.ROCK_CONFIG
     )
     rock_config = RockConfig.from_env(config_file_path)
+
+    # Override scheduler config from Nacos if available
+    if rock_config.nacos_provider:
+        nacos_config = await rock_config.nacos_provider.get_config()
+        if nacos_config and "scheduler" in nacos_config:
+            rock_config.scheduler = SchedulerConfig(**nacos_config["scheduler"])
+            logger.info(f"Overrode scheduler config from Nacos with {len(rock_config.scheduler.tasks)} tasks")
+
     env_vars.ROCK_ADMIN_ENV = args.env
     env_vars.ROCK_ADMIN_ROLE = args.role
 
@@ -107,11 +114,13 @@ async def lifespan(app: FastAPI):
         set_warmup_service(warmup_service)
         set_env_service(sandbox_manager)
 
-        if rock_config.scheduler.enabled and is_primary_pod():
+        # if rock_config.scheduler.enabled and is_primary_pod():
+        if rock_config.scheduler.enabled:
             scheduler_process = SchedulerProcess(
                 scheduler_config=rock_config.scheduler,
                 ray_address=rock_config.ray.address,
                 ray_namespace=rock_config.ray.namespace,
+                nacos_config=rock_config.nacos if rock_config.nacos.endpoint else None,
             )
             scheduler_process.start()
             logger.info("Scheduler process started on primary pod")

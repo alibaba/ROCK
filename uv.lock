@@ -4011,7 +4011,11 @@ wheels = [
 
 [[package]]
 name = "rl-rock"
+<<<<<<< dev/scheduler_conf_to_nacos_0206
+version = "1.3.0"
+=======
 version = "1.2.1"
+>>>>>>> master
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
