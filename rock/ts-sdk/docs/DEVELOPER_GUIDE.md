@@ -99,12 +99,12 @@ const bgResult = await sandbox.arun('python train.py', {
   outputFile: '/tmp/train.log', // 输出文件路径
 });
 
-// 结果结构
+// 结果结构 (使用 snake_case，与 Python SDK 和 API 保持一致)
 interface Observation {
   output: string;
-  exitCode: number;
-  failureReason: string;
-  expectString: string;
+  exit_code: number;
+  failure_reason: string;
+  expect_string: string;
 }
 ```
 
@@ -461,10 +461,10 @@ async function withSandbox<T>(
 async function executeTask(sandbox: Sandbox) {
   const result = await sandbox.arun('task-command');
   
-  if (result.exitCode !== 0) {
+  if (result.exit_code !== 0) {
     // 命令执行失败，可重试
-    logger.warn(`Task failed: ${result.failureReason}`);
-    return { success: false, error: result.failureReason };
+    logger.warn(`Task failed: ${result.failure_reason}`);
+    return { success: false, error: result.failure_reason };
   }
   
   return { success: true, output: result.output };
@@ -507,6 +507,23 @@ try {
 
 完整类型定义请参考 `dist/index.d.ts` 或源码中的 Zod schemas。
 
+### 命名约定
+
+所有 API 响应字段使用 **snake_case**，与 Python SDK 和后端 API 保持一致：
+
+```typescript
+// SandboxStatusResponse
+status.sandbox_id        // ✓ 正确
+status.sandboxId         // ✗ 错误
+
+// Observation
+result.exit_code         // ✓ 正确
+result.exitCode          // ✗ 错误
+
+result.failure_reason    // ✓ 正确
+result.failureReason     // ✗ 错误
+```
+
 ### 主要类型
 
 ```typescript
@@ -520,10 +537,36 @@ interface CreateBashSessionRequest { ... }
 interface WriteFileRequest { ... }
 interface ReadFileRequest { ... }
 
-// 响应类型
-interface Observation { ... }
-interface CommandResponse { ... }
-interface SandboxStatusResponse { ... }
+// 响应类型 (snake_case)
+interface Observation {
+  output: string;
+  exit_code?: number;
+  failure_reason: string;
+  expect_string: string;
+}
+
+interface CommandResponse {
+  stdout: string;
+  stderr: string;
+  exit_code?: number;
+}
+
+interface SandboxStatusResponse {
+  sandbox_id?: string;
+  host_name?: string;
+  host_ip?: string;
+  is_alive: boolean;
+  image?: string;
+  gateway_version?: string;
+  swe_rex_version?: string;
+  user_id?: string;
+  experiment_id?: string;
+  namespace?: string;
+  cpus?: number;
+  memory?: string;
+  port_mapping?: Record<string, number>;
+  status?: Record<string, unknown>;
+}
 
 // 枚举
 enum SpeedupType { APT, PIP, GITHUB }
@@ -543,6 +586,9 @@ process.env.ROCK_LOGGING_LEVEL = 'debug';
 // 获取沙箱状态
 const status = await sandbox.getStatus();
 console.log(status);
+console.log(`Sandbox ID: ${status.sandbox_id}`);
+console.log(`Is alive: ${status.is_alive}`);
+console.log(`Port mapping: ${JSON.stringify(status.port_mapping)}`);
 ```
 
 ### Q: 如何处理大文件上传？

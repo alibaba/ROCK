@@ -222,6 +222,22 @@ TypeScript SDK 与 Python SDK API 基本一致，主要差异：
 | `await sandbox.fs.upload_dir(...)` | `await sandbox.getFs().uploadDir(...)` |
 | `sandbox.process.execute_script(...)` | `sandbox.getProcess().executeScript(...)` |
 
+### 响应字段命名
+
+API 响应字段使用 **snake_case**，与 Python SDK 保持一致：
+
+```typescript
+// 响应示例
+const status = await sandbox.getStatus();
+console.log(status.sandbox_id);    // 不是 sandboxId
+console.log(status.host_name);     // 不是 hostName
+console.log(status.is_alive);      // 不是 isAlive
+
+const result = await sandbox.arun('ls');
+console.log(result.exit_code);     // 不是 exitCode
+console.log(result.failure_reason); // 不是 failureReason
+```
+
 ## License
 
 Apache License 2.0
