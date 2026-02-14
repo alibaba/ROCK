@@ -4,13 +4,13 @@
  * 演示使用 nohup 模式执行长时间运行的任务
  */
 
-import { Sandbox, RunMode } from 'rl-rock';
+import { Sandbox, RunMode } from '../src';
 
 async function backgroundTaskExample() {
   console.log('=== ROCK TypeScript SDK 后台任务示例 ===\n');
 
   const sandbox = new Sandbox({
-    image: 'python:3.11',
+    image: 'reg.docker.alibaba-inc.com/yanan/python:3.11',
     baseUrl: process.env.ROCK_BASE_URL || 'http://localhost:8080',
     cluster: 'default',
   });
@@ -52,7 +52,7 @@ print("任务完成!")
     
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`   执行完成，耗时: ${elapsed}秒`);
-    console.log(`   退出码: ${result.exitCode}`);
+    console.log(`   退出码: ${result.exit_code}`);
     console.log(`   输出:\n${result.output}`);
 
     // 3. 演示 ignoreOutput 模式
@@ -66,9 +66,10 @@ print("任务完成!")
     const quickResult = await sandbox.arun('python3 /tmp/quick_task.py', {
       mode: RunMode.NOHUP,
       waitTimeout: 10,
+      waitInterval: 2,       // 每2秒检查一次
       ignoreOutput: true,  // 不读取输出，适合超大输出
     });
-    console.log(`   任务状态: ${quickResult.exitCode === 0 ? '成功' : '失败'}`);
+    console.log(`   任务状态: ${quickResult.exit_code === 0 ? '成功' : '失败'}`);
     console.log(`   消息: ${quickResult.output}`);
 
     // 4. 并行执行多个任务
@@ -95,7 +96,7 @@ print("任务完成!")
     const parallelElapsed = ((Date.now() - parallelStart) / 1000).toFixed(1);
     console.log(`   并行任务完成，耗时: ${parallelElapsed}秒`);
     results.forEach((r, i) => {
-      console.log(`   任务 ${i}: 退出码=${r.exitCode}`);
+      console.log(`   任务 ${i}: 退出码=${r.exit_code}`);
     });
 
   } finally {

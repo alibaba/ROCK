@@ -4,7 +4,7 @@
  * 演示如何批量创建和管理多个沙箱
  */
 
-import { SandboxGroup, RunMode } from 'rl-rock';
+import { SandboxGroup, RunMode } from '../src';
 
 async function sandboxGroupExample() {
   console.log('=== ROCK TypeScript SDK 沙箱组示例 ===\n');
@@ -119,7 +119,7 @@ print(result)
       sandboxes.map(async (sandbox, i) => {
         try {
           const alive = await sandbox.isAlive();
-          return { index: i, alive: alive.isAlive };
+          return { index: i, alive: alive.is_alive };
         } catch {
           return { index: i, alive: false };
         }
