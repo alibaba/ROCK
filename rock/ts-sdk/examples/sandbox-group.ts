@@ -91,7 +91,7 @@ data = json.loads('${JSON.stringify(chunk)}')
 result = sum(x * x for x in data)
 print(result)
 `;
-        await sandbox.write_file({
+        await sandbox.writeFile({
           content: script,
           path: `/tmp/map_task_${i}.py`,
         });

@@ -127,7 +127,7 @@ async function workflowExample() {
 
     console.log('  2.2 部署项目文件...');
     for (const [filename, content] of Object.entries(PROJECT_CODE)) {
-      await sandbox.write_file({
+      await sandbox.writeFile({
         content: content.trim(),
         path: `/workspace/my-project/${filename}`,
       });

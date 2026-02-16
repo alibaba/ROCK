@@ -33,7 +33,7 @@ for i in range(10):
 print("任务完成!")
 `;
     
-    await sandbox.write_file({
+    await sandbox.writeFile({
       content: scriptContent,
       path: '/tmp/long_task.py',
     });
@@ -58,7 +58,7 @@ print("任务完成!")
     // 3. 演示 ignoreOutput 模式
     console.log('3. 演示 ignoreOutput 模式 (不读取输出)...');
     
-    await sandbox.write_file({
+    await sandbox.writeFile({
       content: 'import time; time.sleep(3); print("Done!")',
       path: '/tmp/quick_task.py',
     });

@@ -50,8 +50,8 @@ export abstract class AbstractSandbox {
   abstract isAlive(): Promise<IsAliveResponse>;
   abstract createSession(request: CreateBashSessionRequest): Promise<CreateSessionResponse>;
   abstract execute(command: Command): Promise<CommandResponse>;
-  abstract read_file(request: ReadFileRequest): Promise<ReadFileResponse>;
-  abstract write_file(request: WriteFileRequest): Promise<WriteFileResponse>;
+  abstract readFile(request: ReadFileRequest): Promise<ReadFileResponse>;
+  abstract writeFile(request: WriteFileRequest): Promise<WriteFileResponse>;
   abstract upload(request: UploadRequest): Promise<UploadResponse>;
   abstract closeSession(request: CloseSessionRequest): Promise<CloseSessionResponse>;
   abstract close(): Promise<void>;
@@ -548,7 +548,7 @@ export class Sandbox extends AbstractSandbox {
   }
 
   // File operations
-  async write_file(request: WriteFileRequest): Promise<WriteFileResponse> {
+  async writeFile(request: WriteFileRequest): Promise<WriteFileResponse> {
     const url = `${this.url}/write_file`;
     const headers = this.buildHeaders();
     const data = {
@@ -566,7 +566,7 @@ export class Sandbox extends AbstractSandbox {
     return { success: true, message: `Successfully write content to file ${request.path}` };
   }
 
-  async read_file(request: ReadFileRequest): Promise<ReadFileResponse> {
+  async readFile(request: ReadFileRequest): Promise<ReadFileResponse> {
     const url = `${this.url}/read_file`;
     const headers = this.buildHeaders();
     const data = {
