@@ -200,7 +200,7 @@ export class Sandbox extends AbstractSandbox {
     logger.debug(`Request data: ${JSON.stringify(data)}`);
 
     try {
-      const response = await HttpUtils.post<{ sandboxId?: string; hostName?: string; hostIp?: string }>(
+      const response = await HttpUtils.post<{ status: string; result?: { sandboxId?: string; hostName?: string; hostIp?: string } }>(
         url,
         headers,
         data
@@ -309,7 +309,7 @@ export class Sandbox extends AbstractSandbox {
     };
 
     try {
-      const response = await HttpUtils.post<CommandResponse>(
+      const response = await HttpUtils.post<{ status: string; result?: CommandResponse }>(
         url,
         headers,
         data
@@ -337,7 +337,7 @@ export class Sandbox extends AbstractSandbox {
     };
 
     try {
-      const response = await HttpUtils.post<CreateSessionResponse>(
+      const response = await HttpUtils.post<{ status: string; result?: CreateSessionResponse }>(
         url,
         headers,
         data
@@ -364,7 +364,7 @@ export class Sandbox extends AbstractSandbox {
     };
 
     try {
-      const response = await HttpUtils.post<CloseSessionResponse>(
+      const response = await HttpUtils.post<{ status: string; result?: CloseSessionResponse }>(
         url,
         headers,
         data
@@ -435,7 +435,7 @@ export class Sandbox extends AbstractSandbox {
     try {
       // Convert timeout from seconds to milliseconds for axios
       const timeoutMs = action.timeout ? action.timeout * 1000 : undefined;
-      const response = await HttpUtils.post<Observation>(
+      const response = await HttpUtils.post<{ status: string; result?: Observation }>(
         url,
         headers,
         data,
@@ -615,7 +615,7 @@ export class Sandbox extends AbstractSandbox {
       sandboxId: this.sandboxId,
     };
 
-    const response = await HttpUtils.post<{ content: string }>(
+    const response = await HttpUtils.post<{ status: string; result?: { content: string } }>(
       url,
       headers,
       data

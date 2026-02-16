@@ -63,7 +63,7 @@ export class EnvHubClient {
         payload
       );
       // Response is already camelCase (converted by HTTP layer)
-      return createRockEnvInfo(response.result);
+      return createRockEnvInfo(response);
     } catch (e) {
       throw new EnvHubError(`Failed to register environment: ${e}`);
     }
@@ -82,7 +82,7 @@ export class EnvHubClient {
         this.headers,
         payload
       );
-      return createRockEnvInfo(response.result);
+      return createRockEnvInfo(response);
     } catch (e) {
       throw new EnvHubError(`Failed to get environment ${envName}: ${e}`);
     }
@@ -107,8 +107,8 @@ export class EnvHubClient {
         this.headers,
         payload
       );
-      const envsData = response.result?.envs ?? [];
-      return envsData.map((envData: Record<string, unknown>) => createRockEnvInfo(envData));
+      const envsData = response.envs ?? [];
+      return envsData.map((envData) => createRockEnvInfo(envData));
     } catch (e) {
       throw new EnvHubError(`Failed to list environments: ${e}`);
     }
@@ -144,7 +144,7 @@ export class EnvHubClient {
         url,
         this.headers
       );
-      return response.result;
+      return response;
     } catch (e) {
       throw new EnvHubError(`Failed to health check: ${e}`);
     }
