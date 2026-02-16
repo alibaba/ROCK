@@ -8,12 +8,22 @@ import { z } from 'zod';
 import { Codes } from './codes.js';
 
 /**
+ * Header-derived fields schema (reusable)
+ */
+export const HeaderFieldsSchema = {
+  cluster: z.string().optional(),
+  requestId: z.string().optional(),
+  eagleeyeTraceid: z.string().optional(),
+};
+
+/**
  * Base sandbox response
  */
 export const SandboxResponseSchema = z.object({
   code: z.nativeEnum(Codes).optional(),
   exitCode: z.number().optional(),
   failureReason: z.string().optional(),
+  ...HeaderFieldsSchema,
 });
 
 export type SandboxResponse = z.infer<typeof SandboxResponseSchema>;
@@ -24,6 +34,7 @@ export type SandboxResponse = z.infer<typeof SandboxResponseSchema>;
 export const IsAliveResponseSchema = z.object({
   isAlive: z.boolean(),
   message: z.string().default(''),
+  ...HeaderFieldsSchema,
 });
 
 export type IsAliveResponse = z.infer<typeof IsAliveResponseSchema>;
@@ -47,6 +58,7 @@ export const SandboxStatusResponseSchema = z.object({
   cpus: z.number().optional(),
   memory: z.string().optional(),
   state: z.unknown().optional(),
+  ...HeaderFieldsSchema,
 });
 
 export type SandboxStatusResponse = z.infer<typeof SandboxStatusResponseSchema>;
@@ -58,6 +70,7 @@ export const CommandResponseSchema = z.object({
   stdout: z.string().default(''),
   stderr: z.string().default(''),
   exitCode: z.number().optional(),
+  ...HeaderFieldsSchema,
 });
 
 export type CommandResponse = z.infer<typeof CommandResponseSchema>;
@@ -68,6 +81,7 @@ export type CommandResponse = z.infer<typeof CommandResponseSchema>;
 export const WriteFileResponseSchema = z.object({
   success: z.boolean().default(false),
   message: z.string().default(''),
+  ...HeaderFieldsSchema,
 });
 
 export type WriteFileResponse = z.infer<typeof WriteFileResponseSchema>;
@@ -77,6 +91,7 @@ export type WriteFileResponse = z.infer<typeof WriteFileResponseSchema>;
  */
 export const ReadFileResponseSchema = z.object({
   content: z.string().default(''),
+  ...HeaderFieldsSchema,
 });
 
 export type ReadFileResponse = z.infer<typeof ReadFileResponseSchema>;
@@ -88,6 +103,7 @@ export const UploadResponseSchema = z.object({
   success: z.boolean().default(false),
   message: z.string().default(''),
   fileName: z.string().optional(),
+  ...HeaderFieldsSchema,
 });
 
 export type UploadResponse = z.infer<typeof UploadResponseSchema>;
@@ -100,6 +116,7 @@ export const ObservationSchema = z.object({
   exitCode: z.number().optional(),
   failureReason: z.string().default(''),
   expectString: z.string().default(''),
+  ...HeaderFieldsSchema,
 });
 
 export type Observation = z.infer<typeof ObservationSchema>;
@@ -110,6 +127,7 @@ export type Observation = z.infer<typeof ObservationSchema>;
 export const CreateSessionResponseSchema = z.object({
   output: z.string().default(''),
   sessionType: z.literal('bash').default('bash'),
+  ...HeaderFieldsSchema,
 });
 
 export type CreateSessionResponse = z.infer<typeof CreateSessionResponseSchema>;
@@ -119,6 +137,7 @@ export type CreateSessionResponse = z.infer<typeof CreateSessionResponseSchema>;
  */
 export const CloseSessionResponseSchema = z.object({
   sessionType: z.literal('bash').default('bash'),
+  ...HeaderFieldsSchema,
 });
 
 export type CloseSessionResponse = z.infer<typeof CloseSessionResponseSchema>;
@@ -126,7 +145,9 @@ export type CloseSessionResponse = z.infer<typeof CloseSessionResponseSchema>;
 /**
  * Close response
  */
-export const CloseResponseSchema = z.object({});
+export const CloseResponseSchema = z.object({
+  ...HeaderFieldsSchema,
+});
 
 export type CloseResponse = z.infer<typeof CloseResponseSchema>;
 
@@ -136,6 +157,7 @@ export type CloseResponse = z.infer<typeof CloseResponseSchema>;
 export const ChownResponseSchema = z.object({
   success: z.boolean().default(false),
   message: z.string().default(''),
+  ...HeaderFieldsSchema,
 });
 
 export type ChownResponse = z.infer<typeof ChownResponseSchema>;
@@ -146,6 +168,7 @@ export type ChownResponse = z.infer<typeof ChownResponseSchema>;
 export const ChmodResponseSchema = z.object({
   success: z.boolean().default(false),
   message: z.string().default(''),
+  ...HeaderFieldsSchema,
 });
 
 export type ChmodResponse = z.infer<typeof ChmodResponseSchema>;
@@ -156,6 +179,7 @@ export type ChmodResponse = z.infer<typeof ChmodResponseSchema>;
 export const ExecuteBashSessionResponseSchema = z.object({
   success: z.boolean().default(false),
   message: z.string().default(''),
+  ...HeaderFieldsSchema,
 });
 
 export type ExecuteBashSessionResponse = z.infer<typeof ExecuteBashSessionResponseSchema>;
@@ -166,6 +190,7 @@ export type ExecuteBashSessionResponse = z.infer<typeof ExecuteBashSessionRespon
 export const OssSetupResponseSchema = z.object({
   success: z.boolean().default(false),
   message: z.string().default(''),
+  ...HeaderFieldsSchema,
 });
 
 export type OssSetupResponse = z.infer<typeof OssSetupResponseSchema>;

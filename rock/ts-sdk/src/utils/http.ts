@@ -43,13 +43,14 @@ export class HttpUtils {
    * Send POST request
    * Automatically converts request body from camelCase to snake_case
    * Automatically converts response from snake_case to camelCase
+   * Returns structured response with headers
    */
   static async post<T = unknown>(
     url: string,
     headers: Record<string, string>,
     data: Record<string, unknown>,
     readTimeout?: number
-  ): Promise<T> {
+  ): Promise<{ status: string; result: T; headers: Record<string, string> }> {
     const client = this.createClient({
       timeout: readTimeout ?? this.defaultTimeout,
       headers,
@@ -61,7 +62,19 @@ export class HttpUtils {
     try {
       const response = await client.post<unknown>(url, snakeData);
       // Convert response to camelCase for SDK users
-      return objectToCamel(response.data as object) as T;
+      const result = objectToCamel(response.data as object) as T;
+      // Extract headers (convert to lowercase keys for easier access)
+      const responseHeaders: Record<string, string> = {};
+      for (const [key, value] of Object.entries(response.headers)) {
+        if (typeof value === 'string') {
+          responseHeaders[key.toLowerCase()] = value;
+        }
+      }
+      return {
+        status: (result as { status?: string })?.status ?? 'Success',
+        result,
+        headers: responseHeaders,
+      };
     } catch (error) {
       if (error instanceof AxiosError) {
         throw new Error(`Failed to POST ${url}: ${error.message}`);
@@ -73,17 +86,30 @@ export class HttpUtils {
   /**
    * Send GET request
    * Automatically converts response from snake_case to camelCase
+   * Returns structured response with headers
    */
   static async get<T = unknown>(
     url: string,
     headers: Record<string, string>
-  ): Promise<T> {
+  ): Promise<{ status: string; result: T; headers: Record<string, string> }> {
     const client = this.createClient({ headers });
 
     try {
       const response = await client.get<unknown>(url);
       // Convert response to camelCase for SDK users
-      return objectToCamel(response.data as object) as T;
+      const result = objectToCamel(response.data as object) as T;
+      // Extract headers (convert to lowercase keys for easier access)
+      const responseHeaders: Record<string, string> = {};
+      for (const [key, value] of Object.entries(response.headers)) {
+        if (typeof value === 'string') {
+          responseHeaders[key.toLowerCase()] = value;
+        }
+      }
+      return {
+        status: (result as { status?: string })?.status ?? 'Success',
+        result,
+        headers: responseHeaders,
+      };
     } catch (error) {
       if (error instanceof AxiosError) {
         throw new Error(`Failed to GET ${url}: ${error.message}`);
@@ -103,13 +129,14 @@ export class HttpUtils {
    * Send multipart/form-data request
    * Automatically converts form data keys to snake_case
    * Automatically converts response from snake_case to camelCase
+   * Returns structured response with headers
    */
   static async postMultipart<T = unknown>(
     url: string,
     headers: Record<string, string>,
     data?: Record<string, string | number | boolean>,
     files?: Record<string, File | Buffer | [string, Buffer, string]>
-  ): Promise<T> {
+  ): Promise<{ status: string; result: T; headers: Record<string, string> }> {
     const formData = new FormData();
 
     // Add form fields (convert keys to snake_case)
@@ -152,7 +179,19 @@ export class HttpUtils {
     try {
       const response = await client.post<unknown>(url, formData);
       // Convert response to camelCase for SDK users
-      return objectToCamel(response.data as object) as T;
+      const result = objectToCamel(response.data as object) as T;
+      // Extract headers (convert to lowercase keys for easier access)
+      const responseHeaders: Record<string, string> = {};
+      for (const [key, value] of Object.entries(response.headers)) {
+        if (typeof value === 'string') {
+          responseHeaders[key.toLowerCase()] = value;
+        }
+      }
+      return {
+        status: (result as { status?: string })?.status ?? 'Success',
+        result,
+        headers: responseHeaders,
+      };
     } catch (error) {
       if (error instanceof AxiosError) {
         throw new Error(`Failed to POST multipart ${url}: ${error.message}`);
