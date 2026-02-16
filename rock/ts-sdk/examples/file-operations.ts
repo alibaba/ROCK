@@ -23,7 +23,7 @@ async function fileOperationsExample() {
 
     // 1. 写入文件
     console.log('1. 写入文件...');
-    await sandbox.write_file({
+    await sandbox.writeFile({
       content: 'Hello, this is a test file created by ROCK SDK!',
       path: '/tmp/test-file.txt',
     });
@@ -31,7 +31,7 @@ async function fileOperationsExample() {
 
     // 2. 读取文件
     console.log('2. 读取文件...');
-    const readResult = await sandbox.read_file({
+    const readResult = await sandbox.readFile({
       path: '/tmp/test-file.txt',
     });
     console.log(`   内容: ${readResult.content}`);
@@ -48,7 +48,7 @@ async function fileOperationsExample() {
     console.log('   本地文件已上传: /workspace/uploaded-file.txt');
 
     // 验证上传
-    const uploadedContent = await sandbox.read_file({
+    const uploadedContent = await sandbox.readFile({
       path: '/workspace/uploaded-file.txt',
     });
     console.log(`   验证内容: ${uploadedContent.content.substring(0, 30)}...`);
@@ -68,12 +68,12 @@ async function fileOperationsExample() {
     });
 
     // 写入多个文件
-    await sandbox.write_file({
+    await sandbox.writeFile({
       content: 'console.log("Hello from Node.js!");',
       path: '/workspace/project/src/index.js',
     });
 
-    await sandbox.write_file({
+    await sandbox.writeFile({
       content: JSON.stringify({ name: 'test-project', version: '1.0.0' }, null, 2),
       path: '/workspace/project/package.json',
     });

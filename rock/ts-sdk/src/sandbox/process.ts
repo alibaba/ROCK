@@ -50,7 +50,7 @@ export class Process {
     try {
       // Upload script
       logger.info(`[${sandboxId}] Uploading script to ${scriptPath}`);
-      const writeResult = await this.sandbox.write_file({
+      const writeResult = await this.sandbox.writeFile({
         content: scriptContent,
         path: scriptPath,
       });
