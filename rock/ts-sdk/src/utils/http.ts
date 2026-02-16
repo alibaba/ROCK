@@ -17,6 +17,17 @@ export interface HttpConfig {
 }
 
 /**
+ * Structured HTTP response
+ */
+export interface HttpResponse<T> {
+  status: string;
+  result: T;
+  message?: string | null | undefined;
+  error?: string | null | undefined;
+  headers: Record<string, string>;
+}
+
+/**
  * HTTP utilities class
  */
 export class HttpUtils {
@@ -50,7 +61,7 @@ export class HttpUtils {
     headers: Record<string, string>,
     data: Record<string, unknown>,
     readTimeout?: number
-  ): Promise<{ status: string; result: T; headers: Record<string, string> }> {
+  ): Promise<HttpResponse<T>> {
     const client = this.createClient({
       timeout: readTimeout ?? this.defaultTimeout,
       headers,
@@ -62,7 +73,12 @@ export class HttpUtils {
     try {
       const response = await client.post<unknown>(url, snakeData);
       // Convert response to camelCase for SDK users
-      const result = objectToCamel(response.data as object) as T;
+      const responseData = objectToCamel(response.data as object) as {
+        status?: string;
+        result?: T;
+        message?: string | null;
+        error?: string | null;
+      };
       // Extract headers (convert to lowercase keys for easier access)
       const responseHeaders: Record<string, string> = {};
       for (const [key, value] of Object.entries(response.headers)) {
@@ -71,8 +87,10 @@ export class HttpUtils {
         }
       }
       return {
-        status: (result as { status?: string })?.status ?? 'Success',
-        result,
+        status: responseData.status ?? 'Success',
+        result: responseData.result as T,
+        message: responseData.message,
+        error: responseData.error,
         headers: responseHeaders,
       };
     } catch (error) {
@@ -91,13 +109,18 @@ export class HttpUtils {
   static async get<T = unknown>(
     url: string,
     headers: Record<string, string>
-  ): Promise<{ status: string; result: T; headers: Record<string, string> }> {
+  ): Promise<HttpResponse<T>> {
     const client = this.createClient({ headers });
 
     try {
       const response = await client.get<unknown>(url);
       // Convert response to camelCase for SDK users
-      const result = objectToCamel(response.data as object) as T;
+      const responseData = objectToCamel(response.data as object) as {
+        status?: string;
+        result?: T;
+        message?: string | null;
+        error?: string | null;
+      };
       // Extract headers (convert to lowercase keys for easier access)
       const responseHeaders: Record<string, string> = {};
       for (const [key, value] of Object.entries(response.headers)) {
@@ -106,8 +129,10 @@ export class HttpUtils {
         }
       }
       return {
-        status: (result as { status?: string })?.status ?? 'Success',
-        result,
+        status: responseData.status ?? 'Success',
+        result: responseData.result as T,
+        message: responseData.message,
+        error: responseData.error,
         headers: responseHeaders,
       };
     } catch (error) {
@@ -136,7 +161,7 @@ export class HttpUtils {
     headers: Record<string, string>,
     data?: Record<string, string | number | boolean>,
     files?: Record<string, File | Buffer | [string, Buffer, string]>
-  ): Promise<{ status: string; result: T; headers: Record<string, string> }> {
+  ): Promise<HttpResponse<T>> {
     const formData = new FormData();
 
     // Add form fields (convert keys to snake_case)
@@ -179,7 +204,12 @@ export class HttpUtils {
     try {
       const response = await client.post<unknown>(url, formData);
       // Convert response to camelCase for SDK users
-      const result = objectToCamel(response.data as object) as T;
+      const responseData = objectToCamel(response.data as object) as {
+        status?: string;
+        result?: T;
+        message?: string | null;
+        error?: string | null;
+      };
       // Extract headers (convert to lowercase keys for easier access)
       const responseHeaders: Record<string, string> = {};
       for (const [key, value] of Object.entries(response.headers)) {
@@ -188,8 +218,10 @@ export class HttpUtils {
         }
       }
       return {
-        status: (result as { status?: string })?.status ?? 'Success',
-        result,
+        status: responseData.status ?? 'Success',
+        result: responseData.result as T,
+        message: responseData.message,
+        error: responseData.error,
         headers: responseHeaders,
       };
     } catch (error) {

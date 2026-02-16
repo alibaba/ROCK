@@ -56,29 +56,24 @@ describe('HttpUtils case conversion', () => {
       });
       mockedAxios.create = jest.fn().mockReturnValue({ post: mockPost });
 
-      interface TestResponse {
-        status: string;
-        result: {
-          sandboxId: string;
-          hostName: string;
-          isAlive: boolean;
-        };
+      interface TestResult {
+        sandboxId: string;
+        hostName: string;
+        isAlive: boolean;
       }
 
-      const result = await HttpUtils.post<TestResponse>(
+      const result = await HttpUtils.post<TestResult>(
         'http://test/api',
         {},
         { sandboxId: 'test-id' }
       );
 
       // Verify response was converted to camelCase
+      expect(result.status).toBe('Success');
       expect(result.result).toEqual({
-        status: 'Success',
-        result: {
-          sandboxId: '123',
-          hostName: 'localhost',
-          isAlive: true,
-        },
+        sandboxId: '123',
+        hostName: 'localhost',
+        isAlive: true,
       });
       expect(result.headers['x-request-id']).toBe('req-123');
       expect(result.headers['eagleeye-traceid']).toBe('trace-456');
@@ -108,13 +103,14 @@ describe('HttpUtils case conversion', () => {
         };
       }
 
-      const result = await HttpUtils.post<{ status: string; result: TestResult }>(
+      const result = await HttpUtils.post<TestResult>(
         'http://test/api',
         {},
         {}
       );
 
-      expect(result.result.result.portMapping).toEqual({
+      expect(result.status).toBe('Success');
+      expect(result.result.portMapping).toEqual({
         httpPort: 8080,
         httpsPort: 8443,
       });
@@ -126,9 +122,11 @@ describe('HttpUtils case conversion', () => {
       const mockGet = jest.fn().mockResolvedValue({
         data: {
           status: 'Success',
-          sandbox_id: '123',
-          is_alive: true,
-          host_name: 'localhost',
+          result: {
+            sandbox_id: '123',
+            is_alive: true,
+            host_name: 'localhost',
+          },
         },
         headers: {
           'x-request-id': 'req-123',
@@ -137,18 +135,16 @@ describe('HttpUtils case conversion', () => {
       });
       mockedAxios.create = jest.fn().mockReturnValue({ get: mockGet });
 
-      interface TestResponse {
-        status: string;
+      interface TestResult {
         sandboxId: string;
         isAlive: boolean;
         hostName: string;
       }
 
-      const result = await HttpUtils.get<TestResponse>('http://test/api', {});
+      const result = await HttpUtils.get<TestResult>('http://test/api', {});
 
       expect(result.status).toBe('Success');
       expect(result.result).toEqual({
-        status: 'Success',
         sandboxId: '123',
         isAlive: true,
         hostName: 'localhost',
