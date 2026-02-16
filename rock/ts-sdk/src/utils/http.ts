@@ -2,7 +2,7 @@
  * HTTP utilities using axios
  */
 
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosInstance, AxiosError, AxiosResponse } from 'axios';
 import https from 'https';
 import { PID_PREFIX, PID_SUFFIX } from '../common/constants.js';
 import { objectToCamel, objectToSnake } from './case.js';
@@ -14,6 +14,16 @@ export interface HttpConfig {
   baseURL?: string;
   timeout?: number;
   headers?: Record<string, string>;
+}
+
+/**
+ * HTTP response with headers
+ */
+export interface HttpResponse<T = unknown> {
+  status: string;
+  result?: T;
+  error?: string;
+  headers: Record<string, string>;
 }
 
 /**
@@ -49,7 +59,7 @@ export class HttpUtils {
     headers: Record<string, string>,
     data: Record<string, unknown>,
     readTimeout?: number
-  ): Promise<T> {
+  ): Promise<HttpResponse<T>> {
     const client = this.createClient({
       timeout: readTimeout ?? this.defaultTimeout,
       headers,
@@ -61,7 +71,18 @@ export class HttpUtils {
     try {
       const response = await client.post<unknown>(url, snakeData);
       // Convert response to camelCase for SDK users
-      return objectToCamel(response.data as object) as T;
+      const camelData = objectToCamel(response.data as object) as { status?: string; result?: T; error?: string };
+      const httpResponse: HttpResponse<T> = {
+        status: camelData.status ?? 'Success',
+        headers: this.extractHeaders(response),
+      };
+      if (camelData.result !== undefined) {
+        httpResponse.result = camelData.result;
+      }
+      if (camelData.error !== undefined) {
+        httpResponse.error = camelData.error;
+      }
+      return httpResponse;
     } catch (error) {
       if (error instanceof AxiosError) {
         throw new Error(`Failed to POST ${url}: ${error.message}`);
@@ -77,19 +98,45 @@ export class HttpUtils {
   static async get<T = unknown>(
     url: string,
     headers: Record<string, string>
-  ): Promise<T> {
+  ): Promise<HttpResponse<T>> {
     const client = this.createClient({ headers });
 
     try {
       const response = await client.get<unknown>(url);
       // Convert response to camelCase for SDK users
-      return objectToCamel(response.data as object) as T;
+      const camelData = objectToCamel(response.data as object) as { status?: string; result?: T; error?: string };
+      const httpResponse: HttpResponse<T> = {
+        status: camelData.status ?? 'Success',
+        headers: this.extractHeaders(response),
+      };
+      if (camelData.result !== undefined) {
+        httpResponse.result = camelData.result;
+      }
+      if (camelData.error !== undefined) {
+        httpResponse.error = camelData.error;
+      }
+      return httpResponse;
     } catch (error) {
       if (error instanceof AxiosError) {
         throw new Error(`Failed to GET ${url}: ${error.message}`);
       }
       throw error;
     }
+  }
+
+  /**
+   * Extract headers from axios response
+   */
+  private static extractHeaders(response: AxiosResponse): Record<string, string> {
+    const headers: Record<string, string> = {};
+    for (const [key, value] of Object.entries(response.headers)) {
+      if (typeof value === 'string') {
+        headers[key.toLowerCase()] = value;
+      } else if (Array.isArray(value)) {
+        headers[key.toLowerCase()] = value.join(', ');
+      }
+    }
+    return headers;
   }
 
   /**
@@ -109,7 +156,7 @@ export class HttpUtils {
     headers: Record<string, string>,
     data?: Record<string, string | number | boolean>,
     files?: Record<string, File | Buffer | [string, Buffer, string]>
-  ): Promise<T> {
+  ): Promise<HttpResponse<T>> {
     const formData = new FormData();
 
     // Add form fields (convert keys to snake_case)
@@ -152,7 +199,18 @@ export class HttpUtils {
     try {
       const response = await client.post<unknown>(url, formData);
       // Convert response to camelCase for SDK users
-      return objectToCamel(response.data as object) as T;
+      const camelData = objectToCamel(response.data as object) as { status?: string; result?: T; error?: string };
+      const httpResponse: HttpResponse<T> = {
+        status: camelData.status ?? 'Success',
+        headers: this.extractHeaders(response),
+      };
+      if (camelData.result !== undefined) {
+        httpResponse.result = camelData.result;
+      }
+      if (camelData.error !== undefined) {
+        httpResponse.error = camelData.error;
+      }
+      return httpResponse;
     } catch (error) {
       if (error instanceof AxiosError) {
         throw new Error(`Failed to POST multipart ${url}: ${error.message}`);

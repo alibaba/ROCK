@@ -47,6 +47,10 @@ export const SandboxStatusResponseSchema = z.object({
   cpus: z.number().optional(),
   memory: z.string().optional(),
   state: z.unknown().optional(),
+  // Response headers info
+  cluster: z.string().optional(),
+  requestId: z.string().optional(),
+  eagleeyeTraceid: z.string().optional(),
 });
 
 export type SandboxStatusResponse = z.infer<typeof SandboxStatusResponseSchema>;

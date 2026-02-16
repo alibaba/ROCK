@@ -266,13 +266,21 @@ export class Sandbox extends AbstractSandbox {
   async getStatus(): Promise<SandboxStatusResponse> {
     const url = `${this.url}/get_status?sandbox_id=${this.sandboxId}`;
     const headers = this.buildHeaders();
-    const response = await HttpUtils.get<{ status: string; result?: SandboxStatusResponse }>(url, headers);
+    const response = await HttpUtils.get<SandboxStatusResponse>(url, headers);
 
     if (response.status !== 'Success') {
-      throw new Error(`Failed to get status: ${JSON.stringify(response)}`);
+      const errorDetail = response.error ? `, error=${response.error}` : '';
+      throw new Error(`Failed to get status: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
     }
 
-    return response.result!;
+    const result = response.result!;
+
+    // Extract additional info from response headers (backward compatible)
+    result.cluster = response.headers['x-rock-gateway-target-cluster'] || this.config.cluster || 'N/A';
+    result.requestId = response.headers['x-request-id'] || response.headers['request-id'] || 'N/A';
+    result.eagleeyeTraceid = response.headers['eagleeye-traceid'] || 'N/A';
+
+    return result;
   }
 
   // Command execution
@@ -295,7 +303,8 @@ export class Sandbox extends AbstractSandbox {
       );
 
       if (response.status !== 'Success') {
-        throw new Error(`Failed to execute command: ${JSON.stringify(response)}`);
+        const errorDetail = response.error ? `, error=${response.error}` : '';
+        throw new Error(`Failed to execute command: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
       }
 
       return response.result!;
@@ -321,7 +330,8 @@ export class Sandbox extends AbstractSandbox {
       );
 
       if (response.status !== 'Success') {
-        throw new Error(`Failed to create session: ${JSON.stringify(response)}`);
+        const errorDetail = response.error ? `, error=${response.error}` : '';
+        throw new Error(`Failed to create session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
       }
 
       return response.result!;
@@ -346,7 +356,8 @@ export class Sandbox extends AbstractSandbox {
       );
 
       if (response.status !== 'Success') {
-        throw new Error(`Failed to close session: ${JSON.stringify(response)}`);
+        const errorDetail = response.error ? `, error=${response.error}` : '';
+        throw new Error(`Failed to close session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
       }
 
       return response.result ?? { sessionType: 'bash' };
@@ -416,7 +427,8 @@ export class Sandbox extends AbstractSandbox {
       );
 
       if (response.status !== 'Success') {
-        throw new Error(`Failed to execute command: ${JSON.stringify(response)}`);
+        const errorDetail = response.error ? `, error=${response.error}` : '';
+        throw new Error(`Failed to run in session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
       }
 
       // Response is already camelCase (converted by HTTP layer)
