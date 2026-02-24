@@ -97,8 +97,7 @@ class TaskScheduler:
         )
 
         # Override the default update callback with our scheduler-aware callback
-        self._nacos_provider._update_callback = self._on_nacos_config_changed
-        self._nacos_provider.add_listener()
+        self._nacos_provider.add_listener(self._on_nacos_config_changed)
 
         # Suppress noisy nacos logs
         logging.getLogger("nacos.client").setLevel(logging.WARNING)
