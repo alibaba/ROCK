@@ -107,7 +107,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
     ),
     "ROCK_RTENV_PYTHON_V31212_INSTALL_CMD": lambda: os.getenv(
         "ROCK_RTENV_PYTHON_V31212_INSTALL_CMD",
-        "[ -f cpython-3.12.12.tar.gz ] && rm cpython-3.12.12.tar.gz; [ -d python ] && rm -rf python; wget -q -O cpython-3.12.12.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20251217/cpython-3.12.12+20251217-x86_64-unknown-linux-gnu-install_only.tar.gz && tar -xzf cpython-3.12.12.tar.gz && mv python runtime-env",
+        "[ -f cpython-31212.tar.gz ] && rm cpython-31212.tar.gz; [ -d python ] && rm -rf python; wget -q -O cpython-31212.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20251217/cpython-3.12.12+20251217-x86_64-unknown-linux-gnu-install_only.tar.gz && tar -xzf cpython-31212.tar.gz && mv python runtime-env",
     ),
     "ROCK_RTENV_NODE_V22180_INSTALL_CMD": lambda: os.getenv(
         "ROCK_RTENV_NODE_V22180_INSTALL_CMD",
