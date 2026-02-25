@@ -231,7 +231,7 @@ class RuntimeEnv(ABC):
     async def _do_custom_install(self) -> None:
         """Execute custom install command after _post_init."""
         await self.run(
-            self._custom_install_cmd,
+            f"cd {shlex.quote(self._workdir)} && {self._custom_install_cmd}",
             wait_timeout=self._install_timeout,
             error_msg="custom_install_cmd failed",
         )
