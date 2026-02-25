@@ -52,11 +52,13 @@ class ModelServiceConfig(BaseModel):
     """Command to watch agent with pid placeholder."""
 
     anti_call_llm_cmd: str = Field(
-        default="rock model-service anti-call-llm --index ${index} --response ${response_payload}"
+        default="PYTHONWARNINGS=ignore rock model-service anti-call-llm --index ${index} --response ${response_payload}"
     )
     """Command to anti-call LLM with index and response_payload placeholders."""
 
-    anti_call_llm_cmd_no_response: str = Field(default="rock model-service anti-call-llm --index ${index}")
+    anti_call_llm_cmd_no_response: str = Field(
+        default="PYTHONWARNINGS=ignore rock model-service anti-call-llm --index ${index}"
+    )
     """Command to anti-call LLM with only index placeholder."""
 
     logging_path: str = Field(default="/data/logs")
