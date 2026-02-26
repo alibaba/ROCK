@@ -28,7 +28,9 @@ class NacosConfigProvider:
         self.group = group
         self.config_cache: Any | None = None
 
-        self.client = nacos.NacosClient(server_addresses=self.server_addresses, endpoint=self.endpoint, namespace=self.namespace)
+        self.client = nacos.NacosClient(
+            server_addresses=self.server_addresses, endpoint=self.endpoint, namespace=self.namespace
+        )
 
     async def get_config(self) -> Any:
         """
@@ -60,15 +62,22 @@ class NacosConfigProvider:
         except yaml.YAMLError as e:
             logger.error(f"Failed to parse updated YAML config: {e}")
 
-    def add_listener(self):
+    def add_listener(self, callback=None):
         """
         Add a listener for the configuration to implement hot reloading.
+
+        Args:
+            callback: Optional callback function to be called when config changes.
+                     If not provided, uses the default _update_callback method.
         """
+        if callback is None:
+            callback = self._update_callback
+
         try:
             self.client.add_config_watcher(
                 data_id=self.data_id,
                 group=self.group,
-                cb=self._update_callback,
+                cb=callback,
             )
             logger.info(f"Added config watcher for data_id='{self.data_id}' group='{self.group}'.")
         except Exception as e:
