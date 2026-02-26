@@ -20,6 +20,6 @@ class K8sConstants:
     LABEL_RESOURCE_SPEEDUP = "batchsandbox.alibabacloud.com/resource-speedup"
     LABEL_TEMPLATE = "rock.sandbox/template"
     
-    # Extension keys for DockerDeploymentConfig.extensions
+    # Extension keys for DockerDeploymentConfig.extended_params
     EXT_POOL_NAME = "pool_name"
     EXT_TEMPLATE_NAME = "template_name"

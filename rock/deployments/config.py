@@ -110,7 +110,7 @@ class DockerDeploymentConfig(DeploymentConfig):
     runtime_config: RuntimeConfig = Field(default_factory=RuntimeConfig)
     """Runtime configuration settings."""
 
-    extensions: dict[str, str] = Field(default_factory=dict)
+    extended_params: dict[str, str] = Field(default_factory=dict)
     """Generic extension field for storing custom string key-value pairs."""
 
     @model_validator(mode="before")

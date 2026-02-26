@@ -362,7 +362,7 @@ class BatchSandboxProvider(K8sProvider):
         sandbox_id = config.container_name
         
         # Check if using pool mode
-        pool_name = config.extensions.get(K8sConstants.EXT_POOL_NAME)
+        pool_name = config.extended_params.get(K8sConstants.EXT_POOL_NAME)
         if pool_name:
             # Hardcode ports for pool mode
             ports_config = {'proxy': 8000, 'server': 8080, 'ssh': 22}
@@ -372,8 +372,8 @@ class BatchSandboxProvider(K8sProvider):
             return manifest
         
         # Template mode: build from template
-        # Get template name from extensions or use 'default'
-        template_name = config.extensions.get(K8sConstants.EXT_TEMPLATE_NAME, 'default')
+        # Get template name from extended_params or use 'default'
+        template_name = config.extended_params.get(K8sConstants.EXT_TEMPLATE_NAME, 'default')
         
         # Build manifest using template loader
         manifest = self._template_loader.build_manifest(
