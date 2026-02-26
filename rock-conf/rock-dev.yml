@@ -1,0 +1,50 @@
+# K8S deployment configuration
+k8s:
+  # Kubeconfig path (None for in-cluster config)
+  kubeconfig_path: ""
+  
+  # Global namespace for all sandboxes
+  namespace: "rock"
+
+  # API client configuration
+  # Rate limiting
+  api_qps: 20.0
+
+  # Watch configuration
+  watch_timeout_seconds: 60
+  watch_reconnect_delay_seconds: 5
+  
+  # Template definitions - corresponds to spec.template in BatchSandbox CRD
+  # Top-level fields (apiVersion, kind, metadata, spec.replicas) are hardcoded in code
+  templates:
+    # Default template - basic pod template
+    default:
+      # Enable resource speedup label when building BatchSandbox CR
+      enable_resource_speedup: true
+      # Port configuration for the sandbox service
+      ports:
+        proxy: 8000    # HTTP API port (rocklet/swerex-remote)
+        server: 8080   # WebSocket server port (same service)
+        ssh: 22        # SSH service port
+      # Pod template (corresponds to spec.template in BatchSandbox)
+      template:
+        metadata:
+          labels:
+            example.app: rock-sandbox
+        spec:
+          tolerations:
+            - operator: "Exists"
+          containers:
+            - name: main
+              image: python:3.11
+              command:
+                - "/bin/sh"
+                - "-c"
+                - |
+                  pip install rl-rock[rocklet]
+                  rocklet
+
+# Runtime configuration
+runtime:
+  # Operator type: 'ray' or 'k8s'
+  operator_type: "k8s"

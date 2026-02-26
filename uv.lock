@@ -159,6 +159,15 @@ wheels = [
 ]
 
 [[package]]
+name = "aiolimiter"
+version = "1.2.1"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/f1/23/b52debf471f7a1e42e362d959a3982bdcb4fe13a5d46e63d28868807a79c/aiolimiter-1.2.1.tar.gz", hash = "sha256:e02a37ea1a855d9e832252a105420ad4d15011505512a1a1d814647451b5cca9" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/f3/ba/df6e8e1045aebc4778d19b8a3a9bc1808adb1619ba94ca354d9ba17d86c3/aiolimiter-1.2.1-py3-none-any.whl", hash = "sha256:d3f249e9059a20badcb56b61601a83556133655c11d1eb3dd3e04ff069e5f3c7" },
+]
+
+[[package]]
 name = "aiosignal"
 version = "1.4.0"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -1154,6 +1163,15 @@ wheels = [
 ]
 
 [[package]]
+name = "durationpy"
+version = "0.10"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/9d/a4/e44218c2b394e31a6dd0d6b095c4e1f32d0be54c2a4b250032d717647bab/durationpy-0.10.tar.gz", hash = "sha256:1fa6893409a6e739c9c72334fc65cca1f355dbdd93405d30f726deb5bde42fba" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/b0/0d/9feae160378a3553fa9a339b0e9c1a048e147a4127210e286ef18b730f03/durationpy-0.10-py3-none-any.whl", hash = "sha256:3b41e1b601234296b4fb368338fdcd3e13e0b4fb5b67345948f4f2bf9868b286" },
+]
+
+[[package]]
 name = "exceptiongroup"
 version = "1.3.0"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -2011,6 +2029,26 @@ wheels = [
 ]
 
 [[package]]
+name = "kubernetes"
+version = "35.0.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "certifi" },
+    { name = "durationpy" },
+    { name = "python-dateutil" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "requests-oauthlib" },
+    { name = "six" },
+    { name = "urllib3" },
+    { name = "websocket-client" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/2c/8f/85bf51ad4150f64e8c665daf0d9dfe9787ae92005efb9a4d1cba592bd79d/kubernetes-35.0.0.tar.gz", hash = "sha256:3d00d344944239821458b9efd484d6df9f011da367ecb155dadf9513f05f09ee" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/0c/70/05b685ea2dffcb2adbf3cdcea5d8865b7bc66f67249084cf845012a0ff13/kubernetes-35.0.0-py2.py3-none-any.whl", hash = "sha256:39e2b33b46e5834ef6c3985ebfe2047ab39135d41de51ce7641a7ca5b372a13d" },
+]
+
+[[package]]
 name = "latex2sympy2-extended"
 version = "1.10.2"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -2639,6 +2677,15 @@ wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/c5/8c/cd283b54c3c2b77e188f63e23039844f56b23bba1712318288c13fe86baf/numpy-2.3.4-pp311-pypy311_pp73-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:957e92defe6c08211eb77902253b14fe5b480ebc5112bc741fd5e9cd0608f847" },
     { url = "https://mirrors.aliyun.com/pypi/packages/b0/f0/8404db5098d92446b3e3695cf41c6f0ecb703d701cb0b7566ee2177f2eee/numpy-2.3.4-pp311-pypy311_pp73-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:13b9062e4f5c7ee5c7e5be96f29ba71bc5a37fed3d1d77c37390ae00724d296d" },
     { url = "https://mirrors.aliyun.com/pypi/packages/95/8e/2844c3959ce9a63acc7c8e50881133d86666f0420bcde695e115ced0920f/numpy-2.3.4-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:81b3a59793523e552c4a96109dde028aa4448ae06ccac5a76ff6532a85558a7f" },
+]
+
+[[package]]
+name = "oauthlib"
+version = "3.3.1"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/0b/5f/19930f824ffeb0ad4372da4812c50edbd1434f678c90c2733e1188edfc63/oauthlib-3.3.1.tar.gz", hash = "sha256:0f0f8aa759826a193cf66c12ea1af1637f87b9b4622d46e866952bb022e538c9" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/be/9c/92789c596b8df838baa98fa71844d84283302f7604ed565dafe5a6b5041a/oauthlib-3.3.1-py3-none-any.whl", hash = "sha256:88119c938d2b8fb88561af5f6ee0eec8cc8d552b7bb1f712743136eb7523b7a1" },
 ]
 
 [[package]]
@@ -3997,6 +4044,19 @@ wheels = [
 ]
 
 [[package]]
+name = "requests-oauthlib"
+version = "2.0.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "oauthlib" },
+    { name = "requests" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/42/f2/05f29bc3913aea15eb670be136045bf5c5bbf4b99ecb839da9b422bb2c85/requests-oauthlib-2.0.0.tar.gz", hash = "sha256:b3dffaebd884d8cd778494369603a9e7b58d29111bf6b41bdc2dcd87203af4e9" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/3b/5d/63d4ae3b9daea098d5d6f5da83984853c1bbacd5dc826764b249fe119d24/requests_oauthlib-2.0.0-py2.py3-none-any.whl", hash = "sha256:7dd8a5c40426b779b0868c404bdef9768deccf22749cde15852df527e6269b36" },
+]
+
+[[package]]
 name = "rich"
 version = "14.2.0"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -4011,7 +4071,7 @@ wheels = [
 
 [[package]]
 name = "rl-rock"
-version = "1.2.1"
+version = "1.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
@@ -4034,14 +4094,17 @@ dependencies = [
 [package.optional-dependencies]
 admin = [
     { name = "aiohttp" },
+    { name = "aiolimiter" },
     { name = "aiosqlite" },
     { name = "alibabacloud-cr20181201" },
     { name = "apscheduler" },
     { name = "bashlex" },
     { name = "boto3" },
     { name = "cryptography" },
+    { name = "fakeredis", extra = ["json"] },
     { name = "fastapi" },
     { name = "gem-llm" },
+    { name = "kubernetes" },
     { name = "nacos-sdk-python" },
     { name = "pexpect" },
     { name = "pip" },
@@ -4055,6 +4118,7 @@ admin = [
 ]
 all = [
     { name = "aiohttp" },
+    { name = "aiolimiter" },
     { name = "aiosqlite" },
     { name = "alibabacloud-cr20181201" },
     { name = "apscheduler" },
@@ -4062,8 +4126,10 @@ all = [
     { name = "boto3" },
     { name = "cryptography" },
     { name = "docker" },
+    { name = "fakeredis", extra = ["json"] },
     { name = "fastapi" },
     { name = "gem-llm" },
+    { name = "kubernetes" },
     { name = "nacos-sdk-python" },
     { name = "pexpect" },
     { name = "pip" },
@@ -4107,7 +4173,6 @@ sandbox-actor = [
 
 [package.dev-dependencies]
 test = [
-    { name = "fakeredis", extra = ["json"] },
     { name = "iflow-cli-sdk" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -4126,6 +4191,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", marker = "extra == 'admin'", specifier = ">=3.12.15" },
+    { name = "aiolimiter", marker = "extra == 'admin'", specifier = ">=1.2.1" },
     { name = "aiosqlite", marker = "extra == 'admin'" },
     { name = "alibabacloud-cr20181201", marker = "extra == 'admin'", specifier = "==2.0.5" },
     { name = "alibabacloud-cr20181201", marker = "extra == 'model-service'", specifier = "==2.0.5" },
@@ -4137,12 +4203,14 @@ requires-dist = [
     { name = "build" },
     { name = "cryptography", marker = "extra == 'admin'", specifier = "==39.0.1" },
     { name = "docker", marker = "extra == 'builder'" },
+    { name = "fakeredis", extras = ["json"], marker = "extra == 'admin'" },
     { name = "fastapi", marker = "extra == 'model-service'" },
     { name = "fastapi", marker = "extra == 'rocklet'" },
     { name = "gem-llm", marker = "extra == 'builder'", specifier = ">=0.1.0" },
     { name = "gem-llm", marker = "extra == 'rocklet'", specifier = ">=0.1.0" },
     { name = "gem-llm", marker = "extra == 'sandbox-actor'", specifier = ">=0.1.0" },
     { name = "httpx" },
+    { name = "kubernetes", marker = "extra == 'admin'", specifier = ">=35.0.0" },
     { name = "nacos-sdk-python", marker = "extra == 'admin'", specifier = ">=0.1.14" },
     { name = "nacos-sdk-python", marker = "extra == 'sandbox-actor'", specifier = ">=0.1.14" },
     { name = "opentelemetry-api" },
@@ -4181,7 +4249,6 @@ provides-extras = ["admin", "rocklet", "sandbox-actor", "builder", "model-servic
 
 [package.metadata.requires-dev]
 test = [
-    { name = "fakeredis", extras = ["json"] },
     { name = "iflow-cli-sdk", specifier = ">=0.1.1" },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pytest" },
@@ -4962,6 +5029,15 @@ wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/bd/95/615e72cd27b85b61eec764a5ca51bd94d40b5adea5ff47567d9ebc4d275a/watchfiles-1.1.1-pp311-pypy311_pp73-macosx_11_0_arm64.whl", hash = "sha256:89eef07eee5e9d1fda06e38822ad167a044153457e6fd997f8a858ab7564a336" },
     { url = "https://mirrors.aliyun.com/pypi/packages/c9/81/e7fe958ce8a7fb5c73cc9fb07f5aeaf755e6aa72498c57d760af760c91f8/watchfiles-1.1.1-pp311-pypy311_pp73-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ce19e06cbda693e9e7686358af9cd6f5d61312ab8b00488bc36f5aabbaf77e24" },
     { url = "https://mirrors.aliyun.com/pypi/packages/6e/d4/ed38dd3b1767193de971e694aa544356e63353c33a85d948166b5ff58b9e/watchfiles-1.1.1-pp311-pypy311_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:3e6f39af2eab0118338902798b5aa6664f46ff66bc0280de76fca67a7f262a49" },
+]
+
+[[package]]
+name = "websocket-client"
+version = "1.9.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/2c/41/aa4bf9664e4cda14c3b39865b12251e8e7d239f4cd0e3cc1b6c2ccde25c1/websocket_client-1.9.0.tar.gz", hash = "sha256:9e813624b6eb619999a97dc7958469217c3176312b3a16a4bd1bc7e08a46ec98" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/34/db/b10e48aa8fff7407e67470363eac595018441cf32d5e1001567a7aeba5d2/websocket_client-1.9.0-py3-none-any.whl", hash = "sha256:af248a825037ef591efbf6ed20cc5faa03d3b47b9e5a2230a529eeee1c1fc3ef" },
 ]
 
 [[package]]

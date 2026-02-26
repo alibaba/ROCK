@@ -48,6 +48,8 @@ admin = [
     "pip",
     "cryptography==39.0.1",
     "fakeredis[json]",
+    "kubernetes>=35.0.0",  # For K8S operator support
+    "aiolimiter>=1.2.1",  # For rate limiting
 ]
 
 rocklet = [
