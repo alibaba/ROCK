@@ -3,7 +3,6 @@
 
 class K8sConstants:
     """Constants for K8S BatchSandbox labels and annotations."""
-
     # CRD configuration
     CRD_GROUP = "sandbox.opensandbox.io"
     CRD_VERSION = "v1alpha1"

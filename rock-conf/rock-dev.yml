@@ -2,7 +2,7 @@
 k8s:
   # Kubeconfig path (None for in-cluster config)
   kubeconfig_path: ""
-  
+
   # Global namespace for all sandboxes
   namespace: "rock"
 
@@ -12,7 +12,7 @@ k8s:
 
   # Watch configuration
   resync_period: 60
-  
+
   # Template definitions - corresponds to spec.template in BatchSandbox CRD
   # Top-level fields (apiVersion, kind, metadata, spec.replicas) are hardcoded in code
   templates:
@@ -42,7 +42,6 @@ k8s:
                 - |
                   pip install rl-rock[rocklet]
                   rocklet
-
 
 # Runtime configuration
 runtime:

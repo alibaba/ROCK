@@ -27,7 +27,6 @@ class TestK8sOperator:
         # but provider creation should fail
         with pytest.raises(ValueError, match="No templates provided"):
             from rock.sandbox.operator.k8s.provider import BatchSandboxProvider
-
             BatchSandboxProvider(k8s_config=config)
 
     @pytest.mark.asyncio
