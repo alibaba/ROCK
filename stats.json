@@ -1244,5 +1244,19 @@
       "total": 288,
       "open": 12
     }
+  },
+  "2026-02-28": {
+    "stars": 351,
+    "forks": 41,
+    "contributors": 17,
+    "issues": {
+      "total": 226,
+      "open": 72,
+      "fixRate": 68
+    },
+    "prs": {
+      "total": 294,
+      "open": 12
+    }
   }
 }
