@@ -29,6 +29,7 @@ ROCK adopts a client-server architecture, supports different levels of isolation
 ## 📢 News
 | 📣 Update |
 |:--|
+| **[02/28/2026]** 🎉 ROCK v1.2.5 Released! Custom metrics endpoint, user-defined metric tags, and Aliyun MSE Nacos support. |
 | **[01/01/2026]** 🎉 Our [Let It Flow: Agentic Crafting on Rock and Roll](https://arxiv.org/abs/2512.24873) report released! Introducing ALE ecosystem and ROME, an open-source agentic model with novel IPA algorithm. |
 ---
 
@@ -161,7 +162,7 @@ if __name__ == "__main__":
 
 | 📣 Update Content |
 |:-----------|
-| **[Latest]** 🎉 ROCK v0.2.0 Released |
+| **[Latest]** 🎉 ROCK v1.2.5 Released |
 
 ---
 
