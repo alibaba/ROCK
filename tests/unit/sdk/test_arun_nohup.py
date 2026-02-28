@@ -4,8 +4,7 @@ import pytest
 from httpx import ReadTimeout
 
 from rock.actions.sandbox.response import Observation
-from rock.common.constants import PID_PREFIX
-from rock.common.constants import PID_SUFFIX
+from rock.common.constants import PID_PREFIX, PID_SUFFIX
 from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.sandbox.config import SandboxConfig
 
@@ -42,7 +41,7 @@ async def test_arun_nohup_ignore_output_true_returns_hint(monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert result.failure_reason == ""
+    assert result.failure_reason is None
     assert "/tmp/tmp_1701.out" in result.output
     assert "without streaming the log content" in result.output
     assert "File size: 2.00 KB" in result.output

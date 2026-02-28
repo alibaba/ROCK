@@ -6,8 +6,8 @@ import uuid
 import pytest
 import ray
 
-from rock.actions import SandboxStatusResponse
 from rock.actions.sandbox.response import State
+from rock.admin.proto.response import SandboxStatusResponse
 from rock.deployments.config import DockerDeploymentConfig, RayDeploymentConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus

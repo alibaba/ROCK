@@ -7,9 +7,10 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 from rock.actions import CreateBashSessionRequest, Observation
+from rock.actions.response import ChmodResponse, ChownResponse
 from rock.actions.sandbox.base import AbstractSandbox
 from rock.actions.sandbox.request import ChmodRequest, ChownRequest, Command
-from rock.actions.sandbox.response import ChmodResponse, ChownResponse, CommandResponse
+from rock.actions.sandbox.response import CommandResponse
 
 logger = logging.getLogger(__name__)
 
