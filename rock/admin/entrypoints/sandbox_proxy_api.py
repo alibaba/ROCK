@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from typing import Any
 
 from fastapi import APIRouter, Body, File, Form, Request, UploadFile, WebSocket, WebSocketDisconnect
@@ -26,8 +25,11 @@ from rock.admin.proto.request import (
     SandboxWriteFileRequest,
 )
 from rock.admin.proto.response import BatchSandboxStatusResponse, SandboxListResponse
+from rock.logger import init_logger
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.utils import handle_exceptions
+
+logger = init_logger(__name__)
 
 sandbox_proxy_router = APIRouter()
 sandbox_proxy_service: SandboxProxyService
@@ -114,13 +116,57 @@ async def list_sandboxes(request: Request) -> RockResponse[SandboxListResponse]:
 async def websocket_proxy(websocket: WebSocket, id: str, path: str = ""):
     await websocket.accept()
     sandbox_id = id
-    logging.info(f"Client connected to WebSocket proxy: {sandbox_id}, path: {path}")
+    logger.info(f"Client connected to WebSocket proxy: {sandbox_id}, path: {path}")
     try:
         await sandbox_proxy_service.websocket_proxy(websocket, sandbox_id, path)
     except WebSocketDisconnect:
-        logging.info(f"Client disconnected from WebSocket proxy: {sandbox_id}")
+        logger.info(f"Client disconnected from WebSocket proxy: {sandbox_id}")
     except Exception as e:
-        logging.error(f"WebSocket proxy error: {e}")
+        logger.error(f"WebSocket proxy error: {e}")
+        await websocket.close(code=1011, reason=f"Proxy error: {str(e)}")
+
+
+@sandbox_proxy_router.websocket("/sandboxes/{id}/portforward")
+async def portforward(websocket: WebSocket, id: str, port: int):
+    """
+    WebSocket TCP port forwarding endpoint.
+
+    Proxies a WebSocket connection to a TCP port inside the sandbox.
+
+    Args:
+        id: The sandbox identifier.
+        port: The target TCP port inside the sandbox.
+
+    Errors:
+        - Port validation failure: Connection closed with error
+        - Sandbox not found: Connection closed with error
+        - TCP connection failure: Connection closed with error
+    """
+    sandbox_id = id
+    client_host = websocket.client.host if websocket.client else "unknown"
+    client_port = websocket.client.port if websocket.client else "unknown"
+    logger.info(
+        f"[Portforward] Request received: sandbox={sandbox_id}, target_port={port}, "
+        f"client={client_host}:{client_port}, path={websocket.url.path}"
+    )
+
+    try:
+        logger.info(f"[Portforward] Accepting WebSocket connection: sandbox={sandbox_id}, target_port={port}")
+        await websocket.accept()
+        logger.info(f"[Portforward] WebSocket accepted, calling proxy service: sandbox={sandbox_id}, target_port={port}")
+        await sandbox_proxy_service.websocket_to_tcp_proxy(websocket, sandbox_id, port)
+        logger.info(f"[Portforward] Proxy service completed: sandbox={sandbox_id}, target_port={port}")
+    except ValueError as e:
+        logger.warning(f"[Portforward] Validation failed: sandbox={sandbox_id}, target_port={port}, error={e}")
+        await websocket.close(code=1008, reason=str(e))
+    except WebSocketDisconnect as e:
+        logger.info(f"[Portforward] Client disconnected: sandbox={sandbox_id}, target_port={port}, code={e.code}")
+    except Exception as e:
+        logger.error(
+            f"[Portforward] Unexpected error: sandbox={sandbox_id}, target_port={port}, "
+            f"error_type={type(e).__name__}, error={e}",
+            exc_info=True
+        )
         await websocket.close(code=1011, reason=f"Proxy error: {str(e)}")
 
 
