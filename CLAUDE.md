@@ -187,6 +187,67 @@ gh pr create --title "feat: add my feature" --body "fixes #123"
 - `ruff --fix` (lint) + `ruff format` (format)
 - Custom hook: prevents mixing internal (`xrl/`, `intetest/`) and external files in one commit
 
+## Development Workflow with Claude Code
+
+### Recommended Skills
+
+在使用 Claude Code 进行开发时，建议按以下流程使用 skills：
+
+#### 1. Planning — 先规划再动手
+
+对于多步骤任务，使用 plan 相关 skills 确保方案清晰后再执行：
+
+- **`/brainstorming`** — 任何新功能或行为变更前，先用此 skill 探索需求、明确设计
+- **`/writing-plans`** — 有明确需求/spec 后，用此 skill 生成分步实施计划，输出 plan 文件
+- **`/executing-plans`** — 拿到 plan 文件后，用此 skill 按步骤执行，带 review checkpoint
+
+```
+需求 → /brainstorming → /writing-plans → plan.md → /executing-plans → 实现完成
+```
+
+#### 2. TDD — 测试驱动开发
+
+所有功能开发和 bugfix 必须遵循 TDD 流程：
+
+- **`/test-driven-development`** — 在写实现代码之前调用，先写失败的测试，再写实现使其通过
+
+```
+明确需求 → 写测试（RED） → 写实现（GREEN） → 重构（REFACTOR）
+```
+
+TDD 要点：
+- 先写测试用例，确认测试失败（RED）
+- 写最少的实现代码使测试通过（GREEN）
+- 测试通过后再重构优化（REFACTOR）
+- 每个 cycle 保持小步迭代
+
+#### 3. Debugging
+
+- **`/systematic-debugging`** — 遇到 bug、测试失败或异常行为时使用，先诊断再修复，避免盲猜
+
+#### 4. Parallel Execution
+
+- **`/dispatching-parallel-agents`** — 当有 2+ 个独立任务时，并行分发给多个 agent 执行
+- **`/subagent-driven-development`** — 在当前 session 中并行执行 plan 中的独立步骤
+
+#### 5. Review & Completion
+
+- **`/verification-before-completion`** — 在声明任务完成前，必须运行验证命令确认结果
+- **`/requesting-code-review`** — 完成实现后，请求代码审查
+- **`/finishing-a-development-branch`** — 实现完成、测试通过后，决定如何集成（merge / PR / cleanup）
+
+### Typical Feature Development Flow
+
+```
+1. /brainstorming          — 探索需求，明确设计方向
+2. /writing-plans          — 生成分步实施计划
+3. /test-driven-development — 对每个步骤: 先写测试 → 再写实现
+4. /executing-plans        — 按计划逐步执行，带 checkpoint
+5. /verification-before-completion — 运行全部测试，确认通过
+6. /requesting-code-review — 请求审查
+7. /finishing-a-development-branch — 提交 PR
+```
+
 ## Dependencies
 
 Core: FastAPI, Pydantic v2, Ray 2.43.0, Redis, Docker CLI, Kubernetes client, APScheduler, OpenTelemetry, httpx.
