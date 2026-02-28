@@ -30,3 +30,14 @@ def configure_logging():
 def random_container_name() -> str:
     container_name = uuid.uuid4().hex
     return container_name
+
+
+from rock.utils.docker import DockerUtil
+
+
+def pytest_collection_modifyitems(config, items):
+    if not DockerUtil.is_docker_available():
+        skip_docker = pytest.mark.skip(reason="Docker is not available")
+        for item in items:
+            if "need_docker" in item.keywords:
+                item.add_marker(skip_docker)
