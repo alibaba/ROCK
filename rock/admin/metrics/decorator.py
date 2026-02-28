@@ -81,18 +81,25 @@ def _record_metrics(metrics_monitor: MetricsMonitor, result, attributes: dict, s
     # Update sandbox_id from result if available
     attributes = _update_sandbox_id_from_result(result, attributes)
 
-    # Record success or failure
-    if isinstance(result, Exception):
-        error_attrs = {**attributes, "error_type": type(result).__name__}
-        metrics_monitor.record_counter_by_name(f"{metric_prefix}.failure", 1, error_attrs)
-        raise result
-    else:
-        metrics_monitor.record_counter_by_name(f"{metric_prefix}.success", 1, attributes)
-
-    # Record response time and total requests
+    # Calculate response time first
     rt_ms = (time.perf_counter() - start_time) * 1000
-    metrics_monitor.record_gauge_by_name(f"{metric_prefix}.rt", rt_ms, attributes)
-    metrics_monitor.record_counter_by_name(f"{metric_prefix}.total", 1, attributes)
+
+    # Determine if result is an exception and prepare attributes
+    is_exception = isinstance(result, Exception)
+    if is_exception:
+        metric_attrs = {**attributes, "error_type": type(result).__name__}
+        metrics_monitor.record_counter_by_name(f"{metric_prefix}.failure", 1, metric_attrs)
+    else:
+        metric_attrs = attributes
+        metrics_monitor.record_counter_by_name(f"{metric_prefix}.success", 1, metric_attrs)
+
+    # Record response time and total requests (always executed before raising exception)
+    metrics_monitor.record_gauge_by_name(f"{metric_prefix}.rt", rt_ms, metric_attrs)
+    metrics_monitor.record_counter_by_name(f"{metric_prefix}.total", 1, metric_attrs)
+
+    # Raise exception after all metrics are recorded
+    if is_exception:
+        raise result
 
     return result
 
