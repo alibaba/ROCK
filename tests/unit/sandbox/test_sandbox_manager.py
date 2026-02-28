@@ -19,6 +19,7 @@ logger = logging.getLogger(__file__)
 
 
 @pytest.mark.need_ray
+@pytest.mark.need_docker
 @pytest.mark.asyncio
 async def test_async_sandbox_start(sandbox_manager: SandboxManager):
     response = await sandbox_manager.start_async(DockerDeploymentConfig())
@@ -43,6 +44,7 @@ async def test_async_sandbox_start(sandbox_manager: SandboxManager):
 
 
 @pytest.mark.need_ray
+@pytest.mark.need_docker
 @pytest.mark.asyncio
 async def test_get_status(sandbox_manager):
     response = await sandbox_manager.start_async(DockerDeploymentConfig(image="python:3.11"))
@@ -65,6 +67,7 @@ async def test_get_status(sandbox_manager):
 
 
 @pytest.mark.need_ray
+@pytest.mark.need_docker
 @pytest.mark.asyncio
 async def test_ray_actor_is_alive(sandbox_manager):
     docker_deploy_config = DockerDeploymentConfig()
@@ -112,6 +115,7 @@ def test_set_sandbox_status_response():
 
 
 @pytest.mark.need_ray
+@pytest.mark.need_docker
 @pytest.mark.asyncio
 async def test_resource_limit_exception(sandbox_manager, docker_deployment_config):
     docker_deployment_config.cpus = 20
@@ -121,6 +125,7 @@ async def test_resource_limit_exception(sandbox_manager, docker_deployment_confi
 
 
 @pytest.mark.need_ray
+@pytest.mark.need_docker
 @pytest.mark.asyncio
 async def test_resource_limit_exception_memory(sandbox_manager, docker_deployment_config):
     docker_deployment_config.memory = "65g"
@@ -140,6 +145,7 @@ async def test_get_system_resource_info(sandbox_manager):
 
 
 @pytest.mark.need_ray
+@pytest.mark.need_docker
 @pytest.mark.asyncio
 async def test_get_status_state(sandbox_manager):
     response = await sandbox_manager.start_async(
@@ -153,6 +159,7 @@ async def test_get_status_state(sandbox_manager):
 
 
 @pytest.mark.need_ray
+@pytest.mark.need_docker
 @pytest.mark.asyncio
 async def test_sandbox_start_with_sandbox_id(sandbox_manager):
     try:
