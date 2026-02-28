@@ -2,6 +2,7 @@
 .venv/
 .idea/
 .claude/
+.worktrees/
 .pytest_cache/
 .DS_Store
 __pycache__/
