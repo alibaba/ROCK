@@ -340,10 +340,14 @@ class SandboxProxyService:
                     f"[Portforward] Rocklet connection established: sandbox={sandbox_id}, target_port={port}"
                 )
 
-                # Create bidirectional forwarding tasks
+                # Create bidirectional forwarding tasks with close info tracking
                 logger.info(
                     f"[Portforward] Starting bidirectional forwarding: sandbox={sandbox_id}, target_port={port}"
                 )
+                
+                # Track close frame info from rocklet
+                rocklet_close_info = {}
+                
                 client_to_target = asyncio.create_task(
                     self._forward_portforward_messages(
                         client_websocket, target_websocket, "client->rocklet", idle_timeout
@@ -351,7 +355,8 @@ class SandboxProxyService:
                 )
                 target_to_client = asyncio.create_task(
                     self._forward_portforward_messages(
-                        target_websocket, client_websocket, "rocklet->client", idle_timeout
+                        target_websocket, client_websocket, "rocklet->client", idle_timeout,
+                        close_info=rocklet_close_info
                     )
                 )
 
@@ -372,6 +377,23 @@ class SandboxProxyService:
                         f"task={task.get_name()}"
                     )
                     task.cancel()
+                    try:
+                        await task  # Wait for cancellation to complete
+                    except asyncio.CancelledError:
+                        pass
+
+                # If rocklet closed the connection, forward close frame to client
+                if rocklet_close_info.get('direction') == 'rocklet->client':
+                    close_code = rocklet_close_info.get('code', 1000)
+                    close_reason = rocklet_close_info.get('reason', '')
+                    logger.info(
+                        f"[Portforward] Forwarding close to client: sandbox={sandbox_id}, target_port={port}, "
+                        f"code={close_code}, reason={close_reason}"
+                    )
+                    try:
+                        await client_websocket.close(code=close_code, reason=close_reason)
+                    except Exception as e:
+                        logger.debug(f"[Portforward] Error closing client connection: {e}")
 
         except asyncio.TimeoutError as e:
             logger.error(
@@ -384,7 +406,7 @@ class SandboxProxyService:
                 f"[Portforward] Rocklet connection closed: sandbox={sandbox_id}, target_port={port}, "
                 f"code={e.code}, reason={e.reason}"
             )
-            await client_websocket.close(code=1011, reason=f"Rocklet connection closed: {e.reason}")
+            await client_websocket.close(code=e.code, reason=e.reason or "")
         except Exception as e:
             logger.error(
                 f"[Portforward] Proxy error: sandbox={sandbox_id}, target_port={port}, "
@@ -399,12 +421,22 @@ class SandboxProxyService:
         destination,
         direction: str,
         idle_timeout: float,
+        close_info: dict | None = None,
     ):
         """Forward binary messages between WebSocket connections with idle timeout.
         
         Handles both FastAPI WebSocket and websockets library ClientConnection objects:
         - FastAPI WebSocket: receive_bytes(), send_bytes()
         - websockets ClientConnection: recv(), send()
+        
+        When source connection closes, captures close frame info for forwarding.
+        
+        Args:
+            source: Source WebSocket connection
+            destination: Destination WebSocket connection  
+            direction: Direction string for logging (e.g., "client->rocklet")
+            idle_timeout: Idle timeout in seconds
+            close_info: Optional dict to store close frame info (code, reason)
         """
         logger.debug(f"[Portforward] Starting message forwarder: direction={direction}, idle_timeout={idle_timeout}s")
         bytes_transferred = 0
@@ -459,6 +491,19 @@ class SandboxProxyService:
                         f"total_messages={message_count}, total_bytes={bytes_transferred}"
                     )
                     break
+        except websockets.exceptions.ConnectionClosed as e:
+            # Capture close frame info for forwarding
+            close_code = e.code
+            close_reason = e.reason or ""
+            logger.info(
+                f"[Portforward] Source connection closed: direction={direction}, "
+                f"code={close_code}, reason={close_reason}, "
+                f"total_messages={message_count}, total_bytes={bytes_transferred}"
+            )
+            if close_info is not None:
+                close_info['code'] = close_code
+                close_info['reason'] = close_reason
+                close_info['direction'] = direction
         except Exception as e:
             logger.info(
                 f"[Portforward] Forwarder stopped: direction={direction}, "
