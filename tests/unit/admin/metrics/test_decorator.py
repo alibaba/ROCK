@@ -159,4 +159,9 @@ def test_record_metrics_failure():
 
     # Verify failure counter was called with error attributes
     error_attrs = {**attributes, "error_type": "Exception"}
-    mock_metrics_monitor.record_counter_by_name.assert_called_with("test.failure", 1, error_attrs)
+    mock_metrics_monitor.record_counter_by_name.assert_any_call("test.failure", 1, error_attrs)
+
+    # Verify rt and total metrics were recorded even for exceptions
+    # rt should be 1000ms (1.0 - 0) * 1000
+    mock_metrics_monitor.record_gauge_by_name.assert_called_once_with("test.rt", 1000.0, error_attrs)
+    mock_metrics_monitor.record_counter_by_name.assert_any_call("test.total", 1, error_attrs)
