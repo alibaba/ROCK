@@ -29,6 +29,7 @@ from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
 from rock.config import RockConfig, RuntimeConfig
 from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
+from rock.deployments.sandbox_validator import DockerSandboxValidator
 from rock.logger import init_logger
 from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
@@ -108,6 +109,17 @@ class SandboxManager(BaseManager):
         sandbox_info["state"] = State.PENDING
         sandbox_info["create_time"] = get_iso8601_timestamp()
 
+    def _validate_deployment_prerequisites(self, config: DeploymentConfig) -> None:
+        """Validate deployment prerequisites before submitting to operator.
+
+        For Docker-based deployments, checks Docker daemon availability.
+        Fails fast to avoid wasting Ray actor resources.
+        """
+        if isinstance(config, DockerDeploymentConfig):
+            validator = DockerSandboxValidator()
+            if not validator.check_availability():
+                raise BadRequestRockError("Docker is not available. Please ensure Docker daemon is running.")
+
     @monitor_sandbox_operation()
     async def start_async(
         self, config: DeploymentConfig, user_info: UserInfo = {}, cluster_info: ClusterInfo = {}
@@ -115,6 +127,10 @@ class SandboxManager(BaseManager):
         await self._check_sandbox_exists_in_redis(config)
         self.validate_sandbox_spec(self.rock_config.runtime, config)
         docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(config)
+
+        # Early Docker validation - fail fast before allocating Ray resources
+        self._validate_deployment_prerequisites(docker_deployment_config)
+
         sandbox_id = docker_deployment_config.container_name
         sandbox_info: SandboxInfo = await self._operator.submit(docker_deployment_config, user_info)
         stop_time = str(int(time.time()) + docker_deployment_config.auto_clear_time * 60)
