@@ -19,3 +19,5 @@ class MetricsConstants:
     TOTAL_MEM_RESOURCE = "resource.mem.total"
     AVAILABLE_CPU_RESOURCE = "resource.cpu.available"
     AVAILABLE_MEM_RESOURCE = "resource.mem.available"
+
+    SANDBOX_PHASE_FAILURE = "sandbox.phase.failure"
