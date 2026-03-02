@@ -1,17 +1,8 @@
 /** @type {import('ts-jest').JestConfigWithTsJest} */
-module.exports = {
+const baseConfig = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  roots: ['<rootDir>/src'],
-  testMatch: ['**/*.test.ts'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
-  collectCoverageFrom: [
-    'src/**/*.ts',
-    '!src/**/*.d.ts',
-    '!src/**/index.ts',
-  ],
-  coverageDirectory: 'coverage',
-  coverageReporters: ['text', 'lcov', 'html'],
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
@@ -28,4 +19,29 @@ module.exports = {
     ],
   },
   extensionsToTreatAsEsm: ['.ts'],
+};
+
+module.exports = {
+  projects: [
+    // Unit tests - fast, isolated tests in src/
+    {
+      ...baseConfig,
+      displayName: 'unit',
+      roots: ['<rootDir>/src'],
+      testMatch: ['**/*.test.ts'],
+      collectCoverageFrom: [
+        'src/**/*.ts',
+        '!src/**/*.d.ts',
+        '!src/**/index.ts',
+      ],
+      coverageDirectory: 'coverage',
+    },
+    // Integration tests - tests that require external services
+    {
+      ...baseConfig,
+      displayName: 'integration',
+      roots: ['<rootDir>/tests/integration'],
+      testMatch: ['**/*.test.ts'],
+    },
+  ],
 };
