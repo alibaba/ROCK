@@ -83,7 +83,7 @@ async def test_ray_actor_is_alive(sandbox_manager):
 
     assert not await sandbox_manager._is_actor_alive(response.sandbox_id)
 
-
+@pytest.mark.need_docker
 @pytest.mark.need_ray
 @pytest.mark.asyncio
 async def test_user_info_set_success(sandbox_manager):

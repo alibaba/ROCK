@@ -73,7 +73,7 @@ async def test_reconnect_ray_skip_when_reader_exists_and_write_lock_timeout(ray_
         assert service._ray_request_count == old_count
         assert service._ray_establish_time == old_est
 
-
+@pytest.mark.need_docker
 @pytest.mark.need_ray
 @pytest.mark.asyncio
 async def test_ray_get(ray_service):

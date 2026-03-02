@@ -37,7 +37,7 @@ def test_use_rocklet_returns_true_when_switch_is_on(ray_service):
     assert operator.use_rocklet() is True
     mock_nacos_provider.get_switch_status.assert_called_once_with(GET_STATUS_SWITCH)
 
-
+@pytest.mark.need_docker
 @pytest.mark.need_ray
 @pytest.mark.asyncio
 async def test_ray_operator(ray_service):

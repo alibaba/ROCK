@@ -92,7 +92,7 @@ async def start_echo_server_in_sandbox(
     # Wait for server to be ready
     await asyncio.sleep(2)
 
-
+@pytest.mark.need_docker
 @pytest.mark.need_ray
 @pytest.mark.asyncio
 async def test_post_proxy(sandbox_manager: SandboxManager, sandbox_proxy_service: SandboxProxyService):
