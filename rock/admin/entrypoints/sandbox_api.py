@@ -1,5 +1,6 @@
 from typing import Annotated, Any
 
+import ray
 from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 
 from rock.actions import (
@@ -29,6 +30,27 @@ from rock.common.constants import GET_STATUS_SWITCH, KATA_RUNTIME_SWITCH
 from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.utils import handle_exceptions
+from rock import env_vars
+
+
+def _sandbox_start_request_from_form(
+    image: str = Form(""),
+    memory: str = Form("8g"),
+    cpus: float = Form(2),
+    auto_clear_time_minutes: int = Form(env_vars.ROCK_DEFAULT_AUTO_CLEAR_TIME_MINUTES),
+    startup_timeout: float = Form(300.0),
+    pull: str = Form("missing"),
+    sandbox_id: str | None = Form(None),
+) -> SandboxStartRequest:
+    return SandboxStartRequest(
+        image=image,
+        memory=memory,
+        cpus=cpus,
+        auto_clear_time_minutes=auto_clear_time_minutes,
+        startup_timeout=startup_timeout,
+        pull=pull,
+        sandbox_id=sandbox_id or None,
+    )
 
 sandbox_router = APIRouter()
 sandbox_manager: SandboxManager
@@ -64,6 +86,25 @@ async def start_async(
     headers: Annotated[StartHeaders, Depends()],
 ) -> RockResponse[SandboxStartResponse]:
     config = DockerDeploymentConfig.from_request(request)
+    await _apply_kata_runtime_switch(config)
+    sandbox_start_response = await sandbox_manager.start_async(
+        config,
+        user_info=headers.user_info,
+        cluster_info=headers.cluster_info,
+    )
+    return RockResponse(result=sandbox_start_response)
+
+
+@sandbox_router.post("/start_async_with_env")
+@handle_exceptions(error_message="async start sandbox with env_dir failed")
+async def start_async_with_env(
+    request: Annotated[SandboxStartRequest, Depends(_sandbox_start_request_from_form)],
+    headers: Annotated[StartHeaders, Depends()],
+    env_dir_tar: UploadFile = File(...),
+) -> RockResponse[SandboxStartResponse]:
+    config = DockerDeploymentConfig.from_request(request)
+    tar_bytes = await env_dir_tar.read()
+    config.env_dir_tar_ref = ray.put(tar_bytes)
     await _apply_kata_runtime_switch(config)
     sandbox_start_response = await sandbox_manager.start_async(
         config,

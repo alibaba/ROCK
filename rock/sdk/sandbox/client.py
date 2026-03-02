@@ -1,7 +1,9 @@
 import asyncio
+import io
 import logging
 import mimetypes
 import os
+import tarfile
 import time
 import uuid
 import warnings
@@ -160,22 +162,52 @@ class Sandbox(AbstractSandbox):
         # If no failed stage is found, return None
         return None
 
+    @staticmethod
+    def _pack_env_dir_to_tar_gz(env_dir: Path) -> bytes:
+        """Pack a directory (docker build context) into a gzipped tar as bytes."""
+        buf = io.BytesIO()
+        env_dir = Path(env_dir).resolve()
+        if not env_dir.is_dir():
+            raise ValueError(f"env_dir is not a directory: {env_dir}")
+        dockerfile = env_dir / "Dockerfile"
+        if not dockerfile.exists():
+            raise ValueError(f"Dockerfile not found in env_dir: {dockerfile}")
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            tar.add(env_dir, arcname=".", filter=lambda ti: None if ti.name == ".git" else ti)
+        return buf.getvalue()
+
     async def start(self):
-        url = f"{self._url}/start_async"
         headers = self._build_headers()
-        data = {
-            "image": self.config.image,
-            "image_os": self.config.image_os,
+        form_data = {
             "auto_clear_time": self.config.auto_clear_seconds / 60,
             "auto_clear_time_minutes": self.config.auto_clear_seconds / 60,
             "startup_timeout": self.config.startup_timeout,
             "memory": self.config.memory,
             "cpus": self.config.cpus,
         }
-        try:
-            response = await HttpUtils.post(url, headers, data)
-        except Exception as e:
-            raise Exception(f"Failed to start standbox: {str(e)}, post url {url}")
+        if not self.config.env_dir:
+            form_data["image"] = self.config.image
+            form_data["image_os"] = self.config.image_os
+        if self.config.env_dir:
+            # env_dir build: server uses rock_env_image:<sandbox_id> as image tag
+            env_dir = Path(self.config.env_dir).resolve()
+            tar_bytes = self._pack_env_dir_to_tar_gz(env_dir)
+            url = f"{self._url}/start_async_with_env"
+            try:
+                response = await HttpUtils.post_multipart(
+                    url,
+                    headers,
+                    data=form_data,
+                    files={"env_dir_tar": ("env_dir.tar.gz", tar_bytes, "application/gzip")},
+                )
+            except Exception as e:
+                raise Exception(f"Failed to start sandbox with env_dir: {str(e)}, post url {url}")
+        else:
+            url = f"{self._url}/start_async"
+            try:
+                response = await HttpUtils.post(url, headers, form_data)
+            except Exception as e:
+                raise Exception(f"Failed to start sandbox: {str(e)}, post url {url}")
 
         logging.debug(f"Start sandbox response: {response}")
         if "Success" != response.get("status"):

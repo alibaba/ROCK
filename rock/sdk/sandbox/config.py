@@ -1,4 +1,6 @@
 import warnings
+from pathlib import Path
+from typing import Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -39,6 +41,8 @@ class SandboxConfig(BaseConfig):
     experiment_id: str | None = None
     cluster: str = "zb"
     namespace: str | None = None
+    env_dir: Union[str, Path, None] = None
+    """Optional path to docker build context directory (must contain Dockerfile). When set, SDK packs it as tar.gz and uploads; worker will docker build then run. Image tag is server-derived as rock_env_image:<sandbox_id>."""
 
 
 class SandboxGroupConfig(SandboxConfig):

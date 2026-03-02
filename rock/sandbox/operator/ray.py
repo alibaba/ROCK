@@ -52,7 +52,12 @@ class RayOperator(AbstractOperator):
     async def submit(self, config: DockerDeploymentConfig, user_info: dict = {}) -> SandboxInfo:
         async with self._ray_service.get_ray_rwlock().read_lock():
             sandbox_id = config.container_name
-            logger.info(f"[{sandbox_id}] start_async params:{json.dumps(config.model_dump(), indent=2)}")
+            log_params = config.model_dump()
+            # env_dir_tar_ref is a Ray ObjectRef, not JSON-serializable
+            if "env_dir_tar_ref" in log_params and log_params["env_dir_tar_ref"] is not None:
+                log_params = {k: v for k, v in log_params.items() if k != "env_dir_tar_ref"}
+                log_params["env_dir_tar_ref"] = "<ObjectRef>"
+            logger.info(f"[{sandbox_id}] start_async params:{json.dumps(log_params, indent=2)}")
             sandbox_actor: SandboxActor = await self.create_actor(config)
             sandbox_actor.start.remote()
             user_id = user_info.get("user_id", "default")

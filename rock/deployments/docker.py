@@ -4,11 +4,16 @@ import os
 import random
 import shlex
 import subprocess
+import tarfile
+import tempfile
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+
+import ray
 
 from typing_extensions import Self
 
@@ -20,7 +25,7 @@ from rock.deployments.constants import Port, Status
 from rock.deployments.hooks.abstract import CombinedDeploymentHook, DeploymentHook
 from rock.deployments.runtime_env import DockerRuntimeEnv, LocalRuntimeEnv, PipRuntimeEnv, UvRuntimeEnv
 from rock.deployments.sandbox_validator import DockerSandboxValidator
-from rock.deployments.status import PersistedServiceStatus, ServiceStatus
+from rock.deployments.status import PhaseStatus, PersistedServiceStatus, ServiceStatus
 from rock.logger import init_logger
 from rock.rocklet import PACKAGE_NAME, REMOTE_EXECUTABLE_NAME
 from rock.rocklet.exceptions import DeploymentNotStartedError, DockerPullError
@@ -63,6 +68,8 @@ class DockerDeployment(AbstractDeployment):
         self._check_stop_task = None
         self._container_name = None
         self._service_status = PersistedServiceStatus()
+        if getattr(self._config, "env_dir_tar_ref", None) is not None:
+            self._service_status.add_phase("docker_build", PhaseStatus())
         if self._config.container_name:
             self.set_container_name(self._config.container_name)
         if env_vars.ROCK_WORKER_ENV_TYPE == "docker":
@@ -285,6 +292,40 @@ class DockerDeployment(AbstractDeployment):
     def _cpus(self):
         return [f"--cpus={self.config.cpus}"]
 
+    def _build_image_from_env_dir_tar(self, tar_bytes: bytes) -> str:
+        """Extract env_dir tar.gz and run docker build; return image tag (self._config.image)."""
+        self._service_status.update_status(
+            phase_name="docker_build", status=Status.RUNNING, message="building from env_dir context"
+        )
+        with tempfile.TemporaryDirectory(prefix="rock_env_") as tmpdir:
+            path = Path(tmpdir)
+            with tarfile.open(fileobj=BytesIO(tar_bytes), mode="r:gz") as tar:
+                tar.extractall(path)
+            context_dir = path
+            dockerfile_path = context_dir / "Dockerfile"
+            if not dockerfile_path.exists():
+                raise FileNotFoundError(f"Dockerfile not found in env_dir context: {dockerfile_path}")
+            build_cmd = [
+                "docker",
+                "build",
+                "-f",
+                str(dockerfile_path),
+                "-t",
+                self._config.image,
+                str(context_dir),
+            ]
+            logger.info("Running docker build from env_dir context: %s", shlex.join(build_cmd))
+            try:
+                subprocess.run(build_cmd, check=True, capture_output=True, timeout=1800)
+            except subprocess.CalledProcessError as e:
+                msg = f"docker build failed: {e.stderr.decode() if e.stderr else str(e)}"
+                self._service_status.update_status(phase_name="docker_build", status=Status.FAILED, message=msg)
+                raise RuntimeError(msg) from e
+        self._service_status.update_status(
+            phase_name="docker_build", status=Status.SUCCESS, message="docker build success"
+        )
+        return self._config.image
+
     async def start(self):
         """Starts the runtime."""
         if not self.sandbox_validator.check_availability():
@@ -295,11 +336,18 @@ class DockerDeployment(AbstractDeployment):
         self._service_status.set_sandbox_id(self._container_name)
         executor = get_executor()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(executor, self._pull_image)
-        if self._config.python_standalone_dir is not None:
-            image_id = self._build_image()
+
+        if self._config.env_dir_tar_ref is not None:
+            tar_bytes = ray.get(self._config.env_dir_tar_ref)
+            image_id = await loop.run_in_executor(
+                executor, self._build_image_from_env_dir_tar, tar_bytes
+            )
         else:
-            image_id = self._config.image
+            await loop.run_in_executor(executor, self._pull_image)
+            if self._config.python_standalone_dir is not None:
+                image_id = self._build_image()
+            else:
+                image_id = self._config.image
 
         if not self.sandbox_validator.check_resource(image_id):
             raise Exception(f"Image {image_id} is not valid")

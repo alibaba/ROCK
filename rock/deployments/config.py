@@ -7,7 +7,7 @@ provides settings specific to its deployment environment.
 """
 
 from abc import abstractmethod
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -114,6 +114,9 @@ class DockerDeploymentConfig(DeploymentConfig):
 
     extended_params: dict[str, str] = Field(default_factory=dict)
     """Generic extension field for storing custom string key-value pairs."""
+
+    env_dir_tar_ref: Any = None
+    """Optional Ray ObjectRef of tar.gz bytes (build context). When set, worker extracts and runs docker build before run."""
 
     @model_validator(mode="before")
     def validate_platform_args(cls, data: dict) -> dict:
