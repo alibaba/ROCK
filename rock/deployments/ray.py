@@ -16,7 +16,7 @@ class RayDeployment(DockerDeployment):
 
     @classmethod
     def from_config(cls, config: DockerDeploymentConfig) -> Self:
-        return cls(**config.model_dump())
+        return cls(**config.model_dump(), registry_password=config.registry_password)
 
     async def creator_actor(self, actor_name: str):
         return await self._create_sandbox_actor(actor_name)

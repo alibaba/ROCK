@@ -70,6 +70,36 @@ class DockerUtil:
             raise
 
     @classmethod
+    def logout(cls, registry: str, timeout: int = 30) -> str:
+        """Logout from a Docker registry
+
+        Args:
+            registry: Docker registry URL (e.g. registry.example.com)
+            timeout: Command timeout in seconds
+
+        Returns:
+            Command output as string on success
+
+        Raises:
+            subprocess.CalledProcessError: If logout fails
+        """
+        try:
+            result = subprocess.run(
+                ["docker", "logout", registry],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            if result.returncode != 0:
+                logger.error(f"Docker logout from {registry} failed: {result.stderr.strip()}")
+                raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
+            logger.info(f"Successfully logged out from {registry}")
+            return result.stdout.strip()
+        except subprocess.TimeoutExpired:
+            logger.error(f"Docker logout from {registry} timed out after {timeout}s")
+            raise
+
+    @classmethod
     def remove_image(image: str) -> bytes:
         """Remove a Docker image"""
         return subprocess.check_output(["docker", "rmi", image], timeout=30)
@@ -82,7 +112,7 @@ class ImageUtil:
     DEFAULT_TAG: str = "latest"
 
     @classmethod
-    async def split_image_name(cls, image_name: str) -> tuple[str, str, str]:
+    def split_image_name(cls, image_name: str) -> tuple[str, str, str]:
         """Split image name into namespace, name, and tag"""
         if "/" in image_name:
             repo_namespace_name, name_and_tag = image_name.split("/", maxsplit=1)
@@ -99,7 +129,7 @@ class ImageUtil:
         return repo_namespace_name, repo_name, tag
 
     @classmethod
-    async def parse_registry_and_others(cls, image_name: str) -> tuple[str, str]:
+    def parse_registry_and_others(cls, image_name: str) -> tuple[str, str]:
         parts = image_name.split("/", maxsplit=1)
         if len(parts) == 1:
             return "", image_name

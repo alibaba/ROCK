@@ -22,8 +22,8 @@ class ImageMirror(EnvBuilder):
         if not instance_record:
             raise Exception("instance_record is required")
         image = instance_record["docker_image"]
-        registry_url, other_part = await ImageUtil.parse_registry_and_others(image)
-        parsed_namespace, parsed_name, parsed_tag = await ImageUtil.split_image_name(other_part)
+        registry_url, other_part = ImageUtil.parse_registry_and_others(image)
+        parsed_namespace, parsed_name, parsed_tag = ImageUtil.split_image_name(other_part)
         aliyun_other_part = f"{parsed_namespace}/{parsed_name}:{parsed_tag}"
         target_image_full_name = f"{target_registry}/{aliyun_other_part}"
 

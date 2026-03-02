@@ -28,7 +28,9 @@ class DeploymentManager:
         sandbox_id_ctx_var.set(sandbox_id)
 
         # TODO: get ray from config
-        docker_deployment_config = RayDeploymentConfig(**config.model_dump())
+        docker_deployment_config = RayDeploymentConfig(
+            **config.model_dump(), registry_password=getattr(config, "registry_password", None)
+        )
         docker_deployment_config.role = _role
         docker_deployment_config.env = _env
         docker_deployment_config.container_name = sandbox_id
