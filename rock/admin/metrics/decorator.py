@@ -5,6 +5,7 @@ import time
 from collections.abc import Callable
 
 from rock.admin.core.redis_key import alive_sandbox_key
+from rock.admin.metrics.constants import MetricsConstants
 from rock.admin.metrics.monitor import MetricsMonitor
 from rock.utils.providers import RedisProvider
 
@@ -76,12 +77,46 @@ def _update_sandbox_id_from_result(result, attributes: dict):
     return attributes
 
 
+_PHASE_FAILURE_STATUSES = {"failed", "timeout"}
+
+
+def _check_and_report_phase_failures(metrics_monitor: MetricsMonitor, result, attributes: dict):
+    """Check result for phase failures and report metrics.
+
+    Inspects the 'status' field (phases dict) of the result. For each phase
+    whose status is 'failed' or 'timeout', a counter metric is emitted so
+    that downstream alerting systems can fire alerts.
+    """
+    phases = getattr(result, "status", None)
+    if not isinstance(phases, dict):
+        return
+
+    for phase_name, phase_detail in phases.items():
+        if isinstance(phase_detail, dict):
+            phase_status = phase_detail.get("status")
+        elif hasattr(phase_detail, "status") and hasattr(phase_detail, "message"):
+            phase_status = (
+                phase_detail.status.value if hasattr(phase_detail.status, "value") else str(phase_detail.status)
+            )
+        else:
+            continue
+
+        if phase_status not in _PHASE_FAILURE_STATUSES:
+            continue
+
+        phase_attrs = {
+            **attributes,
+            "phase_name": phase_name,
+            "phase_status": phase_status,
+        }
+        metrics_monitor.record_counter_by_name(MetricsConstants.SANDBOX_PHASE_FAILURE, 1, phase_attrs)
+
+
 def _record_metrics(metrics_monitor: MetricsMonitor, result, attributes: dict, start_time: float, metric_prefix: str):
     """Record metrics after function execution"""
     # Update sandbox_id from result if available
     attributes = _update_sandbox_id_from_result(result, attributes)
 
-    # Calculate response time first
     rt_ms = (time.perf_counter() - start_time) * 1000
 
     # Determine if result is an exception and prepare attributes
@@ -92,6 +127,10 @@ def _record_metrics(metrics_monitor: MetricsMonitor, result, attributes: dict, s
     else:
         metric_attrs = attributes
         metrics_monitor.record_counter_by_name(f"{metric_prefix}.success", 1, metric_attrs)
+
+    # Check for phase-level failures only for get_status operations
+    if attributes.get("operation") == "get_status" or attributes.get("operation") == "get_status_v2":
+        _check_and_report_phase_failures(metrics_monitor, result, attributes)
 
     # Record response time and total requests (always executed before raising exception)
     metrics_monitor.record_gauge_by_name(f"{metric_prefix}.rt", rt_ms, metric_attrs)
