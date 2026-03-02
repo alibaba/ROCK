@@ -13,10 +13,7 @@ logger = logging.getLogger(__name__)
 
 @pytest.mark.asyncio
 async def test_model_service():
-    os.environ["ROCK_MODEL_SERVICE_DATA_DIR"] = "/tmp/rock_model_service_test_data"
-
     model_env = os.environ.copy()
-    model_env["ROCK_LOGGING_PATH"] = "/tmp/rock_model_service_test_data"
     model_env["ROCK_LOGGING_FILE_NAME"] = "model_service.log"
     subprocess.run(["rock", "model-service", "start"], env=model_env)
 
