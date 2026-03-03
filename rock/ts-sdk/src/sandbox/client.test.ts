@@ -223,3 +223,291 @@ describe('Sandbox Exception Handling', () => {
     });
   });
 });
+
+/**
+ * Zod Validation Tests
+ * 
+ * These tests verify that API responses are validated against Zod schemas.
+ * Similar to Python SDK's Pydantic validation: CommandResponse(**result)
+ */
+import { ZodError } from 'zod';
+
+describe('Zod Validation', () => {
+  let sandbox: Sandbox;
+  let mockPost: jest.Mock;
+  let mockGet: jest.Mock;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPost = jest.fn();
+    mockGet = jest.fn();
+    mockedAxios.create = jest.fn().mockReturnValue({
+      post: mockPost,
+      get: mockGet,
+    });
+
+    sandbox = new Sandbox({
+      image: 'test:latest',
+      startupTimeout: 2,
+    });
+  });
+
+  describe('execute() - Zod validation', () => {
+    beforeEach(async () => {
+      // Start the sandbox first
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            sandbox_id: 'test-id',
+            host_name: 'test-host',
+            host_ip: '127.0.0.1',
+          },
+        },
+        headers: {},
+      });
+      mockGet.mockResolvedValue({
+        data: {
+          status: 'Success',
+          result: { is_alive: true },
+        },
+        headers: {},
+      });
+      await sandbox.start();
+    });
+
+    test('should throw ZodError when stdout is not a string', async () => {
+      // Return invalid data: stdout as number instead of string
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            stdout: 12345, // Invalid: should be string
+            stderr: '',
+            exit_code: 0,
+          },
+        },
+        headers: {},
+      });
+
+      await expect(sandbox.execute({ command: 'test', timeout: 60 })).rejects.toThrow(ZodError);
+    });
+
+    test('should throw ZodError when exitCode is not a number', async () => {
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            stdout: 'output',
+            stderr: '',
+            exit_code: '0', // Invalid: should be number
+          },
+        },
+        headers: {},
+      });
+
+      await expect(sandbox.execute({ command: 'test', timeout: 60 })).rejects.toThrow(ZodError);
+    });
+
+    test('should pass validation with valid CommandResponse', async () => {
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            stdout: 'valid output',
+            stderr: '',
+            exit_code: 0,
+          },
+        },
+        headers: {},
+      });
+
+      const result = await sandbox.execute({ command: 'test', timeout: 60 });
+
+      expect(result.stdout).toBe('valid output');
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe('getStatus() - Zod validation', () => {
+    beforeEach(async () => {
+      // Start the sandbox first
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            sandbox_id: 'test-id',
+            host_name: 'test-host',
+            host_ip: '127.0.0.1',
+          },
+        },
+        headers: {},
+      });
+      mockGet.mockResolvedValue({
+        data: {
+          status: 'Success',
+          result: { is_alive: true },
+        },
+        headers: {},
+      });
+      await sandbox.start();
+    });
+
+    test('should throw ZodError when isAlive is not a boolean', async () => {
+      mockGet.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            sandbox_id: 'test-id',
+            is_alive: 'true', // Invalid: should be boolean
+          },
+        },
+        headers: {},
+      });
+
+      await expect(sandbox.getStatus()).rejects.toThrow(ZodError);
+    });
+
+    test('should pass validation with valid SandboxStatusResponse', async () => {
+      mockGet.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            sandbox_id: 'test-id',
+            is_alive: true,
+            host_name: 'test-host',
+          },
+        },
+        headers: {
+          'x-rock-gateway-target-cluster': 'test-cluster',
+        },
+      });
+
+      const result = await sandbox.getStatus();
+
+      expect(result.sandboxId).toBe('test-id');
+      expect(result.isAlive).toBe(true);
+    });
+  });
+
+  describe('createSession() - Zod validation', () => {
+    beforeEach(async () => {
+      // Start the sandbox first
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            sandbox_id: 'test-id',
+            host_name: 'test-host',
+            host_ip: '127.0.0.1',
+          },
+        },
+        headers: {},
+      });
+      mockGet.mockResolvedValue({
+        data: {
+          status: 'Success',
+          result: { is_alive: true },
+        },
+        headers: {},
+      });
+      await sandbox.start();
+    });
+
+    test('should throw ZodError when sessionType is invalid', async () => {
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            output: '',
+            session_type: 'invalid', // Invalid: should be 'bash'
+          },
+        },
+        headers: {},
+      });
+
+      await expect(sandbox.createSession({ 
+        session: 'test', 
+        startupSource: [], 
+        envEnable: false 
+      })).rejects.toThrow(ZodError);
+    });
+
+    test('should pass validation with valid CreateSessionResponse', async () => {
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            output: 'session created',
+            session_type: 'bash',
+          },
+        },
+        headers: {},
+      });
+
+      const result = await sandbox.createSession({ 
+        session: 'test', 
+        startupSource: [], 
+        envEnable: false 
+      });
+
+      expect(result.output).toBe('session created');
+      expect(result.sessionType).toBe('bash');
+    });
+  });
+
+  describe('readFile() - Zod validation', () => {
+    beforeEach(async () => {
+      // Start the sandbox first
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            sandbox_id: 'test-id',
+            host_name: 'test-host',
+            host_ip: '127.0.0.1',
+          },
+        },
+        headers: {},
+      });
+      mockGet.mockResolvedValue({
+        data: {
+          status: 'Success',
+          result: { is_alive: true },
+        },
+        headers: {},
+      });
+      await sandbox.start();
+    });
+
+    test('should throw ZodError when content is not a string', async () => {
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            content: { invalid: 'object' }, // Invalid: should be string
+          },
+        },
+        headers: {},
+      });
+
+      await expect(sandbox.readFile({ path: '/test.txt' })).rejects.toThrow(ZodError);
+    });
+
+    test('should pass validation with valid ReadFileResponse', async () => {
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            content: 'file content',
+          },
+        },
+        headers: {},
+      });
+
+      const result = await sandbox.readFile({ path: '/test.txt' });
+
+      expect(result.content).toBe('file content');
+    });
+  });
+});

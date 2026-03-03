@@ -22,6 +22,17 @@ import { extractNohupPid } from './utils.js';
 import { RunModeType, RunMode as RunModeEnum } from './types.js';
 export type { RunModeType };
 export { RunModeEnum as RunMode };
+import {
+  ObservationSchema,
+  CommandResponseSchema,
+  IsAliveResponseSchema,
+  SandboxStatusResponseSchema,
+  CreateSessionResponseSchema,
+  WriteFileResponseSchema,
+  ReadFileResponseSchema,
+  UploadResponseSchema,
+  CloseSessionResponseSchema,
+} from '../types/responses.js';
 import type {
   Observation,
   CommandResponse,
@@ -270,10 +281,11 @@ export class Sandbox extends AbstractSandbox {
   async isAlive(): Promise<IsAliveResponse> {
     try {
       const status = await this.getStatus();
-      return {
+      // Validate response with Zod schema
+      return IsAliveResponseSchema.parse({
         isAlive: status.isAlive,
         message: status.hostName ?? '',
-      };
+      });
     } catch (e) {
       throw new Error(`Failed to get is alive: ${e}`);
     }
@@ -291,7 +303,8 @@ export class Sandbox extends AbstractSandbox {
       throw new Error(`Failed to get status: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
     }
 
-    const result = response.result!;
+    // Validate response with Zod schema (similar to Python: SandboxStatusResponse(**result))
+    const result = SandboxStatusResponseSchema.parse(response.result);
 
     // Extract additional info from response headers (backward compatible)
     result.cluster = response.headers['x-rock-gateway-target-cluster'] || this.config.cluster || 'N/A';
@@ -326,7 +339,8 @@ export class Sandbox extends AbstractSandbox {
       throw new Error(`Failed to execute command: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
     }
 
-    return response.result!;
+    // Validate response with Zod schema (similar to Python: CommandResponse(**result))
+    return CommandResponseSchema.parse(response.result);
   }
 
   // Session management
@@ -351,7 +365,8 @@ export class Sandbox extends AbstractSandbox {
       throw new Error(`Failed to create session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
     }
 
-    return response.result!;
+    // Validate response with Zod schema (similar to Python: CreateBashSessionResponse(**result))
+    return CreateSessionResponseSchema.parse(response.result);
   }
 
   async closeSession(request: CloseSessionRequest): Promise<CloseSessionResponse> {
@@ -375,7 +390,8 @@ export class Sandbox extends AbstractSandbox {
       throw new Error(`Failed to close session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
     }
 
-    return response.result ?? { sessionType: 'bash' };
+    // Validate response with Zod schema (similar to Python: CloseSessionResponse(**result))
+    return CloseSessionResponseSchema.parse(response.result ?? {});
   }
 
   // Run command in session
@@ -444,8 +460,8 @@ export class Sandbox extends AbstractSandbox {
       throw new Error(`Failed to run in session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
     }
 
-    // Response is already camelCase (converted by HTTP layer)
-    return response.result!;
+    // Validate response with Zod schema (similar to Python: Observation(**result))
+    return ObservationSchema.parse(response.result);
   }
 
   private async arunWithNohup(
@@ -604,7 +620,8 @@ export class Sandbox extends AbstractSandbox {
       data
     );
 
-    return { content: response.result?.content ?? '' };
+    // Validate response with Zod schema (similar to Python: ReadFileResponse(**result))
+    return ReadFileResponseSchema.parse(response.result ?? {});
   }
 
   // Upload
