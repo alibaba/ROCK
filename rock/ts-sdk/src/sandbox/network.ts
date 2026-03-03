@@ -62,7 +62,7 @@ export class Network {
   }
 
   private buildAptSpeedupCommand(mirrorUrl: string): string {
-    return `cat > /etc/apt/sources.list << 'EOF'
+    return `cat > /etc/apt/sources.list << EOF
 deb ${mirrorUrl} $(lsb_release -cs) main restricted universe multiverse
 deb ${mirrorUrl} $(lsb_release -cs)-updates main restricted universe multiverse
 deb ${mirrorUrl} $(lsb_release -cs)-backports main restricted universe multiverse
