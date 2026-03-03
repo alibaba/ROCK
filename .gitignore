@@ -12,6 +12,7 @@ dist/
 nacos-data/
 data/
 tmp/
+.tmp/
 *.log
 data/
 node_modules

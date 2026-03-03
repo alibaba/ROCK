@@ -1,12 +1,8 @@
 import pytest
-import os
-from pathlib import Path
-from rock.sdk.sandbox.client import Sandbox
-from rock.actions import CreateBashSessionRequest, CloseBashSessionRequest, BashAction
-from tests.integration.conftest import SKIP_IF_NO_DOCKER
 
-# Set writable status directory for sandbox deployment
-os.environ["ROCK_SERVICE_STATUS_DIR"] = "/tmp/rock_status"
+from rock.actions import CloseBashSessionRequest, CreateBashSessionRequest
+from rock.sdk.sandbox.client import Sandbox
+from tests.integration.conftest import SKIP_IF_NO_DOCKER
 
 
 @pytest.mark.need_admin

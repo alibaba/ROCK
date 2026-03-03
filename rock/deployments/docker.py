@@ -14,10 +14,12 @@ from typing_extensions import Self
 
 from rock import env_vars
 from rock.actions import IsAliveResponse, RemoteSandboxRuntimeConfig
+from rock.common.constants import DeploymentHookStep
 from rock.deployments.abstract import AbstractDeployment
 from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Port, Status
 from rock.deployments.hooks.abstract import CombinedDeploymentHook, DeploymentHook
+from rock.deployments.hooks.docker_login import DockerLoginHook
 from rock.deployments.runtime_env import DockerRuntimeEnv, LocalRuntimeEnv, PipRuntimeEnv, UvRuntimeEnv
 from rock.deployments.sandbox_validator import DockerSandboxValidator
 from rock.deployments.status import PersistedServiceStatus, ServiceStatus
@@ -76,6 +78,11 @@ class DockerDeployment(AbstractDeployment):
         else:
             raise Exception(f"Invalid ROCK_WORKER_ENV_TYPE: {env_vars.ROCK_WORKER_ENV_TYPE}")
 
+        if self._config.registry_username is not None and self._config.registry_password is not None:
+            self.add_hook(
+                DockerLoginHook(self._config.image, self._config.registry_username, self._config.registry_password)
+            )
+
         self.sandbox_validator: DockerSandboxValidator | None = DockerSandboxValidator()
 
     def add_hook(self, hook: DeploymentHook):
@@ -90,7 +97,7 @@ class DockerDeployment(AbstractDeployment):
 
     @classmethod
     def from_config(cls, config: DockerDeploymentConfig) -> Self:
-        return cls(**config.model_dump())
+        return cls(**config.model_dump(), registry_password=config.registry_password)
 
     def _get_container_name(self) -> str:
         """Returns a unique container name based on the image name."""
@@ -185,7 +192,7 @@ class DockerDeployment(AbstractDeployment):
             return
         self._service_status.update_status(phase_name="image_pull", status=Status.RUNNING, message="image pull running")
         logger.info(f"Pulling image {self._config.image!r}")
-        self._hooks.on_custom_step("Pulling docker image")
+        self._hooks.on_custom_step(DeploymentHookStep.PULLING_IMAGE)
         try:
             with Timer(description=f"[{self._config.image}] Image pull"):
                 DockerUtil.pull_image(self._config.image)
@@ -364,7 +371,7 @@ class DockerDeployment(AbstractDeployment):
         # shell=True required for && etc.
         with Timer(description=f"[{self._config.image}] Container start"):
             self._container_process = await loop.run_in_executor(executor, self._docker_run, cmds)
-            await loop.run_in_executor(executor, self._hooks.on_custom_step, "Starting runtime")
+            await loop.run_in_executor(executor, self._hooks.on_custom_step, DeploymentHookStep.STARTING_RUNTIME)
             logger.info(f"Starting runtime at {self._config.port}")
             self._runtime = RemoteSandboxRuntime.from_config(
                 RemoteSandboxRuntimeConfig(port=self._config.port, timeout=self._runtime_timeout)

@@ -82,6 +82,9 @@ class MetricsMonitor:
             MetricsConstants.SANDBOX_NET, "Single sandbox network usage percentage of allocated resources"
         )
 
+        # Phase failure metrics
+        self._register_counter(MetricsConstants.SANDBOX_PHASE_FAILURE, "Number of sandbox phase failures")
+
         # Ray cluster resource metrics (total and available resources)
         self._register_gauge(MetricsConstants.TOTAL_CPU_RESOURCE, "Total CPU resource in Ray cluster")
         self._register_gauge(MetricsConstants.TOTAL_MEM_RESOURCE, "Total memory resource in Ray cluster")

@@ -27,6 +27,10 @@ class SandboxStartRequest(BaseModel):
     """The amount of CPUs to allocate for the container."""
     sandbox_id: str | None = Field(default=None)
     """The id of the sandbox."""
+    registry_username: str | None = None
+    """Username for Docker registry authentication. When both username and password are provided, docker login will be performed before pulling the image."""
+    registry_password: str | None = None
+    """Password for Docker registry authentication. When both username and password are provided, docker login will be performed before pulling the image."""
 
 
 class SandboxCommand(Command):

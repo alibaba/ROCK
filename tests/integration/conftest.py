@@ -2,8 +2,11 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -201,3 +204,70 @@ def get_test_data(relative_path: str) -> str:
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
     return file_path.absolute().as_posix()
+
+
+@pytest.fixture()
+async def local_registry():
+    """Start a local Docker registry with basic auth"""
+    auth_dir = Path(tempfile.mkdtemp())
+    htpasswd_file = auth_dir / "htpasswd"
+    container_name = "test-registry"
+
+    # 1. Generate htpasswd file
+    result = subprocess.run(
+        ["docker", "run", "--rm", "--entrypoint", "htpasswd", "httpd:2", "-Bbn", "testuser", "testpass"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    htpasswd_file.write_text(result.stdout)
+
+    # 2. Remove any leftover container from a previous failed run
+    subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
+
+    # 3. Start registry and mount the htpasswd file into the container
+    port = run_until_complete(find_free_port())
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            container_name,
+            "-p",
+            f"{port}:5000",
+            "-v",
+            f"{htpasswd_file}:/auth/htpasswd",
+            "-e",
+            "REGISTRY_AUTH=htpasswd",
+            "-e",
+            "REGISTRY_AUTH_HTPASSWD_REALM=Registry Realm",
+            "-e",
+            "REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd",
+            "registry:2",
+        ],
+        check=True,
+    )
+
+    # 4. Wait for registry to be ready
+    registry_url = f"localhost:{port}"
+    for _ in range(30):
+        try:
+            urllib.request.urlopen(f"http://{registry_url}/v2/", timeout=1)
+            break
+        except urllib.error.HTTPError as http_err:
+            # 401 means the registry is up but requires authentication — that's expected
+            if http_err.code == 401:
+                break
+            time.sleep(0.5)
+        except (urllib.error.URLError, ConnectionError, OSError):
+            time.sleep(0.5)
+    else:
+        raise RuntimeError(f"Registry at {registry_url} did not become ready in time")
+
+    yield registry_url, "testuser", "testpass"
+
+    # 5. Cleanup
+    subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
+    htpasswd_file.unlink(missing_ok=True)
+    auth_dir.rmdir()

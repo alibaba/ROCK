@@ -39,6 +39,8 @@ class SandboxConfig(BaseConfig):
     experiment_id: str | None = None
     cluster: str = "zb"
     namespace: str | None = None
+    registry_username: str | None = None
+    registry_password: str | None = None
 
 
 class SandboxGroupConfig(SandboxConfig):

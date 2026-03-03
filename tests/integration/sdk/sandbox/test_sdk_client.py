@@ -1,3 +1,4 @@
+import subprocess
 import time
 
 import pytest
@@ -6,6 +7,7 @@ from rock.actions.sandbox.request import ReadFileRequest
 from rock.actions.sandbox.response import SandboxStatusResponse
 from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.sandbox.config import SandboxConfig
+from rock.utils.docker import DockerUtil
 from tests.integration.conftest import SKIP_IF_NO_DOCKER
 
 
@@ -166,3 +168,67 @@ async def test_arun_ignore_output(sandbox_instance: Sandbox):
 async def test_sandbox_proxy_port(sandbox_instance: Sandbox):
     status: SandboxStatusResponse = await sandbox_instance.get_status()
     assert 8000 not in status.port_mapping.keys()
+
+
+@pytest.mark.need_admin
+@SKIP_IF_NO_DOCKER
+@pytest.mark.asyncio
+async def test_docker_registry_login(admin_remote_server, local_registry):
+    registry_url, username, password = local_registry
+    need_auth_image = f"{registry_url}/httpd:2"
+
+    # Prepare: tag and push image to the local authenticated registry
+    subprocess.run(
+        ["docker", "tag", "httpd:2", need_auth_image],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    DockerUtil.login(registry_url, username, password)
+    subprocess.run(
+        ["docker", "push", need_auth_image],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    DockerUtil.logout(registry_url)
+    subprocess.run(
+        ["docker", "rmi", need_auth_image],
+        capture_output=True,
+        text=True,
+    )
+
+    base_url = f"{admin_remote_server.endpoint}:{admin_remote_server.port}"
+
+    # Verify: pulling without credentials should fail
+    config_no_auth = SandboxConfig(
+        image=need_auth_image,
+        base_url=base_url,
+        cpus=1.0,
+        memory="2g",
+    )
+    sandbox_no_auth = Sandbox(config_no_auth)
+    with pytest.raises(Exception) as exc_info:
+        await sandbox_no_auth.start()
+    assert "failed" in str(exc_info.value).lower() or "pull" in str(exc_info.value).lower()
+    await sandbox_no_auth.stop()
+
+    # Verify: pulling with credentials should succeed
+    config_with_auth = SandboxConfig(
+        image=need_auth_image,
+        base_url=base_url,
+        registry_username=username,
+        registry_password=password,
+        cpus=1.0,
+        memory="2g",
+    )
+    sandbox_with_auth = Sandbox(config_with_auth)
+    await sandbox_with_auth.start()
+    alive_info = await sandbox_with_auth.is_alive()
+    assert alive_info.is_alive
+    await sandbox_with_auth.stop()
+    subprocess.run(
+        ["docker", "rmi", need_auth_image],
+        capture_output=True,
+        text=True,
+    )

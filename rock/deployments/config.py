@@ -109,6 +109,12 @@ class DockerDeploymentConfig(DeploymentConfig):
     actor_resource_num: float = 1
     """Number of actor resources to allocate (to be refined)."""
 
+    registry_username: str | None = None
+    """Username for Docker registry authentication. When both username and password are provided, docker login will be performed before pulling the image."""
+
+    registry_password: str | None = Field(default=None, repr=False, exclude=True)
+    """Password for Docker registry authentication. When both username and password are provided, docker login will be performed before pulling the image."""
+
     runtime_config: RuntimeConfig = Field(default_factory=RuntimeConfig)
     """Runtime configuration settings."""
 

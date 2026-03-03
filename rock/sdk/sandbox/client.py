@@ -171,6 +171,8 @@ class Sandbox(AbstractSandbox):
             "startup_timeout": self.config.startup_timeout,
             "memory": self.config.memory,
             "cpus": self.config.cpus,
+            "registry_username": self.config.registry_username,
+            "registry_password": self.config.registry_password,
         }
         try:
             response = await HttpUtils.post(url, headers, data)

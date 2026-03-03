@@ -1,0 +1,16 @@
+run_cmd: "iflow -p ${prompt} --yolo"
+
+project_path: "/testbed"
+
+agent_run_timeout: 3600
+
+runtime_env_config:
+  type: node
+  custom_install_cmd: "npm i -g @iflow-ai/iflow-cli@latest"
+
+env:
+  IFLOW_API_KEY: "<API_KEY>" 
+  IFLOW_SEARCH_KEY: "<SEARCH_KEY>"
+  IFLOW_BASE_URL: "<BASE_URL>"
+  IFLOW_MODEL_NAME: "<MODEL_NAME>"
+  
