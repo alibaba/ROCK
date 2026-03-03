@@ -62,3 +62,12 @@ export { SpeedupType } from './sandbox/types.js';
 
 // Model
 export * from './model/index.js';
+
+// RuntimeEnv
+export * from './sandbox/runtime_env/index.js';
+
+// ModelService (sandbox)
+export * from './sandbox/model_service/index.js';
+
+// Agent
+export * from './sandbox/agent/index.js';

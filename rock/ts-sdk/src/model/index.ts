@@ -1,6 +1,5 @@
 /**
- * Model module - Model client and service
+ * Model module - Model client
  */
 
 export * from './client.js';
-export * from './service.js';
