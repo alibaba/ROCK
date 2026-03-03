@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
 from rock.actions.sandbox.sandbox_info import SandboxInfo
+from rock.config import RuntimeConfig
 from rock.deployments.config import DeploymentConfig
 from rock.utils.providers.nacos_provider import NacosConfigProvider
 from rock.utils.providers.redis_provider import RedisProvider
@@ -9,6 +10,7 @@ from rock.utils.providers.redis_provider import RedisProvider
 class AbstractOperator(ABC):
     _redis_provider: RedisProvider | None = None
     _nacos_provider: NacosConfigProvider | None = None
+    _runtime_config: RuntimeConfig | None = None
 
     @abstractmethod
     async def submit(self, config: DeploymentConfig, user_info: dict = {}) -> SandboxInfo:

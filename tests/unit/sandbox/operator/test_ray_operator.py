@@ -9,17 +9,17 @@ from rock.sandbox.operator.ray import RayOperator
 
 
 @pytest.mark.need_ray
-def test_use_rocklet_returns_false_when_nacos_provider_is_none(ray_service):
+def test_use_rocklet_returns_false_when_nacos_provider_is_none(ray_service, runtime_config):
     """When _nacos_provider is None, use_rocklet should return False"""
-    operator = RayOperator(ray_service=ray_service)
+    operator = RayOperator(ray_service=ray_service, runtime_config=runtime_config)
     operator.set_nacos_provider(None)
     assert operator.use_rocklet() is False
 
 
 @pytest.mark.need_ray
-def test_use_rocklet_returns_false_when_switch_is_off(ray_service):
+def test_use_rocklet_returns_false_when_switch_is_off(ray_service, runtime_config):
     """When switch status is False, use_rocklet should return False"""
-    operator = RayOperator(ray_service=ray_service)
+    operator = RayOperator(ray_service=ray_service, runtime_config=runtime_config)
     mock_nacos_provider = MagicMock()
     mock_nacos_provider.get_switch_status.return_value = False
     operator.set_nacos_provider(mock_nacos_provider)
@@ -28,20 +28,21 @@ def test_use_rocklet_returns_false_when_switch_is_off(ray_service):
 
 
 @pytest.mark.need_ray
-def test_use_rocklet_returns_true_when_switch_is_on(ray_service):
+def test_use_rocklet_returns_true_when_switch_is_on(ray_service, runtime_config):
     """When switch status is True, use_rocklet should return True"""
-    operator = RayOperator(ray_service=ray_service)
+    operator = RayOperator(ray_service=ray_service, runtime_config=runtime_config)
     mock_nacos_provider = MagicMock()
     mock_nacos_provider.get_switch_status.return_value = True
     operator.set_nacos_provider(mock_nacos_provider)
     assert operator.use_rocklet() is True
     mock_nacos_provider.get_switch_status.assert_called_once_with(GET_STATUS_SWITCH)
 
+
 @pytest.mark.need_docker
 @pytest.mark.need_ray
 @pytest.mark.asyncio
-async def test_ray_operator(ray_service):
-    operator = RayOperator(ray_service=ray_service)
+async def test_ray_operator(ray_service, runtime_config):
+    operator = RayOperator(ray_service=ray_service, runtime_config=runtime_config)
     operator.set_nacos_provider(None)
     start_response: SandboxInfo = await operator.submit(DockerDeploymentConfig(container_name="test"))
     assert start_response.get("sandbox_id") == "test"

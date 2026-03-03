@@ -35,6 +35,7 @@ class BaseActor:
     _user_id: str = "default"
     _experiment_id: str = "default"
     _namespace = "default"
+    _metrics_endpoint = ""
 
     def __init__(
         self,
@@ -80,7 +81,8 @@ class BaseActor:
         role = self._role
         self.host = host
         logger.info(f"Initializing MetricsCollector with host={host}, port={port}, " f"env={env}, role={role}")
-        self.otlp_exporter = OTLPMetricExporter(endpoint=f"http://{host}:{port}/v1/metrics")
+        endpoint = self._metrics_endpoint or f"http://{host}:{port}/v1/metrics"
+        self.otlp_exporter = OTLPMetricExporter(endpoint=endpoint)
         self.metric_reader = PeriodicExportingMetricReader(
             self.otlp_exporter,
             export_interval_millis=self._export_interval_millis,
@@ -181,6 +183,12 @@ class BaseActor:
         except Exception as e:
             logger.error(f"Error stopping monitoring: {e}")
             pass
+
+    def set_metrics_endpoint(self, metrics_endpoint: str):
+        self._metrics_endpoint = metrics_endpoint
+
+    def get_metrics_endpoint(self) -> str:
+        return self._metrics_endpoint
 
     async def get_sandbox_statistics(self):
         """Get sandbox statistics - default implementation returns None"""

@@ -1,15 +1,13 @@
 import asyncio
 import time
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 import ray
 from fakeredis import aioredis
-from ray.util.state import list_actors
-
-from unittest.mock import MagicMock
-
 from kubernetes import client
+from ray.util.state import list_actors
 
 from rock.admin.core.ray_service import RayService
 from rock.config import K8sConfig, RockConfig
@@ -69,8 +67,13 @@ def ray_service(rock_config: RockConfig, ray_init_shutdown):
 
 
 @pytest.fixture
-def ray_operator(ray_service):
-    ray_operator = RayOperator(ray_service)
+def runtime_config(rock_config: RockConfig):
+    return rock_config.runtime
+
+
+@pytest.fixture
+def ray_operator(ray_service, runtime_config):
+    ray_operator = RayOperator(ray_service, runtime_config)
     ray_operator.set_nacos_provider(None)
     return ray_operator
 
