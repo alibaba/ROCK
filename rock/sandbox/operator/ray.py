@@ -8,6 +8,7 @@ from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.core.ray_service import RayService
 from rock.admin.core.redis_key import alive_sandbox_key
 from rock.common.constants import GET_STATUS_SWITCH
+from rock.config import RuntimeConfig
 from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Port
 from rock.deployments.docker import DockerDeployment
@@ -25,8 +26,9 @@ logger = init_logger(__name__)
 
 
 class RayOperator(AbstractOperator):
-    def __init__(self, ray_service: RayService):
+    def __init__(self, ray_service: RayService, runtime_config: RuntimeConfig):
         self._ray_service = ray_service
+        self._runtime_config = runtime_config
 
     def _get_actor_name(self, sandbox_id: str) -> str:
         return f"sandbox-{sandbox_id}"
@@ -54,6 +56,7 @@ class RayOperator(AbstractOperator):
             sandbox_id = config.container_name
             logger.info(f"[{sandbox_id}] start_async params:{json.dumps(config.model_dump(), indent=2)}")
             sandbox_actor: SandboxActor = await self.create_actor(config)
+            sandbox_actor.set_metrics_endpoint.remote(self._runtime_config.metrics_endpoint)
             sandbox_actor.start.remote()
             user_id = user_info.get("user_id", "default")
             experiment_id = user_info.get("experiment_id", "default")
