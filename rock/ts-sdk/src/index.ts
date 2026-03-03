@@ -3,8 +3,17 @@
  * Main entry point
  */
 
-// Version
-export const VERSION = '1.2.1';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+// Version - read from package.json to ensure consistency
+function getVersion(): string {
+  const packageJsonPath = join(__dirname, '..', 'package.json');
+  const content = readFileSync(packageJsonPath, 'utf-8');
+  return JSON.parse(content).version;
+}
+
+export const VERSION: string = getVersion();
 
 // Types
 export * from './types/index.js';
