@@ -9,6 +9,11 @@ import { envVars } from '../env_vars.js';
 const logger = initLogger('rock.model.client');
 
 /**
+ * Default timeout for polling operations (in seconds)
+ */
+const DEFAULT_POLL_TIMEOUT = 60.0;
+
+/**
  * Request/Response markers
  */
 const REQUEST_START_MARKER = '__REQUEST_START__';
@@ -22,6 +27,16 @@ const SESSION_END_MARKER = '__SESSION_END__';
  */
 export interface ModelClientConfig {
   logFileName?: string;
+}
+
+/**
+ * Options for polling operations (popRequest, waitForFirstRequest)
+ */
+export interface PollOptions {
+  /** Maximum time to wait in seconds. Defaults to DEFAULT_POLL_TIMEOUT */
+  timeout?: number;
+  /** AbortSignal for cancellation support */
+  signal?: AbortSignal;
 }
 
 /**
@@ -87,32 +102,74 @@ export class ModelClient {
 
   /**
    * Pop request from log file
+   *
+   * @param index - The index of the request to pop
+   * @param options - Optional configuration for timeout and cancellation
+   * @returns The request JSON string or SESSION_END_MARKER
+   * @throws Error if timeout expires or operation is aborted
    */
-  // eslint-disable-next-line no-constant-condition
-  async popRequest(index: number): Promise<string> {
+  async popRequest(index: number, options?: PollOptions): Promise<string> {
+    const timeout = options?.timeout ?? DEFAULT_POLL_TIMEOUT;
+    const startTime = Date.now();
+
     while (true) {
-      const lastRequestLine = await this.readLastRequestLine();
-      const { requestJson, meta } = this.parseRequestLine(lastRequestLine);
-
-      if (requestJson === SESSION_END_MARKER) {
-        return SESSION_END_MARKER;
+      // Check for abort signal
+      if (options?.signal?.aborted) {
+        throw new Error(`popRequest(index=${index}) aborted`);
       }
 
-      if (meta.index === index) {
-        return requestJson;
+      // Check for timeout
+      if ((Date.now() - startTime) / 1000 > timeout) {
+        throw new Error(`popRequest timed out after ${timeout} seconds`);
       }
 
-      logger.debug(`Last request is not the index ${index} we want, waiting...`);
-      await this.sleep(1000);
+      try {
+        const lastRequestLine = await this.readLastRequestLine();
+        const { requestJson, meta } = this.parseRequestLine(lastRequestLine);
+
+        if (requestJson === SESSION_END_MARKER) {
+          return SESSION_END_MARKER;
+        }
+
+        if (meta.index === index) {
+          return requestJson;
+        }
+
+        logger.debug(`Last request is not the index ${index} we want, waiting...`);
+        await this.sleep(1000);
+      } catch (e) {
+        // Re-throw abort errors
+        if (e instanceof Error && e.message.includes('aborted')) {
+          throw e;
+        }
+        // For other errors (like file not found), wait and retry
+        logger.debug(`Error reading request: ${e}, waiting...`);
+        await this.sleep(1000);
+      }
     }
   }
 
   /**
    * Wait for first request
+   *
+   * @param options - Optional configuration for timeout and cancellation
+   * @throws Error if timeout expires or operation is aborted
    */
-  // eslint-disable-next-line no-constant-condition
-  async waitForFirstRequest(): Promise<void> {
+  async waitForFirstRequest(options?: PollOptions): Promise<void> {
+    const timeout = options?.timeout ?? DEFAULT_POLL_TIMEOUT;
+    const startTime = Date.now();
+
     while (true) {
+      // Check for abort signal
+      if (options?.signal?.aborted) {
+        throw new Error('waitForFirstRequest aborted');
+      }
+
+      // Check for timeout
+      if ((Date.now() - startTime) / 1000 > timeout) {
+        throw new Error(`waitForFirstRequest timed out after ${timeout} seconds`);
+      }
+
       if (!existsSync(this.logFile)) {
         logger.debug(`Log file ${this.logFile} not found, waiting...`);
         await this.sleep(1000);
