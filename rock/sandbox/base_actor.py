@@ -16,6 +16,7 @@ from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
 from rock.deployments.docker import DockerDeployment
 from rock.logger import init_logger
 from rock.utils import get_uniagent_endpoint
+from rock.utils.system import get_instance_id
 
 logger = init_logger(__name__)
 
@@ -51,6 +52,7 @@ class BaseActor:
         self._env = "dev"
         self._user_id = "default"
         self._experiment_id = "default"
+        self._ip = get_instance_id()
 
     async def deployment_config(self) -> DeploymentConfig | None:
         return self._config
@@ -148,7 +150,13 @@ class BaseActor:
             logger.debug(f"sandbox [{sandbox_id}] metrics = {metrics}")
 
             if metrics.get("cpu") is not None:
-                attributes = {"sandbox_id": sandbox_id, "env": self._env, "role": self._role, "host": self.host}
+                attributes = {
+                    "sandbox_id": sandbox_id,
+                    "env": self._env,
+                    "role": self._role,
+                    "host": self.host,
+                    "ip": self._ip,
+                }
                 attributes["user_id"] = self._user_id
                 attributes["experiment_id"] = self._experiment_id
                 attributes["namespace"] = self._namespace

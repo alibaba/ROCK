@@ -102,9 +102,11 @@ class MetricsMonitor:
         self.port = port
         self.env = env
         self.role = role
+        # The pod field is depended on by the dashboard, so it will not be deleted for now and will be removed later.
         self.base_attributes = {
             "host": self.host,
             "pod": pod,
+            "ip": pod,
             "env": self.env,
             "role": self.role,
         }
