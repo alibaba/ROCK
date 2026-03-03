@@ -57,6 +57,7 @@ class RayOperator(AbstractOperator):
             logger.info(f"[{sandbox_id}] start_async params:{json.dumps(config.model_dump(), indent=2)}")
             sandbox_actor: SandboxActor = await self.create_actor(config)
             sandbox_actor.set_metrics_endpoint.remote(self._runtime_config.metrics_endpoint)
+            sandbox_actor.set_user_defined_tags.remote(self._runtime_config.user_defined_tags)
             sandbox_actor.start.remote()
             user_id = user_info.get("user_id", "default")
             experiment_id = user_info.get("experiment_id", "default")

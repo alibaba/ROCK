@@ -75,3 +75,92 @@ def test_create_with_metrics_endpoint(mock_env_vars, mock_instance_id, mock_unia
 
     monitor = MetricsMonitor.create(export_interval_millis=10000, metrics_endpoint=custom_endpoint)
     assert monitor.endpoint == custom_endpoint
+
+
+def test_monitor_with_user_defined_tags():
+    """Test that user_defined_tags are properly added to base_attributes"""
+    custom_tags = {"service": "rock-sandbox", "version": "1.0.0"}
+
+    monitor = MetricsMonitor(
+        host="127.0.0.1",
+        port="4318",
+        pod="test-pod",
+        env="daily",
+        role="test",
+        user_defined_tags=custom_tags,
+    )
+
+    # Verify that base_attributes contains all default attributes
+    assert monitor.base_attributes["host"] == "127.0.0.1"
+    assert monitor.base_attributes["pod"] == "test-pod"
+    assert monitor.base_attributes["env"] == "daily"
+    assert monitor.base_attributes["role"] == "test"
+
+    # Verify that base_attributes contains all custom tags
+    assert monitor.base_attributes["service"] == "rock-sandbox"
+    assert monitor.base_attributes["version"] == "1.0.0"
+
+    # Verify that attributes property returns the same base_attributes
+    assert monitor.attributes == monitor.base_attributes
+
+
+def test_monitor_without_user_defined_tags():
+    """Test that monitor works correctly without user_defined_tags"""
+    monitor = MetricsMonitor(
+        host="127.0.0.1",
+        port="4318",
+        pod="test-pod",
+        env="daily",
+        role="test",
+    )
+
+    # Verify that base_attributes only contains default attributes
+    assert monitor.base_attributes["host"] == "127.0.0.1"
+    assert monitor.base_attributes["pod"] == "test-pod"
+    assert monitor.base_attributes["env"] == "daily"
+    assert monitor.base_attributes["role"] == "test"
+
+    # Verify no extra keys exist
+    assert len(monitor.base_attributes) == 5
+
+
+def test_monitor_with_empty_user_defined_tags():
+    """Test that monitor handles empty user_defined_tags dict"""
+    monitor = MetricsMonitor(
+        host="127.0.0.1",
+        port="4318",
+        pod="test-pod",
+        env="daily",
+        role="test",
+        user_defined_tags={},
+    )
+
+    # Verify that base_attributes only contains default attributes
+    assert len(monitor.base_attributes) == 5
+    assert monitor.base_attributes["host"] == "127.0.0.1"
+
+
+@patch("rock.admin.metrics.monitor.get_uniagent_endpoint", return_value=("192.168.1.1", "4318"))
+@patch("rock.admin.metrics.monitor.get_instance_id", return_value="test-pod")
+@patch("rock.admin.metrics.monitor.env_vars")
+def test_create_with_user_defined_tags(mock_env_vars, mock_instance_id, mock_uniagent):
+    """Test MetricsMonitor.create() with user_defined_tags"""
+    mock_env_vars.ROCK_ADMIN_ENV = "daily"
+    mock_env_vars.ROCK_ADMIN_ROLE = "test"
+
+    custom_tags = {
+        "cluster": "prod-cluster",
+        "region": "cn-hz",
+    }
+
+    monitor = MetricsMonitor.create(export_interval_millis=10000, user_defined_tags=custom_tags)
+
+    # Verify that custom tags are in base_attributes
+    assert monitor.base_attributes["cluster"] == "prod-cluster"
+    assert monitor.base_attributes["region"] == "cn-hz"
+
+    # Verify default attributes are still present
+    assert monitor.base_attributes["host"] == "192.168.1.1"
+    assert monitor.base_attributes["pod"] == "test-pod"
+    assert monitor.base_attributes["env"] == "daily"
+    assert monitor.base_attributes["role"] == "test"

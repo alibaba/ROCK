@@ -108,13 +108,14 @@ class SchedulerConfig:
 @dataclass
 class K8sConfig:
     """Kubernetes configuration for K8s operator."""
+
     kubeconfig_path: str | None = None
-    namespace: str = 'rock'
+    namespace: str = "rock"
     templates: dict[str, dict] = field(default_factory=dict)
-    
+
     # API client rate limiting
     api_qps: float = 20.0  # Queries per second
-    
+
     # Watch configuration
     watch_timeout_seconds: int = 60  # Watch timeout before reconnect
     watch_reconnect_delay_seconds: int = 5  # Delay after watch failure
@@ -130,6 +131,7 @@ class RuntimeConfig:
     standard_spec: StandardSpec = field(default_factory=StandardSpec)
     max_allowed_spec: StandardSpec = field(default_factory=lambda: StandardSpec(cpus=16, memory="64g"))
     metrics_endpoint: str = ""
+    user_defined_tags: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # Convert dict to StandardSpec if needed

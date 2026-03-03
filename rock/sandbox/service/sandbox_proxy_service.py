@@ -56,6 +56,7 @@ class SandboxProxyService:
         self.metrics_monitor = MetricsMonitor.create(
             export_interval_millis=20_000,
             metrics_endpoint=rock_config.runtime.metrics_endpoint,
+            user_defined_tags=rock_config.runtime.user_defined_tags,
         )
         self.oss_config: OssConfig = rock_config.oss
         self.proxy_config: ProxyServiceConfig = rock_config.proxy_service

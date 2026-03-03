@@ -34,6 +34,7 @@ class BaseManager:
         self.metrics_monitor = MetricsMonitor.create(
             export_interval_millis=20_000,
             metrics_endpoint=rock_config.runtime.metrics_endpoint,
+            user_defined_tags=rock_config.runtime.user_defined_tags,
         )
         self._report_interval = 10
         self._check_job_interval = 180

@@ -25,8 +25,10 @@ class MetricsMonitor:
         role: str = "test",
         export_interval_millis: int = 10000,
         endpoint: str = "",
+        user_defined_tags: dict = {},
     ):
         patch_view_instrument_match()
+        self.user_defined_tags = user_defined_tags
         self._init_basic_attributes(host, port, pod, env, role)
         self.endpoint = endpoint or f"http://{self.host}:{self.port}/v1/metrics"
         self._init_telemetry(export_interval_millis)
@@ -39,7 +41,9 @@ class MetricsMonitor:
         )
 
     @classmethod
-    def create(cls, export_interval_millis: int = 20000, metrics_endpoint: str = "") -> "MetricsMonitor":
+    def create(
+        cls, export_interval_millis: int = 20000, metrics_endpoint: str = "", user_defined_tags: dict = {}
+    ) -> "MetricsMonitor":
         host, port = get_uniagent_endpoint()
         pod = get_instance_id()
         env = env_vars.ROCK_ADMIN_ENV
@@ -53,6 +57,7 @@ class MetricsMonitor:
             role=role,
             export_interval_millis=export_interval_millis,
             endpoint=metrics_endpoint,
+            user_defined_tags=user_defined_tags,
         )
 
     def _register_metrics(self):
@@ -110,6 +115,8 @@ class MetricsMonitor:
             "env": self.env,
             "role": self.role,
         }
+        if self.user_defined_tags is not None:
+            self.base_attributes.update(self.user_defined_tags)
 
     def _should_skip(self):
         if self.env in {"daily", "aliyun", "local"}:
