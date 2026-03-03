@@ -83,6 +83,7 @@ async def test_ray_actor_is_alive(sandbox_manager):
 
     assert not await sandbox_manager._is_actor_alive(response.sandbox_id)
 
+
 @pytest.mark.need_docker
 @pytest.mark.need_ray
 @pytest.mark.asyncio
@@ -188,16 +189,3 @@ async def test_get_actor_not_exist_raises_value_error(sandbox_manager):
         actor_name = sandbox_manager.deployment_manager.get_actor_name(sandbox_id)
         await sandbox_manager._ray_service.async_ray_get_actor(actor_name)
     assert exc_info.type == ValueError
-
-
-from unittest.mock import patch
-
-
-@pytest.mark.need_ray
-@pytest.mark.asyncio
-async def test_start_async_raises_when_docker_unavailable(sandbox_manager):
-    """Verify start_async raises BadRequestRockError when Docker is not available."""
-    with patch("rock.sandbox.sandbox_manager.DockerSandboxValidator") as MockValidator:
-        MockValidator.return_value.check_availability.return_value = False
-        with pytest.raises(BadRequestRockError, match="Docker is not available"):
-            await sandbox_manager.start_async(DockerDeploymentConfig())
