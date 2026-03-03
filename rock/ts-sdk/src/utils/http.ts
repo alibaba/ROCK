@@ -192,12 +192,19 @@ export class HttpUtils {
     const client = this.createClient({
       headers: {
         ...headers,
-        'Content-Type': 'multipart/form-data',
       },
     });
 
     try {
-      const response = await client.post<unknown>(url, formData);
+      // CRITICAL: Use post with config to override Content-Type.
+      // Setting Content-Type to null tells axios to remove the default
+      // 'application/json' and auto-detect FormData, setting the correct
+      // Content-Type with boundary (e.g., 'multipart/form-data; boundary=xxx')
+      const response = await client.post<unknown>(url, formData, {
+        headers: {
+          'Content-Type': null,
+        },
+      });
       // Convert response to camelCase for SDK users
       const camelData = objectToCamel(response.data as object) as { status?: string; result?: T; error?: string };
       const httpResponse: HttpResponse<T> = {
