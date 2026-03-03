@@ -54,6 +54,19 @@ export abstract class AbstractSandbox {
   abstract writeFile(request: WriteFileRequest): Promise<WriteFileResponse>;
   abstract upload(request: UploadRequest): Promise<UploadResponse>;
   abstract closeSession(request: CloseSessionRequest): Promise<CloseSessionResponse>;
+  abstract arun(
+    cmd: string,
+    options?: {
+      session?: string;
+      mode?: RunModeType;
+      timeout?: number;
+      waitTimeout?: number;
+      waitInterval?: number;
+      responseLimitedBytesInNohup?: number;
+      ignoreOutput?: boolean;
+      outputFile?: string;
+    }
+  ): Promise<Observation>;
   abstract close(): Promise<void>;
 }
 
