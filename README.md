@@ -8,7 +8,7 @@
  🚀</h4>
 
 <p>
-  <a href="https://github.com/alibaba/ROCK/blob/main/LICENSE">
+  <a href="https://github.com/alibaba/ROCK/blob/master/LICENSE">
     <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License">
   </a>
   <a href="https://github.com/alibaba/ROCK/issues">
@@ -29,6 +29,7 @@ ROCK adopts a client-server architecture, supports different levels of isolation
 ## 📢 News
 | 📣 Update |
 |:--|
+| **[03/03/2026]** 🎉 ROCK v1.3.0 Released! K8s Operator, Docker registry login, Kata runtime, SWE-bench evaluation demo, and more. |
 | **[02/28/2026]** 🎉 ROCK v1.2.5 Released! Custom metrics endpoint, user-defined metric tags, and Aliyun MSE Nacos support. |
 | **[01/01/2026]** 🎉 Our [Let It Flow: Agentic Crafting on Rock and Roll](https://arxiv.org/abs/2512.24873) report released! Introducing ALE ecosystem and ROME, an open-source agentic model with novel IPA algorithm. |
 ---
@@ -38,10 +39,10 @@ ROCK adopts a client-server architecture, supports different levels of isolation
 
 ### Quick Start
 
-[Installation](https://alibaba.github.io/ROCK/docs/installation)  
-[Quick Start](https://alibaba.github.io/ROCK/docs/quickstart)  
-[Configuration](https://alibaba.github.io/ROCK/docs/configuration)  
-[API References](https://alibaba.github.io/ROCK/docs/api)
+[Installation](https://alibaba.github.io/ROCK/docs/Getting%20Started/installation)
+[Quick Start](https://alibaba.github.io/ROCK/docs/Getting%20Started/quickstart)
+[Configuration](https://alibaba.github.io/ROCK/docs/User%20Guides/configuration)
+[API References](https://alibaba.github.io/ROCK/docs/References/api)
 
 ---
 **Recommended**:
@@ -93,7 +94,7 @@ rock admin start
 
 3. **Dependency Management**: Use the `uv` command to install all dependency groups, ensuring consistency between development, testing, and production environments.
 
-4. **Pip Source Installation**: For pip source installation (e.g., `pip install rl-rock`), you need to set the `ROCK_WORKER_ENV_TYPE=pip` environment variable and ensure network access for the sandbox to install dependencies. See [Configuration Documentation](docs/rock/configuration.md) for more details on runtime environment options and environment variables.
+4. **Pip Source Installation**: For pip source installation (e.g., `pip install rl-rock`), you need to set the `ROCK_WORKER_ENV_TYPE=pip` environment variable and ensure network access for the sandbox to install dependencies. See [Configuration Documentation](https://alibaba.github.io/ROCK/docs/User%20Guides/configuration) for more details on runtime environment options and environment variables.
 
 5. **OS Support**: ROCK recommends managing environments on the same operating system, such as managing Linux image environments on a Linux system. However, it also supports cross-operating system level image management, for example, launching Ubuntu images on MacOS. 
 
@@ -162,7 +163,7 @@ if __name__ == "__main__":
 
 | 📣 Update Content |
 |:-----------|
-| **[Latest]** 🎉 ROCK v1.2.5 Released |
+| **[Latest]** 🎉 ROCK v1.3.0 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.3.0) |
 
 ---
 
@@ -214,7 +215,7 @@ rock admin start
 ```
 
 > **Service Information**: The ROCK Local Admin service runs by default on `http://127.0.0.1:8080`. You can access this address through your browser to view the management interface.
-For additional configuration information such as logs and Rocklet service startup methods, please refer to [Configuration](docs/rock/configuration.md)
+For additional configuration information such as logs and Rocklet service startup methods, please refer to [Configuration](https://alibaba.github.io/ROCK/docs/User%20Guides/configuration)
 
 ### Development Environment Configuration
 ```bash
