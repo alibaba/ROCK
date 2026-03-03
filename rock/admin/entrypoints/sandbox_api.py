@@ -25,7 +25,7 @@ from rock.admin.proto.request import (
     StartHeaders,
 )
 from rock.admin.proto.response import SandboxStartResponse
-from rock.common.constants import GET_STATUS_SWITCH, KATA_RUNTIME_SWITCH
+from rock.common.constants import GET_STATUS_SWITCH, KATA_RUNTIME_SWITCH, SUPPORT_KATA_SWITCH
 from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.utils import handle_exceptions
@@ -43,10 +43,12 @@ async def _apply_kata_runtime_switch(config: DockerDeploymentConfig) -> None:
     """Check nacos switch and enable kata runtime on the config if the switch is on."""
     if (
         sandbox_manager.rock_config.nacos_provider is not None
-        and await sandbox_manager.rock_config.nacos_provider.get_switch_status(KATA_RUNTIME_SWITCH)
-        and config.use_kata_runtime
+        and await sandbox_manager.rock_config.nacos_provider.get_switch_status(SUPPORT_KATA_SWITCH, False)
     ):
-        config.use_kata_runtime = True
+        config.use_kata_runtime = (
+            await sandbox_manager.rock_config.nacos_provider.get_switch_status(KATA_RUNTIME_SWITCH, False)
+            or config.use_kata_runtime
+        )
     else:
         config.use_kata_runtime = False
 

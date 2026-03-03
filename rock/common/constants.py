@@ -1,7 +1,8 @@
 from enum import Enum
 
 GET_STATUS_SWITCH = "get_status_v2_enabled"
-KATA_RUNTIME_SWITCH = "kata_runtime_enabled"
+KATA_RUNTIME_SWITCH = "use_kata_enabled"
+SUPPORT_KATA_SWITCH = "support_kata_enabled"
 PID_PREFIX = "PIDSTART"
 PID_SUFFIX = "PIDEND"
 SCHEDULER_LOG_NAME = "scheduler.log"
