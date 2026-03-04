@@ -144,7 +144,7 @@ const config = {
             // release note按照版本号倒排
             return reverseReleaseNoteSidebars(filterHiddenSidebars);
           },
-          lastVersion: '1.2.x',
+          lastVersion: '1.3.x',
           includeCurrentVersion: false,
           versions: convertVersionsArrayToObject(versions)
         },
