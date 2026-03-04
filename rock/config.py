@@ -113,6 +113,7 @@ class RuntimeConfig:
     envhub_db_url: str = field(default_factory=lambda: env_vars.ROCK_ENVHUB_DB_URL)
     standard_spec: StandardSpec = field(default_factory=StandardSpec)
     max_allowed_spec: StandardSpec = field(default_factory=lambda: StandardSpec(cpus=16, memory="64g"))
+    use_standard_spec_only: bool = False
     metrics_endpoint: str = ""
     user_defined_tags: dict = field(default_factory=dict)
 

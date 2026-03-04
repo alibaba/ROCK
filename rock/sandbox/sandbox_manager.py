@@ -126,9 +126,20 @@ class SandboxManager(BaseManager):
             )
             actor_name = self.deployment_manager.get_actor_name(sandbox_id)
 
+            # Apply standard spec if configured to use standard spec only
+            if self.rock_config.runtime.use_standard_spec_only:
+                logger.info(
+                    f"[{sandbox_id}] Using standard spec only: "
+                    f"cpus={self.rock_config.runtime.standard_spec.cpus}, "
+                    f"memory={self.rock_config.runtime.standard_spec.memory}"
+                )
+                docker_deployment_config.cpus = self.rock_config.runtime.standard_spec.cpus
+                docker_deployment_config.memory = self.rock_config.runtime.standard_spec.memory
+
             deployment = docker_deployment_config.get_deployment()
 
             self.validate_sandbox_spec(self.rock_config.runtime, config)
+            # TODO: Move spec management logic to another component.
             sandbox_actor: SandboxActor = await deployment.creator_actor(actor_name)
             # merge these two monitor related metadata later
             sandbox_actor.set_metrics_endpoint.remote(self.rock_config.runtime.metrics_endpoint)

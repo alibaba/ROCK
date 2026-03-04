@@ -181,3 +181,85 @@ async def test_get_actor_not_exist_raises_value_error(sandbox_manager):
         actor_name = sandbox_manager.deployment_manager.get_actor_name(sandbox_id)
         await sandbox_manager._ray_service.async_ray_get_actor(actor_name)
     assert exc_info.type == ValueError
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_use_standard_spec_only(sandbox_manager):
+    """Test that use_standard_spec_only forces sandbox to use standard spec."""
+    # Enable use_standard_spec_only
+    sandbox_manager.rock_config.runtime.use_standard_spec_only = True
+    sandbox_manager.rock_config.runtime.standard_spec.cpus = 1
+    sandbox_manager.rock_config.runtime.standard_spec.memory = "2g"
+
+    # Try to create sandbox with different specs
+    config = DockerDeploymentConfig(cpus=4, memory="16g")
+
+    response = await sandbox_manager.start_async(config)
+    sandbox_id = response.sandbox_id
+
+    try:
+        # Wait for sandbox to be alive
+        await check_sandbox_status_until_alive(sandbox_manager, sandbox_id)
+
+        # Get the actual deployment config used
+        actor_name = sandbox_manager.deployment_manager.get_actor_name(sandbox_id)
+        sandbox_actor = await sandbox_manager._ray_service.async_ray_get_actor(actor_name)
+
+        # Get sandbox info to verify the actual specs
+        sandbox_info = await sandbox_manager._ray_service.async_ray_get(sandbox_actor.sandbox_info.remote())
+
+        # Verify that standard spec was applied (not the requested 4 CPUs and 16g)
+        assert sandbox_info["cpus"] == 1, f"Expected cpus=1, but got {sandbox_info['cpus']}"
+        assert sandbox_info["memory"] == "2g", f"Expected memory='2g', but got {sandbox_info['memory']}"
+
+        # Also verify sandbox is alive
+        is_alive = await sandbox_manager._is_actor_alive(sandbox_id)
+        assert is_alive
+
+    finally:
+        # Cleanup
+        await sandbox_manager.stop(sandbox_id)
+        # Reset the flag
+        sandbox_manager.rock_config.runtime.use_standard_spec_only = False
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_use_standard_spec_only_disabled(sandbox_manager):
+    """Test that sandbox uses requested spec when use_standard_spec_only is disabled."""
+    # Ensure use_standard_spec_only is disabled
+    sandbox_manager.rock_config.runtime.use_standard_spec_only = False
+
+    # Create sandbox with custom specs (within allowed limits)
+    requested_cpus = 1
+    requested_memory = "4g"
+    config = DockerDeploymentConfig(cpus=requested_cpus, memory=requested_memory)
+
+    response = await sandbox_manager.start_async(config)
+    sandbox_id = response.sandbox_id
+
+    try:
+        # Wait for sandbox to be alive
+        await check_sandbox_status_until_alive(sandbox_manager, sandbox_id)
+
+        # Get the actual deployment config used
+        actor_name = sandbox_manager.deployment_manager.get_actor_name(sandbox_id)
+        sandbox_actor = await sandbox_manager._ray_service.async_ray_get_actor(actor_name)
+
+        # Get sandbox info to verify the actual specs
+        sandbox_info = await sandbox_manager._ray_service.async_ray_get(sandbox_actor.sandbox_info.remote())
+
+        # Verify that requested spec was used (not standard spec)
+        assert sandbox_info["cpus"] == requested_cpus, f"Expected cpus={requested_cpus}, but got {sandbox_info['cpus']}"
+        assert (
+            sandbox_info["memory"] == requested_memory
+        ), f"Expected memory='{requested_memory}', but got {sandbox_info['memory']}"
+
+        # Also verify sandbox is alive
+        is_alive = await sandbox_manager._is_actor_alive(sandbox_id)
+        assert is_alive
+
+    finally:
+        # Cleanup
+        await sandbox_manager.stop(sandbox_id)
