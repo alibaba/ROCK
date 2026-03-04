@@ -3,9 +3,16 @@
  */
 
 import { extractNohupPid } from './utils.js';
+import { extractNohupPid as httpExtractNohupPid } from '../utils/http.js';
 import { PID_PREFIX, PID_SUFFIX } from '../common/constants.js';
 
 describe('extractNohupPid', () => {
+  test('should be the same function as in utils/http.ts', () => {
+    // After refactoring, extractNohupPid should be imported from utils/http.ts
+    // and re-exported, so they should be the same function reference
+    expect(extractNohupPid).toBe(httpExtractNohupPid);
+  });
+
   test('should extract PID from valid output', () => {
     const output = `some output\n${PID_PREFIX}12345${PID_SUFFIX}\nmore output`;
     expect(extractNohupPid(output)).toBe(12345);

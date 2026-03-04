@@ -9,6 +9,46 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { ModelClient, PollOptions } from './client.js';
+import * as retryUtils from '../utils/retry.js';
+
+// Test that ModelClient uses the shared sleep function
+describe('sleep function', () => {
+  test('ModelClient should use shared sleep from utils/retry.ts', async () => {
+    // This test verifies that ModelClient uses the shared sleep function
+    // by spying on the retry module's sleep function
+    
+    const testDir = join(tmpdir(), `model-client-sleep-test-${Date.now()}`);
+    mkdirSync(testDir, { recursive: true });
+    const logFile = join(testDir, 'model.log');
+    
+    try {
+      // Create log file with request that has index 0
+      const REQUEST_START_MARKER = '__REQUEST_START__';
+      const REQUEST_END_MARKER = '__REQUEST_END__';
+      writeFileSync(logFile, `${REQUEST_START_MARKER}test${REQUEST_END_MARKER}{"index":0}\n`);
+      
+      const client = new ModelClient({ logFileName: logFile });
+      
+      // Spy on the sleep function from retry module
+      const sleepSpy = jest.spyOn(retryUtils, 'sleep').mockResolvedValue();
+      
+      // popRequest for index 1 should poll and call sleep
+      // before timing out (we set a very short timeout)
+      try {
+        await client.popRequest(1, { timeout: 0.1 });
+      } catch {
+        // Expected to timeout
+      }
+      
+      // If ModelClient uses shared sleep, the spy should have been called
+      expect(sleepSpy).toHaveBeenCalled();
+      
+      sleepSpy.mockRestore();
+    } finally {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+});
 
 // Test markers (must match client.ts)
 const REQUEST_START_MARKER = '__REQUEST_START__';
