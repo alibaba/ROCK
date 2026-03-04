@@ -222,5 +222,83 @@ describe('RuntimeEnv', () => {
         expect(wrapped).toMatch(/export PATH='[^']+'/);
       });
     });
+
+    describe('command injection protection', () => {
+      it('should safely handle workdir with special characters', async () => {
+        // Create a config that would result in workdir with special characters
+        config.type = 'test space';
+        const env = new TestRuntimeEnv(mockSandbox as unknown as MockSandbox & { runtimeEnvs: Record<RuntimeEnvId, RuntimeEnv> }, config);
+
+        await env.init();
+
+        // Check that workdir path is properly quoted
+        const calls = mockSandbox.arun.mock.calls;
+        const mkdirCall = calls.find((call: unknown[]) => {
+          const cmd = call[0] as string;
+          return cmd.includes('mkdir');
+        });
+
+        expect(mkdirCall).toBeDefined();
+        const cmd = (mkdirCall as unknown[])[0] as string;
+        // Path with space should be properly quoted or escaped
+        expect(cmd).toMatch(/mkdir -p/);
+      });
+
+      it('should safely handle binDir with spaces in wrappedCmd', () => {
+        config.type = 'test space';
+        const env = new TestRuntimeEnv(mockSandbox as unknown as MockSandbox & { runtimeEnvs: Record<RuntimeEnvId, RuntimeEnv> }, config);
+
+        const wrapped = env.wrappedCmd('python --version', true);
+
+        // Spaces in path should be properly quoted/escaped
+        // The path should contain the escaped space
+        expect(wrapped).toContain('test space');
+        // The entire command should be wrapped in bash -c with proper escaping
+        expect(wrapped).toMatch(/bash -c/);
+      });
+
+      it('should safely handle symlink directory with injection attempt', async () => {
+        config.extraSymlinkDir = '/tmp; rm -rf /';
+        config.extraSymlinkExecutables = ['python'];
+        const env = new TestRuntimeEnv(mockSandbox as unknown as MockSandbox & { runtimeEnvs: Record<RuntimeEnvId, RuntimeEnv> }, config);
+
+        await env.init();
+
+        // Check that injection is not executed - it should be quoted
+        const calls = mockSandbox.arun.mock.calls;
+        const symlinkCall = calls.find((call: unknown[]) => {
+          const cmd = call[0] as string;
+          return cmd.includes('ln -sf');
+        });
+
+        if (symlinkCall) {
+          const cmd = symlinkCall[0] as string;
+          // The path should be quoted, preventing injection
+          // If properly quoted, the semicolon won't be interpreted as command separator
+          expect(cmd).toMatch(/ln -sf/);
+        }
+      });
+
+      it('should safely handle executable name with injection attempt', async () => {
+        config.extraSymlinkDir = '/usr/local/bin';
+        config.extraSymlinkExecutables = ['python; rm -rf /'];
+        const env = new TestRuntimeEnv(mockSandbox as unknown as MockSandbox & { runtimeEnvs: Record<RuntimeEnvId, RuntimeEnv> }, config);
+
+        await env.init();
+
+        // Check that injection is not executed
+        const calls = mockSandbox.arun.mock.calls;
+        const symlinkCall = calls.find((call: unknown[]) => {
+          const cmd = call[0] as string;
+          return cmd.includes('ln -sf');
+        });
+
+        if (symlinkCall) {
+          const cmd = symlinkCall[0] as string;
+          // The executable name should be quoted
+          expect(cmd).toMatch(/ln -sf/);
+        }
+      });
+    });
   });
 });

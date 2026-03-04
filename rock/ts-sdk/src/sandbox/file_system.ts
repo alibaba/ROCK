@@ -10,6 +10,7 @@ import type { Observation, CommandResponse } from '../types/responses.js';
 import type { ChownRequest, ChmodRequest } from '../types/requests.js';
 import type { AbstractSandbox } from './client.js';
 import { RunMode } from './types.js';
+import { validatePath, validateUsername, validateChmodMode, shellQuote } from '../utils/shell.js';
 
 const logger = initLogger('rock.sandbox.fs');
 
@@ -76,6 +77,14 @@ export class LinuxFileSystem extends FileSystem {
       throw new Error('paths is empty');
     }
 
+    // Validate username to prevent injection
+    validateUsername(remoteUser);
+
+    // Validate all paths
+    for (const p of paths) {
+      validatePath(p);
+    }
+
     const command = ['chown'];
     if (recursive) {
       command.push('-R');
@@ -96,6 +105,14 @@ export class LinuxFileSystem extends FileSystem {
 
     if (!paths || paths.length === 0) {
       throw new Error('paths is empty');
+    }
+
+    // Validate mode to prevent injection
+    validateChmodMode(mode);
+
+    // Validate all paths
+    for (const p of paths) {
+      validatePath(p);
     }
 
     const command = ['chmod'];
@@ -142,12 +159,14 @@ export class LinuxFileSystem extends FileSystem {
         };
       }
 
-      // Validate target directory (must be absolute path)
-      if (!targetDir.startsWith('/')) {
+      // Validate target directory for security
+      try {
+        validatePath(targetDir);
+      } catch (e) {
         return {
           output: '',
           exitCode: 1,
-          failureReason: `target_dir must be absolute path: ${targetDir}`,
+          failureReason: e instanceof Error ? e.message : 'Invalid target directory',
           expectString: '',
         };
       }
@@ -199,9 +218,11 @@ export class LinuxFileSystem extends FileSystem {
         };
       }
 
-      // Extract in sandbox
-      const extractCmd = `rm -rf '${targetDir}' && mkdir -p '${targetDir}' && tar -xzf '${remoteTarPath}' -C '${targetDir}'`;
-      const extractResult = await this.sandbox.arun(`bash -c '${extractCmd}'`, {
+      // Extract in sandbox using properly escaped paths
+      const escapedTargetDir = shellQuote(targetDir);
+      const escapedRemoteTar = shellQuote(remoteTarPath);
+      const extractCmd = `rm -rf ${escapedTargetDir} && mkdir -p ${escapedTargetDir} && tar -xzf ${escapedRemoteTar} -C ${escapedTargetDir}`;
+      const extractResult = await this.sandbox.arun(`bash -c ${shellQuote(extractCmd)}`, {
         session,
         mode: RunMode.NOHUP,
         waitTimeout: extractTimeout,

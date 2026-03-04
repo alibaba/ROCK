@@ -117,7 +117,7 @@ describe('FileSystem Integration', () => {
       const result = await sandbox.getFs().uploadDir(sourceDir, relativeTarget);
 
       expect(result.exitCode).toBe(1);
-      expect(result.failureReason).toContain('target_dir must be absolute path');
+      expect(result.failureReason).toMatch(/must be absolute|Path must be absolute/i);
     });
 
     test('should overwrite existing target directory', async () => {
