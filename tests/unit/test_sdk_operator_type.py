@@ -22,10 +22,10 @@ from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
 class TestSandboxConfigOperatorType:
     """Test SandboxConfig.operator_type field behavior."""
 
-    def test_operator_type_default_is_none(self):
-        """operator_type should default to None when not specified."""
+    def test_operator_type_default_is_ray(self):
+        """operator_type should default to 'ray' when not specified."""
         config = SandboxConfig()
-        assert config.operator_type is None
+        assert config.operator_type == "ray"
 
     def test_operator_type_set_explicitly(self):
         """operator_type should be stored when explicitly set."""
@@ -59,12 +59,12 @@ class TestSandboxConfigOperatorType:
         assert "operator_type" in dumped
         assert dumped["operator_type"] == "ray"
 
-    def test_operator_type_none_serialization(self):
-        """operator_type=None should appear in model_dump output."""
+    def test_operator_type_default_serialization(self):
+        """Default operator_type='ray' should appear in model_dump output."""
         config = SandboxConfig()
         dumped = config.model_dump()
         assert "operator_type" in dumped
-        assert dumped["operator_type"] is None
+        assert dumped["operator_type"] == "ray"
 
 
 # ===========================================================================
@@ -81,11 +81,11 @@ class TestSandboxInitOperatorType:
         sandbox = Sandbox(config)
         assert sandbox.config.operator_type == "k8s"
 
-    def test_sandbox_stores_none_operator_type(self):
-        """Sandbox should store None operator_type when not specified."""
+    def test_sandbox_stores_default_operator_type(self):
+        """Sandbox should store default operator_type='ray' when not specified."""
         config = SandboxConfig()
         sandbox = Sandbox(config)
-        assert sandbox.config.operator_type is None
+        assert sandbox.config.operator_type == "ray"
 
 
 # ===========================================================================
@@ -129,8 +129,8 @@ class TestSandboxStartOperatorType:
             assert posted_data["operator_type"] == "k8s"
 
     @pytest.mark.asyncio
-    async def test_start_sends_none_operator_type_when_not_set(self):
-        """start() should send operator_type=None when not configured."""
+    async def test_start_sends_default_operator_type_when_not_set(self):
+        """start() should send operator_type='ray' when using default config."""
         config = SandboxConfig(startup_timeout=5)
         sandbox = Sandbox(config)
 
@@ -155,7 +155,7 @@ class TestSandboxStartOperatorType:
             call_args = mock_post.call_args
             posted_data = call_args[0][2]
             assert "operator_type" in posted_data
-            assert posted_data["operator_type"] is None
+            assert posted_data["operator_type"] == "ray"
 
     @pytest.mark.asyncio
     async def test_start_sends_ray_operator_type(self):
@@ -248,13 +248,13 @@ class TestSandboxGroupOperatorType:
         for sandbox in group.sandbox_list:
             assert sandbox.config.operator_type == "k8s"
 
-    def test_group_propagates_none_operator_type(self):
-        """All sandboxes in a group should have None operator_type when not set."""
+    def test_group_propagates_default_operator_type(self):
+        """All sandboxes in a group should have default operator_type='ray' when not set."""
         config = SandboxGroupConfig(size=2)
         group = SandboxGroup(config)
 
         for sandbox in group.sandbox_list:
-            assert sandbox.config.operator_type is None
+            assert sandbox.config.operator_type == "ray"
 
 
 # ===========================================================================
@@ -270,7 +270,7 @@ class TestSandboxGroupConfigOperatorType:
         config = SandboxGroupConfig(operator_type="ray", size=2)
         assert config.operator_type == "ray"
 
-    def test_group_config_operator_type_default_none(self):
-        """SandboxGroupConfig.operator_type should default to None."""
+    def test_group_config_operator_type_default_ray(self):
+        """SandboxGroupConfig.operator_type should default to 'ray'."""
         config = SandboxGroupConfig(size=2)
-        assert config.operator_type is None
+        assert config.operator_type == "ray"
