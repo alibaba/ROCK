@@ -175,6 +175,7 @@ class Sandbox(AbstractSandbox):
             "registry_password": self.config.registry_password,
             "use_kata_runtime": self.config.use_kata_runtime,
             "limit_cpus": self.config.limit_cpus,
+            "sandbox_id": self.config.sandbox_id,
         }
         try:
             response = await HttpUtils.post(url, headers, data)
