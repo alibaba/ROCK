@@ -5,6 +5,7 @@
 import { existsSync, readFileSync, appendFileSync } from 'fs';
 import { initLogger } from '../logger.js';
 import { envVars } from '../env_vars.js';
+import { sleep } from '../utils/retry.js';
 
 const logger = initLogger('rock.model.client');
 
@@ -136,7 +137,7 @@ export class ModelClient {
         }
 
         logger.debug(`Last request is not the index ${index} we want, waiting...`);
-        await this.sleep(1000);
+        await sleep(1000);
       } catch (e) {
         // Re-throw abort errors
         if (e instanceof Error && e.message.includes('aborted')) {
@@ -144,7 +145,7 @@ export class ModelClient {
         }
         // For other errors (like file not found), wait and retry
         logger.debug(`Error reading request: ${e}, waiting...`);
-        await this.sleep(1000);
+        await sleep(1000);
       }
     }
   }
@@ -172,7 +173,7 @@ export class ModelClient {
 
       if (!existsSync(this.logFile)) {
         logger.debug(`Log file ${this.logFile} not found, waiting...`);
-        await this.sleep(1000);
+        await sleep(1000);
         continue;
       }
 
@@ -181,7 +182,7 @@ export class ModelClient {
 
       if (lines.length === 0) {
         logger.debug(`Log file ${this.logFile} is empty, waiting for the first request...`);
-        await this.sleep(1000);
+        await sleep(1000);
         continue;
       }
 
@@ -250,9 +251,5 @@ export class ModelClient {
     };
     const metaJson = JSON.stringify(meta);
     return `${RESPONSE_START_MARKER}${lastResponse}${RESPONSE_END_MARKER}${metaJson}\n`;
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

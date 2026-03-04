@@ -120,15 +120,6 @@ export async function arunWithRetry(
 }
 
 /**
- * Extract nohup PID from output
+ * Re-export extractNohupPid from utils/http.ts to avoid duplication
  */
-export function extractNohupPid(output: string): number | null {
-  const PID_PREFIX = '__ROCK_PID_START__';
-  const PID_SUFFIX = '__ROCK_PID_END__';
-  const pattern = new RegExp(`${PID_PREFIX}(\\d+)${PID_SUFFIX}`);
-  const match = output.match(pattern);
-  if (match?.[1]) {
-    return parseInt(match[1], 10);
-  }
-  return null;
-}
+export { extractNohupPid } from '../utils/http.js';

@@ -2,18 +2,8 @@
  * Sandbox types
  */
 
-/**
- * Run mode type
- */
-export type RunModeType = 'normal' | 'nohup';
-
-/**
- * Run mode enum
- */
-export const RunMode = {
-  NORMAL: 'normal' as const,
-  NOHUP: 'nohup' as const,
-};
+// Re-export RunModeType and RunMode from constants to avoid duplication
+export { RunModeType, RunMode } from '../common/constants.js';
 
 /**
  * Speedup type enum
