@@ -1,5 +1,8 @@
 /**
  * System utilities
+ * 
+ * Note: This SDK requires Node.js environment (v20.8.0+).
+ * It cannot run in browsers due to dependencies on Node.js modules.
  */
 
 /**
@@ -14,22 +17,11 @@ export function isNode(): boolean {
 }
 
 /**
- * Check if running in browser environment
- */
-export function isBrowser(): boolean {
-  return typeof globalThis !== 'undefined' && 
-    'window' in globalThis && 
-    typeof (globalThis as Record<string, unknown>).window !== 'undefined';
-}
-
-/**
  * Get environment variable
+ * Directly accesses process.env since this SDK requires Node.js
  */
 export function getEnv(key: string, defaultValue?: string): string | undefined {
-  if (isNode()) {
-    return process.env[key] ?? defaultValue;
-  }
-  return defaultValue;
+  return process.env[key] ?? defaultValue;
 }
 
 /**
@@ -45,10 +37,8 @@ export function getRequiredEnv(key: string): string {
 
 /**
  * Check if environment variable is set
+ * Directly checks process.env since this SDK requires Node.js
  */
 export function isEnvSet(key: string): boolean {
-  if (isNode()) {
-    return key in process.env;
-  }
-  return false;
+  return key in process.env;
 }
