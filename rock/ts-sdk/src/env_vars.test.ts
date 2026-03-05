@@ -5,6 +5,12 @@
 import { envVars } from './env_vars.js';
 
 describe('envVars', () => {
+  describe('PyPI configuration', () => {
+    test('ROCK_PIP_INDEX_URL should default to public PyPI mirror for open-source SDK', () => {
+      expect(envVars.ROCK_PIP_INDEX_URL).toBe('https://pypi.org/simple/');
+    });
+  });
+
   describe('Python install command URLs', () => {
     test('V31114 install command URL should contain releases/download/ path', () => {
       const cmd = envVars.ROCK_RTENV_PYTHON_V31114_INSTALL_CMD;

@@ -117,7 +117,7 @@ export const envVars = {
 
   // Pip
   get ROCK_PIP_INDEX_URL(): string {
-    return getEnv('ROCK_PIP_INDEX_URL', 'https://mirrors.aliyun.com/pypi/simple/')!;
+    return getEnv('ROCK_PIP_INDEX_URL', 'https://pypi.org/simple/')!;
   },
 
   // Monitor
