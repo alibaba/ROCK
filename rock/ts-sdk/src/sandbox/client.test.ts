@@ -763,3 +763,118 @@ describe('arun() - session creation behavior (matching Python SDK)', () => {
     });
   });
 });
+
+/**
+ * uploadByPath() async file I/O tests
+ * 
+ * These tests verify that uploadByPath uses async file operations (fs/promises)
+ * instead of sync operations that block the event loop.
+ */
+
+// Mock fs/promises module
+const mockAccess = jest.fn();
+const mockReadFile = jest.fn();
+
+jest.mock('fs/promises', () => ({
+  access: mockAccess,
+  readFile: mockReadFile,
+}));
+
+describe('uploadByPath() - async file I/O', () => {
+  let sandbox: Sandbox;
+  let mockPost: jest.Mock;
+  let mockGet: jest.Mock;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPost = jest.fn();
+    mockGet = jest.fn();
+    mockedAxios.create = jest.fn().mockReturnValue({
+      post: mockPost,
+      get: mockGet,
+    });
+
+    sandbox = new Sandbox({
+      image: 'test:latest',
+      startupTimeout: 2,
+    });
+  });
+
+  describe('async file operations', () => {
+    beforeEach(async () => {
+      // Start the sandbox
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            sandbox_id: 'test-id',
+            host_name: 'test-host',
+            host_ip: '127.0.0.1',
+          },
+        },
+        headers: {},
+      });
+      mockGet.mockResolvedValue({
+        data: {
+          status: 'Success',
+          result: { is_alive: true },
+        },
+        headers: {},
+      });
+      await sandbox.start();
+    });
+
+    test('should use fs/promises.readFile (async) instead of fs.readFileSync', async () => {
+      // Mock upload response
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {},
+        },
+        headers: {},
+      });
+
+      // Mock fs/promises methods
+      mockAccess.mockResolvedValueOnce(undefined);
+      mockReadFile.mockResolvedValueOnce(Buffer.from('test content'));
+
+      const tempFile = '/tmp/test-upload-file.txt';
+      const result = await sandbox.uploadByPath(tempFile, '/remote/path.txt');
+
+      // Verify async readFile was called instead of sync readFileSync
+      expect(mockReadFile).toHaveBeenCalledWith(tempFile);
+      expect(result.success).toBe(true);
+    });
+
+    test('should use fs/promises.access (async) for file existence check', async () => {
+      // Mock upload response
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {},
+        },
+        headers: {},
+      });
+
+      // Mock fs/promises methods
+      mockAccess.mockResolvedValueOnce(undefined);
+      mockReadFile.mockResolvedValueOnce(Buffer.from('test content'));
+
+      const tempFile = '/tmp/test-upload-file.txt';
+      await sandbox.uploadByPath(tempFile, '/remote/path.txt');
+
+      // Verify async access was called instead of sync existsSync
+      expect(mockAccess).toHaveBeenCalledWith(tempFile);
+    });
+
+    test('should return failure when file does not exist (async access throws)', async () => {
+      // Mock access to throw (file not found)
+      mockAccess.mockRejectedValueOnce(new Error('ENOENT'));
+
+      const result = await sandbox.uploadByPath('/nonexistent/file.txt', '/remote/path.txt');
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('File not found');
+    });
+  });
+});
