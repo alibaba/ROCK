@@ -17,7 +17,7 @@ PIPELINE_ID="42305"
 GITHUB_COMMIT_ID="${COMMIT_ID}"
 GITHUB_SOURCE_REPO=$3
 GITHUB_PR_ID=$4
-BRANCH_NAME="open_merge/${GITHUB_PR_ID}"
+BRANCH_NAME="open_merge_pre/${GITHUB_PR_ID}"
 
 # Get current timestamp
 timestamp=$(date +%s)
@@ -38,8 +38,9 @@ curl -v -H "Content-Type: application/json" \
             \"type\": \"CREATE-TASK\",
             \"commitId\": \"${COMMIT_ID}\",
             \"repositoryUrl\": \"${REPO_URL}\",
+            \"prId\": \"${GITHUB_PR_ID}\",
             \"aone\": { \"projectId\": \"${PROJECT_ID}\", \"pipelineId\": \"${PIPELINE_ID}\"},
             \"newBranch\": { \"name\": \"${BRANCH_NAME}\", \"ref\": \"${BRANCH_REF}\" },  
             \"params\": {\"cancel-in-progress\": \"${CANCEL_IN_PROGRESS}\", \"github_commit\":\"${GITHUB_COMMIT_ID}\", \"github_source_repo\": \"${GITHUB_SOURCE_REPO}\"}
          }" \
-     "http://triggerid-to-mq-wjrdhcgbie.cn-hangzhou.fcapp.run"
+     "https://triggero-mq-pre-rbmuaqmqmz.cn-hangzhou.fcapp.run"
