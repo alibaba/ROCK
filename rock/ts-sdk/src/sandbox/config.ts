@@ -20,15 +20,15 @@ export type BaseConfig = z.infer<typeof BaseConfigSchema>;
  * Sandbox configuration schema
  */
 export const SandboxConfigSchema = BaseConfigSchema.extend({
-  image: z.string().default('python:3.11'),
-  autoClearSeconds: z.number().default(300),
+  image: z.string().default(envVars.ROCK_DEFAULT_IMAGE),
+  autoClearSeconds: z.number().default(envVars.ROCK_DEFAULT_AUTO_CLEAR_SECONDS),
   routeKey: z.string().optional(),
   startupTimeout: z.number().default(envVars.ROCK_SANDBOX_STARTUP_TIMEOUT_SECONDS),
-  memory: z.string().default('8g'),
-  cpus: z.number().default(2),
+  memory: z.string().default(envVars.ROCK_DEFAULT_MEMORY),
+  cpus: z.number().default(envVars.ROCK_DEFAULT_CPUS),
   userId: z.string().optional(),
   experimentId: z.string().optional(),
-  cluster: z.string().default('zb'),
+  cluster: z.string().default(envVars.ROCK_DEFAULT_CLUSTER),
   namespace: z.string().optional(),
 });
 
@@ -38,9 +38,9 @@ export type SandboxConfig = z.infer<typeof SandboxConfigSchema>;
  * Sandbox group configuration schema
  */
 export const SandboxGroupConfigSchema = SandboxConfigSchema.extend({
-  size: z.number().default(2),
-  startConcurrency: z.number().default(2),
-  startRetryTimes: z.number().default(3),
+  size: z.number().default(envVars.ROCK_DEFAULT_GROUP_SIZE),
+  startConcurrency: z.number().default(envVars.ROCK_DEFAULT_START_CONCURRENCY),
+  startRetryTimes: z.number().default(envVars.ROCK_DEFAULT_START_RETRY_TIMES),
 });
 
 export type SandboxGroupConfig = z.infer<typeof SandboxGroupConfigSchema>;

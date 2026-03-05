@@ -212,6 +212,61 @@ export const envVars = {
       'https://raw.githubusercontent.com/stepchowfun/docuum/main/install.sh'
     )!;
   },
+
+  // ========== Sandbox Defaults ==========
+  // Sandbox configuration defaults - allow users to override via environment variables
+
+  get ROCK_DEFAULT_IMAGE(): string {
+    return getEnv('ROCK_DEFAULT_IMAGE', 'python:3.11')!;
+  },
+
+  get ROCK_DEFAULT_MEMORY(): string {
+    return getEnv('ROCK_DEFAULT_MEMORY', '8g')!;
+  },
+
+  get ROCK_DEFAULT_CPUS(): number {
+    return parseFloat(getEnv('ROCK_DEFAULT_CPUS', '2')!);
+  },
+
+  get ROCK_DEFAULT_CLUSTER(): string {
+    return getEnv('ROCK_DEFAULT_CLUSTER', 'zb')!;
+  },
+
+  get ROCK_DEFAULT_AUTO_CLEAR_SECONDS(): number {
+    return parseInt(getEnv('ROCK_DEFAULT_AUTO_CLEAR_SECONDS', '300')!, 10);
+  },
+
+  // ========== SandboxGroup Defaults ==========
+
+  get ROCK_DEFAULT_GROUP_SIZE(): number {
+    return parseInt(getEnv('ROCK_DEFAULT_GROUP_SIZE', '2')!, 10);
+  },
+
+  get ROCK_DEFAULT_START_CONCURRENCY(): number {
+    return parseInt(getEnv('ROCK_DEFAULT_START_CONCURRENCY', '2')!, 10);
+  },
+
+  get ROCK_DEFAULT_START_RETRY_TIMES(): number {
+    return parseInt(getEnv('ROCK_DEFAULT_START_RETRY_TIMES', '3')!, 10);
+  },
+
+  // ========== Client Timeouts (in seconds) ==========
+
+  get ROCK_DEFAULT_ARUN_TIMEOUT(): number {
+    return parseInt(getEnv('ROCK_DEFAULT_ARUN_TIMEOUT', '300')!, 10);
+  },
+
+  get ROCK_DEFAULT_NOHUP_WAIT_TIMEOUT(): number {
+    return parseInt(getEnv('ROCK_DEFAULT_NOHUP_WAIT_TIMEOUT', '300')!, 10);
+  },
+
+  get ROCK_DEFAULT_NOHUP_WAIT_INTERVAL(): number {
+    return parseInt(getEnv('ROCK_DEFAULT_NOHUP_WAIT_INTERVAL', '10')!, 10);
+  },
+
+  get ROCK_DEFAULT_STATUS_CHECK_INTERVAL(): number {
+    return parseInt(getEnv('ROCK_DEFAULT_STATUS_CHECK_INTERVAL', '3')!, 10);
+  },
 };
 
 /**
