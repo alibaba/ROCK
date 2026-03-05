@@ -2,6 +2,39 @@
  * Deprecated decorator utilities
  */
 
+import { initLogger } from '../logger.js';
+import type { Logger } from '../logger.js';
+
+/**
+ * Set to track which deprecation warnings have already been shown
+ */
+const warnedKeys = new Set<string>();
+
+/**
+ * Get or create the deprecation logger (lazy initialization)
+ */
+function getLogger(): Logger {
+  return initLogger('rock.deprecated');
+}
+
+/**
+ * Clear all deprecation warning states (useful for testing)
+ */
+export function clearDeprecatedWarnings(): void {
+  warnedKeys.clear();
+}
+
+/**
+ * Issue a deprecation warning only once per key
+ */
+function warnOnce(key: string, message: string): void {
+  if (warnedKeys.has(key)) {
+    return;
+  }
+  getLogger().warn(message);
+  warnedKeys.add(key);
+}
+
 /**
  * Mark a function as deprecated
  */
@@ -12,11 +45,10 @@ export function deprecated(reason: string = ''): MethodDecorator {
     descriptor: PropertyDescriptor
   ): PropertyDescriptor {
     const originalMethod = descriptor.value;
+    const key = String(propertyKey);
 
     descriptor.value = function (...args: unknown[]): unknown {
-      console.warn(
-        `${String(propertyKey)} is deprecated. ${reason}`
-      );
+      warnOnce(key, `${key} is deprecated. ${reason}`);
       return originalMethod.apply(this, args);
     };
 
@@ -33,10 +65,11 @@ export function deprecatedClass(reason: string = ''): <T extends new (...args: a
   return function <T extends new (...args: any[]) => any>(
     constructor: T
   ): T {
+    const key = constructor.name;
     return class extends constructor {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       constructor(...args: any[]) {
-        console.warn(`${constructor.name} is deprecated. ${reason}`);
+        warnOnce(key, `${key} is deprecated. ${reason}`);
         super(...args);
       }
     };
