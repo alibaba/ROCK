@@ -114,6 +114,9 @@ class BaseActor:
     async def _setup_monitor(self):
         if not env_vars.ROCK_MONITOR_ENABLE:
             return
+        if env_vars.ROCK_MONITOR_VIA_ROCKLET:
+            logger.info("ROCK_MONITOR_VIA_ROCKLET is enabled, skipping actor-side monitoring setup")
+            return
         self._init_monitor()
         self._report_interval = 10
         self._metrics_report_scheduler = AsyncIOScheduler(
@@ -128,6 +131,8 @@ class BaseActor:
         self._metrics_report_scheduler.start()
 
     def stop_monitoring(self):
+        if env_vars.ROCK_MONITOR_VIA_ROCKLET:
+            return
         if env_vars.ROCK_MONITOR_ENABLE and self._metrics_report_scheduler and self._metrics_report_scheduler.running:
             logger.info("Stopping APScheduler...")
             self._metrics_report_scheduler.shutdown(wait=True)
