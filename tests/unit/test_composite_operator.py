@@ -24,10 +24,6 @@ from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.operator.composite import CompositeOperator
 from rock.utils.providers.redis_provider import RedisProvider
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 def _make_mock_operator(operator_name: str = "mock") -> AbstractOperator:
     """Create a mock AbstractOperator with async methods."""
@@ -64,619 +60,527 @@ async def fake_redis_provider():
     await provider.close_pool()
 
 
-# ===========================================================================
-# 1. RuntimeConfig operator_types backward compatibility
-# ===========================================================================
+def test_runtime_config_default_operator_types_from_operator_type():
+    """When operator_types is empty, it should be populated from operator_type."""
+    config = RuntimeConfig(operator_type="ray")
+    assert config.operator_types == ["ray"]
+    assert config.operator_type == "ray"
+
+
+def test_runtime_config_explicit_operator_types_list():
+    """When operator_types is explicitly set, it should be used as-is."""
+    config = RuntimeConfig(operator_types=["ray", "k8s"])
+    assert config.operator_types == ["ray", "k8s"]
+    assert config.operator_type == "ray"
+
+
+def test_runtime_config_operator_types_overrides_operator_type():
+    """operator_types takes precedence; operator_type is synced to the first element."""
+    config = RuntimeConfig(operator_type="ray", operator_types=["k8s", "ray"])
+    assert config.operator_types == ["k8s", "ray"]
+    assert config.operator_type == "k8s"
+
+
+def test_runtime_config_single_operator_types():
+    """Single-element operator_types should work like the old operator_type."""
+    config = RuntimeConfig(operator_types=["k8s"])
+    assert config.operator_types == ["k8s"]
+    assert config.operator_type == "k8s"
+
+
+def test_composite_init_with_valid_operators():
+    """CompositeOperator should initialize correctly with valid operators."""
+    ray_op = _make_mock_operator("ray")
+    k8s_op = _make_mock_operator("k8s")
+    composite = CompositeOperator(
+        operators={"ray": ray_op, "k8s": k8s_op},
+        default_operator_type="ray",
+    )
+    assert composite._default_operator_type == "ray"
+    assert len(composite._operators) == 2
+
+
+def test_composite_init_with_empty_operators_raises():
+    """CompositeOperator should raise ValueError with empty operators dict."""
+    with pytest.raises(ValueError, match="At least one operator"):
+        CompositeOperator(operators={}, default_operator_type="ray")
+
+
+def test_composite_init_with_invalid_default_raises():
+    """CompositeOperator should raise ValueError when default type is not in operators."""
+    ray_op = _make_mock_operator("ray")
+    with pytest.raises(ValueError, match="not found in provided operators"):
+        CompositeOperator(operators={"ray": ray_op}, default_operator_type="k8s")
+
+
+def test_composite_init_normalizes_default_type():
+    """CompositeOperator should normalize default_operator_type to lowercase."""
+    ray_op = _make_mock_operator("ray")
+    composite = CompositeOperator(
+        operators={"ray": ray_op},
+        default_operator_type="RAY",
+    )
+    assert composite._default_operator_type == "ray"
+
+
+def test_set_redis_provider_propagates_to_all():
+    """set_redis_provider should propagate to all sub-operators."""
+    ray_op = _make_mock_operator("ray")
+    k8s_op = _make_mock_operator("k8s")
+    composite = CompositeOperator(
+        operators={"ray": ray_op, "k8s": k8s_op},
+        default_operator_type="ray",
+    )
+
+    mock_redis = MagicMock(spec=RedisProvider)
+    composite.set_redis_provider(mock_redis)
+
+    ray_op.set_redis_provider.assert_called_once_with(mock_redis)
+    k8s_op.set_redis_provider.assert_called_once_with(mock_redis)
+    assert composite._redis_provider is mock_redis
+
+
+@pytest.mark.asyncio
+async def test_submit_routes_to_specified_operator():
+    """When config.operator_type is set, submit should route to that operator."""
+    ray_op = _make_mock_operator("ray")
+    k8s_op = _make_mock_operator("k8s")
+
+    ray_op.submit.return_value = _make_sandbox_info(sandbox_id="ray-sandbox")
+    k8s_op.submit.return_value = _make_sandbox_info(sandbox_id="k8s-sandbox")
+
+    composite = CompositeOperator(
+        operators={"ray": ray_op, "k8s": k8s_op},
+        default_operator_type="ray",
+    )
+
+    config = DockerDeploymentConfig(
+        image="python:3.11",
+        container_name="test-k8s",
+        operator_type="k8s",
+    )
+    result = await composite.submit(config, {"user_id": "u1"})
+
+    k8s_op.submit.assert_awaited_once_with(config, {"user_id": "u1"})
+    ray_op.submit.assert_not_awaited()
+    assert result["operator_type"] == "k8s"
 
 
-class TestRuntimeConfigOperatorTypes:
-    """Test RuntimeConfig.operator_types field and backward compatibility."""
-
-    def test_default_operator_types_from_operator_type(self):
-        """When operator_types is empty, it should be populated from operator_type."""
-        config = RuntimeConfig(operator_type="ray")
-        assert config.operator_types == ["ray"]
-        assert config.operator_type == "ray"
-
-    def test_explicit_operator_types_list(self):
-        """When operator_types is explicitly set, it should be used as-is."""
-        config = RuntimeConfig(operator_types=["ray", "k8s"])
-        assert config.operator_types == ["ray", "k8s"]
-        # operator_type should be set to the first in the list
-        assert config.operator_type == "ray"
-
-    def test_operator_types_overrides_operator_type(self):
-        """operator_types takes precedence; operator_type is synced to the first element."""
-        config = RuntimeConfig(operator_type="ray", operator_types=["k8s", "ray"])
-        assert config.operator_types == ["k8s", "ray"]
-        assert config.operator_type == "k8s"
-
-    def test_single_operator_types(self):
-        """Single-element operator_types should work like the old operator_type."""
-        config = RuntimeConfig(operator_types=["k8s"])
-        assert config.operator_types == ["k8s"]
-        assert config.operator_type == "k8s"
-
-
-# ===========================================================================
-# 2. CompositeOperator initialization
-# ===========================================================================
-
-
-class TestCompositeOperatorInit:
-    """Test CompositeOperator construction and validation."""
-
-    def test_init_with_valid_operators(self):
-        ray_op = _make_mock_operator("ray")
-        k8s_op = _make_mock_operator("k8s")
-        composite = CompositeOperator(
-            operators={"ray": ray_op, "k8s": k8s_op},
-            default_operator_type="ray",
-        )
-        assert composite._default_operator_type == "ray"
-        assert len(composite._operators) == 2
-
-    def test_init_with_empty_operators_raises(self):
-        with pytest.raises(ValueError, match="At least one operator"):
-            CompositeOperator(operators={}, default_operator_type="ray")
-
-    def test_init_with_invalid_default_raises(self):
-        ray_op = _make_mock_operator("ray")
-        with pytest.raises(ValueError, match="not found in provided operators"):
-            CompositeOperator(operators={"ray": ray_op}, default_operator_type="k8s")
-
-    def test_init_normalizes_default_type(self):
-        ray_op = _make_mock_operator("ray")
-        composite = CompositeOperator(
-            operators={"ray": ray_op},
-            default_operator_type="RAY",
-        )
-        assert composite._default_operator_type == "ray"
-
-
-# ===========================================================================
-# 3. CompositeOperator.set_redis_provider propagation
-# ===========================================================================
-
-
-class TestCompositeOperatorRedisProviderPropagation:
-    """Test that set_redis_provider propagates to all sub-operators."""
-
-    def test_set_redis_provider_propagates_to_all(self):
-        ray_op = _make_mock_operator("ray")
-        k8s_op = _make_mock_operator("k8s")
-        composite = CompositeOperator(
-            operators={"ray": ray_op, "k8s": k8s_op},
-            default_operator_type="ray",
-        )
-
-        mock_redis = MagicMock(spec=RedisProvider)
-        composite.set_redis_provider(mock_redis)
-
-        ray_op.set_redis_provider.assert_called_once_with(mock_redis)
-        k8s_op.set_redis_provider.assert_called_once_with(mock_redis)
-        assert composite._redis_provider is mock_redis
-
-
-# ===========================================================================
-# 4. CompositeOperator.submit routing
-# ===========================================================================
-
-
-class TestCompositeOperatorSubmit:
-    """Test submit() routes to the correct sub-operator."""
-
-    @pytest.mark.asyncio
-    async def test_submit_routes_to_specified_operator(self):
-        """When config.operator_type is set, submit should route to that operator."""
-        ray_op = _make_mock_operator("ray")
-        k8s_op = _make_mock_operator("k8s")
-
-        ray_op.submit.return_value = _make_sandbox_info(sandbox_id="ray-sandbox")
-        k8s_op.submit.return_value = _make_sandbox_info(sandbox_id="k8s-sandbox")
-
-        composite = CompositeOperator(
-            operators={"ray": ray_op, "k8s": k8s_op},
-            default_operator_type="ray",
-        )
-
-        config = DockerDeploymentConfig(
-            image="python:3.11",
-            container_name="test-k8s",
-            operator_type="k8s",
-        )
-        result = await composite.submit(config, {"user_id": "u1"})
-
-        k8s_op.submit.assert_awaited_once_with(config, {"user_id": "u1"})
-        ray_op.submit.assert_not_awaited()
-        assert result["operator_type"] == "k8s"
-
-    @pytest.mark.asyncio
-    async def test_submit_uses_default_when_no_operator_type(self):
-        """When config.operator_type is None, submit should use the default operator."""
-        ray_op = _make_mock_operator("ray")
-        k8s_op = _make_mock_operator("k8s")
-
-        ray_op.submit.return_value = _make_sandbox_info(sandbox_id="ray-sandbox")
-
-        composite = CompositeOperator(
-            operators={"ray": ray_op, "k8s": k8s_op},
-            default_operator_type="ray",
-        )
-
-        config = DockerDeploymentConfig(
-            image="python:3.11",
-            container_name="test-default",
-            operator_type=None,
-        )
-        result = await composite.submit(config, {})
-
-        ray_op.submit.assert_awaited_once()
-        k8s_op.submit.assert_not_awaited()
-        assert result["operator_type"] == "ray"
-
-    @pytest.mark.asyncio
-    async def test_submit_sets_operator_type_in_sandbox_info(self):
-        """submit() must write operator_type into the returned SandboxInfo."""
-        ray_op = _make_mock_operator("ray")
-        ray_op.submit.return_value = _make_sandbox_info()
-
-        composite = CompositeOperator(
-            operators={"ray": ray_op},
-            default_operator_type="ray",
-        )
-
-        config = DockerDeploymentConfig(image="python:3.11", container_name="test")
-        result = await composite.submit(config, {})
-
-        assert "operator_type" in result
-        assert result["operator_type"] == "ray"
-
-    @pytest.mark.asyncio
-    async def test_submit_with_unsupported_operator_type_raises(self):
-        """submit() should raise ValueError for unsupported operator_type."""
-        ray_op = _make_mock_operator("ray")
-        composite = CompositeOperator(
-            operators={"ray": ray_op},
-            default_operator_type="ray",
-        )
-
-        config = DockerDeploymentConfig(
-            image="python:3.11",
-            container_name="test",
-            operator_type="docker_swarm",
-        )
-        with pytest.raises(ValueError, match="Unsupported operator type"):
-            await composite.submit(config, {})
-
-
-# ===========================================================================
-# 5. CompositeOperator.get_status routing via Redis
-# ===========================================================================
-
-
-class TestCompositeOperatorGetStatus:
-    """Test get_status() routes based on operator_type stored in Redis."""
-
-    @pytest.mark.asyncio
-    async def test_get_status_routes_by_redis_operator_type(self, fake_redis_provider):
-        """get_status should look up operator_type from Redis and route accordingly."""
-        ray_op = _make_mock_operator("ray")
-        k8s_op = _make_mock_operator("k8s")
-
-        k8s_status = _make_sandbox_info(sandbox_id="sandbox-1", state=State.RUNNING)
-        k8s_op.get_status.return_value = k8s_status
-
-        composite = CompositeOperator(
-            operators={"ray": ray_op, "k8s": k8s_op},
-            default_operator_type="ray",
-        )
-        composite.set_redis_provider(fake_redis_provider)
-
-        # Pre-populate Redis with sandbox info that has operator_type="k8s"
-        sandbox_info_in_redis = _make_sandbox_info(sandbox_id="sandbox-1", operator_type="k8s")
-        await fake_redis_provider.json_set(alive_sandbox_key("sandbox-1"), "$", sandbox_info_in_redis)
-
-        await composite.get_status("sandbox-1")
-
-        k8s_op.get_status.assert_awaited_once_with("sandbox-1")
-        ray_op.get_status.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_get_status_falls_back_to_default_without_redis(self):
-        """Without Redis, get_status should fall back to the default operator."""
-        ray_op = _make_mock_operator("ray")
-        ray_op.get_status.return_value = _make_sandbox_info(state=State.RUNNING)
-
-        composite = CompositeOperator(
-            operators={"ray": ray_op},
-            default_operator_type="ray",
-        )
-        # No redis provider set
-
-        await composite.get_status("sandbox-no-redis")
-        ray_op.get_status.assert_awaited_once_with("sandbox-no-redis")
-
-    @pytest.mark.asyncio
-    async def test_get_status_falls_back_when_redis_has_no_operator_type(self, fake_redis_provider):
-        """If Redis entry has no operator_type, fall back to default."""
-        ray_op = _make_mock_operator("ray")
-        ray_op.get_status.return_value = _make_sandbox_info(state=State.RUNNING)
-
-        composite = CompositeOperator(
-            operators={"ray": ray_op},
-            default_operator_type="ray",
-        )
-        composite.set_redis_provider(fake_redis_provider)
-
-        # Store sandbox info WITHOUT operator_type
-        sandbox_info_no_type = _make_sandbox_info(sandbox_id="sandbox-2")
-        await fake_redis_provider.json_set(alive_sandbox_key("sandbox-2"), "$", sandbox_info_no_type)
-
-        await composite.get_status("sandbox-2")
-        ray_op.get_status.assert_awaited_once_with("sandbox-2")
-
-
-# ===========================================================================
-# 6. CompositeOperator.stop routing via Redis
-# ===========================================================================
-
-
-class TestCompositeOperatorStop:
-    """Test stop() routes based on operator_type stored in Redis."""
-
-    @pytest.mark.asyncio
-    async def test_stop_routes_by_redis_operator_type(self, fake_redis_provider):
-        """stop should look up operator_type from Redis and route accordingly."""
-        ray_op = _make_mock_operator("ray")
-        k8s_op = _make_mock_operator("k8s")
-        k8s_op.stop.return_value = True
-
-        composite = CompositeOperator(
-            operators={"ray": ray_op, "k8s": k8s_op},
-            default_operator_type="ray",
-        )
-        composite.set_redis_provider(fake_redis_provider)
-
-        sandbox_info_in_redis = _make_sandbox_info(sandbox_id="sandbox-stop", operator_type="k8s")
-        await fake_redis_provider.json_set(alive_sandbox_key("sandbox-stop"), "$", sandbox_info_in_redis)
-
-        result = await composite.stop("sandbox-stop")
-
-        k8s_op.stop.assert_awaited_once_with("sandbox-stop")
-        ray_op.stop.assert_not_awaited()
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_stop_falls_back_to_default_without_redis(self):
-        """Without Redis, stop should fall back to the default operator."""
-        ray_op = _make_mock_operator("ray")
-        ray_op.stop.return_value = True
-
-        composite = CompositeOperator(
-            operators={"ray": ray_op},
-            default_operator_type="ray",
-        )
-
-        await composite.stop("sandbox-no-redis")
-        ray_op.stop.assert_awaited_once_with("sandbox-no-redis")
-
-
-# ===========================================================================
-# 7. CRITICAL: get_status does NOT overwrite operator_type in Redis
-# ===========================================================================
-
-
-class TestGetStatusPreservesOperatorTypeInRedis:
-    """Critical tests: verify that the full start_async -> get_status flow
-    does NOT lose or overwrite the operator_type field in Redis.
-
-    This simulates the SandboxManager flow:
+@pytest.mark.asyncio
+async def test_submit_uses_default_when_no_operator_type():
+    """When config.operator_type is None, submit should use the default operator."""
+    ray_op = _make_mock_operator("ray")
+    k8s_op = _make_mock_operator("k8s")
+
+    ray_op.submit.return_value = _make_sandbox_info(sandbox_id="ray-sandbox")
+
+    composite = CompositeOperator(
+        operators={"ray": ray_op, "k8s": k8s_op},
+        default_operator_type="ray",
+    )
+
+    config = DockerDeploymentConfig(
+        image="python:3.11",
+        container_name="test-default",
+        operator_type=None,
+    )
+    result = await composite.submit(config, {})
+
+    ray_op.submit.assert_awaited_once()
+    k8s_op.submit.assert_not_awaited()
+    assert result["operator_type"] == "ray"
+
+
+@pytest.mark.asyncio
+async def test_submit_sets_operator_type_in_sandbox_info():
+    """submit() must write operator_type into the returned SandboxInfo."""
+    ray_op = _make_mock_operator("ray")
+    ray_op.submit.return_value = _make_sandbox_info()
+
+    composite = CompositeOperator(
+        operators={"ray": ray_op},
+        default_operator_type="ray",
+    )
+
+    config = DockerDeploymentConfig(image="python:3.11", container_name="test")
+    result = await composite.submit(config, {})
+
+    assert "operator_type" in result
+    assert result["operator_type"] == "ray"
+
+
+@pytest.mark.asyncio
+async def test_submit_with_unsupported_operator_type_raises():
+    """submit() should raise ValueError for unsupported operator_type."""
+    ray_op = _make_mock_operator("ray")
+    composite = CompositeOperator(
+        operators={"ray": ray_op},
+        default_operator_type="ray",
+    )
+
+    config = DockerDeploymentConfig(
+        image="python:3.11",
+        container_name="test",
+        operator_type="docker_swarm",
+    )
+    with pytest.raises(ValueError, match="Unsupported operator type"):
+        await composite.submit(config, {})
+
+
+@pytest.mark.asyncio
+async def test_get_status_routes_by_redis_operator_type(fake_redis_provider):
+    """get_status should look up operator_type from Redis and route accordingly."""
+    ray_op = _make_mock_operator("ray")
+    k8s_op = _make_mock_operator("k8s")
+
+    k8s_status = _make_sandbox_info(sandbox_id="sandbox-1", state=State.RUNNING)
+    k8s_op.get_status.return_value = k8s_status
+
+    composite = CompositeOperator(
+        operators={"ray": ray_op, "k8s": k8s_op},
+        default_operator_type="ray",
+    )
+    composite.set_redis_provider(fake_redis_provider)
+
+    sandbox_info_in_redis = _make_sandbox_info(sandbox_id="sandbox-1", operator_type="k8s")
+    await fake_redis_provider.json_set(alive_sandbox_key("sandbox-1"), "$", sandbox_info_in_redis)
+
+    await composite.get_status("sandbox-1")
+
+    k8s_op.get_status.assert_awaited_once_with("sandbox-1")
+    ray_op.get_status.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_status_falls_back_to_default_without_redis():
+    """Without Redis, get_status should fall back to the default operator."""
+    ray_op = _make_mock_operator("ray")
+    ray_op.get_status.return_value = _make_sandbox_info(state=State.RUNNING)
+
+    composite = CompositeOperator(
+        operators={"ray": ray_op},
+        default_operator_type="ray",
+    )
+
+    await composite.get_status("sandbox-no-redis")
+    ray_op.get_status.assert_awaited_once_with("sandbox-no-redis")
+
+
+@pytest.mark.asyncio
+async def test_get_status_falls_back_when_redis_has_no_operator_type(fake_redis_provider):
+    """If Redis entry has no operator_type, fall back to default."""
+    ray_op = _make_mock_operator("ray")
+    ray_op.get_status.return_value = _make_sandbox_info(state=State.RUNNING)
+
+    composite = CompositeOperator(
+        operators={"ray": ray_op},
+        default_operator_type="ray",
+    )
+    composite.set_redis_provider(fake_redis_provider)
+
+    sandbox_info_no_type = _make_sandbox_info(sandbox_id="sandbox-2")
+    await fake_redis_provider.json_set(alive_sandbox_key("sandbox-2"), "$", sandbox_info_no_type)
+
+    await composite.get_status("sandbox-2")
+    ray_op.get_status.assert_awaited_once_with("sandbox-2")
+
+
+@pytest.mark.asyncio
+async def test_stop_routes_by_redis_operator_type(fake_redis_provider):
+    """stop should look up operator_type from Redis and route accordingly."""
+    ray_op = _make_mock_operator("ray")
+    k8s_op = _make_mock_operator("k8s")
+    k8s_op.stop.return_value = True
+
+    composite = CompositeOperator(
+        operators={"ray": ray_op, "k8s": k8s_op},
+        default_operator_type="ray",
+    )
+    composite.set_redis_provider(fake_redis_provider)
+
+    sandbox_info_in_redis = _make_sandbox_info(sandbox_id="sandbox-stop", operator_type="k8s")
+    await fake_redis_provider.json_set(alive_sandbox_key("sandbox-stop"), "$", sandbox_info_in_redis)
+
+    result = await composite.stop("sandbox-stop")
+
+    k8s_op.stop.assert_awaited_once_with("sandbox-stop")
+    ray_op.stop.assert_not_awaited()
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_stop_falls_back_to_default_without_redis():
+    """Without Redis, stop should fall back to the default operator."""
+    ray_op = _make_mock_operator("ray")
+    ray_op.stop.return_value = True
+
+    composite = CompositeOperator(
+        operators={"ray": ray_op},
+        default_operator_type="ray",
+    )
+
+    await composite.stop("sandbox-no-redis")
+    ray_op.stop.assert_awaited_once_with("sandbox-no-redis")
+
+
+@pytest.mark.asyncio
+async def test_operator_type_survives_submit_and_get_status_cycle(fake_redis_provider):
+    """Critical: full cycle submit -> Redis write -> get_status -> Redis write
+    must preserve operator_type in Redis.
+
+    Simulates the SandboxManager flow:
       1. CompositeOperator.submit() sets operator_type in SandboxInfo
       2. SandboxManager.start_async() writes SandboxInfo to Redis
       3. SandboxManager.get_status() calls operator.get_status() and writes back
       4. operator_type must still be present in Redis after step 3
     """
+    ray_op = _make_mock_operator("ray")
+    k8s_op = _make_mock_operator("k8s")
 
-    @pytest.mark.asyncio
-    async def test_operator_type_survives_submit_and_get_status_cycle(self, fake_redis_provider):
-        """Full cycle: submit writes operator_type, get_status preserves it."""
-        ray_op = _make_mock_operator("ray")
-        k8s_op = _make_mock_operator("k8s")
+    k8s_op.submit.return_value = _make_sandbox_info(sandbox_id="cycle-test")
 
-        # submit returns sandbox info (CompositeOperator will add operator_type)
-        k8s_op.submit.return_value = _make_sandbox_info(sandbox_id="cycle-test")
+    composite = CompositeOperator(
+        operators={"ray": ray_op, "k8s": k8s_op},
+        default_operator_type="ray",
+    )
+    composite.set_redis_provider(fake_redis_provider)
 
-        composite = CompositeOperator(
-            operators={"ray": ray_op, "k8s": k8s_op},
-            default_operator_type="ray",
+    config = DockerDeploymentConfig(
+        image="python:3.11",
+        container_name="cycle-test",
+        operator_type="k8s",
+    )
+    sandbox_info = await composite.submit(config, {})
+    assert sandbox_info["operator_type"] == "k8s"
+
+    await fake_redis_provider.json_set(alive_sandbox_key("cycle-test"), "$", sandbox_info)
+
+    redis_data = await fake_redis_provider.json_get(alive_sandbox_key("cycle-test"), "$")
+    assert redis_data[0]["operator_type"] == "k8s"
+
+    k8s_op.get_status.return_value = _make_sandbox_info(
+        sandbox_id="cycle-test",
+        state=State.RUNNING,
+    )
+    status_info = await composite.get_status("cycle-test")
+
+    await fake_redis_provider.json_set(alive_sandbox_key("cycle-test"), "$", status_info)
+
+    redis_data_after = await fake_redis_provider.json_get(alive_sandbox_key("cycle-test"), "$")
+    has_operator_type = "operator_type" in redis_data_after[0]
+
+    if not has_operator_type:
+        pytest.fail(
+            "operator_type was lost from Redis after get_status! "
+            "The sub-operator's get_status() did not include operator_type, "
+            "and SandboxManager overwrote Redis with the incomplete data."
         )
-        composite.set_redis_provider(fake_redis_provider)
 
-        # Step 1: submit (simulates CompositeOperator.submit)
-        config = DockerDeploymentConfig(
-            image="python:3.11",
-            container_name="cycle-test",
-            operator_type="k8s",
-        )
-        sandbox_info = await composite.submit(config, {})
-        assert sandbox_info["operator_type"] == "k8s"
 
-        # Step 2: simulate SandboxManager writing to Redis
-        await fake_redis_provider.json_set(alive_sandbox_key("cycle-test"), "$", sandbox_info)
+@pytest.mark.asyncio
+async def test_ray_operator_get_status_preserves_operator_type_via_redis_merge():
+    """Simulate RayOperator.get_status() redis merge path.
 
-        # Verify operator_type is in Redis
-        redis_data = await fake_redis_provider.json_get(alive_sandbox_key("cycle-test"), "$")
-        assert redis_data[0]["operator_type"] == "k8s"
+    RayOperator.get_status() (non-rocklet path) does:
+        redis_info = await self.get_sandbox_info_from_redis(sandbox_id)
+        if redis_info:
+            redis_info.update(sandbox_info)
+            return redis_info
 
-        # Step 3: get_status returns info WITHOUT operator_type (like real sub-operators do)
-        k8s_op.get_status.return_value = _make_sandbox_info(
-            sandbox_id="cycle-test",
-            state=State.RUNNING,
-            # Note: no operator_type here, simulating real K8sOperator/RayOperator behavior
-        )
-        status_info = await composite.get_status("cycle-test")
+    The merge preserves operator_type because actor_sandbox_info doesn't contain it.
+    """
+    redis_sandbox_info = _make_sandbox_info(
+        sandbox_id="ray-merge-test",
+        operator_type="ray",
+        user_id="user-1",
+        experiment_id="exp-1",
+    )
 
-        # Step 4: simulate SandboxManager writing get_status result back to Redis
-        # This is what SandboxManager.get_status() does:
-        #   sandbox_info = await self._operator.get_status(sandbox_id)
-        #   await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
-        await fake_redis_provider.json_set(alive_sandbox_key("cycle-test"), "$", status_info)
+    actor_sandbox_info = _make_sandbox_info(
+        sandbox_id="ray-merge-test",
+        state=State.RUNNING,
+    )
+    assert "operator_type" not in actor_sandbox_info
 
-        # CRITICAL CHECK: operator_type must still be in Redis
-        # The sub-operator's get_status doesn't return operator_type,
-        # so if the full sandbox_info is overwritten, operator_type would be lost.
-        redis_data_after = await fake_redis_provider.json_get(alive_sandbox_key("cycle-test"), "$")
-        # This test verifies the CURRENT behavior. If operator_type is missing here,
-        # it means get_status overwrites it and we have a bug.
-        #
-        # In the current design, sub-operators (RayOperator, K8sOperator) merge
-        # redis_info with fresh status via redis_info.update(sandbox_info), which
-        # preserves operator_type because the fresh status dict doesn't contain it.
-        # However, SandboxManager.get_status() does a full json_set with the
-        # returned sandbox_info. If the sub-operator returns a dict without
-        # operator_type, it WILL be lost.
-        #
-        # Let's check what actually happens:
-        has_operator_type = "operator_type" in redis_data_after[0]
+    redis_sandbox_info.update(actor_sandbox_info)
 
-        if not has_operator_type:
-            # This means the current flow DOES lose operator_type.
-            # We need to verify this is the case and document it.
-            pytest.fail(
-                "operator_type was lost from Redis after get_status! "
-                "The sub-operator's get_status() did not include operator_type, "
-                "and SandboxManager overwrote Redis with the incomplete data."
-            )
+    assert redis_sandbox_info.get("operator_type") == "ray"
+    assert redis_sandbox_info.get("state") == State.RUNNING
 
-    @pytest.mark.asyncio
-    async def test_ray_operator_get_status_preserves_operator_type_via_redis_merge(self, fake_redis_provider):
-        """Simulate RayOperator.get_status() redis merge path.
 
-        RayOperator.get_status() (non-rocklet path) does:
-            redis_info = await self.get_sandbox_info_from_redis(sandbox_id)
+@pytest.mark.asyncio
+async def test_k8s_operator_get_status_preserves_operator_type_via_redis_merge():
+    """Simulate K8sOperator.get_status() redis merge path.
+
+    K8sOperator.get_status() does:
+        sandbox_info = await self._provider.get_status(sandbox_id)
+        if self._redis_provider:
+            redis_info = await self._get_sandbox_info_from_redis(sandbox_id)
             if redis_info:
-                redis_info.update(sandbox_info)  # sandbox_info has no operator_type
-                return redis_info  # redis_info still has operator_type
+                redis_info.update(sandbox_info)
+                return redis_info
 
-        This test verifies that the merge preserves operator_type.
-        """
-        # Simulate what's in Redis (with operator_type)
-        redis_sandbox_info = _make_sandbox_info(
-            sandbox_id="ray-merge-test",
-            operator_type="ray",
-            user_id="user-1",
-            experiment_id="exp-1",
-        )
+    The merge preserves operator_type because provider_sandbox_info doesn't contain it.
+    """
+    redis_sandbox_info = _make_sandbox_info(
+        sandbox_id="k8s-merge-test",
+        operator_type="k8s",
+        user_id="user-1",
+    )
 
-        # Simulate what RayOperator gets from the actor (no operator_type)
-        actor_sandbox_info = _make_sandbox_info(
-            sandbox_id="ray-merge-test",
-            state=State.RUNNING,
-        )
-        # Actor info typically doesn't have operator_type
-        assert "operator_type" not in actor_sandbox_info
+    provider_sandbox_info: SandboxInfo = {
+        "sandbox_id": "k8s-merge-test",
+        "host_ip": "10.0.0.2",
+        "state": State.RUNNING,
+        "phases": {},
+        "port_mapping": {8000: 30001},
+    }
+    assert "operator_type" not in provider_sandbox_info
 
-        # Simulate the merge: redis_info.update(sandbox_info)
-        redis_sandbox_info.update(actor_sandbox_info)
+    redis_sandbox_info.update(provider_sandbox_info)
 
-        # operator_type should survive because actor_sandbox_info doesn't have it
-        assert redis_sandbox_info.get("operator_type") == "ray"
-        assert redis_sandbox_info.get("state") == State.RUNNING
-
-    @pytest.mark.asyncio
-    async def test_k8s_operator_get_status_preserves_operator_type_via_redis_merge(self, fake_redis_provider):
-        """Simulate K8sOperator.get_status() redis merge path.
-
-        K8sOperator.get_status() does:
-            sandbox_info = await self._provider.get_status(sandbox_id)
-            if self._redis_provider:
-                redis_info = await self._get_sandbox_info_from_redis(sandbox_id)
-                if redis_info:
-                    redis_info.update(sandbox_info)
-                    return redis_info
-
-        This test verifies that the merge preserves operator_type.
-        """
-        # Simulate what's in Redis (with operator_type)
-        redis_sandbox_info = _make_sandbox_info(
-            sandbox_id="k8s-merge-test",
-            operator_type="k8s",
-            user_id="user-1",
-        )
-
-        # Simulate what K8s provider returns (no operator_type)
-        provider_sandbox_info: SandboxInfo = {
-            "sandbox_id": "k8s-merge-test",
-            "host_ip": "10.0.0.2",
-            "state": State.RUNNING,
-            "phases": {},
-            "port_mapping": {8000: 30001},
-        }
-        assert "operator_type" not in provider_sandbox_info
-
-        # Simulate the merge: redis_info.update(sandbox_info)
-        redis_sandbox_info.update(provider_sandbox_info)
-
-        # operator_type should survive
-        assert redis_sandbox_info.get("operator_type") == "k8s"
-        assert redis_sandbox_info.get("state") == State.RUNNING
-        assert redis_sandbox_info.get("host_ip") == "10.0.0.2"
-
-    @pytest.mark.asyncio
-    async def test_sandbox_manager_get_status_preserves_operator_type(self, fake_redis_provider):
-        """End-to-end: SandboxManager.get_status() must preserve operator_type in Redis.
-
-        SandboxManager.get_status() does:
-            sandbox_info = await self._operator.get_status(sandbox_id)
-            await self._redis_provider.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
-
-        If the operator returns sandbox_info WITH operator_type (because sub-operators
-        merge from Redis), then the json_set will preserve it.
-        """
-        ray_op = _make_mock_operator("ray")
-        k8s_op = _make_mock_operator("k8s")
-
-        composite = CompositeOperator(
-            operators={"ray": ray_op, "k8s": k8s_op},
-            default_operator_type="ray",
-        )
-        composite.set_redis_provider(fake_redis_provider)
-
-        # Pre-populate Redis with sandbox info including operator_type
-        initial_info = _make_sandbox_info(
-            sandbox_id="e2e-test",
-            operator_type="k8s",
-            user_id="user-1",
-        )
-        await fake_redis_provider.json_set(alive_sandbox_key("e2e-test"), "$", initial_info)
-
-        # K8sOperator.get_status() merges redis_info with provider status,
-        # so the returned dict should still contain operator_type
-        merged_status = _make_sandbox_info(
-            sandbox_id="e2e-test",
-            operator_type="k8s",  # preserved from Redis merge
-            user_id="user-1",
-            state=State.RUNNING,
-            host_ip="10.0.0.5",
-        )
-        k8s_op.get_status.return_value = merged_status
-
-        # CompositeOperator.get_status routes to k8s_op
-        result = await composite.get_status("e2e-test")
-
-        # Simulate SandboxManager writing back to Redis
-        await fake_redis_provider.json_set(alive_sandbox_key("e2e-test"), "$", result)
-
-        # Verify operator_type is preserved
-        final_redis = await fake_redis_provider.json_get(alive_sandbox_key("e2e-test"), "$")
-        assert final_redis[0]["operator_type"] == "k8s"
-        assert final_redis[0]["state"] == State.RUNNING
+    assert redis_sandbox_info.get("operator_type") == "k8s"
+    assert redis_sandbox_info.get("state") == State.RUNNING
+    assert redis_sandbox_info.get("host_ip") == "10.0.0.2"
 
 
-# ===========================================================================
-# 8. OperatorFactory.create_composite_operator
-# ===========================================================================
+@pytest.mark.asyncio
+async def test_sandbox_manager_get_status_preserves_operator_type(fake_redis_provider):
+    """End-to-end: SandboxManager.get_status() must preserve operator_type in Redis.
+
+    If the operator returns sandbox_info WITH operator_type (because sub-operators
+    merge from Redis), then the json_set will preserve it.
+    """
+    ray_op = _make_mock_operator("ray")
+    k8s_op = _make_mock_operator("k8s")
+
+    composite = CompositeOperator(
+        operators={"ray": ray_op, "k8s": k8s_op},
+        default_operator_type="ray",
+    )
+    composite.set_redis_provider(fake_redis_provider)
+
+    initial_info = _make_sandbox_info(
+        sandbox_id="e2e-test",
+        operator_type="k8s",
+        user_id="user-1",
+    )
+    await fake_redis_provider.json_set(alive_sandbox_key("e2e-test"), "$", initial_info)
+
+    merged_status = _make_sandbox_info(
+        sandbox_id="e2e-test",
+        operator_type="k8s",
+        user_id="user-1",
+        state=State.RUNNING,
+        host_ip="10.0.0.5",
+    )
+    k8s_op.get_status.return_value = merged_status
+
+    result = await composite.get_status("e2e-test")
+
+    await fake_redis_provider.json_set(alive_sandbox_key("e2e-test"), "$", result)
+
+    final_redis = await fake_redis_provider.json_get(alive_sandbox_key("e2e-test"), "$")
+    assert final_redis[0]["operator_type"] == "k8s"
+    assert final_redis[0]["state"] == State.RUNNING
 
 
-class TestOperatorFactoryCreateComposite:
-    """Test OperatorFactory.create_composite_operator method."""
+def test_create_composite_operator_single_type():
+    """create_composite_operator with a single operator type."""
+    from rock.sandbox.operator.factory import OperatorContext, OperatorFactory
 
-    def test_create_composite_operator_single_type(self):
-        """create_composite_operator with a single operator type."""
-        from rock.sandbox.operator.factory import OperatorContext, OperatorFactory
+    runtime_config = RuntimeConfig(operator_types=["ray"])
+    ray_service = MagicMock()
 
-        runtime_config = RuntimeConfig(operator_types=["ray"])
-        ray_service = MagicMock()
+    context = OperatorContext(
+        runtime_config=runtime_config,
+        ray_service=ray_service,
+    )
 
-        context = OperatorContext(
-            runtime_config=runtime_config,
-            ray_service=ray_service,
-        )
+    with patch("rock.sandbox.operator.factory.OperatorFactory._create_single_operator") as mock_create:
+        mock_ray_op = _make_mock_operator("ray")
+        mock_create.return_value = mock_ray_op
 
-        with patch("rock.sandbox.operator.factory.OperatorFactory._create_single_operator") as mock_create:
-            mock_ray_op = _make_mock_operator("ray")
-            mock_create.return_value = mock_ray_op
+        composite = OperatorFactory.create_composite_operator(context)
 
-            composite = OperatorFactory.create_composite_operator(context)
-
-            assert isinstance(composite, CompositeOperator)
-            assert composite._default_operator_type == "ray"
-            assert "ray" in composite._operators
-
-    def test_create_composite_operator_multiple_types(self):
-        """create_composite_operator with multiple operator types."""
-        from rock.sandbox.operator.factory import OperatorContext, OperatorFactory
-
-        runtime_config = RuntimeConfig(operator_types=["ray", "k8s"])
-        ray_service = MagicMock()
-
-        context = OperatorContext(
-            runtime_config=runtime_config,
-            ray_service=ray_service,
-        )
-
-        call_count = 0
-
-        def side_effect(op_type, ctx):
-            nonlocal call_count
-            call_count += 1
-            return _make_mock_operator(op_type)
-
-        with patch(
-            "rock.sandbox.operator.factory.OperatorFactory._create_single_operator",
-            side_effect=side_effect,
-        ):
-            composite = OperatorFactory.create_composite_operator(context)
-
-            assert isinstance(composite, CompositeOperator)
-            assert composite._default_operator_type == "ray"
-            assert "ray" in composite._operators
-            assert "k8s" in composite._operators
-            assert call_count == 2
+        assert isinstance(composite, CompositeOperator)
+        assert composite._default_operator_type == "ray"
+        assert "ray" in composite._operators
 
 
-# ===========================================================================
-# 9. SandboxStartRequest and DockerDeploymentConfig operator_type field
-# ===========================================================================
+def test_create_composite_operator_multiple_types():
+    """create_composite_operator with multiple operator types."""
+    from rock.sandbox.operator.factory import OperatorContext, OperatorFactory
+
+    runtime_config = RuntimeConfig(operator_types=["ray", "k8s"])
+    ray_service = MagicMock()
+
+    context = OperatorContext(
+        runtime_config=runtime_config,
+        ray_service=ray_service,
+    )
+
+    call_count = 0
+
+    def side_effect(op_type, ctx):
+        nonlocal call_count
+        call_count += 1
+        return _make_mock_operator(op_type)
+
+    with patch(
+        "rock.sandbox.operator.factory.OperatorFactory._create_single_operator",
+        side_effect=side_effect,
+    ):
+        composite = OperatorFactory.create_composite_operator(context)
+
+        assert isinstance(composite, CompositeOperator)
+        assert composite._default_operator_type == "ray"
+        assert "ray" in composite._operators
+        assert "k8s" in composite._operators
+        assert call_count == 2
 
 
-class TestOperatorTypeFieldInModels:
-    """Test that operator_type field exists and works in request/config models."""
+def test_sandbox_start_request_has_operator_type():
+    """SandboxStartRequest should accept and store operator_type."""
+    request = SandboxStartRequest(
+        image="python:3.11",
+        operator_type="k8s",
+    )
+    assert request.operator_type == "k8s"
 
-    def test_sandbox_start_request_has_operator_type(self):
-        request = SandboxStartRequest(
-            image="python:3.11",
-            operator_type="k8s",
-        )
-        assert request.operator_type == "k8s"
 
-    def test_sandbox_start_request_operator_type_default_none(self):
-        request = SandboxStartRequest(image="python:3.11")
-        assert request.operator_type is None
+def test_sandbox_start_request_operator_type_default_none():
+    """SandboxStartRequest.operator_type should default to None."""
+    request = SandboxStartRequest(image="python:3.11")
+    assert request.operator_type is None
 
-    def test_docker_deployment_config_has_operator_type(self):
-        config = DockerDeploymentConfig(
-            image="python:3.11",
-            container_name="test",
-            operator_type="ray",
-        )
-        assert config.operator_type == "ray"
 
-    def test_docker_deployment_config_operator_type_default_none(self):
-        config = DockerDeploymentConfig(
-            image="python:3.11",
-            container_name="test",
-        )
-        assert config.operator_type is None
+def test_docker_deployment_config_has_operator_type():
+    """DockerDeploymentConfig should accept and store operator_type."""
+    config = DockerDeploymentConfig(
+        image="python:3.11",
+        container_name="test",
+        operator_type="ray",
+    )
+    assert config.operator_type == "ray"
 
-    def test_docker_deployment_config_from_request_preserves_operator_type(self):
-        """DockerDeploymentConfig.from_request should carry over operator_type."""
-        request = SandboxStartRequest(
-            image="python:3.11",
-            sandbox_id="test-sandbox",
-            operator_type="k8s",
-        )
-        config = DockerDeploymentConfig.from_request(request)
-        assert config.operator_type == "k8s"
-        assert config.container_name == "test-sandbox"
+
+def test_docker_deployment_config_operator_type_default_none():
+    """DockerDeploymentConfig.operator_type should default to None."""
+    config = DockerDeploymentConfig(
+        image="python:3.11",
+        container_name="test",
+    )
+    assert config.operator_type is None
+
+
+def test_docker_deployment_config_from_request_preserves_operator_type():
+    """DockerDeploymentConfig.from_request should carry over operator_type."""
+    request = SandboxStartRequest(
+        image="python:3.11",
+        sandbox_id="test-sandbox",
+        operator_type="k8s",
+    )
+    config = DockerDeploymentConfig.from_request(request)
+    assert config.operator_type == "k8s"
+    assert config.container_name == "test-sandbox"
