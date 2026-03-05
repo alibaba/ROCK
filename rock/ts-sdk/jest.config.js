@@ -14,6 +14,7 @@ const baseConfig = {
         tsconfig: {
           module: 'ESNext',
           moduleResolution: 'bundler',
+          experimentalDecorators: true,
         },
       },
     ],
