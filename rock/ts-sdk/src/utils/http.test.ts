@@ -3,7 +3,8 @@
  */
 
 import axios from 'axios';
-import { HttpUtils, HttpResponse } from './http.js';
+import https from 'https';
+import { HttpUtils, HttpResponse, sharedHttpsAgent } from './http.js';
 
 // Mock axios
 jest.mock('axios');
@@ -285,5 +286,56 @@ describe('HttpUtils case conversion', () => {
       expect(entries.length).toBe(1);
       expect(entries[0]?.[0]).toBe('file');
     });
+  });
+});
+
+describe('HttpUtils shared https.Agent', () => {
+  test('exports a shared https.Agent for connection pooling', () => {
+    // Following Python SDK pattern: _SHARED_SSL_CONTEXT
+    // The agent should be created once at module level
+    expect(sharedHttpsAgent).toBeDefined();
+    expect(sharedHttpsAgent).toBeInstanceOf(https.Agent);
+  });
+
+  test('shared agent has keepAlive enabled for connection reuse', () => {
+    // keepAlive enables TCP keep-alive sockets for better performance
+    // Access through options property as per Node.js Agent implementation
+    expect((sharedHttpsAgent as unknown as { keepAlive: boolean }).keepAlive).toBe(true);
+  });
+
+  test('shared agent has rejectUnauthorized enabled for security', () => {
+    expect((sharedHttpsAgent.options as { rejectUnauthorized?: boolean }).rejectUnauthorized).toBe(true);
+  });
+
+  test('multiple requests use the same agent instance', async () => {
+    const mockResponse = {
+      data: { status: 'Success', result: { sandbox_id: '123' } },
+      headers: {},
+    };
+    const mockPost = jest.fn().mockResolvedValue(mockResponse);
+    const mockGet = jest.fn().mockResolvedValue(mockResponse);
+    
+    const capturedAgents: https.Agent[] = [];
+    mockedAxios.create = jest.fn().mockImplementation((config) => {
+      if (config?.httpsAgent) {
+        capturedAgents.push(config.httpsAgent);
+      }
+      return { post: mockPost, get: mockGet };
+    });
+
+    // Make multiple requests
+    await HttpUtils.post('http://test/api1', {}, {});
+    await HttpUtils.post('http://test/api2', {}, {});
+    await HttpUtils.get('http://test/api3', {});
+
+    // All requests should use the same agent instance (same reference)
+    expect(capturedAgents.length).toBe(3);
+    expect(capturedAgents[0]).toBe(sharedHttpsAgent);
+    expect(capturedAgents[1]).toBe(sharedHttpsAgent);
+    expect(capturedAgents[2]).toBe(sharedHttpsAgent);
+    
+    // All captured agents should be the exact same object reference
+    expect(capturedAgents[0]).toBe(capturedAgents[1]);
+    expect(capturedAgents[1]).toBe(capturedAgents[2]);
   });
 });

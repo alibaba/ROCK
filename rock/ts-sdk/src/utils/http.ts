@@ -8,6 +8,19 @@ import { PID_PREFIX, PID_SUFFIX } from '../common/constants.js';
 import { objectToCamel, objectToSnake } from './case.js';
 
 /**
+ * Shared HTTPS agent for connection pooling and TLS session reuse.
+ * Following Python SDK pattern: _SHARED_SSL_CONTEXT
+ * 
+ * This prevents performance degradation under load by:
+ * - Enabling TLS session reuse
+ * - Enabling connection pooling via keepAlive
+ */
+export const sharedHttpsAgent = new https.Agent({
+  rejectUnauthorized: true,
+  keepAlive: true,
+});
+
+/**
  * HTTP client configuration
  */
 export interface HttpConfig {
@@ -43,9 +56,7 @@ export class HttpUtils {
         'Content-Type': 'application/json',
         ...config?.headers,
       },
-      httpsAgent: new https.Agent({
-        rejectUnauthorized: true,
-      }),
+      httpsAgent: sharedHttpsAgent,
     });
   }
 
