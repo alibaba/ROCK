@@ -64,17 +64,34 @@ function getLogLevel(): string {
 }
 
 /**
- * Logger cache
+ * Logger cache using winston Container for proper lifecycle management
  */
-const loggerCache = new Map<string, winston.Logger>();
+const loggerContainer = new winston.Container();
+
+/**
+ * Get the number of cached loggers
+ */
+export function getLoggerCacheSize(): number {
+  return loggerContainer.loggers.size;
+}
+
+/**
+ * Clear all cached loggers
+ */
+export function clearLoggerCache(): void {
+  // Close all loggers and clear the cache
+  for (const name of loggerContainer.loggers.keys()) {
+    loggerContainer.close(name);
+  }
+}
 
 /**
  * Initialize and return a logger instance
  */
 export function initLogger(name: string = 'rock', fileName?: string): winston.Logger {
-  // Return cached logger if exists
-  if (loggerCache.has(name)) {
-    return loggerCache.get(name)!;
+  // Check if logger already exists in container
+  if (loggerContainer.has(name)) {
+    return loggerContainer.get(name);
   }
 
   const transports: winston.transport[] = [];
@@ -107,14 +124,12 @@ export function initLogger(name: string = 'rock', fileName?: string): winston.Lo
     );
   }
 
-  const logger = winston.createLogger({
+  // Use winston.Container to create and cache the logger
+  const logger = loggerContainer.add(name, {
     levels,
     defaultMeta: { service: name },
     transports,
   });
-
-  // Cache the logger
-  loggerCache.set(name, logger);
 
   return logger;
 }
