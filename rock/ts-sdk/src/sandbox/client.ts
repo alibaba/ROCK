@@ -624,12 +624,17 @@ export class Sandbox extends AbstractSandbox {
     const headers = this.buildHeaders();
 
     try {
-      const fs = await import('fs');
-      if (!fs.existsSync(sourcePath)) {
+      const fs = await import('fs/promises');
+      
+      // Use async access instead of sync existsSync
+      try {
+        await fs.access(sourcePath);
+      } catch {
         return { success: false, message: `File not found: ${sourcePath}` };
       }
 
-      const fileBuffer = fs.readFileSync(sourcePath);
+      // Use async readFile instead of sync readFileSync
+      const fileBuffer = await fs.readFile(sourcePath);
       const fileName = sourcePath.split('/').pop() ?? 'file';
 
       const response = await HttpUtils.postMultipart<void>(
