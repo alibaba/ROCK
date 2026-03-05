@@ -34,7 +34,7 @@ export { RunMode, RunModeType, PID_PREFIX, PID_SUFFIX } from './common/constants
 export { HttpUtils } from './utils/http.js';
 export { retryAsync, sleep, withRetry } from './utils/retry.js';
 export { deprecated, deprecatedClass } from './utils/deprecated.js';
-export { isNode, isBrowser, getEnv, getRequiredEnv, isEnvSet } from './utils/system.js';
+export { isNode, getEnv, getRequiredEnv, isEnvSet } from './utils/system.js';
 
 // EnvHub
 export * from './envhub/index.js';
