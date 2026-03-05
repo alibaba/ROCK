@@ -28,7 +28,7 @@ export {
   raiseForCode,
   fromRockException,
 } from './common/index.js';
-export { Constants, RunMode, RunModeType, PID_PREFIX, PID_SUFFIX } from './common/constants.js';
+export { RunMode, RunModeType, PID_PREFIX, PID_SUFFIX } from './common/constants.js';
 
 // Utils - explicit exports to avoid conflicts
 export { HttpUtils } from './utils/http.js';

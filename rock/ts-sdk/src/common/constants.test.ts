@@ -2,13 +2,14 @@
  * Tests for Constants
  */
 
-import { Constants, RunMode, PID_PREFIX, PID_SUFFIX } from './constants.js';
+import * as constantsModule from './constants.js';
+import { RunMode, PID_PREFIX, PID_SUFFIX } from './constants.js';
 
-describe('Constants', () => {
-  test('should have default values', () => {
-    expect(Constants.BASE_URL_PRODUCT).toBe('');
-    expect(Constants.BASE_URL_ALIYUN).toBe('');
-    expect(Constants.REQUEST_TIMEOUT_SECONDS).toBe(180);
+describe('Constants class removal', () => {
+  test('Constants class should NOT be exported (dead code removal)', () => {
+    // Constants class was deprecated with empty string values and never used
+    // It should be removed from the codebase
+    expect('Constants' in constantsModule).toBe(false);
   });
 });
 
