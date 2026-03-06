@@ -54,5 +54,6 @@ class ImageCleanupTask(BaseTask):
         result = await runtime.execute(Command(command=command, shell=True))
 
         pid = extract_nohup_pid(result.stdout)
+        logger.info(f"image cleanup task [{pid}] run successfully on worker[{runtime._config.host}]")
 
         return {"pid": pid, "disk_threshold": self.disk_threshold, "status": TaskStatusEnum.RUNNING}

@@ -1,6 +1,8 @@
 # rock/admin/scheduler/task_base.py
 import asyncio
 import json
+import os
+import traceback
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -147,7 +149,8 @@ class BaseTask(ABC):
             status.status = TaskStatusEnum.FAILED
             status.error = str(e)
             await self.save_task_status(runtime, status)
-            logger.error(f"execute task on worker error:[{e}]")
+            logger.exception(f"run action on worker[{ip}] error:[{e}]")
+            raise e
 
     async def get_task_status(self, runtime: RemoteSandboxRuntime) -> TaskStatus | None:
         """Get task status from worker."""
@@ -188,20 +191,16 @@ class BaseTask(ABC):
 
         return True
 
-    async def run_on_worker(self, ip: str) -> bool:
+    async def run_on_worker(self, ip: str):
         """Run task on a single worker."""
         runtime = self._get_runtime(ip)
-        try:
-            # Check if should run
-            if not await self.should_run(runtime):
-                return True
+        # Check if should run
+        if not await self.should_run(runtime):
+            return
 
-            # Run task (status managed in single_run)
-            await self.single_run(runtime, ip)
-            return True
-
-        except Exception:
-            return False
+        # Run task (status managed in single_run)
+        logger.info(f"[{self.type}] start to run task on worker[{ip}]")
+        await self.single_run(runtime, ip)
 
     async def run(self, worker_ips: list[str], max_concurrency: int = 50):
         """Run task on all workers with concurrency control.
@@ -212,10 +211,44 @@ class BaseTask(ABC):
         """
         semaphore = asyncio.Semaphore(max_concurrency)
 
-        async def run_with_limit(ip: str) -> bool:
+        async def run_with_limit(ip: str) -> tuple[str, bool, str | None]:
             async with semaphore:
-                return await self.run_on_worker(ip)
+                try:
+                    await self.run_on_worker(ip)
+                    return (ip, True, None)
+                except Exception:
+                    return (ip, False, traceback.format_exc())
 
         tasks = [run_with_limit(ip) for ip in worker_ips]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        return results
+        results = await asyncio.gather(*tasks)
+
+        # Collect success and failure statistics
+        success_ips = [ip for ip, success, _ in results if success]
+        failed_entries = [(ip, reason or "unknown error") for ip, success, reason in results if not success]
+
+        total_count = len(worker_ips)
+        success_count = len(success_ips)
+        failed_count = len(failed_entries)
+
+        logger.info(
+            f"[{self.type}] task completed: total={total_count}, success={success_count}, failed={failed_count}"
+        )
+
+        # Persist execution report to file
+        report = {
+            "task_type": self.type,
+            "timestamp": datetime.now().isoformat(),
+            "total": total_count,
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "success_ips": success_ips,
+            "failed_details": [{"ip": ip, "reason": reason} for ip, reason in failed_entries],
+        }
+        report_path = f"{env_vars.ROCK_SCHEDULER_STATUS_DIR}/{self.type}_run_report.json"
+        try:
+            os.makedirs(os.path.dirname(report_path), exist_ok=True)
+            with open(report_path, "w", encoding="utf-8") as report_file:
+                json.dump(report, report_file, indent=2, ensure_ascii=False)
+            logger.info(f"[{self.type}] run report saved to {report_path}")
+        except Exception as write_exc:
+            logger.error(f"[{self.type}] failed to save run report: {write_exc}")
