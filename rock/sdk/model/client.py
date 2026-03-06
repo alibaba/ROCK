@@ -4,6 +4,7 @@ import logging
 import time
 from pathlib import Path
 
+from rock import env_vars
 from rock.sdk.model.server.config import (
     LOG_FILE,
     REQUEST_END_MARKER,
@@ -58,16 +59,37 @@ class ModelClient:
         with open(self.log_file, "a") as f:
             f.write(content)
 
-    async def pop_request(self, index: int) -> str:
+    async def pop_request(self, index: int, timeout: float | None = env_vars.ROCK_MODEL_CLIENT_POLL_TIMEOUT) -> str:
+        """Pop the request with the given index from the log file.
+
+        Args:
+            index: The index of the request to pop.
+            timeout: Maximum time to wait in seconds. Uses ROCK_MODEL_CLIENT_POLL_TIMEOUT
+                     environment variable by default, or no timeout if not set.
+
+        Returns:
+            The request JSON string.
+
+        Raises:
+            TimeoutError: If timeout expires before the request is found.
+            asyncio.CancelledError: If the operation is cancelled.
+        """
+        start_time = time.monotonic()
         while True:
-            last_request_line = await self.read_last_request_line()
-            request_json, meta = await self.parse_request_line(last_request_line)
-            if SESSION_END_MARKER == request_json:
-                return SESSION_END_MARKER
-            if meta.get("index") == index:
-                return request_json
-            logger.debug(f"Last request {last_request_line} is not the index {index} we want, waiting...")
-            await asyncio.sleep(1)
+            if timeout is not None and time.monotonic() - start_time > timeout:
+                raise TimeoutError(f"pop_request timed out after {timeout} seconds")
+            try:
+                last_request_line = await self.read_last_request_line()
+                request_json, meta = await self.parse_request_line(last_request_line)
+                if SESSION_END_MARKER == request_json:
+                    return SESSION_END_MARKER
+                if meta.get("index") == index:
+                    return request_json
+                logger.debug(f"Last request {last_request_line} is not the index {index} we want, waiting...")
+                await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                logger.info(f"pop_request(index={index}) cancelled")
+                raise
 
     async def parse_request_line(self, line_content: str) -> tuple[str, dict]:
         if SESSION_END_MARKER in line_content:
@@ -106,20 +128,37 @@ class ModelClient:
                 line_index -= 1
             return None
 
-    async def wait_for_first_request(self):
+    async def wait_for_first_request(self, timeout: float | None = env_vars.ROCK_MODEL_CLIENT_POLL_TIMEOUT):
+        """Wait for the first request to be written to the log file.
+
+        Args:
+            timeout: Maximum time to wait in seconds. Uses ROCK_MODEL_CLIENT_POLL_TIMEOUT
+                     environment variable by default, or no timeout if not set.
+
+        Raises:
+            TimeoutError: If timeout expires before the first request appears.
+            asyncio.CancelledError: If the operation is cancelled.
+        """
+        start_time = time.monotonic()
         while True:
-            if not Path(self.log_file).exists():
-                logger.debug(f"Log file {self.log_file} not found, waiting...")
-                await asyncio.sleep(1)
-                continue
-            with open(self.log_file) as f:
-                lines = f.readlines()
-                if len(lines) == 0:
-                    logger.debug(f"Log file {self.log_file} is empty, waiting for the first request...")
+            if timeout is not None and time.monotonic() - start_time > timeout:
+                raise TimeoutError(f"wait_for_first_request timed out after {timeout} seconds")
+            try:
+                if not Path(self.log_file).exists():
+                    logger.debug(f"Log file {self.log_file} not found, waiting...")
                     await asyncio.sleep(1)
                     continue
-                else:
-                    return
+                with open(self.log_file) as f:
+                    lines = f.readlines()
+                    if len(lines) == 0:
+                        logger.debug(f"Log file {self.log_file} is empty, waiting for the first request...")
+                        await asyncio.sleep(1)
+                        continue
+                    else:
+                        return
+            except asyncio.CancelledError:
+                logger.info("wait_for_first_request cancelled")
+                raise
 
     async def _construct_response(self, last_response: str, index: int) -> str:
         meta = {
