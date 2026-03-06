@@ -38,6 +38,7 @@ from rock.admin.proto.response import SandboxListResponse, SandboxListStatusResp
 from rock.config import OssConfig, ProxyServiceConfig, RockConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
+from rock.common.port_validation import validate_port_forward_port
 from rock.logger import init_logger
 from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var
@@ -76,42 +77,6 @@ class SandboxProxyService:
         )
 
         self._batch_get_status_max_count = rock_config.proxy_service.batch_get_status_max_count
-
-    # Port forwarding constants
-    PORT_FORWARD_MIN_PORT = 1024
-    PORT_FORWARD_MAX_PORT = 65535
-    PORT_FORWARD_EXCLUDED_PORTS = {22}  # SSH port
-
-    def _validate_port(self, port: int) -> tuple[bool, str | None]:
-        """
-        Validate if the port is allowed for port forwarding.
-
-        Args:
-            port: The port number to validate.
-
-        Returns:
-            A tuple of (is_valid, error_message).
-            If valid, error_message is None.
-        """
-        logger.debug(
-            f"[Portforward] Validating port: port={port}, "
-            f"min={self.PORT_FORWARD_MIN_PORT}, max={self.PORT_FORWARD_MAX_PORT}, "
-            f"excluded={self.PORT_FORWARD_EXCLUDED_PORTS}"
-        )
-        if port < self.PORT_FORWARD_MIN_PORT:
-            error_msg = f"Port {port} is below minimum allowed port {self.PORT_FORWARD_MIN_PORT}"
-            logger.warning(f"[Portforward] Port validation failed: {error_msg}")
-            return False, error_msg
-        if port > self.PORT_FORWARD_MAX_PORT:
-            error_msg = f"Port {port} is above maximum allowed port {self.PORT_FORWARD_MAX_PORT}"
-            logger.warning(f"[Portforward] Port validation failed: {error_msg}")
-            return False, error_msg
-        if port in self.PORT_FORWARD_EXCLUDED_PORTS:
-            error_msg = f"Port {port} is not allowed for port forwarding"
-            logger.warning(f"[Portforward] Port validation failed: {error_msg}")
-            return False, error_msg
-        logger.debug(f"[Portforward] Port validation passed: port={port}")
-        return True, None
 
     @monitor_sandbox_operation()
     async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
@@ -297,7 +262,7 @@ class SandboxProxyService:
 
         # Validate port
         logger.debug(f"[Portforward] Validating port: sandbox={sandbox_id}, target_port={port}")
-        is_valid, error_msg = self._validate_port(port)
+        is_valid, error_msg = validate_port_forward_port(port)
         if not is_valid:
             logger.warning(f"[Portforward] Port validation failed: sandbox={sandbox_id}, target_port={port}, reason={error_msg}")
             raise ValueError(error_msg)

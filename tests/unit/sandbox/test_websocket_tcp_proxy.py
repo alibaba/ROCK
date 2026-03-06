@@ -6,56 +6,57 @@ from fastapi import FastAPI, WebSocket
 from fastapi.testclient import TestClient
 
 from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_sandbox_proxy_service
+from rock.common.port_validation import validate_port_forward_port
 
 
 class TestValidatePort:
-    """Tests for _validate_port method."""
+    """Tests for port validation function."""
 
-    def test_validate_port_accepts_valid_port_in_range(self, sandbox_proxy_service):
+    def test_validate_port_accepts_valid_port_in_range(self):
         """Valid port in allowed range should pass validation."""
-        is_valid, error = sandbox_proxy_service._validate_port(8080)
+        is_valid, error = validate_port_forward_port(8080)
         assert is_valid is True
         assert error is None
 
-    def test_validate_port_rejects_port_below_1024(self, sandbox_proxy_service):
+    def test_validate_port_rejects_port_below_1024(self):
         """Port below 1024 should be rejected."""
-        is_valid, error = sandbox_proxy_service._validate_port(1023)
+        is_valid, error = validate_port_forward_port(1023)
         assert is_valid is False
         assert "1024" in error
 
-    def test_validate_port_rejects_port_22(self, sandbox_proxy_service):
+    def test_validate_port_rejects_port_22(self):
         """SSH port 22 should be rejected even though it's in the excluded list."""
-        is_valid, error = sandbox_proxy_service._validate_port(22)
+        is_valid, error = validate_port_forward_port(22)
         assert is_valid is False
         assert "22" in error
 
-    def test_validate_port_rejects_port_above_65535(self, sandbox_proxy_service):
+    def test_validate_port_rejects_port_above_65535(self):
         """Port above 65535 should be rejected."""
-        is_valid, error = sandbox_proxy_service._validate_port(65536)
+        is_valid, error = validate_port_forward_port(65536)
         assert is_valid is False
         assert "65535" in error
 
-    def test_validate_port_accepts_min_allowed_port(self, sandbox_proxy_service):
+    def test_validate_port_accepts_min_allowed_port(self):
         """Minimum allowed port (1024) should pass validation."""
-        is_valid, error = sandbox_proxy_service._validate_port(1024)
+        is_valid, error = validate_port_forward_port(1024)
         assert is_valid is True
         assert error is None
 
-    def test_validate_port_accepts_max_allowed_port(self, sandbox_proxy_service):
+    def test_validate_port_accepts_max_allowed_port(self):
         """Maximum allowed port (65535) should pass validation."""
-        is_valid, error = sandbox_proxy_service._validate_port(65535)
+        is_valid, error = validate_port_forward_port(65535)
         assert is_valid is True
         assert error is None
 
-    def test_validate_port_rejects_zero_port(self, sandbox_proxy_service):
+    def test_validate_port_rejects_zero_port(self):
         """Port 0 should be rejected."""
-        is_valid, error = sandbox_proxy_service._validate_port(0)
+        is_valid, error = validate_port_forward_port(0)
         assert is_valid is False
         assert error is not None
 
-    def test_validate_port_rejects_negative_port(self, sandbox_proxy_service):
+    def test_validate_port_rejects_negative_port(self):
         """Negative port should be rejected."""
-        is_valid, error = sandbox_proxy_service._validate_port(-1)
+        is_valid, error = validate_port_forward_port(-1)
         assert is_valid is False
         assert error is not None
 
