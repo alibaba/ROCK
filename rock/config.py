@@ -128,6 +128,7 @@ class RuntimeConfig:
     python_env_path: str = field(default_factory=lambda: env_vars.ROCK_PYTHON_ENV_PATH)
     envhub_db_url: str = field(default_factory=lambda: env_vars.ROCK_ENVHUB_DB_URL)
     operator_type: str = "ray"
+    operator_types: list[str] = field(default_factory=list)
     standard_spec: StandardSpec = field(default_factory=StandardSpec)
     max_allowed_spec: StandardSpec = field(default_factory=lambda: StandardSpec(cpus=16, memory="64g"))
     use_standard_spec_only: bool = False
@@ -140,6 +141,13 @@ class RuntimeConfig:
             self.standard_spec = StandardSpec(**self.standard_spec)
         if isinstance(self.max_allowed_spec, dict):
             self.max_allowed_spec = StandardSpec(**self.max_allowed_spec)
+
+        # Backward compatibility: if operator_types is empty, populate from operator_type
+        if not self.operator_types:
+            self.operator_types = [self.operator_type]
+        # Keep operator_type as the default (first in the list)
+        if self.operator_types:
+            self.operator_type = self.operator_types[0]
 
         if not self.python_env_path:
             raise Exception(

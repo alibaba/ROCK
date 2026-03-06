@@ -81,7 +81,7 @@ async def lifespan(app: FastAPI):
             nacos_provider=rock_config.nacos_provider,
             k8s_config=rock_config.k8s,
         )
-        operator = OperatorFactory.create_operator(operator_context)
+        operator = OperatorFactory.create_composite_operator(operator_context)
 
         # init service
         if rock_config.runtime.enable_auto_clear:

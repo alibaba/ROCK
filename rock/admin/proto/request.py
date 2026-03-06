@@ -33,6 +33,8 @@ class SandboxStartRequest(BaseModel):
     """Password for Docker registry authentication. When both username and password are provided, docker login will be performed before pulling the image."""
     use_kata_runtime: bool = False
     """Whether to use kata container runtime (io.containerd.kata.v2) instead of --privileged mode."""
+    operator_type: str | None = None
+    """The operator type to use for this sandbox (e.g., 'ray', 'k8s'). If None, uses the default operator."""
 
 
 class SandboxCommand(Command):

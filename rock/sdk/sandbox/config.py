@@ -42,6 +42,8 @@ class SandboxConfig(BaseConfig):
     registry_username: str | None = None
     registry_password: str | None = None
     use_kata_runtime: bool = False
+    operator_type: str = "ray"
+    """The operator type to use for this sandbox (e.g., 'ray', 'k8s'). If None, uses the server default."""
 
 
 class SandboxGroupConfig(SandboxConfig):
