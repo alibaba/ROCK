@@ -25,6 +25,7 @@ from rock.admin.proto.request import SandboxCommand as Command
 from rock.admin.proto.request import SandboxCreateSessionRequest as CreateSessionRequest
 from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
+from rock.common.port_validation import validate_port_forward_port
 from rock.logger import init_logger
 from rock.rocklet.local_sandbox import LocalSandboxRuntime
 from rock.utils import get_executor
@@ -33,10 +34,7 @@ logger = init_logger(__name__)
 
 local_router = APIRouter()
 
-# Constants for port forwarding
-MIN_ALLOWED_PORT = 1024
-MAX_ALLOWED_PORT = 65535
-FORBIDDEN_PORTS = {22}  # SSH port is not allowed
+# Timeouts for port forwarding
 TCP_CONNECT_TIMEOUT = 10  # seconds
 IDLE_TIMEOUT = 300  # seconds
 
@@ -143,35 +141,6 @@ async def env_list() -> EnvListResponse:
     return runtime.env_list()
 
 
-def _validate_port(port: int) -> tuple[bool, str]:
-    """Validate port number for port forwarding.
-
-    Args:
-        port: Port number to validate
-
-    Returns:
-        Tuple of (is_valid, error_message)
-    """
-    logger.debug(
-        f"[Portforward] Validating port: port={port}, "
-        f"min={MIN_ALLOWED_PORT}, max={MAX_ALLOWED_PORT}, forbidden={FORBIDDEN_PORTS}"
-    )
-    if port < MIN_ALLOWED_PORT:
-        error_msg = f"Port {port} is not allowed. Minimum allowed port is {MIN_ALLOWED_PORT}"
-        logger.warning(f"[Portforward] Port validation failed: {error_msg}")
-        return False, error_msg
-    if port > MAX_ALLOWED_PORT:
-        error_msg = f"Port {port} is not allowed. Maximum allowed port is {MAX_ALLOWED_PORT}"
-        logger.warning(f"[Portforward] Port validation failed: {error_msg}")
-        return False, error_msg
-    if port in FORBIDDEN_PORTS:
-        error_msg = f"Port {port} is not allowed for port forwarding"
-        logger.warning(f"[Portforward] Port validation failed: {error_msg}")
-        return False, error_msg
-    logger.debug(f"[Portforward] Port validation passed: port={port}")
-    return True, ""
-
-
 @local_router.websocket("/portforward")
 async def portforward(websocket: WebSocket, port: int):
     """WebSocket endpoint for TCP port forwarding.
@@ -197,7 +166,7 @@ async def portforward(websocket: WebSocket, port: int):
 
     # Validate port
     logger.debug(f"[Portforward] Validating port: target_port={port}")
-    is_valid, error_message = _validate_port(port)
+    is_valid, error_message = validate_port_forward_port(port)
     if not is_valid:
         logger.warning(f"[Portforward] Port validation failed: target_port={port}, reason={error_message}")
         await websocket.close(code=1008, reason=error_message)
