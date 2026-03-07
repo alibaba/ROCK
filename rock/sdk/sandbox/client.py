@@ -192,6 +192,7 @@ class Sandbox(AbstractSandbox):
         self._host_ip = response.get("result").get("host_ip")
 
         start_time = time.time()
+        poll_count = 0
         while time.time() - start_time < self.config.startup_timeout:
             sandbox_info = await self.get_status()
             logging.debug(f"Get status response: {sandbox_info}")
@@ -200,10 +201,38 @@ class Sandbox(AbstractSandbox):
             error_msg = await self._parse_error_message_from_status(sandbox_info.status)
             if error_msg:
                 raise InternalServerRockError(f"Failed to start sandbox because {error_msg}, sandbox: {str(self)}")
-            await asyncio.sleep(3)
+            poll_count += 1
+            interval = self._calculate_poll_interval(poll_count, enable_backoff=True)
+            await asyncio.sleep(interval)
         raise InternalServerRockError(
             f"Failed to start sandbox within {self.config.startup_timeout}s, sandbox: {str(self)}"
         )
+
+    @staticmethod
+    def _calculate_poll_interval(
+        poll_count: int,
+        enable_backoff: bool = True,
+        base_interval: int = 3,
+        max_interval: int = 15,
+        backoff_threshold: int = 5,
+        backoff_step: int = 2,
+    ) -> int:
+        """Calculate the polling interval with optional gradual backoff.
+
+        Args:
+            poll_count: Current poll iteration number (1-based).
+            enable_backoff: Whether to enable gradual backoff after the threshold.
+            base_interval: Base polling interval in seconds.
+            max_interval: Maximum polling interval in seconds.
+            backoff_threshold: Number of polls after which backoff begins.
+            backoff_step: Seconds to add per poll beyond the threshold.
+
+        Returns:
+            The polling interval in seconds.
+        """
+        if not enable_backoff or poll_count < backoff_threshold:
+            return base_interval
+        return min(base_interval + (poll_count - backoff_threshold + 1) * backoff_step, max_interval)
 
     async def is_alive(self) -> IsAliveResponse:
         try:
