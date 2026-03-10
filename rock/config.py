@@ -50,6 +50,7 @@ class SandboxConfig:
     actor_resource: str = ""
     actor_resource_num: float = 0.0
     gateway_num: int = 1
+    remove_container_enabled: bool = True
 
 
 @dataclass
@@ -130,6 +131,7 @@ class RuntimeConfig:
     operator_type: str = "ray"
     standard_spec: StandardSpec = field(default_factory=StandardSpec)
     max_allowed_spec: StandardSpec = field(default_factory=lambda: StandardSpec(cpus=16, memory="64g"))
+    use_standard_spec_only: bool = False
     metrics_endpoint: str = ""
     user_defined_tags: dict = field(default_factory=dict)
 
