@@ -50,7 +50,7 @@ class SandboxConfig:
     actor_resource: str = ""
     actor_resource_num: float = 0.0
     gateway_num: int = 1
-    enable_remove_container: bool = True
+    remove_container_enabled: bool = True
 
 
 @dataclass
