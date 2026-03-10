@@ -64,7 +64,7 @@ class DockerRuntimeEnv(RuntimeEnv):
 
         Makes the docker_run.sh script executable and executes it.
         """
-        cmd = f"cp /tmp/local_files/docker_run.sh /tmp/docker_run.sh && chmod +x /tmp/docker_run.sh && /tmp/docker_run.sh {Port.PROXY}"
+        cmd = f"cp /tmp/local_files/docker_run.sh /tmp/docker_run.sh && chmod +x /tmp/docker_run.sh && (command -v bash >/dev/null 2>&1 && bash /tmp/docker_run.sh {Port.PROXY} || sh /tmp/docker_run.sh {Port.PROXY})"
         return cmd
 
 
@@ -119,7 +119,7 @@ class LocalRuntimeEnv(RuntimeEnv):
 
         Makes the docker_run.sh script executable and executes it.
         """
-        cmd = f"cp /tmp/local_files/docker_run.sh /tmp/docker_run.sh && chmod +x /tmp/docker_run.sh && /tmp/docker_run.sh {Port.PROXY}"
+        cmd = f"cp /tmp/local_files/docker_run.sh /tmp/docker_run.sh && chmod +x /tmp/docker_run.sh && (command -v bash >/dev/null 2>&1 && bash /tmp/docker_run.sh {Port.PROXY} || sh /tmp/docker_run.sh {Port.PROXY})"
         return cmd
 
 
