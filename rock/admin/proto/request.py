@@ -24,7 +24,9 @@ class SandboxStartRequest(BaseModel):
     memory: str = "8g"
     """The amount of memory to allocate for the container."""
     cpus: float = 2
-    """The amount of CPUs to allocate for the container."""
+    """The amount of CPUs to allocate for the container. Used as --cpu-shares (cpus * 1024)."""
+    limit_cpus: float | None = None
+    """Hard limit on the number of CPU cores the container can use. Used as --cpus."""
     sandbox_id: str | None = Field(default=None)
     """The id of the sandbox."""
     registry_username: str | None = None

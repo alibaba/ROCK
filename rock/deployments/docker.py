@@ -290,6 +290,9 @@ class DockerDeployment(AbstractDeployment):
         return [f"--memory={self.config.memory}", f"--memory-swap={self.config.memory}"]
 
     def _cpus(self):
+        if self.config.limit_cpus is not None:
+            cpu_shares = int(self.config.cpus * 1024)
+            return [f"--cpu-shares={cpu_shares}", f"--cpus={self.config.limit_cpus}"]
         return [f"--cpus={self.config.cpus}"]
 
     async def start(self):

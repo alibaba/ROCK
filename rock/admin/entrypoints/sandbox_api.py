@@ -25,7 +25,7 @@ from rock.admin.proto.request import (
     StartHeaders,
 )
 from rock.admin.proto.response import SandboxStartResponse
-from rock.common.constants import GET_STATUS_SWITCH, KATA_RUNTIME_SWITCH, SUPPORT_KATA_SWITCH
+from rock.common.constants import CPU_PREEMPT_SWITCH, GET_STATUS_SWITCH, KATA_RUNTIME_SWITCH, SUPPORT_KATA_SWITCH
 from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.utils import handle_exceptions
@@ -53,11 +53,25 @@ async def _apply_kata_runtime_switch(config: DockerDeploymentConfig) -> None:
         config.use_kata_runtime = False
 
 
+async def _apply_cpu_preempt_switch(config: DockerDeploymentConfig) -> None:
+    """Check nacos switch and enable CPU preemption on the config if the switch is on.
+
+    When the switch is off, limit_cpus will be
+    cleared so that --cpus is not passed to docker run.
+    """
+    if (
+        sandbox_manager.rock_config.nacos_provider is not None
+        and not await sandbox_manager.rock_config.nacos_provider.get_switch_status(CPU_PREEMPT_SWITCH, False)
+    ):
+        config.limit_cpus = None
+
+
 @sandbox_router.post("/start")
 @handle_exceptions(error_message="start sandbox failed")
 async def start(request: SandboxStartRequest) -> RockResponse[SandboxStartResponse]:
     config = DockerDeploymentConfig.from_request(request)
     await _apply_kata_runtime_switch(config)
+    await _apply_cpu_preempt_switch(config)
     sandbox_start_response = await sandbox_manager.start(config)
     return RockResponse(result=sandbox_start_response)
 
@@ -70,6 +84,7 @@ async def start_async(
 ) -> RockResponse[SandboxStartResponse]:
     config = DockerDeploymentConfig.from_request(request)
     await _apply_kata_runtime_switch(config)
+    await _apply_cpu_preempt_switch(config)
     sandbox_start_response = await sandbox_manager.start_async(
         config,
         user_info=headers.user_info,
