@@ -179,6 +179,7 @@ class Sandbox(AbstractSandbox):
             "use_kata_runtime": self.config.use_kata_runtime,
             "limit_cpus": self.config.limit_cpus,
             "sandbox_id": self.config.sandbox_id,
+            "auto_delete_seconds": self.config.auto_delete_seconds,
         }
         try:
             response = await HttpUtils.post(url, headers, data)

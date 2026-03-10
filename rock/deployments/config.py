@@ -176,7 +176,11 @@ class DockerDeploymentConfig(DeploymentConfig):
     @classmethod
     def from_request(cls, request: SandboxStartRequest) -> DeploymentConfig:
         """Create DockerDeploymentConfig from SandboxStartRequest"""
-        return cls(**request.model_dump(exclude={"sandbox_id"}), container_name=request.sandbox_id)
+        return cls(
+            **request.model_dump(exclude={"sandbox_id", "auto_delete_seconds"}),
+            container_name=request.sandbox_id,
+            remove_container=(request.auto_delete_seconds == 0),
+        )
 
 
 class RayDeploymentConfig(DockerDeploymentConfig):

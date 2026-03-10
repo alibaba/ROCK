@@ -44,6 +44,7 @@ class SandboxConfig(BaseConfig):
     registry_password: str | None = None
     use_kata_runtime: bool = False
     sandbox_id: str | None = None
+    auto_delete_seconds: int = 0
 
 
 class SandboxGroupConfig(SandboxConfig):
