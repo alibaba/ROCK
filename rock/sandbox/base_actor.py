@@ -37,6 +37,7 @@ class BaseActor:
     _namespace = "default"
     _metrics_endpoint = ""
     _user_defined_tags: dict = {}
+    _created_time: float = None
 
     def __init__(
         self,
@@ -48,6 +49,7 @@ class BaseActor:
         self._gauges: dict[str, _Gauge] = {}
         if isinstance(config, DockerDeploymentConfig) and config.auto_clear_time:
             self._auto_clear_time_in_minutes = config.auto_clear_time
+        self._created_time = time.monotonic()
         self._stop_time = datetime.datetime.now() + datetime.timedelta(minutes=self._auto_clear_time_in_minutes)
         # Initialize the user and environment info - can be overridden by subclasses
         self._role = "test"
@@ -103,6 +105,9 @@ class BaseActor:
         self._gauges["net"] = self.meter.create_gauge(
             name="xrl_gateway.system.network", description="Network Usage", unit="1"
         )
+        self._gauges["rt"] = self.meter.create_gauge(
+            name="xrl_gateway.system.lifespan_rt", description="Life Span Rt", unit="1"
+        )
 
     async def _setup_monitor(self):
         if not env_vars.ROCK_MONITOR_ENABLE:
@@ -152,19 +157,20 @@ class BaseActor:
                 return
             logger.debug(f"sandbox [{sandbox_id}] metrics = {metrics}")
 
+            attributes = {
+                "sandbox_id": sandbox_id,
+                "env": self._env,
+                "role": self._role,
+                "host": self.host,
+                "ip": self._ip,
+                "user_id": self._user_id,
+                "experiment_id": self._experiment_id,
+                "namespace": self._namespace,
+            }
+            if self._user_defined_tags is not None:
+                attributes.update(self._user_defined_tags)
+
             if metrics.get("cpu") is not None:
-                attributes = {
-                    "sandbox_id": sandbox_id,
-                    "env": self._env,
-                    "role": self._role,
-                    "host": self.host,
-                    "ip": self._ip,
-                }
-                if self._user_defined_tags is not None:
-                    attributes.update(self._user_defined_tags)
-                attributes["user_id"] = self._user_id
-                attributes["experiment_id"] = self._experiment_id
-                attributes["namespace"] = self._namespace
                 self._gauges["cpu"].set(metrics["cpu"], attributes=attributes)
                 self._gauges["mem"].set(metrics["mem"], attributes=attributes)
                 self._gauges["disk"].set(metrics["disk"], attributes=attributes)
@@ -173,6 +179,9 @@ class BaseActor:
                 logger.debug(f"Successfully reported metrics for sandbox: {sandbox_id}")
             else:
                 logger.warning(f"No metrics returned for sandbox: {sandbox_id}")
+
+            life_span_rt = time.monotonic() - self._created_time
+            self._gauges["rt"].set(life_span_rt, attributes=attributes)
             single_sandbox_report_rt = time.perf_counter() - start
             logger.debug(f"Single sandbox report rt:{single_sandbox_report_rt:.4f}s")
 
