@@ -9,8 +9,8 @@ from fastapi.responses import JSONResponse
 from rock.admin.metrics.monitor import MetricsMonitor
 from rock.sdk.model.server.config import TRAJ_FILE
 
-INFERENCE_RT = "model_service.request.rt"
-INFERENCE_STEP_COUNT = "model_service.request.step_count"
+MODEL_SERVICE_REQUEST_RT = "model_service.request.rt"
+MODEL_SERVICE_REQUEST_COUNT = "model_service.request.count"
 
 _metrics_monitor: MetricsMonitor | None = None
 
@@ -20,8 +20,8 @@ def _get_or_create_fallback_metrics_monitor() -> MetricsMonitor:
     if _metrics_monitor is None:
         endpoint = os.getenv("ROCK_METRICS_ENDPOINT", "localhost:4318/v1/metrics")
         _metrics_monitor = MetricsMonitor.create(metrics_endpoint=endpoint)
-        _metrics_monitor._register_gauge(INFERENCE_RT, "total execution time for request", "ms")
-        _metrics_monitor._register_counter(INFERENCE_STEP_COUNT, "total request count", "count")
+        _metrics_monitor._register_gauge(MODEL_SERVICE_REQUEST_RT, "total execution time for request", "ms")
+        _metrics_monitor._register_counter(MODEL_SERVICE_REQUEST_COUNT, "total request count", "count")
     return _metrics_monitor
 
 
@@ -63,8 +63,8 @@ def record_traj(func: Callable):
         monitor = _get_or_create_fallback_metrics_monitor()
         attr = {"type": "chat_completions"}
         attr["sandbox_id"] = os.getenv("ROCK_SANDBOX_ID", "unknown")
-        monitor.record_gauge_by_name(INFERENCE_RT, rt, attributes=attr)
-        monitor.record_counter_by_name(INFERENCE_STEP_COUNT, 1, attributes=attr)
+        monitor.record_gauge_by_name(MODEL_SERVICE_REQUEST_RT, rt, attributes=attr)
+        monitor.record_counter_by_name(MODEL_SERVICE_REQUEST_COUNT, 1, attributes=attr)
         return result
 
     return wrapper
