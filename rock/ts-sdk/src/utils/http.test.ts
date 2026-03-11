@@ -2,13 +2,53 @@
  * HTTP utilities tests - case conversion integration
  */
 
-import axios from 'axios';
+import axios, { AxiosError, AxiosResponse } from 'axios';
 import https from 'https';
 import { HttpUtils, HttpResponse, sharedHttpsAgent } from './http.js';
+
+// Save the real AxiosError class before mocking axios
+// This is necessary for instanceof checks in HTTP error tests
+const RealAxiosError = AxiosError;
 
 // Mock axios
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
+
+/**
+ * Helper to create a proper AxiosResponse for tests
+ */
+function createMockResponse(status: number, statusText: string, data: unknown = {}): AxiosResponse {
+  return {
+    status,
+    statusText,
+    headers: {},
+    data,
+    config: {} as any,
+    request: {} as any,
+  };
+}
+
+/**
+ * Helper to create an AxiosError with response property properly set
+ * (needed for Jest environment where constructor doesn't set response)
+ */
+function createAxiosError(
+  message: string,
+  code: string,
+  status: number,
+  statusText: string,
+  data: unknown = {}
+): AxiosError {
+  const error = new RealAxiosError(
+    message,
+    code,
+    { headers: {} } as any,
+    { url: 'http://test/api', method: 'POST' } as any
+  );
+  // Manually set response property (axios does this internally)
+  (error as any).response = createMockResponse(status, statusText, data);
+  return error;
+}
 
 // Mock FormData for Node.js environment
 class MockFormData {
@@ -337,5 +377,110 @@ describe('HttpUtils shared https.Agent', () => {
     // All captured agents should be the exact same object reference
     expect(capturedAgents[0]).toBe(capturedAgents[1]);
     expect(capturedAgents[1]).toBe(capturedAgents[2]);
+  });
+});
+
+describe('HttpUtils HTTP error handling', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe('post', () => {
+    test('preserves response property in HTTP errors (e.g., 401 Unauthorized)', async () => {
+      const axiosError = createAxiosError(
+        'Request failed with status code 401',
+        'ERR_BAD_REQUEST',
+        401,
+        'Unauthorized',
+        { error: 'Invalid API key' }
+      );
+
+      const mockPost = jest.fn().mockRejectedValue(axiosError);
+      mockedAxios.create = jest.fn().mockReturnValue({ post: mockPost });
+
+      const error = await HttpUtils.post('http://test/api', {}, {}).catch(e => e);
+
+      // Verify: error should be AxiosError with response property preserved
+      expect(error).toBeInstanceOf(RealAxiosError);
+      expect(error.response).toBeDefined();
+      expect(error.response.status).toBe(401);
+      expect(error.response.statusText).toBe('Unauthorized');
+    });
+
+    test('preserves response property for 403 Forbidden', async () => {
+      const axiosError = createAxiosError(
+        'Request failed with status code 403',
+        'ERR_BAD_REQUEST',
+        403,
+        'Forbidden',
+        { error: 'Permission denied' }
+      );
+
+      const mockPost = jest.fn().mockRejectedValue(axiosError);
+      mockedAxios.create = jest.fn().mockReturnValue({ post: mockPost });
+
+      const error = await HttpUtils.post('http://test/api', {}, {}).catch(e => e);
+
+      expect(error).toBeInstanceOf(RealAxiosError);
+      expect(error.response.status).toBe(403);
+    });
+
+    test('preserves response property for 500 Internal Server Error', async () => {
+      const axiosError = createAxiosError(
+        'Request failed with status code 500',
+        'ERR_BAD_RESPONSE',
+        500,
+        'Internal Server Error',
+        { error: 'Database connection failed' }
+      );
+
+      const mockPost = jest.fn().mockRejectedValue(axiosError);
+      mockedAxios.create = jest.fn().mockReturnValue({ post: mockPost });
+
+      const error = await HttpUtils.post('http://test/api', {}, {}).catch(e => e);
+
+      expect(error).toBeInstanceOf(RealAxiosError);
+      expect(error.response.status).toBe(500);
+    });
+  });
+
+  describe('get', () => {
+    test('preserves response property in HTTP errors', async () => {
+      const axiosError = createAxiosError(
+        'Request failed with status code 404',
+        'ERR_BAD_REQUEST',
+        404,
+        'Not Found',
+        { error: 'Resource not found' }
+      );
+
+      const mockGet = jest.fn().mockRejectedValue(axiosError);
+      mockedAxios.create = jest.fn().mockReturnValue({ get: mockGet });
+
+      const error = await HttpUtils.get('http://test/api', {}).catch(e => e);
+
+      expect(error).toBeInstanceOf(RealAxiosError);
+      expect(error.response.status).toBe(404);
+    });
+  });
+
+  describe('postMultipart', () => {
+    test('preserves response property in HTTP errors', async () => {
+      const axiosError = createAxiosError(
+        'Request failed with status code 413',
+        'ERR_BAD_REQUEST',
+        413,
+        'Payload Too Large',
+        { error: 'File size exceeds limit' }
+      );
+
+      const mockPost = jest.fn().mockRejectedValue(axiosError);
+      mockedAxios.create = jest.fn().mockReturnValue({ post: mockPost });
+
+      const error = await HttpUtils.postMultipart('http://test/upload', {}, {}, {}).catch(e => e);
+
+      expect(error).toBeInstanceOf(RealAxiosError);
+      expect(error.response.status).toBe(413);
+    });
   });
 });

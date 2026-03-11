@@ -95,9 +95,8 @@ export class HttpUtils {
       }
       return httpResponse;
     } catch (error) {
-      if (error instanceof AxiosError) {
-        throw new Error(`Failed to POST ${url}: ${error.message}`);
-      }
+      // Re-throw original error to preserve response property (e.g., status code)
+      // This allows callers to detect specific HTTP errors like 401, 403, etc.
       throw error;
     }
   }
@@ -128,9 +127,7 @@ export class HttpUtils {
       }
       return httpResponse;
     } catch (error) {
-      if (error instanceof AxiosError) {
-        throw new Error(`Failed to GET ${url}: ${error.message}`);
-      }
+      // Re-throw original error to preserve response property (e.g., status code)
       throw error;
     }
   }
@@ -230,9 +227,7 @@ export class HttpUtils {
       }
       return httpResponse;
     } catch (error) {
-      if (error instanceof AxiosError) {
-        throw new Error(`Failed to POST multipart ${url}: ${error.message}`);
-      }
+      // Re-throw original error to preserve response property (e.g., status code)
       throw error;
     }
   }
