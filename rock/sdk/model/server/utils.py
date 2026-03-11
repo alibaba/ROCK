@@ -9,6 +9,8 @@ from fastapi.responses import JSONResponse
 from rock.admin.metrics.monitor import MetricsMonitor
 from rock.sdk.model.server.config import TRAJ_FILE
 
+INFERENCE_RT = "model_service.request.rt"
+
 _metrics_monitor: MetricsMonitor | None = None
 
 
@@ -17,7 +19,7 @@ def _get_or_create_fallback_metrics_monitor() -> MetricsMonitor:
     if _metrics_monitor is None:
         endpoint = os.getenv("ROCK_METRICS_ENDPOINT", "localhost:4318/v1/metrics")
         _metrics_monitor = MetricsMonitor.create(metrics_endpoint=endpoint)
-        _metrics_monitor._register_gauge("request.llm.rt", "total execution time for request", "ms")
+        _metrics_monitor._register_gauge(INFERENCE_RT, "total execution time for request", "ms")
     return _metrics_monitor
 
 
@@ -59,7 +61,7 @@ def record_traj(func: Callable):
         monitor = _get_or_create_fallback_metrics_monitor()
         attr = {"type": "chat_completions"}
         attr["sandbox_id"] = os.getenv("ROCK_SANDBOX_ID", "unknown")
-        monitor.record_gauge_by_name("request.llm.rt", rt, attributes=attr)
+        monitor.record_gauge_by_name(INFERENCE_RT, rt, attributes=attr)
         return result
 
     return wrapper
