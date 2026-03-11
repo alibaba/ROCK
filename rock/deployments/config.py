@@ -121,6 +121,9 @@ class DockerDeploymentConfig(DeploymentConfig):
     extended_params: dict[str, str] = Field(default_factory=dict)
     """Generic extension field for storing custom string key-value pairs."""
 
+    operator_type: str | None = None
+    """The operator type to use for this sandbox (e.g., 'ray', 'k8s'). If None, uses the default operator."""
+
     @model_validator(mode="before")
     def validate_platform_args(cls, data: dict) -> dict:
         """Validate and extract platform arguments from docker_args.
