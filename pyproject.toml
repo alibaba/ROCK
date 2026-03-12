@@ -61,6 +61,7 @@ rocklet = [
     "psutil",
     "twisted",
     "gem-llm>=0.1.0",
+    "numpy<=2.2.6",
 ]
 
 sandbox-actor = [

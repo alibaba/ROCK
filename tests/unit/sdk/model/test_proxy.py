@@ -9,6 +9,12 @@ from httpx import ASGITransport, AsyncClient, HTTPStatusError, Request, Response
 from rock.sdk.model.server.api.proxy import perform_llm_request, proxy_router
 from rock.sdk.model.server.config import ModelServiceConfig
 from rock.sdk.model.server.main import create_config_from_args, lifespan
+from rock.sdk.model.server.utils import (
+    MODEL_SERVICE_REQUEST_COUNT,
+    MODEL_SERVICE_REQUEST_RT,
+    _get_or_create_metrics_monitor,
+    record_traj,
+)
 
 # Initialize a temporary FastAPI application for testing the router
 test_app = FastAPI()
@@ -420,3 +426,139 @@ async def test_config_file_overrides_defaults(tmp_path):
     assert config.proxy_rules["test-model"] == "http://test-backend"
     # Verify other fields remain as defaults
     assert config.proxy_base_url is None
+
+
+def test_metrics_monitor_is_singleton():
+    """
+    Test that _get_or_create_metrics_monitor returns the same instance
+    on repeated calls (module-level singleton, created only once).
+    """
+    import rock.sdk.model.server.utils as utils_module
+
+    with patch("rock.sdk.model.server.utils.MetricsMonitor") as mock_cls:
+        mock_monitor = MagicMock()
+        mock_cls.create.return_value = mock_monitor
+
+        # Reset singleton so the test is isolated
+        utils_module._metrics_monitor = None
+
+        first = _get_or_create_metrics_monitor()
+        second = _get_or_create_metrics_monitor()
+
+        assert first is second
+        assert mock_cls.create.call_count == 1
+
+        # Cleanup
+        utils_module._metrics_monitor = None
+
+
+def test_metrics_monitor_uses_env_endpoint():
+    """
+    Test that ROCK_METRICS_ENDPOINT env var is passed to MetricsMonitor.create().
+    """
+    import rock.sdk.model.server.utils as utils_module
+
+    custom_endpoint = "http://my-otel-collector:4318/v1/metrics"
+
+    with patch("rock.sdk.model.server.utils.MetricsMonitor") as mock_cls, patch.dict(
+        "os.environ", {"ROCK_METRICS_ENDPOINT": custom_endpoint}
+    ):
+        mock_monitor = MagicMock()
+        mock_cls.create.return_value = mock_monitor
+
+        utils_module._metrics_monitor = None
+        _get_or_create_metrics_monitor()
+
+        mock_cls.create.assert_called_once_with(metrics_endpoint=custom_endpoint)
+
+        utils_module._metrics_monitor = None
+
+
+def test_metrics_monitor_registers_gauge_and_counter():
+    """
+    Test that _get_or_create_metrics_monitor registers both
+    the RT gauge and request count counter on first creation.
+    """
+    import rock.sdk.model.server.utils as utils_module
+
+    with patch("rock.sdk.model.server.utils.MetricsMonitor") as mock_cls:
+        mock_monitor = MagicMock()
+        mock_cls.create.return_value = mock_monitor
+
+        utils_module._metrics_monitor = None
+        _get_or_create_metrics_monitor()
+
+        mock_monitor._register_gauge.assert_called_once_with(
+            MODEL_SERVICE_REQUEST_RT, "total execution time for request", "ms"
+        )
+        mock_monitor._register_counter.assert_called_once_with(
+            MODEL_SERVICE_REQUEST_COUNT, "total request count", "count"
+        )
+
+        utils_module._metrics_monitor = None
+
+
+@pytest.mark.asyncio
+async def test_record_traj_reports_rt_and_count():
+    """
+    Test that record_traj decorator calls record_gauge_by_name (RT)
+    and record_counter_by_name (count) with correct metric names and attributes.
+    """
+    import rock.sdk.model.server.utils as utils_module
+
+    mock_monitor = MagicMock()
+
+    with patch("rock.sdk.model.server.utils.MetricsMonitor") as mock_cls, patch.dict(
+        "os.environ", {"ROCK_SANDBOX_ID": "sandbox-test-001"}
+    ):
+        mock_cls.create.return_value = mock_monitor
+        utils_module._metrics_monitor = None
+
+        @record_traj
+        async def fake_handler(body: dict):
+            return {"id": "resp-1", "choices": []}
+
+        await fake_handler({"model": "gpt-4", "messages": []})
+
+        mock_monitor.record_gauge_by_name.assert_called_once()
+        gauge_call = mock_monitor.record_gauge_by_name.call_args
+        assert gauge_call[0][0] == MODEL_SERVICE_REQUEST_RT
+        assert gauge_call[1]["attributes"]["type"] == "chat_completions"
+        assert gauge_call[1]["attributes"]["sandbox_id"] == "sandbox-test-001"
+
+        mock_monitor.record_counter_by_name.assert_called_once()
+        counter_call = mock_monitor.record_counter_by_name.call_args
+        assert counter_call[0][0] == MODEL_SERVICE_REQUEST_COUNT
+        assert counter_call[0][1] == 1
+        assert counter_call[1]["attributes"]["sandbox_id"] == "sandbox-test-001"
+
+        utils_module._metrics_monitor = None
+
+
+@pytest.mark.asyncio
+async def test_record_traj_sandbox_id_defaults_to_unknown():
+    """
+    Test that sandbox_id defaults to 'unknown' when ROCK_SANDBOX_ID is not set.
+    """
+    import rock.sdk.model.server.utils as utils_module
+
+    mock_monitor = MagicMock()
+
+    with patch("rock.sdk.model.server.utils.MetricsMonitor") as mock_cls, patch.dict("os.environ", {}, clear=False):
+        # Ensure ROCK_SANDBOX_ID is not set
+        os_env = __import__("os").environ
+        os_env.pop("ROCK_SANDBOX_ID", None)
+
+        mock_cls.create.return_value = mock_monitor
+        utils_module._metrics_monitor = None
+
+        @record_traj
+        async def fake_handler(body: dict):
+            return {"id": "resp-2", "choices": []}
+
+        await fake_handler({"model": "gpt-4", "messages": []})
+
+        gauge_call = mock_monitor.record_gauge_by_name.call_args
+        assert gauge_call[1]["attributes"]["sandbox_id"] == "unknown"
+
+        utils_module._metrics_monitor = None

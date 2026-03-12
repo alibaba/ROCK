@@ -38,6 +38,7 @@ from rock.admin.proto.response import SandboxListResponse, SandboxListStatusResp
 from rock.config import OssConfig, ProxyServiceConfig, RockConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
+from rock.common.port_validation import validate_port_forward_port
 from rock.logger import init_logger
 from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var
@@ -232,6 +233,342 @@ class SandboxProxyService:
         except Exception as e:
             logger.error(f"WebSocket proxy error: {e}")
             await client_websocket.close(code=1011, reason=f"Proxy error: {str(e)}")
+
+    async def websocket_to_tcp_proxy(
+        self,
+        client_websocket,
+        sandbox_id: str,
+        port: int,
+        tcp_connect_timeout: float = 10.0,
+        idle_timeout: float = 300.0,
+    ) -> None:
+        """
+        Proxy WebSocket connection to a TCP port inside the sandbox.
+
+        This method forwards the connection to rocklet's /portforward endpoint,
+        which then connects to the actual TCP port inside the container.
+
+        Args:
+            client_websocket: The WebSocket connection from the client.
+            sandbox_id: The sandbox identifier.
+            port: The target TCP port inside the sandbox.
+            tcp_connect_timeout: Timeout for establishing connection (default: 10s).
+            idle_timeout: Timeout for idle connection (default: 300s).
+
+        Raises:
+            ValueError: If port validation fails.
+            Exception: If sandbox is not found or connection fails.
+        """
+        logger.info(f"[Portforward] Starting proxy: sandbox={sandbox_id}, target_port={port}")
+
+        # Validate port
+        logger.debug(f"[Portforward] Validating port: sandbox={sandbox_id}, target_port={port}")
+        is_valid, error_msg = validate_port_forward_port(port)
+        if not is_valid:
+            logger.warning(f"[Portforward] Port validation failed: sandbox={sandbox_id}, target_port={port}, reason={error_msg}")
+            raise ValueError(error_msg)
+        logger.info(f"[Portforward] Port validation passed: sandbox={sandbox_id}, target_port={port}")
+
+        # Get sandbox status and rocklet portforward URL
+        logger.info(f"[Portforward] Fetching sandbox status: sandbox={sandbox_id}, target_port={port}")
+        try:
+            status_dicts = await self.get_service_status(sandbox_id)
+            logger.info(
+                f"[Portforward] Sandbox status retrieved: sandbox={sandbox_id}, target_port={port}, "
+                f"host_ip={status_dicts[0].get('host_ip')}, status_keys={list(status_dicts[0].keys())}"
+            )
+        except Exception as e:
+            logger.error(
+                f"[Portforward] Failed to get sandbox status: sandbox={sandbox_id}, target_port={port}, "
+                f"error_type={type(e).__name__}, error={e}"
+            )
+            raise
+
+        target_url = self._get_rocklet_portforward_url(status_dicts[0], port)
+        logger.info(
+            f"[Portforward] Rocklet URL built: sandbox={sandbox_id}, target_port={port}, url={target_url}"
+        )
+
+        try:
+            # Connect to rocklet's portforward WebSocket endpoint
+            logger.info(
+                f"[Portforward] Connecting to rocklet: sandbox={sandbox_id}, target_port={port}, "
+                f"timeout={tcp_connect_timeout}s"
+            )
+            async with websockets.connect(
+                target_url,
+                ping_interval=None,
+                ping_timeout=None,
+                open_timeout=tcp_connect_timeout,
+            ) as target_websocket:
+                logger.info(
+                    f"[Portforward] Rocklet connection established: sandbox={sandbox_id}, target_port={port}"
+                )
+
+                # Create bidirectional forwarding tasks with close info tracking
+                logger.info(
+                    f"[Portforward] Starting bidirectional forwarding: sandbox={sandbox_id}, target_port={port}"
+                )
+                
+                # Track close frame info from rocklet
+                rocklet_close_info = {}
+                
+                client_to_target = asyncio.create_task(
+                    self._forward_portforward_messages(
+                        client_websocket, target_websocket, "client->rocklet", idle_timeout
+                    )
+                )
+                target_to_client = asyncio.create_task(
+                    self._forward_portforward_messages(
+                        target_websocket, client_websocket, "rocklet->client", idle_timeout,
+                        close_info=rocklet_close_info
+                    )
+                )
+
+                # Wait for any task to complete
+                done, pending = await asyncio.wait(
+                    [client_to_target, target_to_client], return_when=asyncio.FIRST_COMPLETED
+                )
+
+                logger.info(
+                    f"[Portforward] Forwarding task completed: sandbox={sandbox_id}, target_port={port}, "
+                    f"completed={[t.get_name() for t in done]}"
+                )
+
+                # Cancel unfinished tasks
+                for task in pending:
+                    logger.debug(
+                        f"[Portforward] Cancelling pending task: sandbox={sandbox_id}, target_port={port}, "
+                        f"task={task.get_name()}"
+                    )
+                    task.cancel()
+                    try:
+                        await task  # Wait for cancellation to complete
+                    except asyncio.CancelledError:
+                        pass
+
+                # If rocklet closed the connection, forward close frame to client
+                if rocklet_close_info.get('direction') == 'rocklet->client':
+                    close_code = rocklet_close_info.get('code', 1000)
+                    close_reason = rocklet_close_info.get('reason', '')
+                    logger.info(
+                        f"[Portforward] Forwarding close to client: sandbox={sandbox_id}, target_port={port}, "
+                        f"code={close_code}, reason={close_reason}"
+                    )
+                    try:
+                        await client_websocket.close(code=close_code, reason=close_reason)
+                    except Exception as e:
+                        logger.debug(f"[Portforward] Error closing client connection: {e}")
+
+        except asyncio.TimeoutError as e:
+            logger.error(
+                f"[Portforward] Connection timeout: sandbox={sandbox_id}, target_port={port}, "
+                f"url={target_url}, timeout={tcp_connect_timeout}s"
+            )
+            await client_websocket.close(code=1011, reason=f"Connection timeout to rocklet: {target_url}")
+        except websockets.exceptions.ConnectionClosed as e:
+            logger.warning(
+                f"[Portforward] Rocklet connection closed: sandbox={sandbox_id}, target_port={port}, "
+                f"code={e.code}, reason={e.reason}"
+            )
+            await client_websocket.close(code=e.code, reason=e.reason or "")
+        except Exception as e:
+            logger.error(
+                f"[Portforward] Proxy error: sandbox={sandbox_id}, target_port={port}, "
+                f"error_type={type(e).__name__}, error={e}",
+                exc_info=True
+            )
+            await client_websocket.close(code=1011, reason=f"Proxy error: {str(e)}")
+
+    async def _forward_portforward_messages(
+        self,
+        source,
+        destination,
+        direction: str,
+        idle_timeout: float,
+        close_info: dict | None = None,
+    ):
+        """Forward binary messages between WebSocket connections with idle timeout.
+        
+        Handles both FastAPI WebSocket and websockets library ClientConnection objects:
+        - FastAPI WebSocket: receive_bytes(), send_bytes()
+        - websockets ClientConnection: recv(), send()
+        
+        When source connection closes, captures close frame info for forwarding.
+        
+        Args:
+            source: Source WebSocket connection
+            destination: Destination WebSocket connection  
+            direction: Direction string for logging (e.g., "client->rocklet")
+            idle_timeout: Idle timeout in seconds
+            close_info: Optional dict to store close frame info (code, reason)
+        """
+        logger.debug(f"[Portforward] Starting message forwarder: direction={direction}, idle_timeout={idle_timeout}s")
+        bytes_transferred = 0
+        message_count = 0
+        
+        # Detect the type of WebSocket objects
+        # FastAPI WebSocket has 'receive_bytes' method
+        # websockets ClientConnection has 'recv' method
+        source_is_fastapi = hasattr(source, 'receive_bytes')
+        dest_is_fastapi = hasattr(destination, 'send_bytes')
+        
+        logger.debug(
+            f"[Portforward] Connection types: direction={direction}, "
+            f"source_is_fastapi={source_is_fastapi}, dest_is_fastapi={dest_is_fastapi}"
+        )
+        
+        try:
+            while True:
+                try:
+                    # Receive data based on source type
+                    if source_is_fastapi:
+                        data = await asyncio.wait_for(
+                            source.receive_bytes(),
+                            timeout=idle_timeout,
+                        )
+                    else:
+                        # websockets library returns bytes or str
+                        data = await asyncio.wait_for(
+                            source.recv(),
+                            timeout=idle_timeout,
+                        )
+                        # Convert str to bytes if needed
+                        if isinstance(data, str):
+                            data = data.encode('utf-8')
+                    
+                    message_count += 1
+                    bytes_transferred += len(data)
+                    
+                    # Send data based on destination type
+                    if dest_is_fastapi:
+                        await destination.send_bytes(data)
+                    else:
+                        await destination.send(data)
+                    
+                    logger.debug(
+                        f"[Portforward] Forwarded message: direction={direction}, "
+                        f"msg_num={message_count}, bytes={len(data)}, total_bytes={bytes_transferred}"
+                    )
+                except asyncio.TimeoutError:
+                    logger.info(
+                        f"[Portforward] Idle timeout: direction={direction}, "
+                        f"total_messages={message_count}, total_bytes={bytes_transferred}"
+                    )
+                    break
+        except websockets.exceptions.ConnectionClosed as e:
+            # Capture close frame info for forwarding
+            close_code = e.code
+            close_reason = e.reason or ""
+            logger.info(
+                f"[Portforward] Source connection closed: direction={direction}, "
+                f"code={close_code}, reason={close_reason}, "
+                f"total_messages={message_count}, total_bytes={bytes_transferred}"
+            )
+            if close_info is not None:
+                close_info['code'] = close_code
+                close_info['reason'] = close_reason
+                close_info['direction'] = direction
+        except Exception as e:
+            logger.info(
+                f"[Portforward] Forwarder stopped: direction={direction}, "
+                f"error_type={type(e).__name__}, error={e}, "
+                f"total_messages={message_count}, total_bytes={bytes_transferred}"
+            )
+
+    def _get_tcp_target_address(self, sandbox_status_dict: dict, port: int) -> tuple[str, int]:
+        """
+        Get the target TCP address from sandbox status.
+
+        Args:
+            sandbox_status_dict: The sandbox status dictionary.
+            port: The target port inside the sandbox.
+
+        Returns:
+            A tuple of (host_ip, mapped_port).
+        """
+        host_ip = sandbox_status_dict.get("host_ip")
+        service_status = ServiceStatus.from_dict(sandbox_status_dict)
+        # Use SERVER port mapping to access the sandbox
+        # The port inside the container is mapped to a host port
+        mapped_port = service_status.get_mapped_port(Port.SERVER)
+        # For now, we use the port as-is since we're connecting to the sandbox's network
+        # In a real scenario, we might need to use the mapped port or connect through the container network
+        return host_ip, port
+
+    def _get_rocklet_portforward_url(self, sandbox_status_dict: dict, port: int) -> str:
+        """
+        Get the WebSocket URL for rocklet's portforward endpoint.
+
+        Args:
+            sandbox_status_dict: The sandbox status dictionary.
+            port: The target TCP port inside the sandbox.
+
+        Returns:
+            WebSocket URL for rocklet's portforward endpoint.
+        """
+        host_ip = sandbox_status_dict.get("host_ip")
+        service_status = ServiceStatus.from_dict(sandbox_status_dict)
+        # Use PROXY port mapping to access the rocklet service
+        # rocklet listens on Port.PROXY (22555) inside the container
+        mapped_port = service_status.get_mapped_port(Port.PROXY)
+        
+        logger.info(
+            f"[Portforward] Building rocklet URL: host_ip={host_ip}, "
+            f"container_port={Port.PROXY.value}, mapped_port={mapped_port}, target_port={port}"
+        )
+        
+        if not host_ip:
+            logger.error(f"[Portforward] Missing host_ip in sandbox status: keys={list(sandbox_status_dict.keys())}")
+        if not mapped_port:
+            logger.error(
+                f"[Portforward] Missing mapped port for PROXY: "
+                f"available_ports={service_status.ports if hasattr(service_status, 'ports') else 'unknown'}"
+            )
+            
+        url = f"ws://{host_ip}:{mapped_port}/portforward?port={port}"
+        logger.info(f"[Portforward] Generated rocklet URL: {url}")
+        return url
+
+    async def _forward_websocket_to_tcp(self, websocket, writer, direction: str, idle_timeout: float):
+        """Forward data from WebSocket to TCP connection."""
+        try:
+            while True:
+                try:
+                    # Wait for data with idle timeout
+                    data = await asyncio.wait_for(
+                        websocket.receive_bytes(),
+                        timeout=idle_timeout,
+                    )
+                    writer.write(data)
+                    await writer.drain()
+                    logger.debug(f"Forwarded {len(data)} bytes {direction}")
+                except asyncio.TimeoutError:
+                    logger.info(f"Idle timeout reached for {direction}")
+                    break
+        except Exception as e:
+            logger.info(f"Connection closed in {direction}: {e}")
+
+    async def _forward_tcp_to_websocket(self, reader, websocket, direction: str, idle_timeout: float):
+        """Forward data from TCP connection to WebSocket."""
+        try:
+            while True:
+                try:
+                    # Wait for data with idle timeout
+                    data = await asyncio.wait_for(
+                        reader.read(4096),
+                        timeout=idle_timeout,
+                    )
+                    if not data:
+                        logger.info(f"TCP connection closed for {direction}")
+                        break
+                    await websocket.send_bytes(data)
+                    logger.debug(f"Forwarded {len(data)} bytes {direction}")
+                except asyncio.TimeoutError:
+                    logger.info(f"Idle timeout reached for {direction}")
+                    break
+        except Exception as e:
+            logger.info(f"Connection closed in {direction}: {e}")
 
     async def get_service_status(self, sandbox_id: str):
         sandbox_status_dicts = await self._redis_provider.json_get(alive_sandbox_key(sandbox_id), "$")
