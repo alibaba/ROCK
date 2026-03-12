@@ -1,8 +1,12 @@
+import datetime
+from unittest.mock import MagicMock
+
 import pytest
 import ray
 
 from rock.deployments.config import LocalDeploymentConfig
 from rock.logger import init_logger
+from rock.sandbox.base_actor import BaseActor
 from rock.sandbox.sandbox_actor import SandboxActor
 
 logger = init_logger(__name__)
@@ -131,3 +135,110 @@ async def test_user_defined_tags_with_empty_dict(ray_init_shutdown):
         logger.info(f"Empty dict set successfully: {result}")
     finally:
         ray.kill(sandbox_actor)
+
+
+class ConcreteBaseActor(BaseActor):
+    """Minimal concrete subclass used only for unit testing BaseActor."""
+
+    async def get_sandbox_statistics(self):
+        return {"cpu": 10.0, "mem": 20.0, "disk": 30.0, "net": 40.0}
+
+
+def _make_actor() -> ConcreteBaseActor:
+    """Create a ConcreteBaseActor with lightweight mocked dependencies."""
+    config = MagicMock()
+    config.container_name = "test-container"
+    config.auto_clear_time = None  # skip DockerDeploymentConfig branch
+
+    deployment = MagicMock()
+    deployment.__class__ = object  # make isinstance(deployment, DockerDeployment) return False
+
+    actor = ConcreteBaseActor(config, deployment)
+    actor.host = "127.0.0.1"
+    # Pre-populate all gauges with mocks so tests can override selectively
+    for key in ("cpu", "mem", "disk", "net", "rt"):
+        actor._gauges[key] = MagicMock()
+    return actor
+
+
+@pytest.mark.asyncio
+async def test_life_span_rt_gauge_is_set_during_metrics_collection():
+    """life_span_rt gauge must be set with the elapsed timedelta after collection."""
+    actor = _make_actor()
+    mock_rt_gauge = MagicMock()
+    actor._gauges["rt"] = mock_rt_gauge
+
+    await actor._collect_sandbox_metrics("test-container")
+
+    assert mock_rt_gauge.set.called, "life_span_rt gauge.set() was never called"
+    life_span_rt_value = mock_rt_gauge.set.call_args[0][0]
+    assert isinstance(life_span_rt_value, float), f"Expected float, got {type(life_span_rt_value)}"
+    assert life_span_rt_value >= 0, "life_span_rt must be non-negative"
+
+
+@pytest.mark.asyncio
+async def test_life_span_rt_increases_over_time():
+    """life_span_rt reported on a second call must be >= the first call's value."""
+    actor = _make_actor()
+    mock_rt_gauge = MagicMock()
+    actor._gauges["rt"] = mock_rt_gauge
+
+    await actor._collect_sandbox_metrics("test-container")
+    first_rt: datetime.timedelta = mock_rt_gauge.set.call_args[0][0]
+
+    await actor._collect_sandbox_metrics("test-container")
+    second_rt: datetime.timedelta = mock_rt_gauge.set.call_args[0][0]
+
+    assert second_rt >= first_rt, f"life_span_rt should be non-decreasing: first={first_rt}, second={second_rt}"
+
+
+@pytest.mark.asyncio
+async def test_life_span_rt_attributes_contain_expected_keys():
+    """Attributes passed to life_span_rt gauge must include all standard dimension keys."""
+    actor = _make_actor()
+    actor._env = "prod"
+    actor._role = "worker"
+    actor._user_id = "user-42"
+    actor._experiment_id = "exp-7"
+    actor._namespace = "ns-test"
+    actor.host = "10.0.0.1"
+
+    mock_rt_gauge = MagicMock()
+    actor._gauges["rt"] = mock_rt_gauge
+
+    await actor._collect_sandbox_metrics("test-container")
+
+    attributes = mock_rt_gauge.set.call_args[1]["attributes"]
+    expected_keys = {"sandbox_id", "env", "role", "host", "ip", "user_id", "experiment_id", "namespace"}
+    assert expected_keys.issubset(attributes.keys()), f"Missing attribute keys: {expected_keys - attributes.keys()}"
+    assert attributes["env"] == "prod"
+    assert attributes["role"] == "worker"
+    assert attributes["user_id"] == "user-42"
+    assert attributes["experiment_id"] == "exp-7"
+    assert attributes["namespace"] == "ns-test"
+
+
+@pytest.mark.asyncio
+async def test_life_span_rt_set_even_when_no_cpu_metrics():
+    """life_span_rt must be reported even when get_sandbox_statistics returns no cpu data."""
+
+    class NoCpuActor(BaseActor):
+        async def get_sandbox_statistics(self):
+            return {}  # cpu key absent
+
+    config = MagicMock()
+    config.container_name = "no-cpu-container"
+    config.auto_clear_time = None
+    deployment = MagicMock()
+    deployment.__class__ = object
+
+    actor = NoCpuActor(config, deployment)
+    actor.host = "127.0.0.1"
+    for key in ("cpu", "mem", "disk", "net", "rt"):
+        actor._gauges[key] = MagicMock()
+
+    mock_rt_gauge = actor._gauges["rt"]
+
+    await actor._collect_sandbox_metrics("no-cpu-container")
+
+    assert mock_rt_gauge.set.called, "life_span_rt gauge.set() must be called even when cpu metrics are absent"

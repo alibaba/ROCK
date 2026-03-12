@@ -117,6 +117,14 @@ class SandboxManager(BaseManager):
         docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(config)
 
         sandbox_id = docker_deployment_config.container_name
+        if self.rock_config.runtime.use_standard_spec_only:
+            logger.info(
+                f"[{sandbox_id}] Using standard spec only: "
+                f"cpus={self.rock_config.runtime.standard_spec.cpus}, "
+                f"memory={self.rock_config.runtime.standard_spec.memory}"
+            )
+            docker_deployment_config.cpus = self.rock_config.runtime.standard_spec.cpus
+            docker_deployment_config.memory = self.rock_config.runtime.standard_spec.memory
         sandbox_info: SandboxInfo = await self._operator.submit(docker_deployment_config, user_info)
         stop_time = str(int(time.time()) + docker_deployment_config.auto_clear_time * 60)
         auto_clear_time_dict = {
