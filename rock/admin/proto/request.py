@@ -17,6 +17,8 @@ from rock.actions import (
 class SandboxStartRequest(BaseModel):
     image: str = ""
     """image"""
+    image_os: str = "linux"
+    """The operating system of the image (e.g., 'linux', 'windows')."""
     auto_clear_time_minutes: int = env_vars.ROCK_DEFAULT_AUTO_CLEAR_TIME_MINUTES
     """The time for automatic container cleaning, with the unit being minutes"""
     pull: Literal["never", "always", "missing"] = "missing"
