@@ -88,7 +88,10 @@ class DockerDeploymentConfig(DeploymentConfig):
     """Memory allocation for the container (e.g., '8g', '4096m')."""
 
     cpus: float = 2
-    """Number of CPU cores to allocate for the container."""
+    """Number of CPU cores to allocate for the container. Used as --cpu-shares (cpus * 1024)."""
+
+    limit_cpus: float | None = None
+    """Hard limit on the number of CPU cores the container can use. Used as --cpus when CPU preemption is enabled via nacos switch."""
 
     container_name: str | None = None
     """Custom name for the container. If None, a random name will be generated."""
