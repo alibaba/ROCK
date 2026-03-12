@@ -1,7 +1,7 @@
 import re
 
 
-def parse_memory_size(size_str: str) -> int:
+def parse_size_to_bytes(size_str: str) -> int:
     size_str = size_str.strip().lower()
     units = {
         "b": 1,
@@ -26,6 +26,6 @@ def parse_memory_size(size_str: str) -> int:
 
 
 def convert_to_gb(size_str: str) -> str:
-    bytes_size = parse_memory_size(size_str)
+    bytes_size = parse_size_to_bytes(size_str)
     gb_size = bytes_size / (1024**3)
     return f"{gb_size:.2f}g"

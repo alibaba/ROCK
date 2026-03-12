@@ -5,7 +5,7 @@ from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.docker import DockerDeployment
 from rock.logger import init_logger
 from rock.sandbox.sandbox_actor import SandboxActor
-from rock.utils.format import parse_memory_size
+from rock.utils.format import parse_size_to_bytes
 
 logger = init_logger(__name__)
 
@@ -29,7 +29,7 @@ class RayDeployment(DockerDeployment):
     def _generate_actor_options(self, actor_name: str) -> dict:
         actor_options = {"name": actor_name, "lifetime": "detached"}
         try:
-            memory = parse_memory_size(self._config.memory)
+            memory = parse_size_to_bytes(self._config.memory)
             actor_options["num_cpus"] = self._config.cpus
             actor_options["memory"] = memory
             return actor_options

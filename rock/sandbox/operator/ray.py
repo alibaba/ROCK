@@ -18,7 +18,7 @@ from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var
-from rock.utils.format import parse_memory_size
+from rock.utils.format import parse_size_to_bytes
 from rock.utils.http import HttpUtils
 from rock.utils.service import build_sandbox_from_redis
 
@@ -43,7 +43,7 @@ class RayOperator(AbstractOperator):
         actor_name = self._get_actor_name(config.container_name)
         actor_options = {"name": actor_name, "lifetime": "detached"}
         try:
-            memory = parse_memory_size(config.memory)
+            memory = parse_size_to_bytes(config.memory)
             actor_options["num_cpus"] = config.cpus
             actor_options["memory"] = memory
             return actor_options

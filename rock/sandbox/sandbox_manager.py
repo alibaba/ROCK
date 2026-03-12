@@ -38,7 +38,7 @@ from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
 from rock.utils.crypto_utils import AESEncryption
-from rock.utils.format import convert_to_gb, parse_memory_size
+from rock.utils.format import convert_to_gb, parse_size_to_bytes
 from rock.utils.providers.redis_provider import RedisProvider
 from rock.utils.service import build_sandbox_from_redis
 from rock.utils.system import get_iso8601_timestamp
@@ -363,8 +363,8 @@ class SandboxManager(BaseManager):
 
     def validate_sandbox_spec(self, runtime_config: RuntimeConfig, deployment_config: DeploymentConfig) -> None:
         try:
-            memory = parse_memory_size(deployment_config.memory)
-            max_memory = parse_memory_size(runtime_config.max_allowed_spec.memory)
+            memory = parse_size_to_bytes(deployment_config.memory)
+            max_memory = parse_size_to_bytes(runtime_config.max_allowed_spec.memory)
             if deployment_config.cpus > runtime_config.max_allowed_spec.cpus:
                 raise BadRequestRockError(
                     f"Requested CPUs {deployment_config.cpus} exceed the maximum allowed {runtime_config.max_allowed_spec.cpus}"
