@@ -49,8 +49,10 @@ class ImageCleanupTask(BaseTask):
         )
         await runtime.execute(Command(command=check_and_install_cmd, shell=True))
 
-        docuum_dir = env_vars.ROCK_LOGGING_PATH if env_vars.ROCK_LOGGING_PATH else "/tmp"
-        command = f"nohup docuum --threshold {self.disk_threshold} > {docuum_dir}/docuum.log 2>&1 & echo {PID_PREFIX}${{!}}{PID_SUFFIX}"
+        log_redirect = (
+            '[ -n "$ROCK_LOGGING_PATH" ] && DOCUUM_LOG="$ROCK_LOGGING_PATH/docuum.log" || DOCUUM_LOG="/dev/null"'
+        )
+        command = f'{log_redirect}; nohup docuum --threshold {self.disk_threshold} > "$DOCUUM_LOG" 2>&1 & echo {PID_PREFIX}${{!}}{PID_SUFFIX}'
         result = await runtime.execute(Command(command=command, shell=True))
 
         pid = extract_nohup_pid(result.stdout)
