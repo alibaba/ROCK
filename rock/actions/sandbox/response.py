@@ -127,3 +127,8 @@ class ChownResponse(BaseModel):
 class ChmodResponse(BaseModel):
     success: bool = False
     message: str = ""
+
+
+class DownloadFileResponse(BaseModel):
+    success: bool = False
+    message: str = ""
