@@ -14,7 +14,6 @@ from rock.actions.sandbox.request import ChmodRequest, ChownRequest, Command
 from rock.actions.sandbox.response import ChmodResponse, ChownResponse, CommandResponse, DownloadFileResponse
 from rock.logger import init_logger
 from rock.sdk.sandbox.constants import ENSURE_OSSUTIL_SCRIPT
-from rock.utils import HttpUtils
 
 logger = init_logger(__name__)
 
@@ -174,12 +173,13 @@ class LinuxFileSystem(FileSystem):
             except Exception:
                 pass
 
-    async def download_file_by_oss(
+    async def download_file(
         self,
         remote_path: str,
         local_path: str | Path,
+        method: str = "oss",
     ) -> DownloadFileResponse:
-        """Download file from sandbox container to local using OSS as intermediary.
+        """Download file from sandbox container to local machine.
 
         Flow:
         1. Check OSS is enabled via ROCK_OSS_ENABLE
@@ -252,14 +252,14 @@ class LinuxFileSystem(FileSystem):
             logger.debug(f"ossutil verified: {verify_response.stdout.strip()}")
 
             # Get STS credentials from sandbox (for both ossutil upload and oss2 download)
-            token_url = f"{self.sandbox._url}/get_token"
-            token_response = await HttpUtils.get(token_url, self.sandbox._build_headers())
-            if token_response["status"] != "Success":
-                return DownloadFileResponse(success=False, message="Failed to get OSS STS token")
+            try:
+                credentials = await self.sandbox._get_oss_sts_credentials()
+            except Exception as e:
+                return DownloadFileResponse(success=False, message=f"Failed to get OSS STS token: {e}")
 
-            access_key_id = token_response["result"]["AccessKeyId"]
-            access_key_secret = token_response["result"]["AccessKeySecret"]
-            security_token = token_response["result"]["SecurityToken"]
+            access_key_id = credentials["AccessKeyId"]
+            access_key_secret = credentials["AccessKeySecret"]
+            security_token = credentials["SecurityToken"]
 
             endpoint = env_vars.ROCK_OSS_BUCKET_ENDPOINT
             bucket_name = env_vars.ROCK_OSS_BUCKET_NAME

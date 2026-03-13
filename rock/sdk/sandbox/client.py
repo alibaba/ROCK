@@ -838,20 +838,36 @@ class Sandbox(AbstractSandbox):
         except Exception:
             return UploadResponse(success=False, message=f"Failed to upload file {file_name} to {target_path}")
 
-    async def _setup_oss(self) -> OssSetupResponse:
+    async def _get_oss_sts_credentials(self) -> dict:
+        """Get OSS STS credentials from sandbox and update token expiration time.
+
+        Side effects:
+            Updates self._oss_token_expire_time for token expiration checking
+
+        Returns:
+            dict: STS credentials with keys: AccessKeyId, AccessKeySecret, SecurityToken, Expiration
+
+        Raises:
+            Exception: If HTTP request fails or response is invalid
+        """
         url = f"{self._url}/get_token"
         headers = self._build_headers()
+        response = await HttpUtils.get(url, headers)
+        if response["status"] != "Success":
+            raise Exception(f"Failed to get OSS STS token: {response.get('message', 'Unknown error')}")
 
+        credentials = response["result"]
+        self._oss_token_expire_time = credentials["Expiration"]
+        return credentials
+
+    async def _setup_oss(self) -> OssSetupResponse:
         try:
-            response = await HttpUtils.get(url, headers)
-            if not response["status"] == "Success":
-                return False
+            credentials = await self._get_oss_sts_credentials()
             auth = oss2.StsAuth(
-                response["result"]["AccessKeyId"],
-                response["result"]["AccessKeySecret"],
-                response["result"]["SecurityToken"],
+                credentials["AccessKeyId"],
+                credentials["AccessKeySecret"],
+                credentials["SecurityToken"],
             )
-            self._oss_token_expire_time = response["result"]["Expiration"]
 
             self._oss_bucket = oss2.Bucket(
                 auth=auth,
