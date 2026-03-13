@@ -32,12 +32,12 @@ from rock.actions import (
     ReadFileRequest,
     ReadFileResponse,
     SandboxResponse,
-    SandboxStatusResponse,
     UploadRequest,
     UploadResponse,
     WriteFileRequest,
     WriteFileResponse,
 )
+from rock.admin.proto.response import SandboxStatusResponse
 from rock.common.constants import PID_PREFIX, PID_SUFFIX
 from rock.sdk.common.constants import RunModeType
 from rock.sdk.common.exceptions import (

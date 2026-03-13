@@ -20,3 +20,13 @@ T = TypeVar("T")
 
 class RockResponse(BaseResponse, Generic[T]):
     result: T | None = None
+
+
+class ChownResponse(BaseModel):
+    success: bool = False
+    message: str = ""
+
+
+class ChmodResponse(BaseModel):
+    success: bool = False
+    message: str = ""

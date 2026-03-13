@@ -31,7 +31,6 @@ from .sandbox.response import (
     OssSetupResponse,
     ReadFileResponse,
     SandboxResponse,
-    SandboxStatusResponse,
     UploadResponse,
     WriteFileResponse,
 )
@@ -65,7 +64,6 @@ __all__ = [
     "ReadFileRequest",
     "UploadRequest",
     "IsAliveResponse",
-    "SandboxStatusResponse",
     "CommandResponse",
     "WriteFileResponse",
     "OssSetupResponse",

@@ -8,7 +8,6 @@ from rock._codes import codes
 
 class SandboxResponse(BaseModel):
     code: codes | None = None
-    exit_code: int | None = None
     failure_reason: str | None = None
 
 
@@ -32,30 +31,13 @@ class IsAliveResponse(BaseModel):
         return self.is_alive
 
 
-class SandboxStatusResponse(BaseModel):
-    sandbox_id: str = None
-    status: dict = None
-    port_mapping: dict = None
-    host_name: str | None = None
-    host_ip: str | None = None
-    is_alive: bool = True
-    image: str | None = None
-    gateway_version: str | None = None
-    swe_rex_version: str | None = None
-    user_id: str | None = None
-    experiment_id: str | None = None
-    namespace: str | None = None
-    cpus: float | None = None
-    memory: str | None = None
-
-
-class CommandResponse(BaseModel):
+class CommandResponse(SandboxResponse):
+    exit_code: int | None = None
     stdout: str = ""
     stderr: str = ""
-    exit_code: int | None = None
 
 
-class WriteFileResponse(BaseModel):
+class WriteFileResponse(SandboxResponse):
     success: bool = False
     message: str = ""
 
@@ -70,7 +52,7 @@ class ExecuteBashSessionResponse(BaseModel):
     message: str = ""
 
 
-class CreateBashSessionResponse(BaseModel):
+class CreateBashSessionResponse(SandboxResponse):
     output: str = ""
 
     session_type: Literal["bash"] = "bash"
@@ -80,18 +62,17 @@ CreateSessionResponse = Annotated[CreateBashSessionResponse, Field(discriminator
 """Union type for all create session responses. Do not use this directly."""
 
 
-class BashObservation(BaseModel):
+class BashObservation(SandboxResponse):
+    exit_code: int | None = None
     session_type: Literal["bash"] = "bash"
     output: str = ""
-    exit_code: int | None = None
-    failure_reason: str = ""
     expect_string: str = ""
 
 
 Observation = BashObservation
 
 
-class CloseBashSessionResponse(BaseModel):
+class CloseBashSessionResponse(SandboxResponse):
     session_type: Literal["bash"] = "bash"
 
 
@@ -99,12 +80,12 @@ CloseSessionResponse = Annotated[CloseBashSessionResponse, Field(discriminator="
 """Union type for all close session responses. Do not use this directly."""
 
 
-class ReadFileResponse(BaseModel):
+class ReadFileResponse(SandboxResponse):
     content: str = ""
     """Content of the file as a string."""
 
 
-class UploadResponse(BaseModel):
+class UploadResponse(SandboxResponse):
     success: bool = False
     message: str = ""
     file_name: str = ""
@@ -113,17 +94,7 @@ class UploadResponse(BaseModel):
 FileUploadResponse = UploadResponse
 
 
-class CloseResponse(BaseModel):
+class CloseResponse(SandboxResponse):
     """Response for close operations."""
 
     pass
-
-
-class ChownResponse(BaseModel):
-    success: bool = False
-    message: str = ""
-
-
-class ChmodResponse(BaseModel):
-    success: bool = False
-    message: str = ""

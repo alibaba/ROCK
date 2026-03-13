@@ -1,7 +1,8 @@
 import logging
 
+from rock.actions.response import ChmodResponse, ChownResponse
 from rock.actions.sandbox.request import ChmodRequest, ChownRequest, Command, CreateBashSessionRequest
-from rock.actions.sandbox.response import ChmodResponse, ChownResponse, CommandResponse, Observation
+from rock.actions.sandbox.response import CommandResponse, Observation
 from rock.sdk.sandbox.client import Sandbox
 
 logger = logging.getLogger(__name__)

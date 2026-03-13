@@ -4,7 +4,7 @@ import time
 import pytest
 
 from rock.actions.sandbox.request import ReadFileRequest
-from rock.actions.sandbox.response import SandboxStatusResponse
+from rock.admin.proto.response import SandboxStatusResponse
 from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.sandbox.config import SandboxConfig
 from rock.utils.docker import DockerUtil
@@ -126,8 +126,6 @@ async def test_execute(sandbox_instance: Sandbox):
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
 async def test_start_sandbox_upper_limit(sandbox_instance: Sandbox):
-    from rock.actions import SandboxStatusResponse
-
     status: SandboxStatusResponse = await sandbox_instance.get_status()
     assert status.cpus == 4
 
