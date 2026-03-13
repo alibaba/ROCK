@@ -2,7 +2,7 @@ import shlex
 import tarfile
 import tempfile
 import time
-from abc import ABC, abstractmode
+from abc import ABC, abstractmethod
 from pathlib import Path
 
 import oss2
@@ -24,15 +24,15 @@ class FileSystem(ABC):
     def __init__(self, sandbox: AbstractSandbox = None):
         self.sandbox = sandbox
 
-    @abstractmode
+    @abstractmethod
     async def chown(self, request: ChownRequest) -> ChownResponse:
         pass
 
-    @abstractmode
+    @abstractmethod
     async def chmod(self, request: ChmodRequest) -> ChmodResponse:
         pass
 
-    @abstractmode
+    @abstractmethod
     async def upload_dir(
         self,
         source_dir: str | Path,
