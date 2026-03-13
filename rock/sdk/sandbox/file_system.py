@@ -1,4 +1,3 @@
-import logging
 import shlex
 import tarfile
 import tempfile
@@ -6,12 +5,18 @@ import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+import oss2
+
+from rock import env_vars
 from rock.actions import CreateBashSessionRequest, Observation
 from rock.actions.sandbox.base import AbstractSandbox
 from rock.actions.sandbox.request import ChmodRequest, ChownRequest, Command
-from rock.actions.sandbox.response import ChmodResponse, ChownResponse, CommandResponse
+from rock.actions.sandbox.response import ChmodResponse, ChownResponse, CommandResponse, DownloadResponse
+from rock.logger import init_logger
+from rock.sdk.sandbox.constants import ENSURE_OSSUTIL_SCRIPT
+from rock.utils import HttpUtils
 
-logger = logging.getLogger(__name__)
+logger = init_logger(__name__)
 
 
 class FileSystem(ABC):
@@ -168,3 +173,131 @@ class LinuxFileSystem(FileSystem):
                     local_tar_path.unlink()
             except Exception:
                 pass
+
+    async def download_by_oss(
+        self,
+        remote_path: str,
+        local_path: str | Path,
+    ) -> DownloadResponse:
+        """Download file from sandbox container to local using OSS as intermediary.
+
+        Flow:
+        1. Check OSS is enabled via ROCK_OSS_ENABLE
+        2. Verify source file exists in sandbox container
+        3. Ensure ossutil is installed (auto-install if missing, checks wget/curl/unzip)
+        4. Verify ossutil is working by running 'ossutil version'
+        5. Get STS credentials from sandbox via get_token API
+        6. Upload file from sandbox to OSS using ossutil (with STS token)
+        7. Download file from OSS to local using oss2 (with same STS token)
+        8. Verify downloaded file exists locally
+
+        Note: OSS temporary object is NOT cleaned up automatically (aligns with _upload_via_oss behavior).
+              Consider using OSS lifecycle policies for automatic cleanup.
+
+        Args:
+            remote_path: File path inside the sandbox container (absolute path recommended)
+            local_path: Target file path on the local machine (supports ~/ expansion)
+
+        Returns:
+            DownloadResponse with success status and message
+
+        Raises:
+            AssertionError: If sandbox is not an instance of Sandbox class
+        """
+        from rock.sdk.sandbox.client import RunMode, Sandbox
+
+        # Assert sandbox is Sandbox instance
+        assert isinstance(self.sandbox, Sandbox), "sandbox must be an instance of Sandbox"
+
+        timestamp = str(time.time_ns())
+
+        try:
+            # Check OSS enable
+            if not env_vars.ROCK_OSS_ENABLE:
+                return DownloadResponse(
+                    success=False, message="OSS download is not enabled. Please set ROCK_OSS_ENABLE=true"
+                )
+
+            # Check remote file exists
+            check_response: CommandResponse = await self.sandbox.execute(Command(command=["test", "-f", remote_path]))
+            if check_response.exit_code != 0:
+                return DownloadResponse(success=False, message=f"Source file not found in sandbox: {remote_path}")
+
+            # Ensure ossutil is installed (checks wget/curl, unzip, installs if missing)
+            ensure_response = await self.sandbox.process.execute_script(
+                script_content=ENSURE_OSSUTIL_SCRIPT,
+                script_name=f"ensure_ossutil_{timestamp}.sh",
+                wait_timeout=300,
+                cleanup=True,
+            )
+            if ensure_response.exit_code != 0:
+                return DownloadResponse(success=False, message=f"Failed to ensure ossutil: {ensure_response.output}")
+
+            # Verify ossutil is actually working
+            verify_response: CommandResponse = await self.sandbox.execute(Command(command=["ossutil", "version"]))
+            if verify_response.exit_code != 0:
+                return DownloadResponse(
+                    success=False,
+                    message=f"ossutil verification failed (exit_code={verify_response.exit_code}): {verify_response.stderr}",
+                )
+            logger.info(f"ossutil verified: {verify_response.stdout.strip()}")
+
+            # Get STS credentials from sandbox (for both ossutil upload and oss2 download)
+            token_url = f"{self.sandbox._url}/get_token"
+            token_response = await HttpUtils.get(token_url, self.sandbox._build_headers())
+            if token_response["status"] != "Success":
+                return DownloadResponse(success=False, message="Failed to get OSS STS token")
+
+            access_key_id = token_response["result"]["AccessKeyId"]
+            access_key_secret = token_response["result"]["AccessKeySecret"]
+            security_token = token_response["result"]["SecurityToken"]
+
+            endpoint = env_vars.ROCK_OSS_BUCKET_ENDPOINT
+            bucket_name = env_vars.ROCK_OSS_BUCKET_NAME
+            region = env_vars.ROCK_OSS_BUCKET_REGION
+
+            # Upload from sandbox to OSS via ossutil
+            file_name = remote_path.split("/")[-1]
+            tmp_obj_name = f"{timestamp}-{file_name}"
+            oss_url = f"oss://{bucket_name}/{tmp_obj_name}"
+
+            # Build ossutil command with bash -c wrapper (required for nohup mode)
+            ossutil_inner_cmd = (
+                f"ossutil cp {shlex.quote(remote_path)} {shlex.quote(oss_url)}"
+                f" --access-key-id {shlex.quote(access_key_id)}"
+                f" --access-key-secret {shlex.quote(access_key_secret)}"
+                f" --sts-token {shlex.quote(security_token)}"
+                f" --endpoint {shlex.quote(endpoint)}"
+                f" --region {shlex.quote(region)}"
+            )
+            ossutil_cmd = f"bash -c {shlex.quote(ossutil_inner_cmd)}"
+            logger.info(f"Uploading {remote_path} to OSS via ossutil")
+            upload_response = await self.sandbox.arun(cmd=ossutil_cmd, mode=RunMode.NOHUP)
+            if upload_response.exit_code != 0:
+                return DownloadResponse(
+                    success=False,
+                    message=f"Failed to upload file to OSS (exit_code={upload_response.exit_code}): {upload_response.output}",
+                )
+            logger.info(f"ossutil upload completed: {upload_response.output}")
+
+            # Download from OSS to local via oss2
+            oss_auth = oss2.StsAuth(access_key_id, access_key_secret, security_token)
+            oss_bucket = oss2.Bucket(oss_auth, endpoint, bucket_name, region=region)
+
+            local = Path(local_path).expanduser().resolve()
+            local.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                oss_bucket.get_object_to_file(tmp_obj_name, str(local))
+            except Exception as e:
+                return DownloadResponse(success=False, message=f"Failed to download from OSS: {str(e)}")
+
+            # Verify local file exists
+            if not local.exists():
+                return DownloadResponse(success=False, message=f"Downloaded file not found at: {local}")
+
+            # Note: OSS temporary object is NOT cleaned up here to align with _upload_via_oss behavior
+            return DownloadResponse(success=True, message=f"Successfully downloaded {remote_path} to {local}")
+
+        except Exception as e:
+            logger.exception(f"Unexpected error during download_by_oss: {e}")
+            return DownloadResponse(success=False, message=f"Unexpected error: {str(e)}")
