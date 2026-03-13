@@ -129,6 +129,10 @@ class ChmodResponse(BaseModel):
     message: str = ""
 
 
-class DownloadResponse(BaseModel):
+class DownloadFileResponse(BaseModel):
     success: bool = False
     message: str = ""
+
+
+# Backward compatibility alias
+DownloadResponse = DownloadFileResponse
