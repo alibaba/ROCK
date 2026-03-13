@@ -2,7 +2,7 @@ import shlex
 import tarfile
 import tempfile
 import time
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmode
 from pathlib import Path
 
 import oss2
@@ -24,15 +24,15 @@ class FileSystem(ABC):
     def __init__(self, sandbox: AbstractSandbox = None):
         self.sandbox = sandbox
 
-    @abstractmethod
+    @abstractmode
     async def chown(self, request: ChownRequest) -> ChownResponse:
         pass
 
-    @abstractmethod
+    @abstractmode
     async def chmod(self, request: ChmodRequest) -> ChmodResponse:
         pass
 
-    @abstractmethod
+    @abstractmode
     async def upload_dir(
         self,
         source_dir: str | Path,
@@ -177,11 +177,14 @@ class LinuxFileSystem(FileSystem):
         self,
         remote_path: str,
         local_path: str | Path,
-        method: str = "oss",
+        mode: str = "oss",
     ) -> DownloadFileResponse:
         """Download file from sandbox container to local machine.
 
-        Flow:
+        Supports multiple download modes. Currently only 'oss' mode is implemented, which uses
+        Aliyun OSS as intermediary storage.
+
+        OSS Method Flow (mode="oss"):
         1. Check OSS is enabled via ROCK_OSS_ENABLE
         2. Verify source file exists in sandbox container (must be a regular file, not directory)
         3. Ensure ossutil is installed (auto-install if missing, checks wget/curl/unzip)
@@ -195,23 +198,32 @@ class LinuxFileSystem(FileSystem):
             - Only supports regular files, NOT directories. To download a directory, first create a
               tar archive in the sandbox (e.g., `tar czf /tmp/mydir.tar.gz /path/to/mydir`), then
               download the tar file.
-            - OSS temporary object is NOT cleaned up automatically (aligns with _upload_via_oss behavior).
-              Consider using OSS lifecycle policies for automatic cleanup.
+            - For OSS mode: Temporary OSS object is NOT cleaned up automatically (aligns with
+              _upload_via_oss behavior). Consider using OSS lifecycle policies for automatic cleanup.
 
         Args:
             remote_path: File path inside the sandbox container (absolute path recommended, must be a regular file)
             local_path: Target file path on the local machine (supports ~/ expansion)
+            mode: Download mode to use. Options: "oss" (default). Future: "http", "stream", etc.
 
         Returns:
             DownloadFileResponse with success status and message
 
         Raises:
             AssertionError: If sandbox is not an instance of Sandbox class
+            ValueError: If unsupported mode is specified
         """
         from rock.sdk.sandbox.client import RunMode, Sandbox
 
         # Assert sandbox is Sandbox instance
         assert isinstance(self.sandbox, Sandbox), "sandbox must be an instance of Sandbox"
+
+        # Validate download mode
+        if mode != "oss":
+            return DownloadFileResponse(
+                success=False,
+                message=f"Unsupported download mode: {mode}. Currently only 'oss' mode is supported.",
+            )
 
         timestamp = str(time.time_ns())
 
