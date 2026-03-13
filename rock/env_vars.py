@@ -76,6 +76,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_CODE_SANDBOX_BASE_URL": lambda: os.getenv("ROCK_CODE_SANDBOX_BASE_URL", ""),
     "ROCK_ENVHUB_BASE_URL": lambda: os.getenv("ROCK_ENVHUB_BASE_URL", "http://localhost:8081"),
     "ROCK_ENVHUB_DEFAULT_DOCKER_IMAGE": lambda: os.getenv("ROCK_ENVHUB_DEFAULT_DOCKER_IMAGE", "python:3.11"),
+    "ROCK_IMAGE_BUILDER_IMAGE": lambda: os.getenv("ROCK_IMAGE_BUILDER_IMAGE", "rock-n-roll-registry.cn-hangzhou.cr.aliyuncs.com/rock/rock-env-builder:0.2.1a1"),
     "ROCK_ENVHUB_DB_URL": lambda: os.getenv(
         "ROCK_ENVHUB_DB_URL", f"sqlite:///{Path.home() / '.rock' / 'rock_envs.db'}"
     ),
