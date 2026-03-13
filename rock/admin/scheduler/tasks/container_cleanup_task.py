@@ -1,5 +1,4 @@
 # rock/admin/scheduler/tasks/container_cleanup_task.py
-from rock import env_vars
 from rock.admin.proto.request import SandboxCommand as Command
 from rock.admin.scheduler.task_base import BaseTask, IdempotencyType, TaskStatusEnum
 from rock.common.constants import PID_PREFIX, PID_SUFFIX, SCHEDULER_LOG_NAME
@@ -46,9 +45,9 @@ class ContainerCleanupTask(BaseTask):
 
         Removes exited Docker containers whose finish time exceeds max_age_hours.
         """
-        log_dir = env_vars.ROCK_LOGGING_PATH if env_vars.ROCK_LOGGING_PATH else "/tmp"
+        log_redirect = '[ -n "$ROCK_LOGGING_PATH" ] && CLEANUP_LOG="$ROCK_LOGGING_PATH/container_cleanup.log" || CLEANUP_LOG="/dev/null"'
         command = (
-            f"nohup bash -c '"
+            f"{log_redirect}; nohup bash -c '"
             f"docker ps -aq --filter status=created | xargs -r docker rm; "
             f'cutoff=$(date -d "{self.max_age_hours} hours ago" +%s); '
             f"docker ps -aq --filter status=exited | "
@@ -58,7 +57,7 @@ class ContainerCleanupTask(BaseTask):
             f'finished_ts=$(date -d "$finished" +%s 2>/dev/null) || continue; '
             f'[ "$finished_ts" -lt "$cutoff" ] && docker rm "$id"; '
             f"done"
-            f"' > {log_dir}/container_cleanup.log 2>&1 & echo {PID_PREFIX}${{!}}{PID_SUFFIX}"
+            f'\' > "$CLEANUP_LOG" 2>&1 & echo {PID_PREFIX}${{!}}{PID_SUFFIX}'
         )
 
         result = await runtime.execute(Command(command=command, shell=True))
