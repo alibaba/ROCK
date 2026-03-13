@@ -41,6 +41,14 @@ class FileSystem(ABC):
     ) -> Observation:
         pass
 
+    @abstractmethod
+    async def download_file(
+        self,
+        remote_path: str,
+        local_path: str | Path,
+    ) -> DownloadFileResponse:
+        pass
+
 
 class LinuxFileSystem(FileSystem):
     def __init__(self, sandbox: AbstractSandbox = None):
