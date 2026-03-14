@@ -114,6 +114,15 @@ class K8sConfig:
     namespace: str = "rock"
     templates: dict[str, dict] = field(default_factory=dict)
 
+    # Pool mapping: image_os -> pool_name, e.g., {"windows": "windows_pool", "linux": "linux_pool"}
+    pool_map: dict[str, str] = field(default_factory=dict)
+
+    # Template mapping: image_os -> template_name, e.g., {"windows": "windows_template", "linux": "default"}
+    template_map: dict[str, str] = field(default_factory=dict)
+
+    # Pool ports configuration: pool_name -> {proxy, server, ssh}
+    pool_ports: dict[str, dict[str, int]] = field(default_factory=dict)
+
     # API client rate limiting
     api_qps: float = 20.0  # Queries per second
 
