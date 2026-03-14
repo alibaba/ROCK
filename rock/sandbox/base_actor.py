@@ -16,7 +16,7 @@ from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
 from rock.deployments.docker import DockerDeployment
 from rock.logger import init_logger
 from rock.utils import get_uniagent_endpoint
-from rock.utils.system import get_instance_id
+from rock.utils.system import get_host_name, get_instance_id
 
 logger = init_logger(__name__)
 
@@ -38,6 +38,7 @@ class BaseActor:
     _metrics_endpoint = ""
     _user_defined_tags: dict = {}
     _created_time: float = None
+    _host_name: str = None
 
     def __init__(
         self,
@@ -57,6 +58,7 @@ class BaseActor:
         self._user_id = "default"
         self._experiment_id = "default"
         self._ip = get_instance_id()
+        self._host_name = get_host_name()
 
     async def deployment_config(self) -> DeploymentConfig | None:
         return self._config
@@ -166,6 +168,7 @@ class BaseActor:
                 "user_id": self._user_id,
                 "experiment_id": self._experiment_id,
                 "namespace": self._namespace,
+                "host_name": self._host_name,
             }
             if self._user_defined_tags is not None:
                 attributes.update(self._user_defined_tags)

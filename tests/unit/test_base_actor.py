@@ -1,5 +1,5 @@
 import datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import ray
@@ -8,6 +8,7 @@ from rock.deployments.config import LocalDeploymentConfig
 from rock.logger import init_logger
 from rock.sandbox.base_actor import BaseActor
 from rock.sandbox.sandbox_actor import SandboxActor
+from rock.utils.system import get_host_name
 
 logger = init_logger(__name__)
 
@@ -242,3 +243,64 @@ async def test_life_span_rt_set_even_when_no_cpu_metrics():
     await actor._collect_sandbox_metrics("no-cpu-container")
 
     assert mock_rt_gauge.set.called, "life_span_rt gauge.set() must be called even when cpu metrics are absent"
+
+
+def test_get_host_name_returns_hostname():
+    """get_host_name should return the system hostname under normal conditions."""
+    hostname = get_host_name()
+    assert isinstance(hostname, str)
+    assert len(hostname) > 0
+
+
+def test_get_host_name_returns_fallback_on_error():
+    """get_host_name should return 'unknown_host' when socket.gethostname raises."""
+    with patch("rock.utils.system.socket.gethostname", side_effect=OSError("mocked error")):
+        result = get_host_name()
+        assert result == "unknown_host"
+
+
+def test_base_actor_host_name_initialized():
+    """BaseActor._host_name should be set to the system hostname after __init__."""
+    actor = _make_actor()
+    assert actor._host_name is not None
+    assert isinstance(actor._host_name, str)
+    assert len(actor._host_name) > 0
+
+
+def test_base_actor_host_name_fallback_on_error():
+    """BaseActor._host_name should be 'unknown_host' when get_host_name fails."""
+    with patch("rock.sandbox.base_actor.get_host_name", return_value="unknown_host"):
+        actor = _make_actor()
+        assert actor._host_name == "unknown_host"
+
+
+@pytest.mark.asyncio
+async def test_metrics_attributes_contain_host_name():
+    """Attributes reported by _collect_sandbox_metrics must include 'host_name'."""
+    actor = _make_actor()
+    actor._host_name = "my-test-host"
+
+    mock_rt_gauge = MagicMock()
+    actor._gauges["rt"] = mock_rt_gauge
+
+    await actor._collect_sandbox_metrics("test-container")
+
+    attributes = mock_rt_gauge.set.call_args[1]["attributes"]
+    assert "host_name" in attributes, f"'host_name' missing from attributes: {attributes.keys()}"
+    assert attributes["host_name"] == "my-test-host"
+
+
+@pytest.mark.asyncio
+async def test_metrics_attributes_host_name_matches_actor_field():
+    """The host_name in metrics attributes should always match actor._host_name."""
+    actor = _make_actor()
+    custom_hostname = "custom-sandbox-host-42"
+    actor._host_name = custom_hostname
+
+    mock_cpu_gauge = MagicMock()
+    actor._gauges["cpu"] = mock_cpu_gauge
+
+    await actor._collect_sandbox_metrics("test-container")
+
+    attributes = mock_cpu_gauge.set.call_args[1]["attributes"]
+    assert attributes["host_name"] == custom_hostname

@@ -174,6 +174,16 @@ def get_instance_id():
     return fallback_id
 
 
+def get_host_name():
+    """get host name"""
+    try:
+        hostname = socket.gethostname()
+        return hostname
+    except Exception as e:
+        logger.error(f"Get host name error: {e}")
+        return "unknown_host"
+
+
 def get_uniagent_endpoint(
     host_info_path: str = "/etc/hostinfo",
     default_host: str = "localhost",
@@ -221,6 +231,7 @@ def get_iso8601_timestamp(timestamp: int = None, timezone: str = None):
     else:
         time = datetime.datetime.now(tz)
     return time.isoformat(timespec="seconds")
+
 
 def is_primary_pod() -> bool:
     """
