@@ -273,9 +273,61 @@ class BatchSandboxProvider(K8sProvider):
             logger.error(f"Failed to initialize K8s client: {e}", exc_info=True)
             raise
     
+    def _get_pool_name(self, config: DockerDeploymentConfig) -> str | None:
+        """Get pool name from extended_params or config pool_map.
+
+        Priority:
+        1. Check extended_params for pool name
+        2. Fallback to pool_map based on image_os matching
+
+        Args:
+            config: Docker deployment configuration
+
+        Returns:
+            Pool name if found, None otherwise
+        """
+        # Priority 1: Check extended_params
+        pool_name = config.extended_params.get(K8sConstants.EXT_POOL_NAME)
+        if pool_name:
+            return pool_name
+
+        # Priority 2: Check pool_map based on image_os
+        if config.image_os and self._k8s_config.pool_map:
+            return self._k8s_config.pool_map.get(config.image_os)
+
+        return None
+
+    def _get_template_name(self, config: DockerDeploymentConfig) -> str:
+        """Get template name from extended_params or config template_map.
+
+        Priority:
+        1. Check extended_params for template name
+        2. Fallback to template_map based on image_os matching
+        3. Return 'default' if not found
+
+        Args:
+            config: Docker deployment configuration
+
+        Returns:
+            Template name (defaults to 'default')
+        """
+        # Priority 1: Check extended_params
+        template_name = config.extended_params.get(K8sConstants.EXT_TEMPLATE_NAME)
+        if template_name:
+            return template_name
+
+        # Priority 2: Check template_map based on image_os
+        if config.image_os and self._k8s_config.template_map:
+            mapped_template = self._k8s_config.template_map.get(config.image_os)
+            if mapped_template:
+                return mapped_template
+
+        # Priority 3: Return default
+        return "default"
+
     def _normalize_memory(self, memory: str) -> str:
         """Normalize memory format to Kubernetes standard.
-        
+
         Convert formats like '2g', '2G', '2048m' to K8s format like '2Gi', '2048Mi'.
         """
         import re
@@ -345,6 +397,22 @@ class BatchSandboxProvider(K8sProvider):
         
         return manifest
 
+    def _get_pool_ports(self, pool_name: str) -> dict[str, int]:
+        """Get port configuration for a pool from config.
+
+        Args:
+            pool_name: Name of the pool
+
+        Returns:
+            Port configuration dict with proxy, server, ssh ports
+        """
+        pool_ports_config = self._k8s_config.pool_ports.get(pool_name, {})
+        return {
+            'proxy': pool_ports_config.get('proxy', 8000),
+            'server': pool_ports_config.get('server', 8080),
+            'ssh': pool_ports_config.get('ssh', 22),
+        }
+
     def _build_batchsandbox_manifest(self, config: DockerDeploymentConfig) -> dict[str, Any]:
         """Build BatchSandbox manifest from template and deployment config.
         
@@ -360,20 +428,19 @@ class BatchSandboxProvider(K8sProvider):
             Manifest dictionary
         """
         sandbox_id = config.container_name
-        
+
         # Check if using pool mode
-        pool_name = config.extended_params.get(K8sConstants.EXT_POOL_NAME)
+        pool_name = self._get_pool_name(config)
+
         if pool_name:
-            # Hardcode ports for pool mode
-            ports_config = {'proxy': 8000, 'server': 8080, 'ssh': 22}
+            ports_config = self._get_pool_ports(pool_name)
             manifest = self._build_pool_manifest(sandbox_id, pool_name, ports_config)
             
             logger.debug(f"Built BatchSandbox manifest for {sandbox_id} using pool '{pool_name}' in namespace '{self.namespace}'")
             return manifest
-        
+
         # Template mode: build from template
-        # Get template name from extended_params or use 'default'
-        template_name = config.extended_params.get(K8sConstants.EXT_TEMPLATE_NAME, 'default')
+        template_name = self._get_template_name(config)
         
         # Build manifest using template loader
         manifest = self._template_loader.build_manifest(
