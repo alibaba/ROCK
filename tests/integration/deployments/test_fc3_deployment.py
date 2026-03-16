@@ -43,6 +43,25 @@ class TestFC3DeploymentConfig:
     provides defaults, and integrates with deployment factory.
     """
 
+    def test_import_from_config_module(self):
+        """IT-FC3-00: Verify FC3DeploymentConfig can be imported from config module.
+
+        This test ensures the ImportError issue is fixed and won't regress.
+        The class must be importable from rock.deployments.config for tests
+        and production code to work correctly.
+        """
+        from rock.deployments.config import FC3DeploymentConfig as ImportedConfig
+
+        assert ImportedConfig is not None
+        config = ImportedConfig()
+        assert config.type == "fc3"
+
+    def test_is_deployment_config_subclass(self):
+        """IT-FC3-00b: Verify FC3DeploymentConfig is a DeploymentConfig subclass."""
+        from rock.deployments.config import DeploymentConfig, FC3DeploymentConfig as ImportedConfig
+
+        assert issubclass(ImportedConfig, DeploymentConfig)
+
     def test_default_values(self):
         """IT-FC3-01a: Verify default configuration values."""
         config = FC3DeploymentConfig()
