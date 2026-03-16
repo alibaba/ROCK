@@ -322,6 +322,11 @@ class TestFCFunctionAdapter:
 
     def test_adapter_health_check(self):
         """IT-FC3-05c: Verify health_check function works."""
+        try:
+            import gem  # noqa: F401
+        except ImportError:
+            pytest.skip("gem module not available")
+
         from rock.deployments.fc3_rocklet.adapter.server import health_check
 
         result = health_check()
@@ -338,6 +343,11 @@ class TestFCFunctionAdapter:
 
     def test_adapter_runtime_initialization(self):
         """IT-FC3-05e: Verify runtime lazy initialization works."""
+        try:
+            import gem  # noqa: F401
+        except ImportError:
+            pytest.skip("gem module not available")
+
         from rock.deployments.fc3_rocklet.adapter.server import _get_runtime
 
         # Reset runtime
@@ -431,44 +441,41 @@ class TestFCFunctionAdapterFileOps:
 class TestSandboxManagerFC3Integration:
     """Integration tests for SandboxManager with FC3.
 
-    Purpose: Verify FC3DeploymentConfig integrates with deployment factory.
-    Note: Full SandboxManager FC3 routing will be added in a future release.
+    Purpose: Verify SandboxManager correctly routes FC3 deployments.
     """
 
     @pytest.mark.asyncio
-    async def test_fc3_config_creates_deployment(self):
-        """IT-FC3-07a: Verify FC3DeploymentConfig.get_deployment() works."""
-        from rock.deployments.fc3 import FC3Deployment
+    async def test_is_fc3_sandbox_by_id(self):
+        """IT-FC3-07a: Verify FC3 sandbox detection checks deployment dict."""
+        from rock.sandbox.sandbox_manager import SandboxManager
+        from rock.config import RockConfig
 
-        config = FC3DeploymentConfig(
-            account_id="test_account",
-            access_key_id="test_ak",
-            access_key_secret="test_sk",
-        )
+        config = RockConfig()
+        manager = SandboxManager(config, redis_provider=None)
 
-        deployment = config.get_deployment()
-        assert isinstance(deployment, FC3Deployment)
+        # Initially no FC3 sandboxes
+        assert manager._is_fc3_sandbox("fc3-abc123") is False
+
+        # Add a mock FC3 deployment
+        from unittest.mock import MagicMock
+        mock_deployment = MagicMock()
+        manager._fc3_deployments["fc3-test-id"] = mock_deployment
+
+        # Now should detect as FC3 sandbox
+        assert manager._is_fc3_sandbox("fc3-test-id") is True
+        assert manager._is_fc3_sandbox("other-id") is False
 
     @pytest.mark.asyncio
-    async def test_fc3_config_auto_clear_time(self):
-        """IT-FC3-07b: Verify FC3DeploymentConfig.auto_clear_time property."""
-        config = FC3DeploymentConfig(sandbox_ttl_minutes=30)
-        assert config.auto_clear_time == 30
+    async def test_fc3_deployments_dict_initialized(self):
+        """IT-FC3-07b: Verify FC3 deployments dict is initialized."""
+        from rock.sandbox.sandbox_manager import SandboxManager
+        from rock.config import RockConfig
 
-    @pytest.mark.asyncio
-    async def test_fc3_sandbox_id_prefix(self):
-        """IT-FC3-07c: Verify FC3Deployment generates sandbox IDs with fc3- prefix."""
-        from rock.deployments.fc3 import FC3Deployment
+        config = RockConfig()
+        manager = SandboxManager(config, redis_provider=None)
 
-        config = FC3DeploymentConfig(
-            account_id="test",
-            access_key_id="ak",
-            access_key_secret="sk",
-        )
-        deployment = FC3Deployment.from_config(config)
-        deployment.set_sandbox_id("fc3-test-id")
-
-        assert deployment.sandbox_id.startswith("fc3-")
+        assert hasattr(manager, "_fc3_deployments")
+        assert isinstance(manager._fc3_deployments, dict)
 
 
 # ============================================================
