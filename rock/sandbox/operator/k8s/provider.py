@@ -1,13 +1,13 @@
 """K8s provider implementations for managing sandbox resources."""
 
-from abc import abstractmethod
-from typing import Any, Optional, Protocol
+import json
+import re
+from abc import abstractmethod, ABC
+from typing import Any, Protocol
 
 from kubernetes import client, config as k8s_config
-import json
-import asyncio
 
-from rock.config import K8sConfig
+from rock.config import K8sConfig, PoolConfig
 from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
 from rock.deployments.constants import Port
 from rock.sandbox.operator.k8s.constants import K8sConstants
@@ -16,71 +16,146 @@ from rock.sandbox.operator.k8s.template_loader import K8sTemplateLoader
 from rock.sandbox.remote_sandbox import RemoteSandboxRuntime
 from rock.actions.sandbox.config import RemoteSandboxRuntimeConfig
 from rock.actions.sandbox.sandbox_info import SandboxInfo
-from rock.actions.sandbox.response import State
 from rock.logger import init_logger
 
 
 logger = init_logger(__name__)
 
 
+class PoolSelector(ABC):
+    """Abstract base class for pool selection strategy."""
+
+    @abstractmethod
+    def select_pool(self, config: DockerDeploymentConfig, pools: dict[str, PoolConfig]) -> str | None:
+        """Select a pool for the given deployment config.
+
+        Args:
+            config: Docker deployment configuration
+            pools: Available pools configuration
+
+        Returns:
+            Selected pool name or None if no pool matches
+        """
+        pass
+
+
+class ResourceMatchingPoolSelector(PoolSelector):
+    """Pool selector that matches by image and resource requirements.
+
+    Selection criteria:
+    1. Pool image must exactly match config image
+    2. Pool resources (cpus, memory) must be >= config requirements
+    3. Among all matching pools, select the one with smallest resource capacity
+    """
+
+    def _parse_memory_to_mb(self, memory: str) -> float:
+        """Parse memory string to MB for comparison."""
+        memory = memory.lower().strip()
+
+        # Extract number and unit
+        match = re.match(r'^(\d+(\.\d+)?)\s*([a-z]*)$', memory)
+        if not match:
+            try:
+                return float(memory) / (1024 * 1024)  # Assume bytes
+            except (ValueError, TypeError):
+                return 0
+
+        value = float(match.group(1))
+        unit = match.group(3)
+
+        # Convert to MB
+        if unit in ('', 'b'):
+            return value / (1024 * 1024)
+        elif unit in ('k', 'kb'):
+            return value / 1024
+        elif unit in ('m', 'mb', 'mi'):
+            return value
+        elif unit in ('g', 'gb', 'gi'):
+            return value * 1024
+        elif unit in ('t', 'tb', 'ti'):
+            return value * 1024 * 1024
+        else:
+            return 0
+
+    def _get_pool_resource_score(self, pool_config: PoolConfig) -> float:
+        """Calculate resource score for a pool (lower is better for selection)."""
+        memory_mb = self._parse_memory_to_mb(pool_config.memory)
+        # Normalize memory to GB and add to cpus for a unified score (lower = smaller capacity)
+        return pool_config.cpus + memory_mb / 1024
+
+    def select_pool(self, config: DockerDeploymentConfig, pools: dict[str, PoolConfig]) -> str | None:
+        """Select best matching pool based on image and resource requirements."""
+        if not pools:
+            return None
+
+        config_memory_mb = self._parse_memory_to_mb(config.memory)
+        matching_pools: list[tuple[str, PoolConfig, float]] = []
+
+        for pool_name, pool_config in pools.items():
+            # Check image match
+            if pool_config.image != config.image:
+                continue
+
+            # Check resource capacity (pool must have >= required resources)
+            pool_memory_mb = self._parse_memory_to_mb(pool_config.memory)
+            if pool_config.cpus < config.cpus or pool_memory_mb < config_memory_mb:
+                continue
+
+            # Calculate score for this matching pool
+            score = self._get_pool_resource_score(pool_config)
+            matching_pools.append((pool_name, pool_config, score))
+
+        if not matching_pools:
+            return None
+
+        # Select pool with smallest resource capacity (best fit)
+        matching_pools.sort(key=lambda x: x[2])
+        best_pool_name, _, _ = matching_pools[0]
+        return best_pool_name
+
+
 class K8sProvider(Protocol):
-    """Base K8s provider interface.
-    
-    This protocol defines the standard interface for K8s sandbox providers.
+    """Interface for K8s sandbox providers.
+
     All provider implementations must support these three core operations:
-    - submit: Create and initialize a new sandbox
-    - get_status: Retrieve current sandbox status and check if alive
+    - submit: Create a new sandbox
+    - get_status: Retrieve current sandbox status
     - stop: Stop and delete a sandbox
     """
-    
-    def __init__(self, k8s_config: K8sConfig):
-        """Initialize provider with K8s configuration.
-        
-        Args:
-            k8s_config: K8sConfig object containing kubeconfig and templates
-        """
-        ...
-    
-    async def _ensure_initialized(self):
-        """Ensure K8s client is initialized."""
-        ...
-    
-    @abstractmethod
+
     async def submit(self, config: DeploymentConfig, user_info: dict = {}) -> SandboxInfo:
         """Submit a sandbox deployment.
-        
+
         Args:
             config: Deployment configuration
             user_info: User metadata
-            
+
         Returns:
             SandboxInfo with sandbox metadata
         """
-        pass
-    
-    @abstractmethod
+        ...
+
     async def get_status(self, sandbox_id: str) -> SandboxInfo:
         """Get sandbox status.
-        
+
         Args:
             sandbox_id: ID of the sandbox
-            
+
         Returns:
             SandboxInfo with current status
         """
-        pass
-    
-    @abstractmethod
+        ...
+
     async def stop(self, sandbox_id: str) -> bool:
         """Stop and delete a sandbox.
-        
+
         Args:
             sandbox_id: ID of the sandbox to delete
-            
+
         Returns:
             True if successful, False otherwise
         """
-        pass
+        ...
 
 
 class BatchSandboxProvider(K8sProvider):
@@ -162,10 +237,9 @@ class BatchSandboxProvider(K8sProvider):
             logger.error(f"Failed to create sandbox {sandbox_id}: {e}", exc_info=True)
             # Clean up on failure
             try:
-                if 'created_sandbox_id' in locals():
-                    await self.stop(created_sandbox_id)
-                    logger.info(f"Cleaned up failed sandbox {created_sandbox_id}")
-            except:
+                await self.stop(sandbox_id)
+                logger.info(f"Cleaned up failed sandbox {sandbox_id}")
+            except Exception:
                 pass
             raise
 
@@ -273,13 +347,60 @@ class BatchSandboxProvider(K8sProvider):
             logger.error(f"Failed to initialize K8s client: {e}", exc_info=True)
             raise
     
+    def _get_pool_name(self, config: DockerDeploymentConfig) -> str | None:
+        """Get pool name using selection strategy.
+
+        Priority:
+        1. Check extended_params for explicit pool name
+        2. Use ResourceMatchingPoolSelector to find best matching pool
+
+        Args:
+            config: Docker deployment configuration
+
+        Returns:
+            Pool name if found, None otherwise
+        """
+        # Priority 1: Check extended_params for explicit pool name
+        pool_name = config.extended_params.get(K8sConstants.EXT_POOL_NAME)
+        if pool_name:
+            return pool_name
+
+        # Priority 2: Use pool selector to find best match
+        return ResourceMatchingPoolSelector().select_pool(config, self._k8s_config.pools)
+
+    def _get_template_name(self, config: DockerDeploymentConfig) -> str:
+        """Get template name from extended_params or config template_map.
+
+        Priority:
+        1. Check extended_params for template name
+        2. Fallback to template_map based on image_os matching
+        3. Return 'default' if not found
+
+        Args:
+            config: Docker deployment configuration
+
+        Returns:
+            Template name (defaults to 'default')
+        """
+        # Priority 1: Check extended_params
+        template_name = config.extended_params.get(K8sConstants.EXT_TEMPLATE_NAME)
+        if template_name:
+            return template_name
+
+        # Priority 2: Check template_map based on image_os
+        if config.image_os and self._k8s_config.template_map:
+            mapped_template = self._k8s_config.template_map.get(config.image_os)
+            if mapped_template:
+                return mapped_template
+
+        # Priority 3: Return default
+        return "default"
+
     def _normalize_memory(self, memory: str) -> str:
         """Normalize memory format to Kubernetes standard.
-        
+
         Convert formats like '2g', '2G', '2048m' to K8s format like '2Gi', '2048Mi'.
         """
-        import re
-        
         # Already in K8s format
         if re.match(r'^\d+(\.\d+)?(Ei|Pi|Ti|Gi|Mi|Ki)$', memory):
             return memory
@@ -291,7 +412,7 @@ class BatchSandboxProvider(K8sProvider):
             try:
                 bytes_val = int(memory)
                 return f"{bytes_val // (1024 * 1024)}Mi"
-            except:
+            except (ValueError, TypeError):
                 return memory  # Return as-is if can't parse
 
         value = float(match.group(1))
@@ -345,35 +466,45 @@ class BatchSandboxProvider(K8sProvider):
         
         return manifest
 
+    def _get_pool_ports(self, pool_name: str) -> dict[str, int]:
+        """Get port configuration for a pool from config.
+
+        Args:
+            pool_name: Name of the pool
+
+        Returns:
+            Port configuration dict with proxy, server, ssh ports
+        """
+        pool_config = self._k8s_config.pools.get(pool_name)
+        if pool_config:
+            return pool_config.ports
+        # Fallback to defaults if pool not found
+        return {"proxy": 8000, "server": 8080, "ssh": 22}
+
     def _build_batchsandbox_manifest(self, config: DockerDeploymentConfig) -> dict[str, Any]:
         """Build BatchSandbox manifest from template and deployment config.
-        
-        This method uses the template loader to get a base template and only sets
-        the user-configurable parameters from SandboxStartRequest:
-        - image
-        - cpus
-        - memory
-        
+
+        Uses the template loader to get a base template and applies
+        user-specified parameters from DockerDeploymentConfig (image, cpus, memory).
         All other fields (command, volumes, tolerations, etc.) come from the template.
-        
+
         Returns:
             Manifest dictionary
         """
         sandbox_id = config.container_name
-        
+
         # Check if using pool mode
-        pool_name = config.extended_params.get(K8sConstants.EXT_POOL_NAME)
+        pool_name = self._get_pool_name(config)
+
         if pool_name:
-            # Hardcode ports for pool mode
-            ports_config = {'proxy': 8000, 'server': 8080, 'ssh': 22}
+            ports_config = self._get_pool_ports(pool_name)
             manifest = self._build_pool_manifest(sandbox_id, pool_name, ports_config)
             
             logger.debug(f"Built BatchSandbox manifest for {sandbox_id} using pool '{pool_name}' in namespace '{self.namespace}'")
             return manifest
-        
+
         # Template mode: build from template
-        # Get template name from extended_params or use 'default'
-        template_name = config.extended_params.get(K8sConstants.EXT_TEMPLATE_NAME, 'default')
+        template_name = self._get_template_name(config)
         
         # Build manifest using template loader
         manifest = self._template_loader.build_manifest(

@@ -6,6 +6,16 @@ k8s:
   # Global namespace for all sandboxes
   namespace: "rock"
 
+  pools:
+    pool-waa-sample:
+      image: "xxx"
+      cpus: 4.0
+      memory: "8Gi"
+      ports:
+        proxy: 8000    # HTTP API port (rocklet/swerex-remote)
+        server: 8080   # WebSocket server port (same service)
+        ssh: 22        # SSH service port
+
   # API client configuration
   # Rate limiting
   api_qps: 20.0
@@ -43,6 +53,7 @@ k8s:
                 - |
                   pip install rl-rock[rocklet]
                   rocklet
+
 
 # Runtime configuration
 runtime:
