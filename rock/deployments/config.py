@@ -226,6 +226,57 @@ class RemoteDeploymentConfig(DeploymentConfig):
         return RemoteDeployment.from_config(self)
 
 
+class FC3DeploymentConfig(DeploymentConfig):
+    """Configuration for Alibaba Cloud Function Compute 3.0 deployment.
+
+    This deployment type enables serverless sandbox execution using FC3
+    with WebSocket session management for stateful operations.
+    """
+
+    type: Literal["fc3"] = "fc3"
+    """Deployment type discriminator."""
+
+    function_name: str = "rock-rocklet-rt"
+    """FC3 function name for the sandbox runtime."""
+
+    region: str = "cn-hangzhou"
+    """Alibaba Cloud region for the FC3 function."""
+
+    account_id: str | None = None
+    """Alibaba Cloud account ID."""
+
+    access_key_id: str | None = None
+    """Alibaba Cloud AccessKey ID for authentication."""
+
+    access_key_secret: str | None = Field(default=None, repr=False, exclude=True)
+    """Alibaba Cloud AccessKey Secret for authentication."""
+
+    memory: int = 4096
+    """Memory allocation in MB for the FC3 function."""
+
+    cpus: float = 2.0
+    """CPU cores allocated for the FC3 function."""
+
+    session_affinity_header: str = "x-rock-session-id"
+    """Header field name for session affinity."""
+
+    sandbox_ttl_minutes: int = 10
+    """Time-to-live in minutes for sandbox auto-cleanup."""
+
+    timeout: float = 30.0
+    """Request timeout in seconds for FC3 API calls."""
+
+    def get_deployment(self) -> AbstractDeployment:
+        from rock.deployments.fc3 import FC3Deployment
+
+        return FC3Deployment.from_config(self)
+
+    @property
+    def auto_clear_time(self) -> int:
+        """Alias for sandbox_ttl_minutes for compatibility."""
+        return self.sandbox_ttl_minutes
+
+
 def get_deployment(config: DeploymentConfig) -> AbstractDeployment:
     """Create a deployment instance from the given configuration.
 
