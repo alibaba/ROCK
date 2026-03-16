@@ -76,6 +76,9 @@ class UploadMode(str, Enum):
     OSS = "oss"
     """Force upload via OSS regardless of file size."""
 
+    DIRECT = "direct"
+    """Force direct HTTP upload regardless of file size, bypassing OSS."""
+
 
 class UploadRequest(BaseModel):
     source_path: str
@@ -85,7 +88,8 @@ class UploadRequest(BaseModel):
     """Remote file path to upload to."""
 
     upload_mode: UploadMode = UploadMode.AUTO
-    """Upload mode. 'auto' uses the default strategy (OSS for large files when enabled), 'oss' forces OSS upload."""
+    """Upload mode. 'auto' uses the default strategy (OSS for large files when enabled),
+    'oss' forces OSS upload, 'direct' forces direct HTTP upload bypassing OSS."""
 
 
 class ChownRequest(BaseModel):

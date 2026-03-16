@@ -704,7 +704,11 @@ class Sandbox(AbstractSandbox):
         file_path = Path(file_path)
         if not file_path.exists():
             return UploadResponse(success=False, message=f"File not found: {file_path}")
-        if upload_mode == UploadMode.OSS or (env_vars.ROCK_OSS_ENABLE and os.path.getsize(file_path) > 1024 * 1024 * 1):
+        if upload_mode == UploadMode.OSS or (
+            upload_mode != UploadMode.DIRECT
+            and env_vars.ROCK_OSS_ENABLE
+            and os.path.getsize(file_path) > 1024 * 1024 * 1
+        ):
             return await self._upload_via_oss(path_str, target_path)
         url = f"{self._url}/upload"
         headers = self._build_headers()
