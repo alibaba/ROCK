@@ -1,0 +1,41 @@
+#!/bin/bash
+# =============================================================================
+# FC3 Custom Runtime Bootstrap Script for Rocklet
+# =============================================================================
+#
+# 方案 B：使用自定义运行时部署 rocklet
+#
+# 此脚本在 FC3 实例启动时执行，负责：
+#   1. 设置环境变量
+#   2. 启动 rocklet HTTP 服务器
+#
+# 注意：依赖已预先打包到 deps 目录
+#
+# =============================================================================
+
+set -e
+
+# 获取 FC 服务器端口（默认 9000）
+PORT=${FC_SERVER_PORT:-9000}
+
+# 代码目录
+CODE_DIR="/code"
+
+# 依赖目录（已预先打包）
+DEPS_DIR="$CODE_DIR/deps"
+
+# 日志
+echo "[Bootstrap] Starting rocklet bootstrap..."
+echo "[Bootstrap] PORT=$PORT"
+echo "[Bootstrap] CODE_DIR=$CODE_DIR"
+echo "[Bootstrap] DEPS_DIR=$DEPS_DIR"
+
+# 切换到代码目录
+cd "$CODE_DIR"
+
+# 设置 PYTHONPATH
+export PYTHONPATH="$CODE_DIR:$DEPS_DIR:$PYTHONPATH"
+
+# 启动 rocklet 服务器
+echo "[Bootstrap] Starting rocklet server on port $PORT..."
+exec python3 -m rock.rocklet --host 0.0.0.0 --port "$PORT"
