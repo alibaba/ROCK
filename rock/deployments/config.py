@@ -251,6 +251,9 @@ class FC3DeploymentConfig(DeploymentConfig):
     access_key_secret: str | None = Field(default=None, repr=False, exclude=True)
     """Alibaba Cloud AccessKey Secret for authentication."""
 
+    security_token: str | None = None
+    """Alibaba Cloud STS security token for temporary credentials."""
+
     memory: int = 4096
     """Memory allocation in MB for the FC3 function."""
 
