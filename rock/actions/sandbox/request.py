@@ -75,6 +75,9 @@ class UploadRequest(BaseModel):
     target_path: str
     """Remote file path to upload to."""
 
+    use_oss: bool = False
+    """Whether to upload the file via OSS. If True, the file will be uploaded through OSS regardless of file size."""
+
 
 class ChownRequest(BaseModel):
     remote_user: str

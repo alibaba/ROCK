@@ -692,14 +692,16 @@ class Sandbox(AbstractSandbox):
         return "\n".join(lines)
 
     async def upload(self, request: UploadRequest) -> UploadResponse:
-        return await self.upload_by_path(file_path=request.source_path, target_path=request.target_path)
+        return await self.upload_by_path(
+            file_path=request.source_path, target_path=request.target_path, use_oss=request.use_oss
+        )
 
-    async def upload_by_path(self, file_path: str | Path, target_path: str) -> UploadResponse:
+    async def upload_by_path(self, file_path: str | Path, target_path: str, use_oss: bool = False) -> UploadResponse:
         path_str = file_path
         file_path = Path(file_path)
         if not file_path.exists():
             return UploadResponse(success=False, message=f"File not found: {file_path}")
-        if env_vars.ROCK_OSS_ENABLE and os.path.getsize(file_path) > 1024 * 1024 * 1:
+        if use_oss or (env_vars.ROCK_OSS_ENABLE and os.path.getsize(file_path) > 1024 * 1024 * 1):
             return await self._upload_via_oss(path_str, target_path)
         url = f"{self._url}/upload"
         headers = self._build_headers()
