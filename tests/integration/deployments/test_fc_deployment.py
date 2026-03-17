@@ -76,7 +76,7 @@ class TestFCDeploymentConfig:
         assert config.memory is None
         assert config.cpus is None
         assert config.session_id is None
-        assert config.sandbox_ttl is None
+        assert config.session_ttl is None
 
     def test_custom_values(self):
         """IT-FC-01b: Verify custom configuration values."""
