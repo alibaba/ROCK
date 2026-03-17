@@ -16,12 +16,12 @@
 # =============================================================================
 
 edition: 3.0.0
-name: rock-rocklet-adapter
+name: rock-serverless-runtime-rocklet
 access: default
 
 vars:
   region: cn-hangzhou
-  functionName: rock-rocklet-adapter
+  functionName: rock-serverless-runtime-rocklet
 
 resources:
   rock-rocklet:

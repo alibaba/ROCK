@@ -107,14 +107,8 @@ sessionAffinityConfig:
 部署完成后，更新 `rock-conf/rock-fc.yml`：
 
 ```yaml
-ray:
-    runtime_env:
-        working_dir: ./
-        pip: ./requirements_sandbox_actor.txt
-    namespace: "rock-sandbox-fc"
-
-warmup:
-    images: []
+fc:
+    function_name: "rock-serverless-runtime-rocklet"  # 统一的函数名
 ```
 
 启动 Admin 服务：

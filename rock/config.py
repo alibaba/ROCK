@@ -109,7 +109,7 @@ class FCConfig:
     account_id: str | None = None
     """Alibaba Cloud account ID."""
 
-    function_name: str = "rock-rocklet-rt"
+    function_name: str = "rock-serverless-runtime-rocklet"
     """Default FC function name for sandbox runtime."""
 
     # Credentials (service-level, sensitive)

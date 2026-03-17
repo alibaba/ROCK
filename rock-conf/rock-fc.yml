@@ -55,7 +55,10 @@ fc:
     # 连接设置
     region: "cn-hangzhou"
     account_id: null  # 阿里云账号 ID，运行时从环境变量或 STS 获取
-    function_name: "rock-rocklet-rt"  # 沙箱运行时函数名
+
+    # 函数名（必须与 s.yaml 中部署的函数名一致）
+    # 部署流程：选择一种方案执行 s deploy → function_name 已统一为 rock-serverless-runtime-rocklet
+    function_name: "rock-serverless-runtime-rocklet"
 
     # 凭证（建议通过环境变量或 STS 临时凭证提供）
     # access_key_id: null
@@ -68,7 +71,7 @@ fc:
 
     # 超时默认值（单位：秒）
     default_session_ttl: 600  # 会话生命周期（秒），对应 s.yaml 中的 sessionTTLInSeconds
-    default_timeout: 30.0  # API 请求超时（秒）
+    default_function_timeout: 30.0  # 函数执行超时（秒），单个请求最大执行时长
     default_session_idle_timeout: 60  # 会话空闲超时（秒），对应 s.yaml 中的 sessionIdleTimeoutInSeconds
 
     # 协议设置
