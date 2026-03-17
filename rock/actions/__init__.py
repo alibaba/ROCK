@@ -13,6 +13,7 @@ from .sandbox.request import (
     CreateBashSessionRequest,
     CreateSessionRequest,
     ReadFileRequest,
+    UploadMode,
     UploadRequest,
     WriteFileRequest,
 )
@@ -63,6 +64,7 @@ __all__ = [
     "CloseBashSessionRequest",
     "CloseSessionRequest",
     "ReadFileRequest",
+    "UploadMode",
     "UploadRequest",
     "IsAliveResponse",
     "SandboxStatusResponse",

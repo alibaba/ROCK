@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
@@ -68,12 +69,27 @@ class ReadFileRequest(BaseModel):
     This corresponds to the `errors` parameter of `Path.read_text()`."""
 
 
+class UploadMode(str, Enum):
+    AUTO = "auto"
+    """Automatically decide the upload method based on file size and OSS configuration."""
+
+    OSS = "oss"
+    """Force upload via OSS regardless of file size."""
+
+    DIRECT = "direct"
+    """Force direct HTTP upload regardless of file size, bypassing OSS."""
+
+
 class UploadRequest(BaseModel):
     source_path: str
     """Local file path to upload from."""
 
     target_path: str
     """Remote file path to upload to."""
+
+    upload_mode: UploadMode = UploadMode.AUTO
+    """Upload mode. 'auto' uses the default strategy (OSS for large files when enabled),
+    'oss' forces OSS upload, 'direct' forces direct HTTP upload bypassing OSS."""
 
 
 class ChownRequest(BaseModel):

@@ -33,6 +33,7 @@ from rock.actions import (
     ReadFileResponse,
     SandboxResponse,
     SandboxStatusResponse,
+    UploadMode,
     UploadRequest,
     UploadResponse,
     WriteFileRequest,
@@ -692,14 +693,22 @@ class Sandbox(AbstractSandbox):
         return "\n".join(lines)
 
     async def upload(self, request: UploadRequest) -> UploadResponse:
-        return await self.upload_by_path(file_path=request.source_path, target_path=request.target_path)
+        return await self.upload_by_path(
+            file_path=request.source_path, target_path=request.target_path, upload_mode=request.upload_mode
+        )
 
-    async def upload_by_path(self, file_path: str | Path, target_path: str) -> UploadResponse:
+    async def upload_by_path(
+        self, file_path: str | Path, target_path: str, upload_mode: UploadMode = UploadMode.AUTO
+    ) -> UploadResponse:
         path_str = file_path
         file_path = Path(file_path)
         if not file_path.exists():
             return UploadResponse(success=False, message=f"File not found: {file_path}")
-        if env_vars.ROCK_OSS_ENABLE and os.path.getsize(file_path) > 1024 * 1024 * 1:
+        if upload_mode == UploadMode.OSS or (
+            upload_mode != UploadMode.DIRECT
+            and env_vars.ROCK_OSS_ENABLE
+            and os.path.getsize(file_path) > 1024 * 1024 * 1
+        ):
             return await self._upload_via_oss(path_str, target_path)
         url = f"{self._url}/upload"
         headers = self._build_headers()
