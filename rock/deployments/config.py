@@ -249,7 +249,7 @@ class FCDeploymentConfig(DeploymentConfig):
     │  - 每个 sandbox API 请求创建                                         │
     │  - session_id 与 ROCK sandbox_id 1:1 映射                           │
     │  - 用于调用已部署的 FC 函数，不涉及函数部署                            │
-    │  - sandbox_ttl/sandbox_idle_timeout: ROCK 内部沙箱生命周期管理        │
+    │  - session_ttl/session_idle_timeout: FC 会话生命周期管理                │
     └─────────────────────────────────────────────────────────────────────┘
                               │
                               │ 调用已部署的 FC 函数
@@ -306,14 +306,14 @@ class FCDeploymentConfig(DeploymentConfig):
     """CPU cores. If None, uses FCConfig.default_cpus."""
 
     # Timeout settings (optional, use FCConfig defaults if not provided, all in seconds)
-    sandbox_ttl: int | None = None
-    """Sandbox time-to-live in seconds. If None, uses FCConfig.default_session_ttl."""
+    session_ttl: int | None = None
+    """Session time-to-live in seconds. If None, uses FCConfig.default_session_ttl."""
 
-    sandbox_idle_timeout: int | None = None
-    """Sandbox idle timeout in seconds. If None, uses FCConfig.default_session_idle_timeout."""
+    session_idle_timeout: int | None = None
+    """Session idle timeout in seconds. If None, uses FCConfig.default_session_idle_timeout."""
 
-    timeout: float | None = None
-    """Request timeout in seconds. If None, uses FCConfig.default_timeout."""
+    function_timeout: float | None = None
+    """Function execution timeout in seconds for single request. If None, uses FCConfig.default_function_timeout."""
 
     def get_deployment(self) -> AbstractDeployment:
         from rock.deployments.fc import FCDeployment
@@ -342,9 +342,9 @@ class FCDeploymentConfig(DeploymentConfig):
             security_token=self.security_token or fc_config.security_token,
             memory=self.memory or fc_config.default_memory,
             cpus=self.cpus or fc_config.default_cpus,
-            sandbox_ttl=self.sandbox_ttl or fc_config.default_session_ttl,
-            sandbox_idle_timeout=self.sandbox_idle_timeout or fc_config.default_session_idle_timeout,
-            timeout=self.timeout or fc_config.default_timeout,
+            session_ttl=self.session_ttl or fc_config.default_session_ttl,
+            session_idle_timeout=self.session_idle_timeout or fc_config.default_session_idle_timeout,
+            function_timeout=self.function_timeout or fc_config.default_function_timeout,
         )
 
 

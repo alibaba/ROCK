@@ -109,15 +109,15 @@ class TestFCDeploymentConfig:
 
         assert isinstance(deployment, FCDeployment)
 
-    def test_sandbox_ttl_custom(self):
-        """IT-FC-01d: Verify sandbox_ttl can be set."""
-        config = FCDeploymentConfig(sandbox_ttl=7200)  # 2 hours in seconds
-        assert config.sandbox_ttl == 7200
+    def test_session_ttl_custom(self):
+        """IT-FC-01d: Verify session_ttl can be set."""
+        config = FCDeploymentConfig(session_ttl=7200)  # 2 hours in seconds
+        assert config.session_ttl == 7200
 
-    def test_sandbox_ttl_default(self):
-        """IT-FC-01e: Verify sandbox_ttl default is None (uses FCConfig)."""
+    def test_session_ttl_default(self):
+        """IT-FC-01e: Verify session_ttl default is None (uses FCConfig)."""
         config = FCDeploymentConfig()
-        assert config.sandbox_ttl is None
+        assert config.session_ttl is None
 
 
 # ============================================================

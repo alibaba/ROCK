@@ -131,10 +131,10 @@ class FCConfig:
 
     # Timeout defaults (can be overridden by API, all in seconds)
     default_session_ttl: int = 600
-    """Default session time-to-live in seconds for sandbox auto-cleanup."""
+    """Default session time-to-live in seconds."""
 
-    default_timeout: float = 30.0
-    """Default request timeout in seconds for FC API calls."""
+    default_function_timeout: float = 30.0
+    """Default function execution timeout in seconds for single request."""
 
     default_session_idle_timeout: int = 60
     """Default session idle timeout in seconds. Matches s.yaml sessionIdleTimeoutInSeconds."""
