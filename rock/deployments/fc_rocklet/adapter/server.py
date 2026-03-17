@@ -1,8 +1,11 @@
 # =============================================================================
-# FC3 Adapter Server - Production Ready
+# FC Adapter Server - Production Ready
 # =============================================================================
 #
 # 方案 C：混合适配层（生产就绪）
+#
+# FC (Function Compute) 是阿里云的无服务器计算服务
+# https://www.alibabacloud.com/product/function-compute
 #
 # 使用 Python 标准运行时，无需构建自定义镜像
 # 直接复用 rock.rocklet 的 LocalSandboxRuntime
@@ -45,7 +48,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # 工作目录限制（防止路径穿越）
-WORK_DIR = Path(os.getenv("FC3_WORK_DIR", "/tmp")).resolve()
+WORK_DIR = Path(os.getenv("FC_WORK_DIR", "/tmp")).resolve()
 
 
 def _validate_path(path: str) -> str:
@@ -112,13 +115,13 @@ class AdapterConfig:
     def from_env(cls) -> "AdapterConfig":
         """从环境变量加载配置"""
         return cls(
-            max_sessions=int(os.getenv("FC3_MAX_SESSIONS", "100")),
-            session_ttl_seconds=int(os.getenv("FC3_SESSION_TTL", "600")),
-            cleanup_interval_seconds=int(os.getenv("FC3_CLEANUP_INTERVAL", "60")),
-            default_timeout=int(os.getenv("FC3_DEFAULT_TIMEOUT", "60")),
-            max_timeout=int(os.getenv("FC3_MAX_TIMEOUT", "300")),
-            max_retries=int(os.getenv("FC3_MAX_RETRIES", "3")),
-            retry_delay=float(os.getenv("FC3_RETRY_DELAY", "1.0")),
+            max_sessions=int(os.getenv("FC_MAX_SESSIONS", "100")),
+            session_ttl_seconds=int(os.getenv("FC_SESSION_TTL", "600")),
+            cleanup_interval_seconds=int(os.getenv("FC_CLEANUP_INTERVAL", "60")),
+            default_timeout=int(os.getenv("FC_DEFAULT_TIMEOUT", "60")),
+            max_timeout=int(os.getenv("FC_MAX_TIMEOUT", "300")),
+            max_retries=int(os.getenv("FC_MAX_RETRIES", "3")),
+            retry_delay=float(os.getenv("FC_RETRY_DELAY", "1.0")),
         )
 
 
@@ -565,7 +568,7 @@ def get_metrics() -> Dict[str, Any]:
 
 
 # =============================================================================
-# FC3 HTTP 请求路由
+# FC HTTP 请求路由
 # =============================================================================
 
 def route_request(path: str, method: str, body: Dict[str, Any]) -> Dict[str, Any]:
@@ -647,14 +650,14 @@ def route_request(path: str, method: str, body: Dict[str, Any]) -> Dict[str, Any
 
 
 # =============================================================================
-# FC3 HTTP Handler (WSGI)
+# FC HTTP Handler (WSGI)
 # =============================================================================
 
 def fc_handler(environ: Dict[str, Any], start_response) -> list:
     """
-    FC3 HTTP 触发器入口函数
+    FC HTTP 触发器入口函数
 
-    WSGI 接口，兼容 FC3 Python 运行时
+    WSGI 接口，兼容 FC Python 运行时
     """
     start_time = time.time()
 
@@ -700,7 +703,7 @@ def fc_handler(environ: Dict[str, Any], start_response) -> list:
     return [response_body]
 
 
-# 用于 FC3 的标准入口点
+# 用于 FC 的标准入口点
 handler = fc_handler
 
 
@@ -717,9 +720,9 @@ def create_app():
         return None
 
     app = FastAPI(
-        title="FC3 Rocklet Adapter",
+        title="FC Rocklet Adapter",
         version="2.0.0",
-        description="Production-ready FC3 adapter for ROCK sandbox",
+        description="Production-ready FC adapter for ROCK sandbox",
     )
 
     @app.get("/is_alive")
@@ -800,7 +803,7 @@ def create_app():
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="FC3 Rocklet Adapter Server")
+    parser = argparse.ArgumentParser(description="FC Rocklet Adapter Server")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind")
     parser.add_argument("--port", type=int, default=9000, help="Port to listen")
     parser.add_argument("--max-sessions", type=int, default=100, help="Maximum concurrent sessions")
@@ -811,11 +814,11 @@ if __name__ == "__main__":
     _config.max_sessions = args.max_sessions
     _config.session_ttl_seconds = args.session_ttl
 
-    logger.info(f"Starting FC3 Rocklet Adapter (max_sessions={_config.max_sessions}, ttl={_config.session_ttl_seconds}s)")
+    logger.info(f"Starting FC Rocklet Adapter (max_sessions={_config.max_sessions}, ttl={_config.session_ttl_seconds}s)")
 
     app = create_app()
     if app:
         import uvicorn
         uvicorn.run(app, host=args.host, port=args.port)
     else:
-        print("FastAPI not available. Use WSGI handler in FC3 environment.")
+        print("FastAPI not available. Use WSGI handler in FC environment.")

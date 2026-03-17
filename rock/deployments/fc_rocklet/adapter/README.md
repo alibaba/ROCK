@@ -1,6 +1,6 @@
 # 方案 C：混合适配层部署
 
-使用 FC3 Python3.10 运行时 + 适配层部署 rocklet。
+使用 FC Python3.10 运行时 + 适配层部署 rocklet。
 
 ## 推荐度：⭐⭐⭐
 
@@ -26,7 +26,7 @@
 ### 1. 打包代码
 
 ```bash
-cd rock/deployments/fc3_rocklet/adapter
+cd rock/deployments/fc_rocklet/adapter
 ./package.sh
 ```
 
@@ -40,7 +40,7 @@ s deploy
 
 ```bash
 # 启动本地服务器（需要安装 fastapi 和 uvicorn）
-cd rock/deployments/fc3_rocklet/adapter
+cd rock/deployments/fc_rocklet/adapter
 python server.py --port 9000
 
 # 测试

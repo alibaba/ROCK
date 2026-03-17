@@ -1,24 +1,27 @@
 # =============================================================================
-# FC3 Custom Runtime Deployment Configuration
+# FC Hybrid Adapter Deployment Configuration
 # =============================================================================
 #
-# 方案 B：使用自定义运行时部署 rocklet
+# 方案 C：混合适配层部署
 #
 # 部署步骤：
 #   1. 执行 ./package.sh 打包代码
 #   2. 执行: s deploy
 #
-# 注意：首次冷启动较慢（需要安装依赖）
+# 优点：
+#   - 使用 Python3.10 运行时，启动快
+#   - 复用 rocklet 核心代码
+#   - 无需构建镜像
 #
 # =============================================================================
 
 edition: 3.0.0
-name: rock-rocklet-runtime
+name: rock-rocklet-adapter
 access: default
 
 vars:
   region: cn-hangzhou
-  functionName: rock-rocklet-rt
+  functionName: rock-rocklet-adapter
 
 resources:
   rock-rocklet:
@@ -26,31 +29,25 @@ resources:
     props:
       region: ${vars.region}
       functionName: ${vars.functionName}
-      description: "ROCK Rocklet Sandbox Runtime (Custom Runtime)"
-      
-      # 使用自定义运行时（Debian 12 带 Python 3.11）
-      runtime: custom.debian12
-      handler: index.handler
-      
-      # 自定义运行时配置
-      customRuntimeConfig:
-        command:
-          - /bin/bash
-          - /code/bootstrap
-        port: 9000
-      
+      description: "ROCK Rocklet Sandbox Runtime (Hybrid Adapter)"
+
+      # 使用 Python3.10 运行时
+      runtime: python3.10
+      # 指向适配层的 WSGI handler
+      handler: server.handler
+
       # 代码配置（使用打包后的 zip）
-      code: ./dist/fc3_rocklet_runtime.zip
-      
+      code: ./dist/fc_rocklet_adapter.zip
+
       # 资源配置
       memorySize: 4096
       cpu: 2
       diskSize: 10240
       timeout: 3600
-      
+
       # 单实例多并发
       instanceConcurrency: 200
-      
+
       # 会话隔离配置
       instanceIsolationMode: SESSION_EXCLUSIVE
       sessionAffinity: HEADER_FIELD
@@ -59,20 +56,12 @@ resources:
         sessionConcurrencyPerInstance: 1
         sessionIdleTimeoutInSeconds: 60
         sessionTTLInSeconds: 600
-      
+
       # 环境变量
       environmentVariables:
         PYTHONUNBUFFERED: "1"
         PYTHONDONTWRITEBYTECODE: "1"
-      
-      # HTTP 触发器
-      triggers:
-        - triggerName: httpTrigger
-          triggerType: http
-          triggerConfig:
-            authType: anonymous
-            methods:
-              - GET
-              - POST
-              - PUT
-              - DELETE
+
+      # 层配置（可选，如需复用依赖层）
+      # layers:
+      #   - acs:fc:cn-hangzhou:xxx:layers/rock-deps/versions/1

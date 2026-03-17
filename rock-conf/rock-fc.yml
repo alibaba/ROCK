@@ -1,0 +1,79 @@
+# =============================================================================
+# ROCK Admin 运行时配置 - FC 环境
+# =============================================================================
+#
+# 用途：ROCK Admin 服务启动时加载的运行时配置
+#
+# 使用方式:
+#   rock admin start --env fc
+#   或 export ROCK_CONFIG=rock-conf/rock-fc.yml
+#
+# 注意：此文件不是函数部署配置，FC 函数部署使用
+#   rock/deployments/fc_rocklet/*/s.yaml + s deploy
+#
+# =============================================================================
+#
+# 配置层级说明:
+#
+# ┌─────────────────────────────────────────────────────────────────────┐
+# │  FCConfig (Admin 服务级) - 本文件                                    │
+# │  - Admin 启动时加载，提供默认值和凭证                                 │
+# │  - 服务级设置 (region, account_id, credentials)                     │
+# └─────────────────────────────────────────────────────────────────────┘
+#                           │
+#                           │ merge_with_fc_config()
+#                           ▼
+# ┌─────────────────────────────────────────────────────────────────────┐
+# │  FCDeploymentConfig (API 调用级)                                     │
+# │  - 每个 sandbox API 请求创建                                         │
+# │  - 可覆盖特定字段 (memory, cpus, timeout 等)                         │
+# │  - session_id 与 ROCK sandbox_id 1:1 映射                           │
+# └─────────────────────────────────────────────────────────────────────┘
+#                           │
+#                           │ 用于调用 FC 函数
+#                           ▼
+# ┌─────────────────────────────────────────────────────────────────────┐
+# │  s.yaml (FC 函数部署配置)                                            │
+# │  - 定义 FC 函数资源规格                                              │
+# │  - Session affinity, memory, CPU, timeout 等                        │
+# │  - 通过 `s deploy` 命令部署                                          │
+# │  - 位置: rock/deployments/fc_rocklet/{runtime,container,adapter}/    │
+# └─────────────────────────────────────────────────────────────────────┘
+#
+# =============================================================================
+
+# Ray 配置（FC 环境不使用 Ray 进行沙箱调度，但可用于其他分布式任务）
+ray:
+    runtime_env:
+        working_dir: ./
+        pip: ./requirements_sandbox_actor.txt
+    namespace: "rock-sandbox-fc"
+
+# FC 配置（阿里云函数计算服务级别配置）
+# FC (Function Compute) 是阿里云的无服务器计算服务
+fc:
+    # 连接设置
+    region: "cn-hangzhou"
+    account_id: null  # 阿里云账号 ID，运行时从环境变量或 STS 获取
+    function_name: "rock-rocklet-rt"  # 沙箱运行时函数名
+
+    # 凭证（建议通过环境变量或 STS 临时凭证提供）
+    # access_key_id: null
+    # access_key_secret: null
+    # security_token: null
+
+    # 资源默认值（可被 API 调用覆盖）
+    default_memory: 4096  # MB
+    default_cpus: 2.0
+
+    # 超时默认值（单位：秒）
+    default_session_ttl: 600  # 会话生命周期（秒），对应 s.yaml 中的 sessionTTLInSeconds
+    default_timeout: 30.0  # API 请求超时（秒）
+    default_session_idle_timeout: 60  # 会话空闲超时（秒），对应 s.yaml 中的 sessionIdleTimeoutInSeconds
+
+    # 协议设置
+    session_affinity_header: "x-rock-session-id"
+
+# 预热配置（FC 环境无本地镜像需预热）
+warmup:
+    images: []

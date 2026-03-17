@@ -1,7 +1,10 @@
-"""Alibaba Cloud Function Compute 3.0 deployment implementation.
+"""Alibaba Cloud Function Compute (FC) deployment implementation.
 
-This module provides FC3.0 runtime support for ROCK sandboxes using
+This module provides FC runtime support for ROCK sandboxes using
 WebSocket session API to maintain stateful bash sessions.
+
+FC (Function Compute) is Alibaba Cloud's serverless compute service:
+https://www.alibabacloud.com/product/function-compute
 """
 
 import asyncio
@@ -48,7 +51,7 @@ except ImportError:
     websockets = None
     ConnectionClosed = Exception
 
-__all__ = ["FC3Deployment", "FC3Runtime", "FC3SessionManager", "ReconnectConfig", "CircuitBreaker", "CircuitState", "FC3Error", "FC3SandboxNotFoundError", "FC3RuntimeError"]
+__all__ = ["FCDeployment", "FCRuntime", "FCSessionManager", "ReconnectConfig", "CircuitBreaker", "CircuitState", "FCError", "FCSandboxNotFoundError", "FCRuntimeError"]
 
 logger = init_logger(__name__)
 
@@ -57,18 +60,18 @@ logger = init_logger(__name__)
 # Custom Exceptions
 # =============================================================================
 
-class FC3Error(Exception):
-    """Base exception for FC3-related errors."""
+class FCError(Exception):
+    """Base exception for FC (Function Compute) related errors."""
     pass
 
 
-class FC3SandboxNotFoundError(FC3Error):
-    """FC3 sandbox not found."""
+class FCSandboxNotFoundError(FCError):
+    """FC sandbox not found."""
     pass
 
 
-class FC3RuntimeError(FC3Error):
-    """FC3 runtime error."""
+class FCRuntimeError(FCError):
+    """FC runtime error."""
     pass
 
 
@@ -187,10 +190,10 @@ class SessionState:
         self.last_activity = time.time()
 
 
-class FC3SessionManager:
-    """FC3.0 WebSocket session manager.
+class FCSessionManager:
+    """Function Compute (FC) WebSocket session manager.
 
-    Manages WebSocket connections to FC3.0 function instances,
+    Manages WebSocket connections to FC function instances,
     maintaining long-lived bash sessions for stateful command execution.
 
     Features:
@@ -201,12 +204,12 @@ class FC3SessionManager:
 
     def __init__(
         self,
-        config: "FC3DeploymentConfig",
+        config: "FCDeploymentConfig",
         reconnect_config: ReconnectConfig | None = None,
     ):
-        from rock.deployments.config import FC3DeploymentConfig
+        from rock.deployments.config import FCDeploymentConfig
 
-        self.config: FC3DeploymentConfig = config
+        self.config: FCDeploymentConfig = config
         self.reconnect_config = reconnect_config or ReconnectConfig()
         self.sessions: dict[str, SessionState] = {}  # session_id -> SessionState
         self._websocket_url = self._build_websocket_url()
@@ -214,15 +217,15 @@ class FC3SessionManager:
         self._lock = asyncio.Lock()
 
     def _build_websocket_url(self) -> str:
-        """Build WebSocket URL for FC3.0 stateful invocation."""
-        # FC3.0 WebSocket endpoint format
+        """Build WebSocket URL for FC stateful invocation."""
+        # FC WebSocket endpoint format
         return (
             f"wss://{self.config.account_id}.{self.config.region}.fc.aliyuncs.com"
             f"/2023-03-30/functions/{self.config.function_name}/stateful-async-invocation"
         )
 
     def _build_http_url(self) -> str:
-        """Build HTTP URL for FC3.0 standard invocation."""
+        """Build HTTP URL for FC standard invocation."""
         return (
             f"https://{self.config.account_id}.{self.config.region}.fc.aliyuncs.com"
             f"/2023-03-30/functions/{self.config.function_name}/invocations"
@@ -235,9 +238,9 @@ class FC3SessionManager:
         body: str = "",
         session_id: str | None = None,
     ) -> dict[str, str]:
-        """Build authentication headers for FC3.0 API calls using signature.
+        """Build authentication headers for FC API calls using signature.
 
-        FC3.0 signature algorithm reference:
+        FC signature algorithm reference:
         https://help.aliyun.com/document_detail/52877.html
 
         StringToSign format:
@@ -322,7 +325,7 @@ class FC3SessionManager:
             RuntimeError: If session creation fails after all retries.
         """
         if websockets is None:
-            raise ImportError("websockets package is required for FC3 session API")
+            raise ImportError("websockets package is required for FC session API")
 
         async with self._lock:
             if session_id in self.sessions:
@@ -386,11 +389,11 @@ class FC3SessionManager:
         Returns:
             True if reconnection successful, False otherwise.
         """
-        if session_id not in self.sessions:
-            return False
-
-        state = self.sessions[session_id]
-        state.reconnect_count += 1
+        async with self._lock:
+            if session_id not in self.sessions:
+                return False
+            state = self.sessions[session_id]
+            state.reconnect_count += 1
 
         logger.info(f"Attempting to reconnect session {session_id} (attempt {state.reconnect_count})")
 
@@ -419,8 +422,10 @@ class FC3SessionManager:
                 return False
 
             # Update session state with new websocket
-            state.websocket = ws
-            state.touch()
+            async with self._lock:
+                if session_id in self.sessions:
+                    self.sessions[session_id].websocket = ws
+                    self.sessions[session_id].touch()
             logger.info(f"Session {session_id} reconnected successfully")
             return True
 
@@ -446,11 +451,11 @@ class FC3SessionManager:
         Returns:
             Tuple of (output, exit_code).
         """
-        if session_id not in self.sessions:
-            raise ValueError(f"Session {session_id} not found")
-
-        state = self.sessions[session_id]
-        ws = state.websocket
+        async with self._lock:
+            if session_id not in self.sessions:
+                raise ValueError(f"Session {session_id} not found")
+            state = self.sessions[session_id]
+            ws = state.websocket
 
         # Check if connection is still alive
         if ws is None or not ws.open:
@@ -549,12 +554,20 @@ class FC3SessionManager:
         for session_id in session_ids:
             await self.close_session(session_id)
 
-    def is_session_alive(self, session_id: str) -> bool:
-        """Check if a session is alive."""
-        state = self.sessions.get(session_id)
-        return state is not None and state.websocket is not None and state.websocket.open
+    async def is_session_alive(self, session_id: str) -> bool:
+        """Check if a session is alive.
 
-    def get_session_stats(self, session_id: str) -> dict | None:
+        Args:
+            session_id: Session to check.
+
+        Returns:
+            True if session exists and WebSocket is open.
+        """
+        async with self._lock:
+            state = self.sessions.get(session_id)
+            return state is not None and state.websocket is not None and state.websocket.open
+
+    async def get_session_stats(self, session_id: str) -> dict | None:
         """Get statistics for a session.
 
         Args:
@@ -563,22 +576,23 @@ class FC3SessionManager:
         Returns:
             Session stats dict or None if session not found.
         """
-        state = self.sessions.get(session_id)
-        if state is None:
-            return None
-        return {
-            "session_id": state.session_id,
-            "created_at": state.created_at,
-            "last_activity": state.last_activity,
-            "reconnect_count": state.reconnect_count,
-            "is_alive": state.websocket is not None and state.websocket.open,
-        }
+        async with self._lock:
+            state = self.sessions.get(session_id)
+            if state is None:
+                return None
+            return {
+                "session_id": state.session_id,
+                "created_at": state.created_at,
+                "last_activity": state.last_activity,
+                "reconnect_count": state.reconnect_count,
+                "is_alive": state.websocket is not None and state.websocket.open,
+            }
 
 
-class FC3Runtime(AbstractSandbox):
-    """FC3.0 Runtime implementation using WebSocket session API.
+class FCRuntime(AbstractSandbox):
+    """Function Compute (FC) Runtime implementation using WebSocket session API.
 
-    Provides stateful bash sessions on FC3.0 function instances,
+    Provides stateful bash sessions on FC function instances,
     with semantics compatible with Docker Runtime (cd, export, nohup work correctly).
 
     Features:
@@ -594,11 +608,11 @@ class FC3Runtime(AbstractSandbox):
     # HTTP status codes that should trigger retry
     RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
-    def __init__(self, config: "FC3DeploymentConfig"):
-        from rock.deployments.config import FC3DeploymentConfig
+    def __init__(self, config: "FCDeploymentConfig"):
+        from rock.deployments.config import FCDeploymentConfig
 
-        self.config: FC3DeploymentConfig = config
-        self.session_manager = FC3SessionManager(config)
+        self.config: FCDeploymentConfig = config
+        self.session_manager = FCSessionManager(config)
         self._http_client = None
         self._started = False
         self._http_lock = asyncio.Lock()
@@ -634,7 +648,7 @@ class FC3Runtime(AbstractSandbox):
         """Execute HTTP request with automatic retry on transient failures.
 
         Uses circuit breaker pattern to prevent cascading failures when
-        FC3 service is unavailable.
+        FC service is unavailable.
 
         Args:
             payload: Request payload.
@@ -650,7 +664,7 @@ class FC3Runtime(AbstractSandbox):
         # Check circuit breaker
         if not await self._circuit_breaker.can_execute():
             raise RuntimeError(
-                f"Circuit breaker is OPEN - FC3 service appears unavailable. "
+                f"Circuit breaker is OPEN - FC service appears unavailable. "
                 f"Will retry after {self._circuit_breaker.recovery_timeout}s"
             )
 
@@ -721,7 +735,7 @@ class FC3Runtime(AbstractSandbox):
         raise RuntimeError(f"HTTP request failed after {max_retries + 1} attempts: {last_error}")
 
     async def is_alive(self, *, timeout: float | None = None) -> IsAliveResponse:
-        """Check if the FC3 runtime is alive."""
+        """Check if the FC runtime is alive."""
         try:
             await self._ensure_http_client()
 
@@ -730,7 +744,7 @@ class FC3Runtime(AbstractSandbox):
 
             return IsAliveResponse(is_alive=result.get("status") == "ok")
         except Exception as e:
-            logger.warning(f"FC3 health check failed: {e}")
+            logger.warning(f"FC health check failed: {e}")
             return IsAliveResponse(is_alive=False)
 
     async def create_session(self, request: CreateSessionRequest) -> CreateSessionResponse:
@@ -787,7 +801,7 @@ class FC3Runtime(AbstractSandbox):
         )
 
     async def read_file(self, request: ReadFileRequest) -> ReadFileResponse:
-        """Read file content from the FC3 environment."""
+        """Read file content from the FC environment."""
         await self._ensure_http_client()
 
         payload = {
@@ -808,7 +822,7 @@ class FC3Runtime(AbstractSandbox):
             raise
 
     async def write_file(self, request: WriteFileRequest) -> WriteFileResponse:
-        """Write content to a file in the FC3 environment."""
+        """Write content to a file in the FC environment."""
         await self._ensure_http_client()
 
         payload = {
@@ -830,9 +844,9 @@ class FC3Runtime(AbstractSandbox):
             raise
 
     async def upload(self, request: UploadRequest) -> UploadResponse:
-        """Upload a file to the FC3 environment.
+        """Upload a file to the FC environment.
 
-        Reads the file from source_path locally and uploads it to the FC3 function.
+        Reads the file from source_path locally and uploads it to the FC function.
         """
         import pathlib
 
@@ -874,92 +888,95 @@ class FC3Runtime(AbstractSandbox):
         return CloseResponse()
 
 
-class FC3Deployment(AbstractDeployment):
-    """Alibaba Cloud FC3.0 deployment implementation.
+class FCDeployment(AbstractDeployment):
+    """Alibaba Cloud Function Compute (FC) deployment implementation.
 
-    Manages the lifecycle of FC3.0 function instances and provides
+    Manages the lifecycle of FC function instances and provides
     a stateful sandbox runtime via WebSocket session API.
+
+    FC (Function Compute) is Alibaba Cloud's serverless compute service
+    that allows running code without provisioning servers.
     """
 
     def __init__(self, **kwargs: Any):
-        from rock.deployments.config import FC3DeploymentConfig
+        from rock.deployments.config import FCDeploymentConfig
 
-        self._config = FC3DeploymentConfig(**kwargs)
-        self._runtime: FC3Runtime | None = None
+        self._config = FCDeploymentConfig(**kwargs)
+        self._runtime: FCRuntime | None = None
         self._hooks = CombinedDeploymentHook()
         self._service_status = ServiceStatus()
         self._sandbox_id: str | None = None
         self._started = False
 
     @classmethod
-    def from_config(cls, config: "FC3DeploymentConfig") -> Self:
+    def from_config(cls, config: "FCDeploymentConfig") -> Self:
         return cls(**config.model_dump())
 
     def add_hook(self, hook: DeploymentHook):
         self._hooks.add_hook(hook)
 
     async def is_alive(self, *, timeout: float | None = None) -> IsAliveResponse:
-        """Check if the FC3 deployment is alive."""
+        """Check if the FC deployment is alive."""
         if self._runtime is None:
             return IsAliveResponse(is_alive=False)
         return await self._runtime.is_alive(timeout=timeout)
 
     async def start(self, *args, **kwargs):
-        """Start the FC3 deployment.
+        """Start the FC deployment.
 
-        For FC3, this initializes the runtime and ensures the function is ready.
+        For FC, this initializes the runtime and ensures the function is ready.
         The actual function instance is created on-demand when sessions are created.
         """
         if self._started:
-            logger.warning("FC3 deployment already started")
+            logger.warning("FC deployment already started")
             return
 
-        logger.info(f"Starting FC3 deployment for function {self._config.function_name}")
+        logger.info(f"Starting FC deployment for function {self._config.function_name}")
 
         # Generate sandbox ID if not set
         if self._sandbox_id is None:
-            self._sandbox_id = f"fc3-{uuid.uuid4().hex[:12]}"
+            self._sandbox_id = f"fc-{uuid.uuid4().hex[:12]}"
 
         # Initialize runtime
-        self._runtime = FC3Runtime(self._config)
+        self._runtime = FCRuntime(self._config)
 
         # Optionally warm up the function
         try:
             is_alive = await self._runtime.is_alive(timeout=10.0)
             if is_alive.is_alive:
-                logger.info("FC3 function is ready")
+                logger.info("FC function is ready")
             else:
-                logger.warning("FC3 function health check failed, but continuing")
+                logger.warning("FC function health check failed, but continuing")
         except Exception as e:
-            logger.warning(f"FC3 warmup failed: {e}, but continuing")
+            logger.warning(f"FC warmup failed: {e}, but continuing")
 
         self._started = True
-        logger.info(f"FC3 deployment started with sandbox_id: {self._sandbox_id}")
+        logger.info(f"FC deployment started with sandbox_id: {self._sandbox_id}")
 
     async def stop(self, *args, **kwargs):
-        """Stop the FC3 deployment."""
+        """Stop the FC deployment."""
         if not self._started:
             return
 
-        logger.info(f"Stopping FC3 deployment: {self._sandbox_id}")
+        logger.info(f"Stopping FC deployment: {self._sandbox_id}")
 
         if self._runtime:
             await self._runtime.close()
             self._runtime = None
 
         self._started = False
-        logger.info(f"FC3 deployment stopped: {self._sandbox_id}")
+        logger.info(f"FC deployment stopped: {self._sandbox_id}")
 
     @property
-    def runtime(self) -> FC3Runtime:
-        """Returns the FC3 runtime."""
+    def runtime(self) -> FCRuntime:
+        """Returns the FC runtime."""
         if self._runtime is None:
             from rock.rocklet.exceptions import DeploymentNotStartedError
             raise DeploymentNotStartedError()
         return self._runtime
 
     @property
-    def config(self) -> "FC3DeploymentConfig":
+    def config(self) -> "FCDeploymentConfig":
         """Returns the deployment configuration."""
         return self._config
 
@@ -977,15 +994,15 @@ class FC3Deployment(AbstractDeployment):
         return self._service_status
 
     async def creator_actor(self, actor_name: str):
-        """Create a Ray actor for FC3 deployment.
+        """Create a Ray actor for FC deployment.
 
-        Note: For FC3, we don't use Ray actors directly.
+        Note: For FC, we don't use Ray actors directly.
         This method is for compatibility with the existing interface.
         """
-        # FC3 doesn't use Ray actors, return None
-        # The FC3Deployment itself manages the runtime
+        # FC doesn't use Ray actors, return None
+        # The FCDeployment itself manages the runtime
         return None
 
 
 # Import config at module level for type hints
-from rock.deployments.config import FC3DeploymentConfig  # noqa: E402
+from rock.deployments.config import FCDeploymentConfig  # noqa: E402

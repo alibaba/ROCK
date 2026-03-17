@@ -1,5 +1,5 @@
 """
-FC3 Rocklet Adapter Production Tests
+FC Rocklet Adapter Production Tests
 
 Tests for the production-ready adapter implementation including
 configuration, session state tracking, metrics, and TTL cleanup.
@@ -32,7 +32,7 @@ class TestAdapterConfig:
 
     def test_default_values(self):
         """IT-ADAPTER-01a: Verify default adapter configuration values."""
-        from rock.deployments.fc3_rocklet.adapter.server import AdapterConfig
+        from rock.deployments.fc_rocklet.adapter.server import AdapterConfig
 
         config = AdapterConfig()
 
@@ -46,14 +46,14 @@ class TestAdapterConfig:
 
     def test_from_env_uses_environment_variables(self):
         """IT-ADAPTER-01b: Verify from_env() reads environment variables."""
-        from rock.deployments.fc3_rocklet.adapter.server import AdapterConfig
+        from rock.deployments.fc_rocklet.adapter.server import AdapterConfig
 
         with patch.dict(os.environ, {
-            "FC3_MAX_SESSIONS": "50",
-            "FC3_SESSION_TTL": "300",
-            "FC3_CLEANUP_INTERVAL": "30",
-            "FC3_DEFAULT_TIMEOUT": "30",
-            "FC3_MAX_TIMEOUT": "120",
+            "FC_MAX_SESSIONS": "50",
+            "FC_SESSION_TTL": "300",
+            "FC_CLEANUP_INTERVAL": "30",
+            "FC_DEFAULT_TIMEOUT": "30",
+            "FC_MAX_TIMEOUT": "120",
         }):
             config = AdapterConfig.from_env()
 
@@ -65,7 +65,7 @@ class TestAdapterConfig:
 
     def test_custom_values(self):
         """IT-ADAPTER-01c: Verify custom adapter configuration."""
-        from rock.deployments.fc3_rocklet.adapter.server import AdapterConfig
+        from rock.deployments.fc_rocklet.adapter.server import AdapterConfig
 
         config = AdapterConfig(
             max_sessions=200,
@@ -91,7 +91,7 @@ class TestAdapterSessionState:
 
     def test_default_values(self):
         """IT-ADAPTER-02a: Verify SessionState default values."""
-        from rock.deployments.fc3_rocklet.adapter.server import SessionState
+        from rock.deployments.fc_rocklet.adapter.server import SessionState
 
         state = SessionState(session_id="test-session")
 
@@ -101,7 +101,7 @@ class TestAdapterSessionState:
 
     def test_touch_updates_last_activity(self):
         """IT-ADAPTER-02b: Verify touch() updates last_activity."""
-        from rock.deployments.fc3_rocklet.adapter.server import SessionState
+        from rock.deployments.fc_rocklet.adapter.server import SessionState
 
         state = SessionState(session_id="test")
         initial_activity = state.last_activity
@@ -113,7 +113,7 @@ class TestAdapterSessionState:
 
     def test_increment_command(self):
         """IT-ADAPTER-02c: Verify increment_command() increases count and touches."""
-        from rock.deployments.fc3_rocklet.adapter.server import SessionState
+        from rock.deployments.fc_rocklet.adapter.server import SessionState
 
         state = SessionState(session_id="test")
         initial_activity = state.last_activity
@@ -126,7 +126,7 @@ class TestAdapterSessionState:
 
     def test_increment_error(self):
         """IT-ADAPTER-02d: Verify increment_error() increases error count."""
-        from rock.deployments.fc3_rocklet.adapter.server import SessionState
+        from rock.deployments.fc_rocklet.adapter.server import SessionState
 
         state = SessionState(session_id="test")
         state.increment_error()
@@ -136,7 +136,7 @@ class TestAdapterSessionState:
 
     def test_age_property(self):
         """IT-ADAPTER-02e: Verify age property returns elapsed time."""
-        from rock.deployments.fc3_rocklet.adapter.server import SessionState
+        from rock.deployments.fc_rocklet.adapter.server import SessionState
 
         state = SessionState(session_id="test")
         time.sleep(0.1)
@@ -145,7 +145,7 @@ class TestAdapterSessionState:
 
     def test_idle_time_property(self):
         """IT-ADAPTER-02f: Verify idle_time property returns time since activity."""
-        from rock.deployments.fc3_rocklet.adapter.server import SessionState
+        from rock.deployments.fc_rocklet.adapter.server import SessionState
 
         state = SessionState(session_id="test")
         time.sleep(0.1)
@@ -154,7 +154,7 @@ class TestAdapterSessionState:
 
     def test_is_expired(self):
         """IT-ADAPTER-02g: Verify is_expired() checks TTL correctly."""
-        from rock.deployments.fc3_rocklet.adapter.server import SessionState
+        from rock.deployments.fc_rocklet.adapter.server import SessionState
 
         state = SessionState(session_id="test")
 
@@ -179,7 +179,7 @@ class TestAdapterMetrics:
 
     def test_initial_state(self):
         """IT-ADAPTER-03a: Verify Metrics initial state."""
-        from rock.deployments.fc3_rocklet.adapter.server import Metrics
+        from rock.deployments.fc_rocklet.adapter.server import Metrics
 
         metrics = Metrics()
 
@@ -190,7 +190,7 @@ class TestAdapterMetrics:
 
     def test_record_request_success(self):
         """IT-ADAPTER-03b: Verify record_request with success."""
-        from rock.deployments.fc3_rocklet.adapter.server import Metrics
+        from rock.deployments.fc_rocklet.adapter.server import Metrics
 
         metrics = Metrics()
         metrics.record_request(success=True)
@@ -201,7 +201,7 @@ class TestAdapterMetrics:
 
     def test_record_request_failure(self):
         """IT-ADAPTER-03c: Verify record_request with failure."""
-        from rock.deployments.fc3_rocklet.adapter.server import Metrics
+        from rock.deployments.fc_rocklet.adapter.server import Metrics
 
         metrics = Metrics()
         metrics.record_request(success=False)
@@ -212,7 +212,7 @@ class TestAdapterMetrics:
 
     def test_record_session_lifecycle(self):
         """IT-ADAPTER-03d: Verify session lifecycle metrics."""
-        from rock.deployments.fc3_rocklet.adapter.server import Metrics
+        from rock.deployments.fc_rocklet.adapter.server import Metrics
 
         metrics = Metrics()
 
@@ -229,7 +229,7 @@ class TestAdapterMetrics:
 
     def test_record_session_expired(self):
         """IT-ADAPTER-03e: Verify session expiration metrics."""
-        from rock.deployments.fc3_rocklet.adapter.server import Metrics
+        from rock.deployments.fc_rocklet.adapter.server import Metrics
 
         metrics = Metrics()
         metrics.record_session_created()
@@ -240,7 +240,7 @@ class TestAdapterMetrics:
 
     def test_to_dict_format(self):
         """IT-ADAPTER-03f: Verify to_dict() output format."""
-        from rock.deployments.fc3_rocklet.adapter.server import Metrics
+        from rock.deployments.fc_rocklet.adapter.server import Metrics
 
         metrics = Metrics()
         metrics.record_request(success=True)
@@ -259,7 +259,7 @@ class TestAdapterMetrics:
 
     def test_success_rate_calculation(self):
         """IT-ADAPTER-03g: Verify success_rate calculation with no requests."""
-        from rock.deployments.fc3_rocklet.adapter.server import Metrics
+        from rock.deployments.fc_rocklet.adapter.server import Metrics
 
         metrics = Metrics()
         result = metrics.to_dict()
@@ -280,7 +280,7 @@ class TestAdapterSessionManagement:
 
     def test_create_session_success(self):
         """IT-ADAPTER-04a: Verify successful session creation."""
-        from rock.deployments.fc3_rocklet.adapter.server import (
+        from rock.deployments.fc_rocklet.adapter.server import (
             create_session, _sessions, _metrics, _lock
         )
 
@@ -300,7 +300,7 @@ class TestAdapterSessionManagement:
 
     def test_create_session_duplicate_rejected(self):
         """IT-ADAPTER-04b: Verify duplicate session ID is rejected."""
-        from rock.deployments.fc3_rocklet.adapter.server import (
+        from rock.deployments.fc_rocklet.adapter.server import (
             create_session, _sessions, _lock
         )
 
@@ -323,7 +323,7 @@ class TestAdapterSessionManagement:
 
     def test_create_session_max_sessions_limit(self):
         """IT-ADAPTER-04c: Verify max sessions limit is enforced."""
-        from rock.deployments.fc3_rocklet.adapter.server import (
+        from rock.deployments.fc_rocklet.adapter.server import (
             create_session, _sessions, _config, _lock
         )
 
@@ -351,7 +351,7 @@ class TestAdapterSessionManagement:
 
     def test_close_session_success(self):
         """IT-ADAPTER-04d: Verify successful session close."""
-        from rock.deployments.fc3_rocklet.adapter.server import (
+        from rock.deployments.fc_rocklet.adapter.server import (
             create_session, close_session, _sessions, _lock
         )
 
@@ -366,7 +366,7 @@ class TestAdapterSessionManagement:
 
     def test_close_session_nonexistent(self):
         """IT-ADAPTER-04e: Verify closing nonexistent session fails."""
-        from rock.deployments.fc3_rocklet.adapter.server import close_session
+        from rock.deployments.fc_rocklet.adapter.server import close_session
 
         result = close_session("nonexistent-session")
         assert result["success"] is False
@@ -374,7 +374,7 @@ class TestAdapterSessionManagement:
 
     def test_close_session_force_nonexistent(self):
         """IT-ADAPTER-04f: Verify force close nonexistent session succeeds."""
-        from rock.deployments.fc3_rocklet.adapter.server import close_session
+        from rock.deployments.fc_rocklet.adapter.server import close_session
 
         result = close_session("nonexistent-session", force=True)
         assert result["success"] is True
@@ -393,7 +393,7 @@ class TestAdapterTTL:
 
     def test_session_is_expired_after_ttl(self):
         """IT-ADAPTER-05a: Verify session is_expired after TTL."""
-        from rock.deployments.fc3_rocklet.adapter.server import SessionState
+        from rock.deployments.fc_rocklet.adapter.server import SessionState
 
         state = SessionState(session_id="ttl-test")
 
@@ -406,7 +406,7 @@ class TestAdapterTTL:
 
     def test_cleanup_removes_expired_sessions(self):
         """IT-ADAPTER-05b: Verify cleanup removes expired sessions."""
-        from rock.deployments.fc3_rocklet.adapter.server import (
+        from rock.deployments.fc_rocklet.adapter.server import (
             _sessions, _cleanup_expired_sessions, _config, _lock, SessionState
         )
 
@@ -433,7 +433,7 @@ class TestAdapterTTL:
 
     def test_cleanup_keeps_active_sessions(self):
         """IT-ADAPTER-05c: Verify cleanup does not remove active sessions."""
-        from rock.deployments.fc3_rocklet.adapter.server import (
+        from rock.deployments.fc_rocklet.adapter.server import (
             _sessions, _cleanup_expired_sessions, _lock, SessionState
         )
 
@@ -471,7 +471,7 @@ class TestAdapterRouteRequest:
 
     def test_metrics_endpoint(self):
         """IT-ADAPTER-06a: Verify /metrics endpoint returns metrics."""
-        from rock.deployments.fc3_rocklet.adapter.server import route_request
+        from rock.deployments.fc_rocklet.adapter.server import route_request
 
         result = route_request("/metrics", "GET", {})
 
@@ -481,7 +481,7 @@ class TestAdapterRouteRequest:
 
     def test_health_check_endpoint(self):
         """IT-ADAPTER-06b: Verify /health endpoint returns status."""
-        from rock.deployments.fc3_rocklet.adapter.server import route_request
+        from rock.deployments.fc_rocklet.adapter.server import route_request
 
         result = route_request("/health", "GET", {})
 
@@ -491,7 +491,7 @@ class TestAdapterRouteRequest:
 
     def test_list_sessions_with_stats(self):
         """IT-ADAPTER-06c: Verify /list_sessions returns session stats."""
-        from rock.deployments.fc3_rocklet.adapter.server import (
+        from rock.deployments.fc_rocklet.adapter.server import (
             route_request, create_session, _sessions, _lock
         )
 

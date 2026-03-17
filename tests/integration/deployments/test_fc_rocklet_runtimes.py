@@ -1,8 +1,10 @@
 """
-FC3 Rocklet Runtime Configuration Tests
+FC Rocklet Runtime Configuration Tests
 
 Tests for the production-ready runtime configurations including
 custom runtime, custom container, and adapter deployment modes.
+
+FC (Function Compute) is Alibaba Cloud's serverless compute service.
 
 Test Coverage:
 - IT-RUNTIME-01: Custom Runtime s.yaml configuration validation
@@ -27,27 +29,27 @@ import yaml
 
 
 @pytest.fixture
-def fc3_rocklet_dir() -> Path:
-    """Get the fc3_rocklet directory path."""
-    return Path(__file__).parent.parent.parent.parent / "rock" / "deployments" / "fc3_rocklet"
+def fc_rocklet_dir() -> Path:
+    """Get the fc_rocklet directory path."""
+    return Path(__file__).parent.parent.parent.parent / "rock" / "deployments" / "fc_rocklet"
 
 
 @pytest.fixture
-def runtime_dir(fc3_rocklet_dir) -> Path:
+def runtime_dir(fc_rocklet_dir) -> Path:
     """Get the custom runtime directory path."""
-    return fc3_rocklet_dir / "runtime"
+    return fc_rocklet_dir / "runtime"
 
 
 @pytest.fixture
-def container_dir(fc3_rocklet_dir) -> Path:
+def container_dir(fc_rocklet_dir) -> Path:
     """Get the custom container directory path."""
-    return fc3_rocklet_dir / "container"
+    return fc_rocklet_dir / "container"
 
 
 @pytest.fixture
-def adapter_dir(fc3_rocklet_dir) -> Path:
+def adapter_dir(fc_rocklet_dir) -> Path:
     """Get the adapter directory path."""
-    return fc3_rocklet_dir / "adapter"
+    return fc_rocklet_dir / "adapter"
 
 
 @pytest.fixture

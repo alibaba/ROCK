@@ -1,11 +1,11 @@
-# FC3 Rocklet 部署方案
+# FC Rocklet 部署方案
 
-本目录包含将 ROCK Sandbox 运行时部署到阿里云函数计算 3.0 的三种方案。
+本目录包含将 ROCK Sandbox 运行时部署到阿里云函数计算的三种方案。
 
 ## 目录结构
 
 ```
-fc3_rocklet/
+fc_rocklet/
 ├── README.md           # 本文件
 ├── container/          # 方案 A：自定义容器（推荐生产环境）
 │   ├── Dockerfile
@@ -45,21 +45,21 @@ fc3_rocklet/
 ```bash
 # 1. 构建镜像
 cd /path/to/ROCK
-docker build -t rock-rocklet:latest -f rock/deployments/fc3_rocklet/container/Dockerfile .
+docker build -t rock-rocklet:latest -f rock/deployments/fc_rocklet/container/Dockerfile .
 
 # 2. 推送到 ACR
 docker tag rock-rocklet:latest registry.cn-hangzhou.aliyuncs.com/your-namespace/rock-rocklet:latest
 docker push registry.cn-hangzhou.aliyuncs.com/your-namespace/rock-rocklet:latest
 
 # 3. 修改 s.yaml 中的镜像地址，部署
-cd rock/deployments/fc3_rocklet/container
+cd rock/deployments/fc_rocklet/container
 s deploy
 ```
 
 ### 方案 B：自定义运行时
 
 ```bash
-cd rock/deployments/fc3_rocklet/runtime
+cd rock/deployments/fc_rocklet/runtime
 ./package.sh
 s deploy
 ```
@@ -67,7 +67,7 @@ s deploy
 ### 方案 C：混合适配层
 
 ```bash
-cd rock/deployments/fc3_rocklet/adapter
+cd rock/deployments/fc_rocklet/adapter
 ./package.sh
 s deploy
 ```
@@ -88,7 +88,7 @@ s deploy
 
 ## 会话亲和配置
 
-所有方案都配置了 FC3 会话隔离：
+所有方案都配置了 FC 会话隔离：
 
 ```yaml
 instanceIsolationMode: SESSION_EXCLUSIVE
@@ -104,14 +104,14 @@ sessionAffinityConfig:
 
 ## ROCK Admin 配置
 
-部署完成后，更新 `rock-conf/rock-fc3.yml`：
+部署完成后，更新 `rock-conf/rock-fc.yml`：
 
 ```yaml
 ray:
     runtime_env:
         working_dir: ./
         pip: ./requirements_sandbox_actor.txt
-    namespace: "rock-sandbox-fc3"
+    namespace: "rock-sandbox-fc"
 
 warmup:
     images: []
@@ -120,7 +120,7 @@ warmup:
 启动 Admin 服务：
 
 ```bash
-rock admin start --env fc3
+rock admin start --env fc
 ```
 
 ## 前提条件

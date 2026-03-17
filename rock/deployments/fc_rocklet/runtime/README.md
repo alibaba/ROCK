@@ -1,6 +1,6 @@
 # 方案 B：自定义运行时部署
 
-使用 FC3 自定义运行时（custom.debian12）部署 rocklet。
+使用 FC 自定义运行时（custom.debian12）部署 rocklet。
 
 ## 推荐度：⭐⭐⭐⭐
 
@@ -26,7 +26,7 @@
 
 ## 文件说明
 
-- `bootstrap` - FC3 启动脚本
+- `bootstrap` - FC 启动脚本
 - `requirements.txt` - Python 依赖
 - `package.sh` - 打包脚本
 - `s.yaml` - Serverless Devs 部署配置
@@ -36,7 +36,7 @@
 ### 1. 打包代码
 
 ```bash
-cd rock/deployments/fc3_rocklet/runtime
+cd rock/deployments/fc_rocklet/runtime
 ./package.sh
 ```
 
