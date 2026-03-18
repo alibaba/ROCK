@@ -442,6 +442,7 @@ def execute(command: str, cwd: str = "/tmp", env: Optional[Dict] = None, timeout
         runtime = _get_runtime()
         cmd = SandboxCommand(
             command=command,
+            shell=True,  # Use shell=True to interpret command as shell command string
             cwd=cwd,
             env=env or {},
             timeout=timeout,
@@ -584,13 +585,13 @@ def route_request(path: str, method: str, body: Dict[str, Any]) -> Dict[str, Any
 
     # 会话管理
     if path == "/create_session":
-        session_id = body.get("session_id")
+        session_id = body.get("session_id") or body.get("session")
         if not session_id:
             return {"success": False, "error": "session_id is required"}
         return create_session(session_id)
 
     if path == "/close_session":
-        session_id = body.get("session_id")
+        session_id = body.get("session_id") or body.get("session")
         if not session_id:
             return {"success": False, "error": "session_id is required"}
         return close_session(session_id)
@@ -614,7 +615,7 @@ def route_request(path: str, method: str, body: Dict[str, Any]) -> Dict[str, Any
 
     # 命令执行
     if path == "/run_in_session":
-        session_id = body.get("session_id")
+        session_id = body.get("session_id") or body.get("session")
         command = body.get("command")
         timeout = body.get("timeout", _config.default_timeout)
         if not session_id or not command:

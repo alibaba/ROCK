@@ -1,15 +1,15 @@
 #!/bin/bash
 # =============================================================================
-# FC3 Hybrid Adapter Packaging Script
+# FC Hybrid Adapter Packaging Script
 # =============================================================================
 #
 # 方案 C：打包 rocklet 代码和适配层用于 Python3.10 运行时部署
 #
 # 使用方式：
-#   cd rock/deployments/fc3_rocklet/adapter
+#   cd rock/deployments/fc_rocklet/adapter
 #   ./package.sh
 #
-# 输出：dist/fc3_rocklet_adapter.zip
+# 输出：dist/fc_rocklet_adapter.zip
 #
 # =============================================================================
 
@@ -18,9 +18,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROCK_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 OUTPUT_DIR="$SCRIPT_DIR/dist"
-OUTPUT_FILE="$OUTPUT_DIR/fc3_rocklet_adapter.zip"
+OUTPUT_FILE="$OUTPUT_DIR/fc_rocklet_adapter.zip"
 
-echo "=== FC3 Hybrid Adapter Packaging ==="
+echo "=== FC Hybrid Adapter Packaging ==="
 echo "ROCK_ROOT: $ROCK_ROOT"
 echo "OUTPUT: $OUTPUT_FILE"
 echo ""

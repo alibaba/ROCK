@@ -173,5 +173,6 @@ markers = [
     "need_docker: need docker daemon running",
     "need_admin: need admin start",
     "need_admin_and_network: need install from network",
-    "need_database: need database Docker containers (PostgreSQL, Redis)"
+    "need_database: need database Docker containers (PostgreSQL, Redis)",
+    "need_fc: need FC (Function Compute) environment"
 ]

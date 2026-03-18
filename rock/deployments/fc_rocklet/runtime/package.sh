@@ -1,15 +1,15 @@
 #!/bin/bash
 # =============================================================================
-# FC3 Custom Runtime Packaging Script
+# FC Custom Runtime Packaging Script
 # =============================================================================
 #
 # 方案 B：打包 rocklet 代码用于自定义运行时部署
 #
 # 使用方式：
-#   cd rock/deployments/fc3_rocklet/runtime
+#   cd rock/deployments/fc_rocklet/runtime
 #   ./package.sh
 #
-# 输出：dist/fc3_rocklet_runtime.zip
+# 输出：dist/fc_rocklet_runtime.zip
 #
 # =============================================================================
 
@@ -18,9 +18,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROCK_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 OUTPUT_DIR="$SCRIPT_DIR/dist"
-OUTPUT_FILE="$OUTPUT_DIR/fc3_rocklet_runtime.zip"
+OUTPUT_FILE="$OUTPUT_DIR/fc_rocklet_runtime.zip"
 
-echo "=== FC3 Custom Runtime Packaging ==="
+echo "=== FC Custom Runtime Packaging ==="
 echo "ROCK_ROOT: $ROCK_ROOT"
 echo "OUTPUT: $OUTPUT_FILE"
 echo ""

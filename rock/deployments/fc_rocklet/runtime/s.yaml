@@ -64,7 +64,10 @@ resources:
       environmentVariables:
         PYTHONUNBUFFERED: "1"
         PYTHONDONTWRITEBYTECODE: "1"
-      
+
+      # 日志配置（auto 自动创建 SLS 项目，后续部署沿用已创建的配置）
+      logConfig: auto
+
       # HTTP 触发器
       triggers:
         - triggerName: httpTrigger

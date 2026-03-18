@@ -122,4 +122,8 @@ rock admin start --env fc
 1. 阿里云账号（已完成实名认证）
 2. 开通函数计算服务
 3. 安装 Serverless Devs：`npm install -g @serverless-devs/s`
-4. 配置凭证：`s config add`
+4. 配置凭证：
+   ```bash
+   s config add  # 添加名为 `default` 的账号配置
+   s config get  # 验证 default 账号已配置
+   ```
