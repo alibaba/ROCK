@@ -25,9 +25,10 @@ from rock.admin.proto.request import (
     SandboxWriteFileRequest,
 )
 from rock.admin.proto.response import BatchSandboxStatusResponse, SandboxListResponse
+from rock.common.exception import handle_exceptions
 from rock.logger import init_logger
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
-from rock.utils import handle_exceptions
+from rock.sdk.common.exceptions import BadRequestRockError
 
 logger = init_logger(__name__)
 
@@ -153,7 +154,9 @@ async def portforward(websocket: WebSocket, id: str, port: int):
     try:
         logger.info(f"[Portforward] Accepting WebSocket connection: sandbox={sandbox_id}, target_port={port}")
         await websocket.accept()
-        logger.info(f"[Portforward] WebSocket accepted, calling proxy service: sandbox={sandbox_id}, target_port={port}")
+        logger.info(
+            f"[Portforward] WebSocket accepted, calling proxy service: sandbox={sandbox_id}, target_port={port}"
+        )
         await sandbox_proxy_service.websocket_to_tcp_proxy(websocket, sandbox_id, port)
         logger.info(f"[Portforward] Proxy service completed: sandbox={sandbox_id}, target_port={port}")
     except ValueError as e:
@@ -165,7 +168,7 @@ async def portforward(websocket: WebSocket, id: str, port: int):
         logger.error(
             f"[Portforward] Unexpected error: sandbox={sandbox_id}, target_port={port}, "
             f"error_type={type(e).__name__}, error={e}",
-            exc_info=True
+            exc_info=True,
         )
         await websocket.close(code=1011, reason=f"Proxy error: {str(e)}")
 
@@ -187,3 +190,16 @@ async def post_proxy(
     body: dict[str, Any] = Body(None),
 ):
     return await sandbox_proxy_service.post_proxy(sandbox_id, path, body, request.headers)
+
+
+@sandbox_proxy_router.post("/host/proxy/{path:path}")
+@handle_exceptions(error_message="host proxy post failed")
+async def host_proxy_post(
+    request: Request,
+    path: str,
+    body: dict[str, Any] = Body(...),
+):
+    host_ip = body.pop("host_ip", None)
+    if not host_ip:
+        raise BadRequestRockError("host_ip is required in request body")
+    return await sandbox_proxy_service.host_proxy(host_ip, path, body, request.headers)

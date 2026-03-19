@@ -26,9 +26,9 @@ from rock.admin.proto.request import (
 )
 from rock.admin.proto.response import SandboxStartResponse
 from rock.common.constants import CPU_PREEMPT_SWITCH, GET_STATUS_SWITCH, KATA_RUNTIME_SWITCH, SUPPORT_KATA_SWITCH
+from rock.common.exception import handle_exceptions
 from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.sandbox_manager import SandboxManager
-from rock.utils import handle_exceptions
 
 sandbox_router = APIRouter()
 sandbox_manager: SandboxManager

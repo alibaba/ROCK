@@ -2,8 +2,8 @@ from fastapi import APIRouter
 
 from rock.actions import RockResponse
 from rock.admin.proto.request import WarmupRequest
+from rock.common.exception import handle_exceptions
 from rock.sandbox.service.warmup_service import WarmupService
-from rock.utils import handle_exceptions
 
 warmup_router = APIRouter()
 warmup_service: WarmupService

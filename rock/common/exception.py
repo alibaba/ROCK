@@ -2,9 +2,10 @@ import functools
 import logging
 
 from rock.actions import ResponseStatus, RockResponse
+from rock.logger import init_logger
 from rock.sdk.common.exceptions import RockException, from_rock_exception
 
-logger = logging.getLogger(__name__)
+logger = init_logger(__name__)
 
 
 def handle_exceptions(error_message: str = "error occurred"):

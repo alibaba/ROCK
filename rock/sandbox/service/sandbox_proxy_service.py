@@ -265,7 +265,9 @@ class SandboxProxyService:
         logger.debug(f"[Portforward] Validating port: sandbox={sandbox_id}, target_port={port}")
         is_valid, error_msg = validate_port_forward_port(port)
         if not is_valid:
-            logger.warning(f"[Portforward] Port validation failed: sandbox={sandbox_id}, target_port={port}, reason={error_msg}")
+            logger.warning(
+                f"[Portforward] Port validation failed: sandbox={sandbox_id}, target_port={port}, reason={error_msg}"
+            )
             raise ValueError(error_msg)
         logger.info(f"[Portforward] Port validation passed: sandbox={sandbox_id}, target_port={port}")
 
@@ -285,9 +287,7 @@ class SandboxProxyService:
             raise
 
         target_url = self._get_rocklet_portforward_url(status_dicts[0], port)
-        logger.info(
-            f"[Portforward] Rocklet URL built: sandbox={sandbox_id}, target_port={port}, url={target_url}"
-        )
+        logger.info(f"[Portforward] Rocklet URL built: sandbox={sandbox_id}, target_port={port}, url={target_url}")
 
         try:
             # Connect to rocklet's portforward WebSocket endpoint
@@ -301,18 +301,16 @@ class SandboxProxyService:
                 ping_timeout=None,
                 open_timeout=tcp_connect_timeout,
             ) as target_websocket:
-                logger.info(
-                    f"[Portforward] Rocklet connection established: sandbox={sandbox_id}, target_port={port}"
-                )
+                logger.info(f"[Portforward] Rocklet connection established: sandbox={sandbox_id}, target_port={port}")
 
                 # Create bidirectional forwarding tasks with close info tracking
                 logger.info(
                     f"[Portforward] Starting bidirectional forwarding: sandbox={sandbox_id}, target_port={port}"
                 )
-                
+
                 # Track close frame info from rocklet
                 rocklet_close_info = {}
-                
+
                 client_to_target = asyncio.create_task(
                     self._forward_portforward_messages(
                         client_websocket, target_websocket, "client->rocklet", idle_timeout
@@ -320,8 +318,11 @@ class SandboxProxyService:
                 )
                 target_to_client = asyncio.create_task(
                     self._forward_portforward_messages(
-                        target_websocket, client_websocket, "rocklet->client", idle_timeout,
-                        close_info=rocklet_close_info
+                        target_websocket,
+                        client_websocket,
+                        "rocklet->client",
+                        idle_timeout,
+                        close_info=rocklet_close_info,
                     )
                 )
 
@@ -348,9 +349,9 @@ class SandboxProxyService:
                         pass
 
                 # If rocklet closed the connection, forward close frame to client
-                if rocklet_close_info.get('direction') == 'rocklet->client':
-                    close_code = rocklet_close_info.get('code', 1000)
-                    close_reason = rocklet_close_info.get('reason', '')
+                if rocklet_close_info.get("direction") == "rocklet->client":
+                    close_code = rocklet_close_info.get("code", 1000)
+                    close_reason = rocklet_close_info.get("reason", "")
                     logger.info(
                         f"[Portforward] Forwarding close to client: sandbox={sandbox_id}, target_port={port}, "
                         f"code={close_code}, reason={close_reason}"
@@ -360,7 +361,7 @@ class SandboxProxyService:
                     except Exception as e:
                         logger.debug(f"[Portforward] Error closing client connection: {e}")
 
-        except asyncio.TimeoutError as e:
+        except asyncio.TimeoutError:
             logger.error(
                 f"[Portforward] Connection timeout: sandbox={sandbox_id}, target_port={port}, "
                 f"url={target_url}, timeout={tcp_connect_timeout}s"
@@ -376,7 +377,7 @@ class SandboxProxyService:
             logger.error(
                 f"[Portforward] Proxy error: sandbox={sandbox_id}, target_port={port}, "
                 f"error_type={type(e).__name__}, error={e}",
-                exc_info=True
+                exc_info=True,
             )
             await client_websocket.close(code=1011, reason=f"Proxy error: {str(e)}")
 
@@ -389,16 +390,16 @@ class SandboxProxyService:
         close_info: dict | None = None,
     ):
         """Forward binary messages between WebSocket connections with idle timeout.
-        
+
         Handles both FastAPI WebSocket and websockets library ClientConnection objects:
         - FastAPI WebSocket: receive_bytes(), send_bytes()
         - websockets ClientConnection: recv(), send()
-        
+
         When source connection closes, captures close frame info for forwarding.
-        
+
         Args:
             source: Source WebSocket connection
-            destination: Destination WebSocket connection  
+            destination: Destination WebSocket connection
             direction: Direction string for logging (e.g., "client->rocklet")
             idle_timeout: Idle timeout in seconds
             close_info: Optional dict to store close frame info (code, reason)
@@ -406,18 +407,18 @@ class SandboxProxyService:
         logger.debug(f"[Portforward] Starting message forwarder: direction={direction}, idle_timeout={idle_timeout}s")
         bytes_transferred = 0
         message_count = 0
-        
+
         # Detect the type of WebSocket objects
         # FastAPI WebSocket has 'receive_bytes' method
         # websockets ClientConnection has 'recv' method
-        source_is_fastapi = hasattr(source, 'receive_bytes')
-        dest_is_fastapi = hasattr(destination, 'send_bytes')
-        
+        source_is_fastapi = hasattr(source, "receive_bytes")
+        dest_is_fastapi = hasattr(destination, "send_bytes")
+
         logger.debug(
             f"[Portforward] Connection types: direction={direction}, "
             f"source_is_fastapi={source_is_fastapi}, dest_is_fastapi={dest_is_fastapi}"
         )
-        
+
         try:
             while True:
                 try:
@@ -435,17 +436,17 @@ class SandboxProxyService:
                         )
                         # Convert str to bytes if needed
                         if isinstance(data, str):
-                            data = data.encode('utf-8')
-                    
+                            data = data.encode("utf-8")
+
                     message_count += 1
                     bytes_transferred += len(data)
-                    
+
                     # Send data based on destination type
                     if dest_is_fastapi:
                         await destination.send_bytes(data)
                     else:
                         await destination.send(data)
-                    
+
                     logger.debug(
                         f"[Portforward] Forwarded message: direction={direction}, "
                         f"msg_num={message_count}, bytes={len(data)}, total_bytes={bytes_transferred}"
@@ -466,9 +467,9 @@ class SandboxProxyService:
                 f"total_messages={message_count}, total_bytes={bytes_transferred}"
             )
             if close_info is not None:
-                close_info['code'] = close_code
-                close_info['reason'] = close_reason
-                close_info['direction'] = direction
+                close_info["code"] = close_code
+                close_info["reason"] = close_reason
+                close_info["direction"] = direction
         except Exception as e:
             logger.info(
                 f"[Portforward] Forwarder stopped: direction={direction}, "
@@ -512,12 +513,12 @@ class SandboxProxyService:
         # Use PROXY port mapping to access the rocklet service
         # rocklet listens on Port.PROXY (22555) inside the container
         mapped_port = service_status.get_mapped_port(Port.PROXY)
-        
+
         logger.info(
             f"[Portforward] Building rocklet URL: host_ip={host_ip}, "
             f"container_port={Port.PROXY.value}, mapped_port={mapped_port}, target_port={port}"
         )
-        
+
         if not host_ip:
             logger.error(f"[Portforward] Missing host_ip in sandbox status: keys={list(sandbox_status_dict.keys())}")
         if not mapped_port:
@@ -525,7 +526,7 @@ class SandboxProxyService:
                 f"[Portforward] Missing mapped port for PROXY: "
                 f"available_ports={service_status.ports if hasattr(service_status, 'ports') else 'unknown'}"
             )
-            
+
         url = f"ws://{host_ip}:{mapped_port}/portforward?port={port}"
         logger.info(f"[Portforward] Generated rocklet URL: {url}")
         return url
@@ -754,6 +755,64 @@ class SandboxProxyService:
             if filter_key not in sandbox_info or sandbox_info[filter_key] != filter_value:
                 return False
         return True
+
+    async def host_proxy(
+        self,
+        host_ip: str,
+        target_path: str,
+        body: dict | None,
+        headers: Headers,
+    ) -> JSONResponse | Response:
+        """Forward a POST request directly to a Rocklet on a Ray Worker by host_ip.
+
+        Unlike post_proxy which resolves host_ip from sandbox_id via Redis,
+        this method accepts host_ip directly and forwards to the fixed Rocklet port (Port.PROXY).
+
+        Args:
+            host_ip: The Ray Worker IP address running a Rocklet process.
+            target_path: The target path to forward to on the Rocklet.
+            body: The request body.
+            headers: The original request headers.
+
+        Returns:
+            JSONResponse or Response depending on upstream content type.
+        """
+        EXCLUDED_HEADERS = {"host", "content-length", "transfer-encoding"}
+
+        def filter_headers(raw_headers: Headers) -> dict:
+            return {k: v for k, v in raw_headers.items() if k.lower() not in EXCLUDED_HEADERS}
+
+        target_url = f"http://{host_ip}:{Port.PROXY.value}/{target_path}"
+        request_headers = filter_headers(headers)
+        payload = body or {}
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(90)) as http_client:
+            try:
+                resp = await http_client.post(
+                    url=target_url,
+                    json=payload,
+                    headers=request_headers,
+                )
+            except httpx.RequestError as exc:
+                logger.error(f"Error forwarding request to {target_url}: {exc}", exc_info=True)
+                raise Exception(f"Service unavailable: Rocklet at {host_ip}:{Port.PROXY.value} is not reachable.")
+
+            content_type = resp.headers.get("content-type", "")
+            response_headers = filter_headers(resp.headers)
+
+            if "application/json" in content_type:
+                return JSONResponse(
+                    status_code=resp.status_code,
+                    content=resp.json(),
+                    headers=response_headers,
+                )
+
+            return Response(
+                status_code=resp.status_code,
+                content=resp.content,
+                media_type=content_type or "application/octet-stream",
+                headers=response_headers,
+            )
 
     async def post_proxy(
         self,

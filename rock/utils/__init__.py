@@ -9,9 +9,6 @@ from .docker import (
     DockerUtil,
     ImageUtil,
 )
-from .exception import (
-    handle_exceptions,
-)
 from .http import (
     HttpUtils,
     wait_until_alive,
@@ -75,8 +72,6 @@ __all__ = [
     # Importer utilities
     "can_import_class",
     "safe_import_class",
-    # Exception handling
-    "handle_exceptions",
     # Retry utilities
     "retry_async",
     # Constants
