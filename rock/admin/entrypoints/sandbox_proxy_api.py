@@ -199,7 +199,7 @@ async def host_proxy_post(
     path: str,
     body: dict[str, Any] = Body(...),
 ):
-    host_ip = body.pop("host_ip", None)
+    host_ip = request.headers.get("rock-host-ip")
     if not host_ip:
-        raise BadRequestRockError("host_ip is required in request body")
+        raise BadRequestRockError("rock-host-ip is required in request headers")
     return await sandbox_proxy_service.host_proxy(host_ip, path, body, request.headers)
