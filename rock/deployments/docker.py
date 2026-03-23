@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import fcntl
 import os
 import random
 import shlex
@@ -64,6 +65,7 @@ class DockerDeployment(AbstractDeployment):
         self._stop_time = datetime.datetime.now() + datetime.timedelta(minutes=self._config.auto_clear_time)
         self._check_stop_task = None
         self._container_name = None
+        self._resolved_gpu_spec: str | None = None
         self._service_status = PersistedServiceStatus()
         if self._config.container_name:
             self.set_container_name(self._config.container_name)
@@ -168,6 +170,96 @@ class DockerDeployment(AbstractDeployment):
                 "net.ipv4.ip_forward=1",
             ]
         return ["--privileged"]
+
+    def _detect_gpu_count(self) -> int:
+        """Detect the number of GPUs visible on the Docker host."""
+        try:
+            out = subprocess.check_output(
+                ["nvidia-smi", "--list-gpus"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+            return len([line for line in out.splitlines() if line.strip()])
+        except Exception:
+            return 0
+
+    def _resolve_round_robin_gpu_spec(self, gpu_count_per_sandbox: int) -> str | None:
+        """Allocate device ids in round-robin across host GPUs."""
+        total_gpus = self._detect_gpu_count()
+        if total_gpus <= 0:
+            logger.warning("GPU round-robin requested but no GPUs detected on host")
+            return None
+
+        per_sandbox = max(1, min(int(gpu_count_per_sandbox), total_gpus))
+        counter_path = os.getenv("ROCK_GPU_COUNTER_PATH", "/tmp/rock_gpu_rr_counter")
+        os.makedirs(os.path.dirname(counter_path) or ".", exist_ok=True)
+
+        with open(counter_path, "a+", encoding="utf-8") as fp:
+            fcntl.flock(fp.fileno(), fcntl.LOCK_EX)
+            try:
+                fp.seek(0)
+                raw = fp.read().strip()
+                counter = int(raw) if raw.isdigit() else 0
+                start = counter % total_gpus
+                next_counter = counter + per_sandbox
+                fp.seek(0)
+                fp.truncate()
+                fp.write(str(next_counter))
+                fp.flush()
+            finally:
+                fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
+
+        device_ids = [(start + i) % total_gpus for i in range(per_sandbox)]
+        return "device=" + ",".join(str(i) for i in device_ids)
+
+    def _build_gpu_args(self) -> list[str]:
+        """Build GPU-related docker args from runtime config and ROCK_* env vars."""
+        self._resolved_gpu_spec = None
+        if any(arg == "--gpus" or arg.startswith("--gpus=") for arg in self._config.docker_args):
+            return []
+
+        runtime_enabled = bool(getattr(self._config.runtime_config, "enable_gpu_passthrough", False))
+        env_enabled = os.getenv("ROCK_ENABLE_GPU_PASSTHROUGH", "").strip().lower() in {"1", "true", "yes", "on"}
+        if not (runtime_enabled or env_enabled):
+            return []
+
+        runtime_mode = str(getattr(self._config.runtime_config, "gpu_allocation_mode", "")).strip().lower()
+        mode = runtime_mode or os.getenv("ROCK_GPU_ALLOCATION_MODE", "fixed").strip().lower() or "fixed"
+
+        gpu_spec: str | None
+        if mode == "round_robin":
+            runtime_count = int(getattr(self._config.runtime_config, "gpu_count_per_sandbox", 1) or 1)
+            env_count_raw = os.getenv("ROCK_GPU_COUNT_PER_SANDBOX", "").strip()
+            env_count = int(env_count_raw) if env_count_raw.isdigit() else None
+            per_sandbox = env_count or runtime_count
+            gpu_spec = self._resolve_round_robin_gpu_spec(per_sandbox)
+            if not gpu_spec:
+                return []
+            logger.info(f"GPU pass-through round-robin enabled: --gpus {gpu_spec}")
+        else:
+            runtime_gpu_spec = str(getattr(self._config.runtime_config, "gpu_device_request", "")).strip()
+            gpu_spec = runtime_gpu_spec or (os.getenv("ROCK_GPU_DEVICE_REQUEST", "all").strip() or "all")
+            logger.info(f"GPU pass-through fixed mode enabled: --gpus {gpu_spec}")
+
+        self._resolved_gpu_spec = gpu_spec
+        return ["--gpus", gpu_spec]
+
+    def _build_gpu_env_args(self) -> list[str]:
+        """Inject visibility env vars for deterministic GPU assignment."""
+        if not self._resolved_gpu_spec:
+            return []
+        if self._resolved_gpu_spec == "all":
+            return []
+        if self._resolved_gpu_spec.startswith("device="):
+            devices = self._resolved_gpu_spec.split("=", 1)[1]
+            if devices:
+                return [
+                    "-e",
+                    f"NVIDIA_VISIBLE_DEVICES={devices}",
+                    "-e",
+                    f"CUDA_VISIBLE_DEVICES={devices}",
+                ]
+        return []
 
     def _get_rocklet_start_cmd(self) -> list[str]:
         cmd = self._runtime_env.get_rocklet_start_cmd()
@@ -342,15 +434,19 @@ class DockerDeployment(AbstractDeployment):
 
         time.sleep(random.randint(0, 5))
         runtime_args = self._build_runtime_args()
+        gpu_args = self._build_gpu_args()
+        gpu_env_args = self._build_gpu_env_args()
         cmds = [
             "docker",
             "run",
             "--entrypoint",
             "",
             *env_arg,
+            *gpu_env_args,
             *rm_arg,
             *volume_args,
             *runtime_args,
+            *gpu_args,
             "-p",
             f"{self._config.port}:{Port.PROXY}",
             "-p",

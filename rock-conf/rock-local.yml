@@ -7,3 +7,9 @@ ray:
 warmup:
     images:
       - "python:3.11"
+
+runtime:
+    enable_gpu_passthrough: true
+    gpu_allocation_mode: "round_robin"
+    gpu_count_per_sandbox: 1
+    gpu_device_request: "all"
