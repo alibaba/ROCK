@@ -375,4 +375,4 @@ class SandboxManager(BaseManager):
                 )
         except ValueError as e:
             logger.warning(f"Invalid memory size: {deployment_config.memory}", exc_info=e)
-            raise BadRequestRockError(f"Invalid memory size: {self._config.memory}")
+            raise BadRequestRockError(f"Invalid memory size: {deployment_config.memory}")
