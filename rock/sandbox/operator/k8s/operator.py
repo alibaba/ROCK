@@ -24,6 +24,15 @@ class K8sOperator(AbstractOperator):
         self._redis_provider = redis_provider
         logger.info("Initialized K8sOperator")
     
+    def set_nacos_provider(self, nacos_provider):
+        """Set Nacos config provider for dynamic pool configuration.
+        
+        Args:
+            nacos_provider: NacosConfigProvider instance
+        """
+        super().set_nacos_provider(nacos_provider)
+        self._provider.set_nacos_provider(nacos_provider)
+    
     async def submit(self, config: DockerDeploymentConfig, user_info: dict = {}) -> SandboxInfo:
         """Submit a new sandbox deployment to Kubernetes.
         

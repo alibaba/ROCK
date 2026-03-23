@@ -23,3 +23,6 @@ class K8sConstants:
     # Extension keys for DockerDeploymentConfig.extended_params
     EXT_POOL_NAME = "pool_name"
     EXT_TEMPLATE_NAME = "template_name"
+    
+    # Nacos config keys
+    NACOS_POOLS_KEY = "pools"

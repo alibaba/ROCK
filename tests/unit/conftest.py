@@ -152,7 +152,7 @@ async def check_sandbox_status_until_alive(sandbox_manager: SandboxManager, sand
 
 @pytest.fixture
 def k8s_config():
-    """Create K8sConfig with required templates."""
+    """Create K8sConfig with required templates (pools removed, now from Nacos)."""
     return K8sConfig(
         kubeconfig_path=None,
         templates={
@@ -169,6 +169,7 @@ def k8s_config():
                 },
             }
         },
+        # pools removed - now loaded from Nacos
     )
 
 
