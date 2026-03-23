@@ -180,6 +180,7 @@ class BatchSandboxProvider(K8sProvider):
         self._api_client = None
         self._k8s_api: K8sApiClient | None = None
         self._initialized = False
+        self._nacos_provider = None
         
         # Initialize template loader with config templates
         self._template_loader = K8sTemplateLoader(
@@ -187,6 +188,36 @@ class BatchSandboxProvider(K8sProvider):
             default_namespace=k8s_config.namespace,
         )
         logger.info(f"Available K8S templates: {', '.join(self._template_loader.available_templates)}")
+    
+    def set_nacos_provider(self, nacos_provider):
+        """Set Nacos config provider for dynamic pool configuration.
+        
+        Args:
+            nacos_provider: NacosConfigProvider instance
+        """
+        self._nacos_provider = nacos_provider
+        logger.info("Set nacos provider for K8s provider")
+    
+    async def _get_pools(self) -> dict[str, PoolConfig]:
+        """Get pool configurations from Nacos.
+        
+        Returns:
+            Dictionary of pool name to PoolConfig
+        """
+        if self._nacos_provider:
+            nacos_config = await self._nacos_provider.get_config()
+            if nacos_config and K8sConstants.NACOS_POOLS_KEY in nacos_config:
+                pools_data = nacos_config[K8sConstants.NACOS_POOLS_KEY]
+                pools = {}
+                for name, config in pools_data.items():
+                    if isinstance(config, dict):
+                        pools[name] = PoolConfig(**config)
+                    else:
+                        pools[name] = config
+                logger.debug(f"Loaded {len(pools)} pools from Nacos")
+                return pools
+        
+        return {}
 
     async def submit(self, config: DockerDeploymentConfig, user_info: dict = {}) -> SandboxInfo:
         """Create a sandbox and return sandbox info immediately without waiting for IP.
@@ -347,7 +378,7 @@ class BatchSandboxProvider(K8sProvider):
             logger.error(f"Failed to initialize K8s client: {e}", exc_info=True)
             raise
     
-    def _get_pool_name(self, config: DockerDeploymentConfig) -> str | None:
+    async def _get_pool_name(self, config: DockerDeploymentConfig) -> str | None:
         """Get pool name using selection strategy.
 
         Priority:
@@ -366,7 +397,9 @@ class BatchSandboxProvider(K8sProvider):
             return pool_name
 
         # Priority 2: Use pool selector to find best match
-        return ResourceMatchingPoolSelector().select_pool(config, self._k8s_config.pools)
+        pools = await self._get_pools()
+        logger.info(f"Available pools from Nacos: {list(pools.keys())}")
+        return ResourceMatchingPoolSelector().select_pool(config, pools)
 
     def _get_template_name(self, config: DockerDeploymentConfig) -> str:
         """Get template name from extended_params or config template_map.
@@ -466,7 +499,7 @@ class BatchSandboxProvider(K8sProvider):
         
         return manifest
 
-    def _get_pool_ports(self, pool_name: str) -> dict[str, int]:
+    async def _get_pool_ports(self, pool_name: str) -> dict[str, int]:
         """Get port configuration for a pool from config.
 
         Args:
@@ -475,13 +508,14 @@ class BatchSandboxProvider(K8sProvider):
         Returns:
             Port configuration dict with proxy, server, ssh ports
         """
-        pool_config = self._k8s_config.pools.get(pool_name)
+        pools = await self._get_pools()
+        pool_config = pools.get(pool_name)
         if pool_config:
             return pool_config.ports
         # Fallback to defaults if pool not found
         return {"proxy": 8000, "server": 8080, "ssh": 22}
 
-    def _build_batchsandbox_manifest(self, config: DockerDeploymentConfig) -> dict[str, Any]:
+    async def _build_batchsandbox_manifest(self, config: DockerDeploymentConfig) -> dict[str, Any]:
         """Build BatchSandbox manifest from template and deployment config.
 
         Uses the template loader to get a base template and applies
@@ -494,10 +528,10 @@ class BatchSandboxProvider(K8sProvider):
         sandbox_id = config.container_name
 
         # Check if using pool mode
-        pool_name = self._get_pool_name(config)
+        pool_name = await self._get_pool_name(config)
 
         if pool_name:
-            ports_config = self._get_pool_ports(pool_name)
+            ports_config = await self._get_pool_ports(pool_name)
             manifest = self._build_pool_manifest(sandbox_id, pool_name, ports_config)
             
             logger.debug(f"Built BatchSandbox manifest for {sandbox_id} using pool '{pool_name}' in namespace '{self.namespace}'")
@@ -535,7 +569,7 @@ class BatchSandboxProvider(K8sProvider):
         sandbox_id = config.container_name
         
         try:
-            manifest = self._build_batchsandbox_manifest(config)
+            manifest = await self._build_batchsandbox_manifest(config)
             
             # Create BatchSandbox resource
             await self._k8s_api.create_custom_object(body=manifest)

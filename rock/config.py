@@ -131,9 +131,6 @@ class K8sConfig:
     namespace: str = "rock"
     templates: dict[str, dict] = field(default_factory=dict)
 
-    # Pool configurations: pool_name -> PoolConfig
-    pools: dict[str, PoolConfig] = field(default_factory=dict)
-
     # Template mapping: image_os -> template_name, e.g., {"windows": "windows_template", "linux": "default"}
     template_map: dict[str, str] = field(default_factory=dict)
 
@@ -143,17 +140,6 @@ class K8sConfig:
     # Watch configuration
     watch_timeout_seconds: int = 60  # Watch timeout before reconnect
     watch_reconnect_delay_seconds: int = 5  # Delay after watch failure
-
-    def __post_init__(self):
-        # Convert pools dict to PoolConfig objects if needed
-        if self.pools and isinstance(self.pools, dict):
-            converted = {}
-            for name, config in self.pools.items():
-                if isinstance(config, dict):
-                    converted[name] = PoolConfig(**config)
-                else:
-                    converted[name] = config
-            self.pools = converted
 
 
 @dataclass

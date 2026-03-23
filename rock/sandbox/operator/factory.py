@@ -66,6 +66,9 @@ class OperatorFactory:
             if context.k8s_config is None:
                 raise ValueError("K8sConfig is required for K8sOperator")
             logger.info("Creating K8sOperator")
-            return K8sOperator(k8s_config=context.k8s_config)
+            k8s_operator = K8sOperator(k8s_config=context.k8s_config)
+            if context.nacos_provider is not None:
+                k8s_operator.set_nacos_provider(context.nacos_provider)
+            return k8s_operator
         else:
             raise ValueError(f"Unsupported operator type: {operator_type}. " f"Supported types: ray, kubernetes")
