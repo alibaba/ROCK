@@ -107,7 +107,94 @@ Body: {"key": "value"}
 
 ---
 
+---
+
+## 3. HTTP Proxy 路径前缀路由（Path-Based Port）
+
+### 背景
+
+`rock_target_port` query 参数方案适合单次 API 调用，但对浏览器场景（如 VNC、Jupyter）不适用：浏览器加载 HTML 后发起的静态资源请求（JS、CSS、图片）不会自动携带 query 参数，导致后续请求无法路由到正确端口。
+
+路径前缀方案将端口嵌入路径，浏览器相对路径请求可自然继承端口信息。
+
+### Endpoint
+
+```
+ANY /sandboxes/{sandbox_id}/proxy/port/{port}
+ANY /sandboxes/{sandbox_id}/proxy/port/{port}/{path:path}
+```
+
+### 参数
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `sandbox_id` | path | ✅ | sandbox_id |
+| `port` | path | ✅ | 目标 HTTP 服务端口，须通过端口合法性校验 |
+| `path` | path | ❌ | 转发路径，默认空字符串 |
+| body | body | ❌ | 请求体（GET/DELETE 时可为空）|
+| Headers | - | - | 透传，排除 `host`、`content-length`、`transfer-encoding` |
+
+### 行为规则
+
+- 等价于 `ANY /sandboxes/{sandbox_id}/proxy/{path}?rock_target_port={port}`
+- `port` 须通过 `validate_port_forward_port` 校验，非法时返回 HTTP 400
+- 响应处理与现有 `http_proxy` 完全一致（JSON / SSE / raw bytes）
+- **注册优先级**：此路由须在 `/sandboxes/{sandbox_id}/proxy/{path:path}` 之前注册，避免 FastAPI 路由匹配歧义
+
+### Examples
+
+```
+# 访问沙箱内 8006 端口（VNC 入口）
+GET /sandboxes/my-sandbox/proxy/port/8006/
+
+# 访问 VNC 静态资源（浏览器自动跟随相对路径）
+GET /sandboxes/my-sandbox/proxy/port/8006/core/rfb.js
+GET /sandboxes/my-sandbox/proxy/port/8006/app/styles/base.css
+
+# 访问 Jupyter（8888）
+GET /sandboxes/my-sandbox/proxy/port/8888/api/kernels
+```
+
+---
+
+## 4. WebSocket Proxy 路径前缀路由（Path-Based Port）
+
+### Endpoint
+
+```
+WS /sandboxes/{id}/proxy/port/{port}/ws
+WS /sandboxes/{id}/proxy/port/{port}/ws/{path:path}
+```
+
+### 参数
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | path | ✅ | sandbox_id |
+| `port` | path | ✅ | 目标 WebSocket 端口，须通过端口合法性校验 |
+| `path` | path | ❌ | 目标路径，默认空字符串 |
+
+### 行为规则
+
+- 等价于 `WS /sandboxes/{id}/proxy/ws/{path}?rock_target_port={port}`
+- `port` 须通过 `validate_port_forward_port` 校验，非法时 WebSocket close code=1008
+- 其余行为（portforward 中转、错误处理）与 Section 1 完全一致
+
+### Examples
+
+```
+# VNC WebSocket 连接（noVNC websockify）
+WS ws://admin-host/sandboxes/my-sandbox/proxy/port/8006/ws
+WS ws://admin-host/sandboxes/my-sandbox/proxy/port/8006/ws/websockify
+
+# Jupyter kernel channel
+WS ws://admin-host/sandboxes/my-sandbox/proxy/port/8888/ws/api/kernels/xxx/channels
+```
+
+---
+
 ## 关于向后兼容
 
 - 所有原来使用 `POST /sandboxes/{sandbox_id}/proxy` 的调用**无需修改**，行为不变
 - 原 WebSocket `WS /sandboxes/{id}/proxy/ws`（不带 rock_target_port）的调用**无需修改**，行为不变
+- 新增路径前缀路由（Section 3、4）为扩展接口，不影响任何现有调用

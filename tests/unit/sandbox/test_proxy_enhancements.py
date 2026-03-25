@@ -447,6 +447,121 @@ class TestHttpProxyServiceMethod:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Path-Based Port Routing — HTTP
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestPathBasedPortHttpRouting:
+    """HTTP proxy: port in path /proxy/port/{port}/{path} should route correctly."""
+
+    async def test_port_in_path_is_passed_to_service(self, app):
+        """GET /proxy/port/8006/index.html should call http_proxy with port=8006."""
+        a, svc = app
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            await client.get("/sandboxes/sb1/proxy/port/8006/index.html")
+
+        svc.http_proxy.assert_called_once()
+        call = svc.http_proxy.call_args
+        port = call.kwargs.get("port") or (call.args[5] if len(call.args) > 5 else None)
+        assert port == 8006
+
+    async def test_path_after_port_is_forwarded(self, app):
+        """GET /proxy/port/8006/core/rfb.js should forward path=core/rfb.js."""
+        a, svc = app
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            await client.get("/sandboxes/my-sb/proxy/port/8006/core/rfb.js")
+
+        call = svc.http_proxy.call_args
+        path = call.args[1] if len(call.args) > 1 else call.kwargs.get("target_path")
+        assert path == "core/rfb.js"
+
+    async def test_sandbox_id_is_forwarded_with_path_port(self, app):
+        """sandbox_id should be correctly extracted from path-based port URL."""
+        a, svc = app
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            await client.get("/sandboxes/my-sandbox/proxy/port/8006/")
+
+        call = svc.http_proxy.call_args
+        sandbox_id = call.args[0] if call.args else call.kwargs.get("sandbox_id")
+        assert sandbox_id == "my-sandbox"
+
+    async def test_root_path_when_no_subpath(self, app):
+        """GET /proxy/port/8006 (no trailing path) should forward empty path."""
+        a, svc = app
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            await client.get("/sandboxes/sb1/proxy/port/8006")
+
+        svc.http_proxy.assert_called_once()
+        call = svc.http_proxy.call_args
+        port = call.kwargs.get("port") or (call.args[5] if len(call.args) > 5 else None)
+        assert port == 8006
+
+    async def test_all_http_methods_supported_with_path_port(self, app):
+        """POST /proxy/port/8006/api should forward method=POST."""
+        a, svc = app
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            await client.post("/sandboxes/sb1/proxy/port/8006/api", json={"x": 1})
+
+        call = svc.http_proxy.call_args
+        method = call.kwargs.get("method") or call.args[4]
+        assert method == "POST"
+
+    async def test_invalid_port_in_path_returns_400(self, app):
+        """GET /proxy/port/80/index.html (port < 1024) should return 400."""
+        a, svc = app
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            resp = await client.get("/sandboxes/sb1/proxy/port/80/index.html")
+
+        assert resp.status_code == 400
+        svc.http_proxy.assert_not_called()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Path-Based Port Routing — WebSocket
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestPathBasedPortWsRouting:
+    """WS proxy: port in path /proxy/port/{port}/ws should route correctly."""
+
+    async def test_ws_port_in_path_is_passed_to_service(self, app):
+        """WS /proxy/port/8006/ws should call websocket_proxy with port=8006."""
+        a, svc = app
+        client = TestClientWS(a)
+        with client.websocket_connect("/sandboxes/sb1/proxy/port/8006/ws"):
+            pass
+
+        svc.websocket_proxy.assert_called_once()
+        call = svc.websocket_proxy.call_args
+        port = call.kwargs.get("port") or (call.args[3] if len(call.args) > 3 else None)
+        assert port == 8006
+
+    async def test_ws_path_after_port_is_forwarded(self, app):
+        """WS /proxy/port/8006/ws/websockify should forward path=websockify."""
+        a, svc = app
+        client = TestClientWS(a)
+        with client.websocket_connect("/sandboxes/sb1/proxy/port/8006/ws/websockify"):
+            pass
+
+        call = svc.websocket_proxy.call_args
+        # target_path is 2nd positional arg or keyword
+        target_path = call.args[2] if len(call.args) > 2 else call.kwargs.get("target_path")
+        assert target_path == "websockify"
+
+    async def test_ws_invalid_port_in_path_closes_with_1008(self, app):
+        """WS /proxy/port/80/ws (port < 1024) should close connection with code 1008."""
+        a, svc = app
+        client = TestClientWS(a)
+        try:
+            with client.websocket_connect("/sandboxes/sb1/proxy/port/80/ws"):
+                pass
+        except Exception:
+            pass
+
+        svc.websocket_proxy.assert_not_called()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Helper — sync WebSocket test client wrapper
 # ─────────────────────────────────────────────────────────────────────────────
 
