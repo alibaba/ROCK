@@ -1,7 +1,7 @@
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, Body, File, Form, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, File, Form, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 
 from rock.actions import (
     BashObservation,
@@ -114,12 +114,21 @@ async def list_sandboxes(request: Request) -> RockResponse[SandboxListResponse]:
 
 @sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/ws")
 @sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/ws/{path:path}")
-async def websocket_proxy(websocket: WebSocket, id: str, path: str = ""):
-    await websocket.accept()
+async def websocket_proxy(websocket: WebSocket, id: str, path: str = "", port: int | None = Query(None)):
     sandbox_id = id
-    logger.info(f"Client connected to WebSocket proxy: {sandbox_id}, path: {path}")
+    logger.info(f"Client connected to WebSocket proxy: {sandbox_id}, path: {path}, port: {port}")
+
+    if port is not None:
+        from rock.common.port_validation import validate_port_forward_port
+
+        is_valid, error_msg = validate_port_forward_port(port)
+        if not is_valid:
+            await websocket.close(code=1008, reason=error_msg)
+            return
+
+    await websocket.accept()
     try:
-        await sandbox_proxy_service.websocket_proxy(websocket, sandbox_id, path)
+        await sandbox_proxy_service.websocket_proxy(websocket, sandbox_id, path, port=port)
     except WebSocketDisconnect:
         logger.info(f"Client disconnected from WebSocket proxy: {sandbox_id}")
     except Exception as e:
@@ -180,16 +189,30 @@ async def get_token():
     return RockResponse(result=result)
 
 
-@sandbox_proxy_router.post("/sandboxes/{sandbox_id}/proxy")
-@sandbox_proxy_router.post("/sandboxes/{sandbox_id}/proxy/{path:path}")
-@handle_exceptions(error_message="post proxy failed")
-async def post_proxy(
+@sandbox_proxy_router.api_route(
+    "/sandboxes/{sandbox_id}/proxy",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+)
+@sandbox_proxy_router.api_route(
+    "/sandboxes/{sandbox_id}/proxy/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+)
+@handle_exceptions(error_message="http proxy failed")
+async def http_proxy(
     sandbox_id: str,
     request: Request,
     path: str = "",
-    body: dict[str, Any] = Body(None),
+    port: int | None = Query(None),
 ):
-    return await sandbox_proxy_service.post_proxy(sandbox_id, path, body, request.headers)
+    body = None
+    if request.method not in ("GET", "HEAD", "DELETE", "OPTIONS"):
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+    return await sandbox_proxy_service.http_proxy(
+        sandbox_id, path, body, request.headers, method=request.method, port=port
+    )
 
 
 @sandbox_proxy_router.post("/host/proxy/{path:path}")
