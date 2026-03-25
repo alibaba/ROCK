@@ -238,8 +238,11 @@ async def http_proxy_with_port(
             body = await request.json()
         except Exception:
             body = None
+    # Build proxy_prefix so Location rewrite can reconstruct the correct redirect URL
+    proxy_prefix = str(request.url).split("?")[0].rstrip(path).rstrip("/")
     return await sandbox_proxy_service.http_proxy(
-        sandbox_id, path, body, request.headers, method=request.method, port=rock_target_port
+        sandbox_id, path, body, request.headers, method=request.method, port=rock_target_port,
+        proxy_prefix=proxy_prefix,
     )
 
 
