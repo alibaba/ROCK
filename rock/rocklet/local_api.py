@@ -4,7 +4,9 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, UploadFile, WebSocket, WebSocketDisconnect
+import httpx
+from fastapi import APIRouter, File, Form, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from rock.actions import (
     CloseResponse,
@@ -180,19 +182,13 @@ async def portforward(websocket: WebSocket, port: int):
 
     try:
         # Connect to local TCP port
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection("127.0.0.1", port),
-            timeout=TCP_CONNECT_TIMEOUT
-        )
+        reader, writer = await asyncio.wait_for(asyncio.open_connection("127.0.0.1", port), timeout=TCP_CONNECT_TIMEOUT)
         logger.info(
             f"[Portforward] TCP connection established: target_port={port}, "
             f"local_addr={writer.get_extra_info('sockname')}"
         )
     except asyncio.TimeoutError:
-        logger.error(
-            f"[Portforward] TCP connection timeout: target_port={port}, "
-            f"timeout={TCP_CONNECT_TIMEOUT}s"
-        )
+        logger.error(f"[Portforward] TCP connection timeout: target_port={port}, timeout={TCP_CONNECT_TIMEOUT}s")
         await websocket.close(code=1011, reason=f"Connection to port {port} timed out")
         return
     except OSError as e:
@@ -204,8 +200,7 @@ async def portforward(websocket: WebSocket, port: int):
         return
     except Exception as e:
         logger.error(
-            f"[Portforward] Unexpected TCP error: target_port={port}, "
-            f"error_type={type(e).__name__}, error={e}"
+            f"[Portforward] Unexpected TCP error: target_port={port}, error_type={type(e).__name__}, error={e}"
         )
         await websocket.close(code=1011, reason=f"Unexpected error: {e}")
         return
@@ -232,14 +227,9 @@ async def portforward(websocket: WebSocket, port: int):
                     f"bytes={len(data)}, total_msgs={ws_to_tcp_msgs}, total_bytes={ws_to_tcp_bytes}"
                 )
         except WebSocketDisconnect as e:
-            logger.info(
-                f"[Portforward] ws->tcp: client disconnected: target_port={port}, code={e.code}"
-            )
+            logger.info(f"[Portforward] ws->tcp: client disconnected: target_port={port}, code={e.code}")
         except Exception as e:
-            logger.debug(
-                f"[Portforward] ws->tcp error: target_port={port}, "
-                f"error_type={type(e).__name__}, error={e}"
-            )
+            logger.debug(f"[Portforward] ws->tcp error: target_port={port}, error_type={type(e).__name__}, error={e}")
         finally:
             writer.close()
 
@@ -260,10 +250,7 @@ async def portforward(websocket: WebSocket, port: int):
                     f"bytes={len(data)}, total_msgs={tcp_to_ws_msgs}, total_bytes={tcp_to_ws_bytes}"
                 )
         except Exception as e:
-            logger.debug(
-                f"[Portforward] tcp->ws error: target_port={port}, "
-                f"error_type={type(e).__name__}, error={e}"
-            )
+            logger.debug(f"[Portforward] tcp->ws error: target_port={port}, error_type={type(e).__name__}, error={e}")
         finally:
             try:
                 await websocket.close()
@@ -274,10 +261,7 @@ async def portforward(websocket: WebSocket, port: int):
     try:
         await asyncio.gather(ws_to_tcp(), tcp_to_ws())
     except Exception as e:
-        logger.debug(
-            f"[Portforward] Forwarding error: target_port={port}, "
-            f"error_type={type(e).__name__}, error={e}"
-        )
+        logger.debug(f"[Portforward] Forwarding error: target_port={port}, error_type={type(e).__name__}, error={e}")
     finally:
         writer.close()
         try:
@@ -289,3 +273,63 @@ async def portforward(websocket: WebSocket, port: int):
             f"ws->tcp: {ws_to_tcp_msgs} msgs, {ws_to_tcp_bytes} bytes, "
             f"tcp->ws: {tcp_to_ws_msgs} msgs, {tcp_to_ws_bytes} bytes"
         )
+
+
+EXCLUDED_PROXY_HEADERS = {"host", "content-length", "transfer-encoding"}
+
+
+@local_router.api_route("/http_proxy", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
+@local_router.api_route("/http_proxy/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
+async def http_proxy(request: Request, port: int, path: str = "") -> Response:
+    """Forward HTTP request to localhost:{port}/{path} inside the container."""
+    is_valid, error_msg = validate_port_forward_port(port)
+    if not is_valid:
+        return JSONResponse(status_code=400, content={"error": error_msg})
+
+    target_url = f"http://localhost:{port}/{path}"
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in EXCLUDED_PROXY_HEADERS}
+    body = await request.body() if request.method not in ("GET", "HEAD", "OPTIONS") else None
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(None)) as client:
+        try:
+            resp = await client.send(
+                client.build_request(
+                    method=request.method,
+                    url=target_url,
+                    content=body,
+                    headers=headers,
+                ),
+                stream=True,
+            )
+        except httpx.ConnectError as e:
+            return JSONResponse(status_code=502, content={"error": f"Cannot connect to port {port}: {e}"})
+
+    content_type = resp.headers.get("content-type", "")
+    response_headers = {k: v for k, v in resp.headers.items() if k.lower() not in EXCLUDED_PROXY_HEADERS}
+
+    if "text/event-stream" in content_type:
+
+        async def event_stream():
+            try:
+                async for chunk in resp.aiter_bytes():
+                    if chunk:
+                        yield chunk
+            finally:
+                await resp.aclose()
+
+        return StreamingResponse(
+            event_stream(), status_code=resp.status_code, media_type="text/event-stream", headers=response_headers
+        )
+
+    try:
+        raw = await resp.aread()
+        if "application/json" in content_type:
+            return JSONResponse(status_code=resp.status_code, content=resp.json(), headers=response_headers)
+        return Response(
+            status_code=resp.status_code,
+            content=raw,
+            media_type=content_type or "application/octet-stream",
+            headers=response_headers,
+        )
+    finally:
+        await resp.aclose()

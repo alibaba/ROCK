@@ -655,14 +655,18 @@ class SandboxProxyService:
         # Get sandbox  address based on sandbox_id
         status_dicts = await self.get_service_status(sandbox_id)
         host_ip = status_dicts[0].get("host_ip")
-        if port is None:
-            service_status = ServiceStatus.from_dict(status_dicts[0])
-            port = service_status.get_mapped_port(Port.SERVER)
+        service_status = ServiceStatus.from_dict(status_dicts[0])
 
-        if target_path:
-            return f"ws://{host_ip}:{port}/{target_path}"
+        if port is None:
+            # Default: connect to mapped SERVER port directly
+            target_port = service_status.get_mapped_port(Port.SERVER)
+            if target_path:
+                return f"ws://{host_ip}:{target_port}/{target_path}"
+            return f"ws://{host_ip}:{target_port}"
         else:
-            return f"ws://{host_ip}:{port}"
+            # Custom port: route via rocklet portforward (cross-cluster, container port not directly reachable)
+            rocklet_port = service_status.get_mapped_port(Port.PROXY)
+            return f"ws://{host_ip}:{rocklet_port}/portforward?port={port}"
 
     async def _forward_messages(self, source_ws, target_ws, direction: str):
         """Forward messages"""
@@ -839,10 +843,16 @@ class SandboxProxyService:
         status_list = await self.get_service_status(sandbox_id)
 
         host_ip = status_list[0].get("host_ip")
+        service_status = ServiceStatus.from_dict(status_list[0])
+
         if port is None:
-            service_status = ServiceStatus.from_dict(status_list[0])
-            port = service_status.get_mapped_port(Port.SERVER)
-        target_url = f"http://{host_ip}:{port}/{target_path}"
+            # Default: connect to mapped SERVER port directly
+            target_port = service_status.get_mapped_port(Port.SERVER)
+            target_url = f"http://{host_ip}:{target_port}/{target_path}"
+        else:
+            # Custom port: route via rocklet /http_proxy (cross-cluster, container port not directly reachable)
+            rocklet_port = service_status.get_mapped_port(Port.PROXY)
+            target_url = f"http://{host_ip}:{rocklet_port}/http_proxy/{target_path}?port={port}"
 
         request_headers = filter_headers(headers)
         payload = body or {}
