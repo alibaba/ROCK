@@ -207,8 +207,10 @@ class SandboxProxyService:
             logger.error(f"Error filtering sandboxes: {e}", exc_info=True)
             raise
 
-    async def websocket_proxy(self, client_websocket, sandbox_id: str, target_path: str | None = None):
-        target_url = await self.get_sandbox_websocket_url(sandbox_id, target_path)
+    async def websocket_proxy(
+        self, client_websocket, sandbox_id: str, target_path: str | None = None, port: int | None = None
+    ):
+        target_url = await self.get_sandbox_websocket_url(sandbox_id, target_path, port=port)
 
         try:
             # Connect to target WebSocket service
@@ -492,7 +494,7 @@ class SandboxProxyService:
         service_status = ServiceStatus.from_dict(sandbox_status_dict)
         # Use SERVER port mapping to access the sandbox
         # The port inside the container is mapped to a host port
-        mapped_port = service_status.get_mapped_port(Port.SERVER)
+        _mapped_port = service_status.get_mapped_port(Port.SERVER)
         # For now, we use the port as-is since we're connecting to the sandbox's network
         # In a real scenario, we might need to use the mapped port or connect through the container network
         return host_ip, port
@@ -643,7 +645,9 @@ class SandboxProxyService:
             logger.error("generate oss sts token failed")
             return None
 
-    async def get_sandbox_websocket_url(self, sandbox_id: str, target_path: str | None = None) -> str:
+    async def get_sandbox_websocket_url(
+        self, sandbox_id: str, target_path: str | None = None, port: int | None = None
+    ) -> str:
         # if sandbox_id == "iflow-local":   # Local debugging for iflow-cli
         #     return "ws://127.0.0.1:8090/acp"
         # if sandbox_id == "local":   # Local debugging for general ws service
@@ -651,8 +655,9 @@ class SandboxProxyService:
         # Get sandbox  address based on sandbox_id
         status_dicts = await self.get_service_status(sandbox_id)
         host_ip = status_dicts[0].get("host_ip")
-        service_status = ServiceStatus.from_dict(status_dicts[0])
-        port = service_status.get_mapped_port(Port.SERVER)
+        if port is None:
+            service_status = ServiceStatus.from_dict(status_dicts[0])
+            port = service_status.get_mapped_port(Port.SERVER)
 
         if target_path:
             return f"ws://{host_ip}:{port}/{target_path}"
@@ -814,14 +819,15 @@ class SandboxProxyService:
                 headers=response_headers,
             )
 
-    async def post_proxy(
+    async def http_proxy(
         self,
         sandbox_id: str,
         target_path: str,
         body: dict | None,
         headers: Headers,
+        method: str = "POST",
     ) -> JSONResponse | StreamingResponse | Response:
-        """HTTP POST proxy that supports both streaming (SSE) and non-streaming responses."""
+        """HTTP proxy that supports all methods and streaming (SSE) responses."""
         await self._update_expire_time(sandbox_id)
 
         EXCLUDED_HEADERS = {"host", "content-length", "transfer-encoding"}
@@ -844,9 +850,9 @@ class SandboxProxyService:
         try:
             resp = await client.send(
                 client.build_request(
-                    method="POST",
+                    method=method,
                     url=target_url,
-                    json=payload,
+                    json=payload if payload else None,
                     headers=request_headers,
                     timeout=120,
                 ),
