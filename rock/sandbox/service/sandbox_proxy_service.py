@@ -828,6 +828,7 @@ class SandboxProxyService:
         method: str = "POST",
         port: int | None = None,
         proxy_prefix: str | None = None,
+        query_string: str = "",
     ) -> JSONResponse | StreamingResponse | Response:
         """HTTP proxy that supports all methods and streaming (SSE) responses."""
         await self._update_expire_time(sandbox_id)
@@ -859,7 +860,8 @@ class SandboxProxyService:
         if port is None:
             service_status = ServiceStatus.from_dict(status_list[0])
             port = service_status.get_mapped_port(Port.SERVER)
-        target_url = f"http://{host_ip}:{port}/{target_path}"
+        qs = f"?{query_string}" if query_string else ""
+        target_url = f"http://{host_ip}:{port}/{target_path}{qs}"
 
         request_headers = filter_headers(headers)
         payload = body or {}

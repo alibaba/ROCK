@@ -243,6 +243,7 @@ async def http_proxy_with_port(
     return await sandbox_proxy_service.http_proxy(
         sandbox_id, path, body, request.headers, method=request.method, port=rock_target_port,
         proxy_prefix=proxy_prefix,
+        query_string=str(request.url.query),
     )
 
 

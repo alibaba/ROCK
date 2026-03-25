@@ -603,6 +603,152 @@ class TestHttpProxyLocationRewrite:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# HTTP Proxy — query string forwarding
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestHttpProxyQueryStringForwarding:
+    """http_proxy must forward query string to the upstream target URL."""
+
+    async def test_query_string_is_appended_to_target_url(self):
+        """Query string from the original request should be forwarded to upstream."""
+        from rock.deployments.status import ServiceStatus
+        from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+
+        service = MagicMock(spec=SandboxProxyService)
+        service._update_expire_time = AsyncMock()
+        service.get_service_status = AsyncMock(return_value=[{"host_ip": "10.0.0.1"}])
+
+        mock_status = MagicMock(spec=ServiceStatus)
+        mock_status.get_mapped_port.return_value = 8006
+
+        mock_response = MagicMock()
+        mock_response.headers = {"content-type": "text/html"}
+        mock_response.status_code = 200
+        mock_response.aread = AsyncMock(return_value=b"<html>")
+        mock_response.aclose = AsyncMock()
+
+        built_url = {}
+
+        class FakeClient:
+            def build_request(self, method, url, **kwargs):
+                built_url["url"] = url
+                return MagicMock()
+
+            async def send(self, req, stream=False):
+                return mock_response
+
+            async def aclose(self):
+                pass
+
+        with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
+            MockSS.from_dict.return_value = mock_status
+            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+                from starlette.datastructures import Headers
+                await SandboxProxyService.http_proxy(
+                    service,
+                    sandbox_id="sb1",
+                    target_path="",
+                    body=None,
+                    headers=Headers({}),
+                    method="GET",
+                    port=8006,
+                    query_string="resize=scale&reconnect=true&autoconnect=true",
+                )
+
+        assert "resize=scale" in built_url["url"]
+        assert built_url["url"].endswith("?resize=scale&reconnect=true&autoconnect=true") or \
+               "?resize=scale&reconnect=true&autoconnect=true" in built_url["url"]
+
+    async def test_no_query_string_no_question_mark(self):
+        """When query_string is empty, target URL should not have a trailing '?'."""
+        from rock.deployments.status import ServiceStatus
+        from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+
+        service = MagicMock(spec=SandboxProxyService)
+        service._update_expire_time = AsyncMock()
+        service.get_service_status = AsyncMock(return_value=[{"host_ip": "10.0.0.1"}])
+
+        mock_status = MagicMock(spec=ServiceStatus)
+        mock_status.get_mapped_port.return_value = 8006
+
+        mock_response = MagicMock()
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.status_code = 200
+        mock_response.json.return_value = {}
+        mock_response.aread = AsyncMock(return_value=b"{}")
+        mock_response.aclose = AsyncMock()
+
+        built_url = {}
+
+        class FakeClient:
+            def build_request(self, method, url, **kwargs):
+                built_url["url"] = url
+                return MagicMock()
+
+            async def send(self, req, stream=False):
+                return mock_response
+
+            async def aclose(self):
+                pass
+
+        with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
+            MockSS.from_dict.return_value = mock_status
+            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+                from starlette.datastructures import Headers
+                await SandboxProxyService.http_proxy(
+                    service,
+                    sandbox_id="sb1",
+                    target_path="api",
+                    body=None,
+                    headers=Headers({}),
+                    method="GET",
+                    port=8006,
+                )
+
+        assert "?" not in built_url["url"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Path-Based Port Routing — trailing slash 不触发 FastAPI 301
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestPathBasedPortTrailingSlash:
+    """Requests with trailing slash /proxy/port/{port}/ must NOT receive a 301 redirect.
+
+    FastAPI's redirect_slashes=True (default) causes /proxy/port/8006/?params
+    to be redirected to /proxy/port/8006?params, creating an infinite loop
+    when noVNC returns the page on the slash URL. The trailing-slash route must
+    be explicitly registered to suppress this redirect.
+    """
+
+    async def test_trailing_slash_does_not_redirect(self, app):
+        """/proxy/port/8006/ should return 200, not 301."""
+        a, svc = app
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            resp = await client.get(
+                "/sandboxes/sb1/proxy/port/8006/",
+                follow_redirects=False,
+            )
+
+        assert resp.status_code != 301, "trailing slash caused a redirect loop"
+        svc.http_proxy.assert_called_once()
+
+    async def test_trailing_slash_with_query_params_does_not_redirect(self, app):
+        """/proxy/port/8006/?resize=scale&reconnect=true should return 200, not 301."""
+        a, svc = app
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            resp = await client.get(
+                "/sandboxes/sb1/proxy/port/8006/?resize=scale&reconnect=true&autoconnect=true",
+                follow_redirects=False,
+            )
+
+        assert resp.status_code != 301, "trailing slash + query params caused a redirect loop"
+        svc.http_proxy.assert_called_once()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Path-Based Port Routing — HTTP
 # ─────────────────────────────────────────────────────────────────────────────
 
