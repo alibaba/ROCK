@@ -192,24 +192,18 @@ class TestGetSandboxWebsocketUrl:
     """Service method get_sandbox_websocket_url should use provided port."""
 
     async def test_uses_provided_port_when_specified(self):
-        """When port is given, URL should route via rocklet portforward."""
+        """When port is given, URL should use that port directly."""
         from rock.deployments.constants import Port
-        from rock.deployments.status import ServiceStatus
         from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 
         service = MagicMock(spec=SandboxProxyService)
-        service.get_service_status = AsyncMock(return_value=[{"host_ip": "10.0.0.1"}])
+        service.get_service_status = AsyncMock(
+            return_value=[{"host_ip": "10.0.0.1", "ports": {str(Port.SERVER.value): 32000}}]
+        )
 
-        mock_status = MagicMock(spec=ServiceStatus)
-        mock_status.get_mapped_port.side_effect = lambda p: 32555 if p == Port.PROXY else 32080
-
-        with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
-            MockSS.from_dict.return_value = mock_status
-            url = await SandboxProxyService.get_sandbox_websocket_url(service, "sb1", "api/ws", port=8888)
-
-        assert "32555" in url
-        assert "portforward" in url
-        assert "port=8888" in url
+        # Call the real method
+        url = await SandboxProxyService.get_sandbox_websocket_url(service, "sb1", "api/ws", port=8888)
+        assert url == "ws://10.0.0.1:8888/api/ws"
 
     async def test_uses_mapped_server_port_when_no_port(self):
         """When port is None, URL should use mapped SERVER port."""
@@ -345,8 +339,7 @@ class TestHttpProxyServiceMethod:
         assert sent_method["method"] == "POST"
 
     async def test_http_proxy_uses_provided_port(self):
-        """http_proxy should route via rocklet /http_proxy when port is given."""
-        from rock.deployments.constants import Port
+        """http_proxy should build target URL with the given port."""
         from rock.deployments.status import ServiceStatus
         from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 
@@ -355,7 +348,7 @@ class TestHttpProxyServiceMethod:
         service.get_service_status = AsyncMock(return_value=[{"host_ip": "10.0.0.1"}])
 
         mock_status = MagicMock(spec=ServiceStatus)
-        mock_status.get_mapped_port.side_effect = lambda p: 32555 if p == Port.PROXY else 32080
+        mock_status.get_mapped_port.return_value = 8080
 
         mock_response = MagicMock()
         mock_response.headers = {"content-type": "application/json"}
@@ -395,10 +388,9 @@ class TestHttpProxyServiceMethod:
                     port=9000,
                 )
 
-        # Should route via rocklet PROXY port, not SERVER port
-        assert "http_proxy" in built_url["url"]
-        assert "port=9000" in built_url["url"]
-        mock_status.get_mapped_port.assert_called_with(Port.PROXY)
+        assert "9000" in built_url["url"]
+        # Should NOT use mapped port when port is explicitly provided
+        mock_status.get_mapped_port.assert_not_called()
 
     async def test_http_proxy_uses_mapped_port_when_none(self):
         """http_proxy without port should use the mapped SERVER port."""
