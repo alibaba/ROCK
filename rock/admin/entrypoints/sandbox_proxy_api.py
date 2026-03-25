@@ -2,6 +2,7 @@ import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Body, File, Form, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse as _JSONResponse
 
 from rock.actions import (
     BashObservation,
@@ -26,6 +27,7 @@ from rock.admin.proto.request import (
 )
 from rock.admin.proto.response import BatchSandboxStatusResponse, SandboxListResponse
 from rock.common.exception import handle_exceptions
+from rock.common.port_validation import validate_port_forward_port
 from rock.logger import init_logger
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sdk.common.exceptions import BadRequestRockError
@@ -112,6 +114,30 @@ async def list_sandboxes(request: Request) -> RockResponse[SandboxListResponse]:
     return RockResponse(result=result)
 
 
+@sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/port/{rock_target_port}/ws")
+@sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/port/{rock_target_port}/ws/{path:path}")
+async def websocket_proxy_with_port(
+    websocket: WebSocket, id: str, rock_target_port: int, path: str = ""
+):
+    sandbox_id = id
+    logger.info(
+        f"Client connected to WebSocket proxy (path-based port): {sandbox_id}, path: {path}, port: {rock_target_port}"
+    )
+    is_valid, error_msg = validate_port_forward_port(rock_target_port)
+    if not is_valid:
+        await websocket.close(code=1008, reason=error_msg)
+        return
+
+    await websocket.accept()
+    try:
+        await sandbox_proxy_service.websocket_proxy(websocket, sandbox_id, path, port=rock_target_port)
+    except WebSocketDisconnect:
+        logger.info(f"Client disconnected from WebSocket proxy: {sandbox_id}")
+    except Exception as e:
+        logger.error(f"WebSocket proxy error: {e}")
+        await websocket.close(code=1011, reason=f"Proxy error: {str(e)}")
+
+
 @sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/ws")
 @sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/ws/{path:path}")
 async def websocket_proxy(websocket: WebSocket, id: str, path: str = "", rock_target_port: int | None = Query(None)):
@@ -119,8 +145,6 @@ async def websocket_proxy(websocket: WebSocket, id: str, path: str = "", rock_ta
     logger.info(f"Client connected to WebSocket proxy: {sandbox_id}, path: {path}, port: {rock_target_port}")
 
     if rock_target_port is not None:
-        from rock.common.port_validation import validate_port_forward_port
-
         is_valid, error_msg = validate_port_forward_port(rock_target_port)
         if not is_valid:
             await websocket.close(code=1008, reason=error_msg)
@@ -187,6 +211,36 @@ async def portforward(websocket: WebSocket, id: str, port: int):
 async def get_token():
     result = await asyncio.to_thread(sandbox_proxy_service.gen_oss_sts_token)
     return RockResponse(result=result)
+
+
+@sandbox_proxy_router.api_route(
+    "/sandboxes/{sandbox_id}/proxy/port/{rock_target_port}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+)
+@sandbox_proxy_router.api_route(
+    "/sandboxes/{sandbox_id}/proxy/port/{rock_target_port}/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+)
+@handle_exceptions(error_message="http proxy failed")
+async def http_proxy_with_port(
+    sandbox_id: str,
+    request: Request,
+    rock_target_port: int,
+    path: str = "",
+):
+    is_valid, error_msg = validate_port_forward_port(rock_target_port)
+    if not is_valid:
+        return _JSONResponse(status_code=400, content={"detail": error_msg})
+
+    body = None
+    if request.method not in ("GET", "HEAD", "DELETE", "OPTIONS"):
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+    return await sandbox_proxy_service.http_proxy(
+        sandbox_id, path, body, request.headers, method=request.method, port=rock_target_port
+    )
 
 
 @sandbox_proxy_router.api_route(
