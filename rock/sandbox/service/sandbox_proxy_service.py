@@ -827,6 +827,7 @@ class SandboxProxyService:
         headers: Headers,
         method: str = "POST",
         port: int | None = None,
+        proxy_prefix: str | None = None,
     ) -> JSONResponse | StreamingResponse | Response:
         """HTTP proxy that supports all methods and streaming (SSE) responses."""
         await self._update_expire_time(sandbox_id)
@@ -835,6 +836,18 @@ class SandboxProxyService:
 
         def filter_headers(raw_headers: Headers) -> dict:
             return {k: v for k, v in raw_headers.items() if k.lower() not in EXCLUDED_HEADERS}
+
+        def rewrite_location(location: str) -> str:
+            """Rewrite upstream Location header to include proxy prefix."""
+            from urllib.parse import urlparse
+            parsed = urlparse(location)
+            # Absolute URL pointing to upstream (has scheme+netloc) → strip to path only
+            if parsed.scheme and parsed.netloc:
+                path = parsed.path or "/"
+                qs = f"?{parsed.query}" if parsed.query else ""
+                location = f"{path}{qs}"
+            # Now prepend proxy prefix (location is relative like /?foo=bar)
+            return f"{proxy_prefix.rstrip('/')}{location}"
 
         status_list = await self.get_service_status(sandbox_id)
 
@@ -867,6 +880,12 @@ class SandboxProxyService:
         content_type = resp.headers.get("content-type", "")
         is_sse = "text/event-stream" in content_type
         response_headers = filter_headers(resp.headers)
+
+        # Rewrite Location header for 3xx responses when proxy_prefix is set
+        if proxy_prefix and resp.status_code in (301, 302, 303, 307, 308):
+            location = resp.headers.get("location")
+            if location:
+                response_headers["location"] = rewrite_location(location)
 
         if is_sse:
 

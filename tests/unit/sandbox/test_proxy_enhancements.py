@@ -447,6 +447,162 @@ class TestHttpProxyServiceMethod:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# HTTP Proxy — Location header rewrite for 3xx responses
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestHttpProxyLocationRewrite:
+    """http_proxy should rewrite Location header in 3xx responses to include proxy prefix."""
+
+    def _make_service(self, status_code, location):
+        from rock.deployments.status import ServiceStatus
+        from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+
+        service = MagicMock(spec=SandboxProxyService)
+        service._update_expire_time = AsyncMock()
+        service.get_service_status = AsyncMock(return_value=[{"host_ip": "10.0.0.1"}])
+
+        mock_status = MagicMock(spec=ServiceStatus)
+        mock_status.get_mapped_port.return_value = 8006
+
+        mock_response = MagicMock()
+        mock_response.headers = {"content-type": "text/html", "location": location}
+        mock_response.status_code = status_code
+        mock_response.aread = AsyncMock(return_value=b"<html>")
+        mock_response.aclose = AsyncMock()
+
+        class FakeClient:
+            def build_request(self, method, url, **kwargs):
+                return MagicMock()
+
+            async def send(self, req, stream=False):
+                return mock_response
+
+            async def aclose(self):
+                pass
+
+        return service, mock_status, FakeClient
+
+    async def test_relative_location_is_rewritten(self):
+        """301 with relative Location '/?foo=bar' should be rewritten to proxy prefix + '/?foo=bar'."""
+        from rock.deployments.status import ServiceStatus
+        from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+
+        service, mock_status, FakeClient = self._make_service(301, "/?resize=scale&reconnect=true")
+
+        with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
+            MockSS.from_dict.return_value = mock_status
+            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+                resp = await SandboxProxyService.http_proxy(
+                    service,
+                    sandbox_id="sb1",
+                    target_path="",
+                    body=None,
+                    headers=Headers({}),
+                    method="GET",
+                    port=8006,
+                    proxy_prefix="/sandboxes/sb1/proxy/port/8006",
+                )
+
+        assert resp.status_code == 301
+        assert resp.headers["location"] == "/sandboxes/sb1/proxy/port/8006/?resize=scale&reconnect=true"
+
+    async def test_absolute_upstream_location_is_stripped_to_path(self):
+        """301 with absolute upstream Location 'http://10.0.0.1:8006/path' should be rewritten to proxy prefix + '/path'."""
+        from rock.deployments.status import ServiceStatus
+        from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+
+        service, mock_status, FakeClient = self._make_service(301, "http://10.0.0.1:8006/some/path")
+
+        with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
+            MockSS.from_dict.return_value = mock_status
+            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+                resp = await SandboxProxyService.http_proxy(
+                    service,
+                    sandbox_id="sb1",
+                    target_path="",
+                    body=None,
+                    headers=Headers({}),
+                    method="GET",
+                    port=8006,
+                    proxy_prefix="/sandboxes/sb1/proxy/port/8006",
+                )
+
+        assert resp.status_code == 301
+        assert resp.headers["location"] == "/sandboxes/sb1/proxy/port/8006/some/path"
+
+    async def test_no_location_header_unaffected(self):
+        """200 response without Location header should not be modified."""
+        from rock.deployments.status import ServiceStatus
+        from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+
+        service = MagicMock(spec=SandboxProxyService)
+        service._update_expire_time = AsyncMock()
+        service.get_service_status = AsyncMock(return_value=[{"host_ip": "10.0.0.1"}])
+
+        mock_status = MagicMock(spec=ServiceStatus)
+        mock_status.get_mapped_port.return_value = 8006
+
+        mock_response = MagicMock()
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"ok": True}
+        mock_response.aread = AsyncMock(return_value=b'{"ok": true}')
+        mock_response.aclose = AsyncMock()
+
+        class FakeClient:
+            def build_request(self, method, url, **kwargs):
+                return MagicMock()
+
+            async def send(self, req, stream=False):
+                return mock_response
+
+            async def aclose(self):
+                pass
+
+        with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
+            MockSS.from_dict.return_value = mock_status
+            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+                resp = await SandboxProxyService.http_proxy(
+                    service,
+                    sandbox_id="sb1",
+                    target_path="",
+                    body=None,
+                    headers=Headers({}),
+                    method="GET",
+                    port=8006,
+                    proxy_prefix="/sandboxes/sb1/proxy/port/8006",
+                )
+
+        assert resp.status_code == 200
+        assert "location" not in resp.headers
+
+    async def test_proxy_prefix_none_location_unchanged(self):
+        """When proxy_prefix is None (query-param mode), Location header is not rewritten."""
+        from rock.deployments.status import ServiceStatus
+        from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+
+        service, mock_status, FakeClient = self._make_service(301, "/?foo=bar")
+
+        with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
+            MockSS.from_dict.return_value = mock_status
+            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+                resp = await SandboxProxyService.http_proxy(
+                    service,
+                    sandbox_id="sb1",
+                    target_path="",
+                    body=None,
+                    headers=Headers({}),
+                    method="GET",
+                    port=8006,
+                )
+
+        assert resp.status_code == 301
+        # Location not rewritten — original value preserved
+        assert resp.headers["location"] == "/?foo=bar"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Path-Based Port Routing — HTTP
 # ─────────────────────────────────────────────────────────────────────────────
 
