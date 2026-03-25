@@ -335,7 +335,7 @@ class TestE2EHTTPSessionLifecycle:
         url = f"{get_fc_url()}/create_session"
         response = await http_client.post(
             url,
-            json={"session_type": "bash"},
+            json={"session_type": "bash", "session": session_id},
             headers={"x-rock-session-id": session_id},
         )
         assert response.status_code == 200
@@ -358,7 +358,7 @@ class TestE2EHTTPSessionLifecycle:
         # Close session - include session_type for discriminator compatibility
         response = await http_client.post(
             f"{base_url}/close_session",
-            json={"session_id": session_id, "session_type": "bash"},
+            json={"session": session_id, "session_type": "bash"},
             headers={"x-rock-session-id": session_id},
         )
         assert response.status_code == 200

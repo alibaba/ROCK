@@ -62,6 +62,21 @@ resources:
         PYTHONUNBUFFERED: "1"
         PYTHONDONTWRITEBYTECODE: "1"
 
+      # 日志配置
+      logConfig: auto
+
+      # HTTP 触发器
+      triggers:
+        - triggerName: httpTrigger
+          triggerType: http
+          triggerConfig:
+            authType: anonymous
+            methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+
       # 层配置（可选，如需复用依赖层）
       # layers:
       #   - acs:fc:cn-hangzhou:xxx:layers/rock-deps/versions/1

@@ -23,6 +23,9 @@ psutil==6.0.0
 # 数据模型
 pydantic==2.9.0
 
+# 异常组支持（Python 3.10+）
+exceptiongroup>=1.0.0
+
 # HTTP 客户端
 httpx==0.27.2
 

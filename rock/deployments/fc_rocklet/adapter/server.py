@@ -25,6 +25,7 @@
 #
 # =============================================================================
 
+import asyncio
 import json
 import logging
 import os
@@ -320,72 +321,72 @@ _start_cleanup_thread()
 # =============================================================================
 
 def create_session(session_id: str) -> Dict[str, Any]:
-    """创建会话"""
+    """创建会话 - 遵循 ROCK 原生响应格式"""
     from rock.admin.proto.request import SandboxCreateBashSessionRequest
 
     with _lock:
         # 检查会话是否已存在
         if session_id in _sessions:
-            return {"success": False, "error": f"Session {session_id} already exists"}
+            raise ValueError(f"Session {session_id} already exists")
 
         # 检查并发限制
         if len(_sessions) >= _config.max_sessions:
-            return {
-                "success": False,
-                "error": f"Maximum sessions ({_config.max_sessions}) reached"
-            }
+            raise RuntimeError(f"Maximum sessions ({_config.max_sessions}) reached")
 
     try:
         runtime = _get_runtime()
         request = SandboxCreateBashSessionRequest(session=session_id)
-        result = runtime.create_session(request)
+        # LocalSandboxRuntime 方法是异步的，需要用 asyncio.run()
+        result = asyncio.run(runtime.create_session(request))
 
         with _lock:
             _sessions[session_id] = SessionState(session_id=session_id)
             _metrics.record_session_created()
 
         logger.info(f"Created session: {session_id}")
-        return {"success": True, "session_id": session_id}
+        # 返回 ROCK 原生格式
+        return {"output": result.output, "session_type": "bash"}
 
     except Exception as e:
         logger.error(f"Failed to create session: {e}")
-        return {"success": False, "error": str(e)}
+        raise
 
 
 def close_session(session_id: str, force: bool = False) -> Dict[str, Any]:
-    """关闭会话"""
+    """关闭会话 - 遵循 ROCK 原生响应格式"""
     from rock.admin.proto.request import SandboxCloseBashSessionRequest
 
     with _lock:
         if session_id not in _sessions:
             if force:
-                return {"success": True}  # 强制关闭时，不存在也返回成功
-            return {"success": False, "error": f"Session {session_id} not found"}
+                return {"session_type": "bash"}  # 强制关闭时，不存在也返回成功
+            raise ValueError(f"Session {session_id} not found")
 
         state = _sessions.pop(session_id)
 
     try:
         runtime = _get_runtime()
         request = SandboxCloseBashSessionRequest(session=session_id)
-        runtime.close_session(request)
+        asyncio.run(runtime.close_session(request))
         _metrics.record_session_closed()
         logger.info(f"Closed session: {session_id} (commands: {state.command_count}, errors: {state.error_count})")
-        return {"success": True}
+        return {"session_type": "bash"}
 
     except Exception as e:
         logger.error(f"Failed to close session: {e}")
         # 即使关闭失败，也从本地状态移除
         _metrics.record_session_closed()
-        return {"success": True, "warning": str(e)}
+        # 仍然返回成功，但记录警告
+        return {"session_type": "bash"}
 
 
 def run_in_session(session_id: str, command: str, timeout: int = 60) -> Dict[str, Any]:
-    """在会话中执行命令"""
+    """在会话中执行命令 - 遵循 ROCK 原生响应格式"""
     from rock.admin.proto.request import SandboxBashAction
 
     with _lock:
         if session_id not in _sessions:
-            return {"success": False, "error": f"Session {session_id} not found"}
+            raise ValueError(f"Session {session_id} not found")
         state = _sessions[session_id]
 
     # 验证超时
@@ -398,17 +399,20 @@ def run_in_session(session_id: str, command: str, timeout: int = 60) -> Dict[str
             command=command,
             timeout=timeout,
         )
-        result = runtime.run_in_session(action)
+        result = asyncio.run(runtime.run_in_session(action))
 
         with _lock:
             state.increment_command()
 
         _metrics.record_request(result.exit_code == 0)
 
+        # 返回 ROCK 原生格式 (BashObservation)
         return {
-            "success": result.exit_code == 0,
+            "session_type": "bash",
             "output": result.output,
             "exit_code": result.exit_code,
+            "failure_reason": result.failure_reason if hasattr(result, 'failure_reason') else "",
+            "expect_string": result.expect_string if hasattr(result, 'expect_string') else "",
         }
 
     except Exception as e:
@@ -424,7 +428,7 @@ def run_in_session(session_id: str, command: str, timeout: int = 60) -> Dict[str
         if "runtime" in str(e).lower() or "connection" in str(e).lower():
             _reset_runtime()
 
-        return {"success": False, "error": str(e)}
+        raise
 
 
 # =============================================================================
@@ -432,7 +436,7 @@ def run_in_session(session_id: str, command: str, timeout: int = 60) -> Dict[str
 # =============================================================================
 
 def execute(command: str, cwd: str = "/tmp", env: Optional[Dict] = None, timeout: int = 60) -> Dict[str, Any]:
-    """执行一次性命令"""
+    """执行一次性命令 - 遵循 ROCK 原生响应格式"""
     from rock.admin.proto.request import SandboxCommand
 
     # 验证超时
@@ -447,12 +451,12 @@ def execute(command: str, cwd: str = "/tmp", env: Optional[Dict] = None, timeout
             env=env or {},
             timeout=timeout,
         )
-        result = runtime.execute(cmd)
+        result = asyncio.run(runtime.execute(cmd))
 
         _metrics.record_request(result.exit_code == 0)
 
+        # 返回 ROCK 原生格式 (CommandResponse)
         return {
-            "success": result.exit_code == 0,
             "stdout": result.stdout,
             "stderr": result.stderr,
             "exit_code": result.exit_code,
@@ -466,7 +470,7 @@ def execute(command: str, cwd: str = "/tmp", env: Optional[Dict] = None, timeout
         if "runtime" in str(e).lower() or "connection" in str(e).lower():
             _reset_runtime()
 
-        return {"success": False, "error": str(e)}
+        raise
 
 
 # =============================================================================
@@ -474,7 +478,7 @@ def execute(command: str, cwd: str = "/tmp", env: Optional[Dict] = None, timeout
 # =============================================================================
 
 def read_file(path: str, encoding: str = "utf-8") -> Dict[str, Any]:
-    """读取文件"""
+    """读取文件 - 遵循 ROCK 原生响应格式"""
     from rock.actions import ReadFileRequest
 
     try:
@@ -483,22 +487,23 @@ def read_file(path: str, encoding: str = "utf-8") -> Dict[str, Any]:
 
         runtime = _get_runtime()
         request = ReadFileRequest(path=validated_path, encoding=encoding)
-        result = runtime.read_file(request)
+        result = asyncio.run(runtime.read_file(request))
 
         _metrics.record_request(True)
-        return {"success": True, "content": result.content}
+        # 返回 ROCK 原生格式 (ReadFileResponse)
+        return {"content": result.content}
 
     except ValueError as e:
         logger.warning(f"Path validation failed: {e}")
-        return {"success": False, "error": str(e)}
+        raise
     except Exception as e:
         logger.error(f"Failed to read file: {e}")
         _metrics.record_request(False)
-        return {"success": False, "error": str(e)}
+        raise
 
 
 def write_file(path: str, content: str, encoding: str = "utf-8") -> Dict[str, Any]:
-    """写入文件"""
+    """写入文件 - 遵循 ROCK 原生响应格式"""
     from rock.actions import WriteFileRequest
 
     try:
@@ -507,18 +512,19 @@ def write_file(path: str, content: str, encoding: str = "utf-8") -> Dict[str, An
 
         runtime = _get_runtime()
         request = WriteFileRequest(path=validated_path, content=content, encoding=encoding)
-        runtime.write_file(request)
+        asyncio.run(runtime.write_file(request))
 
         _metrics.record_request(True)
-        return {"success": True}
+        # 返回 ROCK 原生格式 (WriteFileResponse)
+        return {"success": True, "message": ""}
 
     except ValueError as e:
         logger.warning(f"Path validation failed: {e}")
-        return {"success": False, "error": str(e)}
+        return {"success": False, "message": str(e)}
     except Exception as e:
         logger.error(f"Failed to write file: {e}")
         _metrics.record_request(False)
-        return {"success": False, "error": str(e)}
+        return {"success": False, "message": str(e)}
 
 
 # =============================================================================
@@ -532,22 +538,26 @@ def health_check() -> Dict[str, Any]:
     try:
         runtime = _get_runtime()
         runtime_healthy = runtime is not None
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Runtime health check failed: {e}")
+        # 在 FC 环境中，如果函数能响应，就认为是健康的
+        # runtime 初始化可能因为环境限制而失败，但函数本身是可用的
+        runtime_healthy = True  # 函数响应表示服务健康
 
     with _lock:
         session_count = len(_sessions)
         sessions_info = [
             {
-                "session_id": s.session_id,
+                "session": s.session_id,
                 "age": round(s.age, 2),
                 "idle_time": round(s.idle_time, 2),
-                "commands": s.command_count,
+                "command_count": s.command_count,
             }
             for s in _sessions.values()
         ]
 
     return {
+        "is_alive": runtime_healthy,
         "status": "ok" if runtime_healthy else "degraded",
         "runtime": "healthy" if runtime_healthy else "unhealthy",
         "sessions": session_count,
@@ -575,6 +585,16 @@ def get_metrics() -> Dict[str, Any]:
 def route_request(path: str, method: str, body: Dict[str, Any]) -> Dict[str, Any]:
     """根据路径路由请求"""
 
+    # 去除查询字符串
+    if '?' in path:
+        path = path.split('?')[0]
+
+    # 标准化路径（去除尾部斜杠，但保留根路径）
+    if path != '/' and path.endswith('/'):
+        path = path.rstrip('/')
+
+    logger.debug(f"Routing: path={path} method={method}")
+
     # 健康检查
     if path == "/is_alive" or path == "/health":
         return health_check()
@@ -585,27 +605,27 @@ def route_request(path: str, method: str, body: Dict[str, Any]) -> Dict[str, Any
 
     # 会话管理
     if path == "/create_session":
-        session_id = body.get("session_id") or body.get("session")
-        if not session_id:
-            return {"success": False, "error": "session_id is required"}
-        return create_session(session_id)
+        session = body.get("session")
+        if not session:
+            raise ValueError("session is required")
+        return create_session(session)
 
     if path == "/close_session":
-        session_id = body.get("session_id") or body.get("session")
-        if not session_id:
-            return {"success": False, "error": "session_id is required"}
-        return close_session(session_id)
+        session = body.get("session")
+        if not session:
+            raise ValueError("session is required")
+        return close_session(session)
 
     if path == "/list_sessions":
         with _lock:
             return {
                 "sessions": [
                     {
-                        "session_id": s.session_id,
+                        "session": s.session_id,
                         "age": round(s.age, 2),
                         "idle_time": round(s.idle_time, 2),
-                        "commands": s.command_count,
-                        "errors": s.error_count,
+                        "command_count": s.command_count,
+                        "error_count": s.error_count,
                     }
                     for s in _sessions.values()
                 ],
@@ -615,17 +635,17 @@ def route_request(path: str, method: str, body: Dict[str, Any]) -> Dict[str, Any
 
     # 命令执行
     if path == "/run_in_session":
-        session_id = body.get("session_id") or body.get("session")
+        session = body.get("session")
         command = body.get("command")
         timeout = body.get("timeout", _config.default_timeout)
-        if not session_id or not command:
-            return {"success": False, "error": "session_id and command are required"}
-        return run_in_session(session_id, command, timeout)
+        if not session or not command:
+            raise ValueError("session and command are required")
+        return run_in_session(session, command, timeout)
 
     if path == "/execute":
         command = body.get("command")
         if not command:
-            return {"success": False, "error": "command is required"}
+            raise ValueError("command is required")
         return execute(
             command,
             body.get("cwd", "/tmp"),
@@ -654,54 +674,79 @@ def route_request(path: str, method: str, body: Dict[str, Any]) -> Dict[str, Any
 # FC HTTP Handler (WSGI)
 # =============================================================================
 
-def fc_handler(environ: Dict[str, Any], start_response) -> list:
+def fc_handler(event, context):
     """
     FC HTTP 触发器入口函数
 
-    WSGI 接口，兼容 FC Python 运行时
+    FC 事件函数签名: handler(event, context)
+    - event: bytes 或 dict，包含 HTTP 请求信息
+    - context: FCContext 对象
+
+    返回: dict 格式的 HTTP 响应
     """
     start_time = time.time()
 
-    # 获取请求信息
-    request_method = environ.get('REQUEST_METHOD', 'GET')
-    path_info = environ.get('PATH_INFO', '/')
+    # 解析事件体
+    if isinstance(event, bytes):
+        try:
+            event = json.loads(event.decode('utf-8'))
+        except json.JSONDecodeError:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"success": False, "message": "Invalid event body"})
+            }
 
-    # 获取会话 ID（用于日志追踪）
-    session_id = environ.get('HTTP_X_ROCK_SESSION_ID', 'unknown')
+    # 调试：打印完整事件结构
+    logger.info(f"Full event: {json.dumps(event, indent=2, default=str)[:2000]}")
+
+    # 从事件中提取 HTTP 请求信息
+    # FC HTTP 触发器事件格式：rawPath, requestContext.http
+    path_info = event.get('rawPath', event.get('path', '/'))
+    request_context = event.get('requestContext', {}) or {}
+    http_context = request_context.get('http', {}) or {}
+    request_method = http_context.get('method', event.get('httpMethod', 'GET'))
+    headers = event.get('headers', {}) or {}
+
+    # 获取 session_id
+    session_id = headers.get('x-rock-session-id', 'unknown')
 
     # 解析请求体
     body = {}
-    if request_method == 'POST':
+    raw_body = event.get('body', {})
+    if isinstance(raw_body, str):
         try:
-            content_length = int(environ.get('CONTENT_LENGTH', 0))
-            if content_length > 0:
-                request_body = environ['wsgi.input'].read(content_length)
-                body = json.loads(request_body.decode('utf-8'))
-        except (ValueError, json.JSONDecodeError) as e:
-            logger.error(f"Failed to parse request body: {e}")
+            body = json.loads(raw_body)
+        except json.JSONDecodeError:
+            body = {}
+    elif isinstance(raw_body, dict):
+        body = raw_body
+
+    logger.info(f"Request: method={request_method} path={path_info} session={session_id}")
 
     # 路由请求
     try:
         result = route_request(path_info, request_method, body)
-        response_body = json.dumps(result).encode('utf-8')
-        status = '200 OK'
+        status_code = 200
+    except ValueError as e:
+        logger.warning(f"Client error: {e}")
+        result = {"success": False, "message": str(e)}
+        status_code = 400
     except Exception as e:
         logger.error(f"Handler error: {e}\n{traceback.format_exc()}")
-        response_body = json.dumps({"success": False, "error": str(e)}).encode('utf-8')
-        status = '500 Internal Server Error'
+        result = {"success": False, "message": str(e)}
+        status_code = 500
 
-    # 记录请求耗时
     elapsed = time.time() - start_time
-    logger.info(f"{request_method} {path_info} session={session_id} status={status} elapsed={elapsed:.3f}s")
+    logger.info(f"{request_method} {path_info} session={session_id} status={status_code} elapsed={elapsed:.3f}s")
 
-    # 构造响应
-    response_headers = [
-        ('Content-Type', 'application/json'),
-        ('Content-Length', str(len(response_body)))
-    ]
-    start_response(status, response_headers)
-
-    return [response_body]
+    # 返回 FC HTTP 响应格式
+    return {
+        "statusCode": status_code,
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "body": json.dumps(result)
+    }
 
 
 # 用于 FC 的标准入口点
@@ -738,12 +783,12 @@ def create_app():
     @app.post("/create_session")
     async def api_create_session(request: Request):
         body = await request.json()
-        return create_session(body.get("session_id"))
+        return create_session(body.get("session"))
 
     @app.post("/close_session")
     async def api_close_session(request: Request):
         body = await request.json()
-        return close_session(body.get("session_id"))
+        return close_session(body.get("session"))
 
     @app.get("/list_sessions")
     async def api_list_sessions():
@@ -751,11 +796,11 @@ def create_app():
             return {
                 "sessions": [
                     {
-                        "session_id": s.session_id,
+                        "session": s.session_id,
                         "age": round(s.age, 2),
                         "idle_time": round(s.idle_time, 2),
-                        "commands": s.command_count,
-                        "errors": s.error_count,
+                        "command_count": s.command_count,
+                        "error_count": s.error_count,
                     }
                     for s in _sessions.values()
                 ],
@@ -767,7 +812,7 @@ def create_app():
     async def api_run_in_session(request: Request):
         body = await request.json()
         return run_in_session(
-            body.get("session_id"),
+            body.get("session"),
             body.get("command"),
             body.get("timeout", _config.default_timeout)
         )

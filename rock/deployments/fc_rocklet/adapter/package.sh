@@ -32,13 +32,26 @@ mkdir -p "$OUTPUT_DIR"
 TEMP_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_DIR" EXIT
 
-echo "[1/3] Copying rock package..."
-cp -r "$ROCK_ROOT/rock" "$TEMP_DIR/rock"
+echo "[1/4] Copying rock package..."
+mkdir -p "$TEMP_DIR/rock"
+for item in "$ROCK_ROOT/rock"/*; do
+    name=$(basename "$item")
+    if [ "$name" != "deployments" ]; then
+        cp -r "$item" "$TEMP_DIR/rock/"
+    fi
+done
 
-echo "[2/3] Copying adapter server..."
+echo "[2/4] Copying adapter server..."
 cp "$SCRIPT_DIR/server.py" "$TEMP_DIR/server.py"
 
-echo "[3/3] Creating zip archive..."
+echo "[3/4] Installing dependencies for Python 3.10..."
+pip install -q -r "$SCRIPT_DIR/../runtime/requirements.txt" -t "$TEMP_DIR" \
+    --platform manylinux2014_x86_64 \
+    --implementation cp \
+    --python-version 3.10 \
+    --only-binary=:all: 2>/dev/null || true
+
+echo "[4/4] Creating zip archive..."
 cd "$TEMP_DIR"
 zip -rq "$OUTPUT_FILE" .
 

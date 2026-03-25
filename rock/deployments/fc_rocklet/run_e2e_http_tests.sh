@@ -10,7 +10,8 @@
 #   FC_URL=https://xxx.fcapp.run ./run_e2e...  # Use custom URL
 #
 
-set -e
+# Don't exit on error - we want to continue testing
+# set -e
 
 # =============================================================================
 # Get FC URL
@@ -100,7 +101,7 @@ echo "--- E2E-HTTP-01: Health Check ---"
 
 test_case "E2E-HTTP-01" "Health check (is_alive)" \
     "curl -s '$FC_URL/is_alive'" \
-    '"is_alive":true'
+    '"is_alive": true'
 
 echo ""
 
@@ -111,11 +112,11 @@ echo ""
 echo "--- E2E-HTTP-02: Session Lifecycle ---"
 
 test_case "E2E-HTTP-02a" "Create session" \
-    "curl -s -X POST '$FC_URL/create_session' -H 'Content-Type: application/json' -H 'x-rock-session-id: $SESSION_ID' -d '{\"session_type\": \"bash\"}'" \
+    "curl -s -X POST '$FC_URL/create_session' -H 'Content-Type: application/json' -H 'x-rock-session-id: $SESSION_ID' -d '{\"session_type\": \"bash\", \"session\": \"$SESSION_ID\"}'" \
     'session_type'
 
 test_case "E2E-HTTP-02b" "Run echo command" \
-    "curl -s -X POST '$FC_URL/run_in_session' -H 'Content-Type: application/json' -H 'x-rock-session-id: $SESSION_ID' -d '{\"action_type\": \"bash\", \"command\": \"echo e2e-test\"}'" \
+    "curl -s -X POST '$FC_URL/run_in_session' -H 'Content-Type: application/json' -H 'x-rock-session-id: $SESSION_ID' -d '{\"action_type\": \"bash\", \"session\": \"$SESSION_ID\", \"command\": \"echo e2e-test\"}'" \
     'e2e-test'
 
 echo ""
@@ -127,23 +128,23 @@ echo ""
 echo "--- E2E-HTTP-03: Command Execution ---"
 
 test_case "E2E-HTTP-03a" "Command with pipe" \
-    "curl -s -X POST '$FC_URL/run_in_session' -H 'Content-Type: application/json' -H 'x-rock-session-id: $SESSION_ID' -d '{\"action_type\": \"bash\", \"command\": \"echo hello world | wc -w\"}'" \
+    "curl -s -X POST '$FC_URL/run_in_session' -H 'Content-Type: application/json' -H 'x-rock-session-id: $SESSION_ID' -d '{\"action_type\": \"bash\", \"session\": \"$SESSION_ID\", \"command\": \"echo hello world | wc -w\"}'" \
     '2'
 
 test_case "E2E-HTTP-03b" "Environment variable persistence" \
-    "curl -s -X POST '$FC_URL/run_in_session' -H 'Content-Type: application/json' -H 'x-rock-session-id: $SESSION_ID' -d '{\"action_type\": \"bash\", \"command\": \"export TEST_VAR=e2e_value\"}'" \
+    "curl -s -X POST '$FC_URL/run_in_session' -H 'Content-Type: application/json' -H 'x-rock-session-id: $SESSION_ID' -d '{\"action_type\": \"bash\", \"session\": \"$SESSION_ID\", \"command\": \"export TEST_VAR=e2e_value\"}'" \
     'exit_code.*0'
 
 test_case "E2E-HTTP-03c" "Check environment variable" \
-    "curl -s -X POST '$FC_URL/run_in_session' -H 'Content-Type: application/json' -H 'x-rock-session-id: $SESSION_ID' -d '{\"action_type\": \"bash\", \"command\": \"echo \$TEST_VAR\"}'" \
+    "curl -s -X POST '$FC_URL/run_in_session' -H 'Content-Type: application/json' -H 'x-rock-session-id: $SESSION_ID' -d '{\"action_type\": \"bash\", \"session\": \"$SESSION_ID\", \"command\": \"echo \$TEST_VAR\"}'" \
     'e2e_value'
 
 test_case "E2E-HTTP-03d" "Working directory change" \
-    "curl -s -X POST '$FC_URL/run_in_session' -H 'Content-Type: application/json' -H 'x-rock-session-id: $SESSION_ID' -d '{\"action_type\": \"bash\", \"command\": \"cd /tmp && pwd\"}'" \
+    "curl -s -X POST '$FC_URL/run_in_session' -H 'Content-Type: application/json' -H 'x-rock-session-id: $SESSION_ID' -d '{\"action_type\": \"bash\", \"session\": \"$SESSION_ID\", \"command\": \"cd /tmp && pwd\"}'" \
     '/tmp'
 
 test_case "E2E-HTTP-03e" "Verify directory persistence" \
-    "curl -s -X POST '$FC_URL/run_in_session' -H 'Content-Type: application/json' -H 'x-rock-session-id: $SESSION_ID' -d '{\"action_type\": \"bash\", \"command\": \"pwd\"}'" \
+    "curl -s -X POST '$FC_URL/run_in_session' -H 'Content-Type: application/json' -H 'x-rock-session-id: $SESSION_ID' -d '{\"action_type\": \"bash\", \"session\": \"$SESSION_ID\", \"command\": \"pwd\"}'" \
     '/tmp'
 
 echo ""
@@ -195,8 +196,8 @@ echo ""
 echo "--- E2E-HTTP-07: Session Cleanup ---"
 
 test_case "E2E-HTTP-07a" "Close session" \
-    "curl -s -X POST '$FC_URL/close_session' -H 'Content-Type: application/json' -H 'x-rock-session-id: $SESSION_ID' -d '{\"session_id\": \"$SESSION_ID\", \"session_type\": \"bash\"}'" \
-    'success.*true\|exit_code.*0'
+    "curl -s -X POST '$FC_URL/close_session' -H 'Content-Type: application/json' -H 'x-rock-session-id: $SESSION_ID' -d '{\"session\": \"$SESSION_ID\", \"session_type\": \"bash\"}'" \
+    'session_type.*bash'
 
 echo ""
 
