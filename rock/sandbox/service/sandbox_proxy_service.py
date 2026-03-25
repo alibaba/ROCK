@@ -833,7 +833,9 @@ class SandboxProxyService:
         """HTTP proxy that supports all methods and streaming (SSE) responses."""
         await self._update_expire_time(sandbox_id)
 
-        EXCLUDED_HEADERS = {"host", "content-length", "transfer-encoding"}
+        # content-encoding is excluded because httpx decompresses the body automatically;
+        # forwarding it would cause ERR_CONTENT_DECODING_FAILED in the browser.
+        EXCLUDED_HEADERS = {"host", "content-length", "transfer-encoding", "content-encoding"}
 
         def filter_headers(raw_headers: Headers) -> dict:
             return {k: v for k, v in raw_headers.items() if k.lower() not in EXCLUDED_HEADERS}

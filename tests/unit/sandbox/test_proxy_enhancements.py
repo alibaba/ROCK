@@ -603,6 +603,66 @@ class TestHttpProxyLocationRewrite:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# HTTP Proxy — content-encoding header stripped
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestHttpProxyContentEncodingStripped:
+    """http_proxy must strip content-encoding from upstream response.
+
+    httpx decompresses the response body automatically, so forwarding
+    'content-encoding: gzip' to the browser causes ERR_CONTENT_DECODING_FAILED.
+    """
+
+    async def test_content_encoding_is_stripped_from_response(self):
+        """content-encoding header must not appear in the proxied response."""
+        from rock.deployments.status import ServiceStatus
+        from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+
+        service = MagicMock(spec=SandboxProxyService)
+        service._update_expire_time = AsyncMock()
+        service.get_service_status = AsyncMock(return_value=[{"host_ip": "10.0.0.1"}])
+
+        mock_status = MagicMock(spec=ServiceStatus)
+        mock_status.get_mapped_port.return_value = 8006
+
+        mock_response = MagicMock()
+        mock_response.headers = {
+            "content-type": "text/html",
+            "content-encoding": "gzip",
+            "content-length": "1234",
+        }
+        mock_response.status_code = 200
+        mock_response.aread = AsyncMock(return_value=b"<html>")
+        mock_response.aclose = AsyncMock()
+
+        class FakeClient:
+            def build_request(self, method, url, **kwargs):
+                return MagicMock()
+
+            async def send(self, req, stream=False):
+                return mock_response
+
+            async def aclose(self):
+                pass
+
+        with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
+            MockSS.from_dict.return_value = mock_status
+            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+                resp = await SandboxProxyService.http_proxy(
+                    service,
+                    sandbox_id="sb1",
+                    target_path="",
+                    body=None,
+                    headers=Headers({}),
+                    method="GET",
+                    port=8006,
+                )
+
+        assert "content-encoding" not in resp.headers
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # HTTP Proxy — query string forwarding
 # ─────────────────────────────────────────────────────────────────────────────
 
