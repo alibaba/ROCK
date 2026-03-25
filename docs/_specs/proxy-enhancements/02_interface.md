@@ -15,13 +15,13 @@ WS /sandboxes/{id}/proxy/ws/{path:path}
 |------|------|------|------|
 | `id` | path | ✅ | sandbox_id |
 | `path` | path | ❌ | 目标路径，默认空字符串 |
-| `port` | query | ❌ | 目标 WebSocket 端口，默认 8080（Port.SERVER）|
+| `rock_target_port` | query | ❌ | 目标 WebSocket 端口，默认 8080（Port.SERVER）|
 
 ### 行为规则
 
-- `port` 未指定 → 使用 `Port.SERVER = 8080`（向后兼容）
-- `port` 合法 → 连接到 `ws://{host_ip}:{port}/{path}`
-- `port` 非法 → WebSocket close code=1008，reason=错误信息
+- `rock_target_port` 未指定 → 使用 `Port.SERVER = 8080`（向后兼容）
+- `rock_target_port` 合法 → 连接到 `ws://{host_ip}:{port}/{path}`
+- `rock_target_port` 非法 → WebSocket close code=1008，reason=错误信息
 
 ### 错误响应（WebSocket Close Frame）
 
@@ -36,12 +36,12 @@ WS /sandboxes/{id}/proxy/ws/{path:path}
 
 ```
 # 连接到 8888 端口（如 Jupyter）
-WS ws://admin-host/sandboxes/my-sandbox/proxy/ws?port=8888
+WS ws://admin-host/sandboxes/my-sandbox/proxy/ws?rock_target_port=8888
 
 # 连接到 8888 端口下的特定路径
-WS ws://admin-host/sandboxes/my-sandbox/proxy/ws/api/kernels/xxx/channels?port=8888
+WS ws://admin-host/sandboxes/my-sandbox/proxy/ws/api/kernels/xxx/channels?rock_target_port=8888
 
-# 不带 port（向后兼容，使用 8080）
+# 不带 rock_target_port（向后兼容，使用 8080）
 WS ws://admin-host/sandboxes/my-sandbox/proxy/ws
 ```
 
@@ -61,7 +61,7 @@ ANY /sandboxes/{sandbox_id}/proxy/{path:path}
 ### 变更
 
 - 原 `POST only` → 支持所有 HTTP method，透传原始 method 给沙箱内服务
-- 新增 `port` query 参数，支持指定沙箱内任意 HTTP 服务端口
+- 新增 `rock_target_port` query 参数，支持指定沙箱内任意 HTTP 服务端口
 
 ### Request
 
@@ -69,7 +69,7 @@ ANY /sandboxes/{sandbox_id}/proxy/{path:path}
 |------|------|------|------|
 | `sandbox_id` | path | ✅ | sandbox_id |
 | `path` | path | ❌ | 转发路径 |
-| `port` | query | ❌ | 目标 HTTP 端口，默认 8080（Port.SERVER）|
+| `rock_target_port` | query | ❌ | 目标 HTTP 端口，默认 8080（Port.SERVER）|
 | `body` | body | ❌ | 请求体（GET/DELETE 时可为空）|
 | Headers | - | - | 透传，排除 `host`、`content-length`、`transfer-encoding` |
 
@@ -106,4 +106,4 @@ Body: {"key": "value"}
 ## 关于向后兼容
 
 - 所有原来使用 `POST /sandboxes/{sandbox_id}/proxy` 的调用**无需修改**，行为不变
-- 原 WebSocket `WS /sandboxes/{id}/proxy/ws`（不带 port）的调用**无需修改**，行为不变
+- 原 WebSocket `WS /sandboxes/{id}/proxy/ws`（不带 rock_target_port）的调用**无需修改**，行为不变
