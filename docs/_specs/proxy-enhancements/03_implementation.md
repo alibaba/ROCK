@@ -1,169 +1,149 @@
 # Proxy Enhancements — Implementation Plan
 
+## 背景
+
+admin 与 sandbox 不在同一 K8s 集群，`host_ip` 为宿主机 IP，容器内任意端口无法从 admin 直连。因此：
+
+- **WebSocket proxy 自定义端口**：复用 rocklet 现有的 `/portforward` WebSocket 端点中转（与 `/sandboxes/{id}/portforward` 相同机制）
+- **HTTP proxy 自定义端口**：需在 rocklet 新增 `/http_proxy` HTTP 端点，admin 转发请求给 rocklet，rocklet 在容器内访问目标服务
+
+---
+
 ## File Changes
 
 | 文件 | 修改类型 | 说明 |
 |------|------|------|
-| `rock/admin/entrypoints/sandbox_proxy_api.py` | 修改 | 1) websocket_proxy 增加 `port` query param；2) post_proxy 改为 api_route 支持所有 method |
-| `rock/sandbox/service/sandbox_proxy_service.py` | 修改 | 1) `websocket_proxy` 增加 `port` 参数；2) `get_sandbox_websocket_url` 增加 `port` 参数；3) `post_proxy` 改为 `http_proxy`，透传 method |
+| `rock/rocklet/local_api.py` | **新增** | 新增 `ANY /http_proxy/{path:path}?port={port}` 端点 |
+| `rock/sandbox/service/sandbox_proxy_service.py` | 修改 | `http_proxy` 有 `port` 时改走 rocklet `/http_proxy` 中转；WebSocket proxy 有 `port` 时改走 rocklet `/portforward` 中转 |
+| `rock/admin/entrypoints/sandbox_proxy_api.py` | 无变更 | 已支持，无需修改 |
 
 ---
 
-## 核心逻辑（伪代码）
+## 核心逻辑
 
-### 变更 1：WebSocket Proxy 指定端口
+### 变更 1：WebSocket proxy 自定义端口 → rocklet portforward 中转
+
+当前 `get_sandbox_websocket_url` 在有 port 时直接返回 `ws://{host_ip}:{port}`，这在跨集群部署下不可达。
+
+**修改后逻辑**：
 
 ```python
-# sandbox_proxy_api.py
-@sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/ws")
-@sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/ws/{path:path}")
-async def websocket_proxy(websocket: WebSocket, id: str, path: str = "", port: int | None = None):
-    await websocket.accept()
-    # 端口校验（仅当 port 显式指定时）
-    if port is not None:
-        is_valid, error_msg = validate_port_forward_port(port)
-        if not is_valid:
-            await websocket.close(code=1008, reason=error_msg)
-            return
-    try:
-        await sandbox_proxy_service.websocket_proxy(websocket, id, path, port=port)
-    except ...
-
-# sandbox_proxy_service.py
-async def websocket_proxy(self, client_websocket, sandbox_id: str,
-                          target_path: str | None = None, port: int | None = None):
-    target_url = await self.get_sandbox_websocket_url(sandbox_id, target_path, port=port)
-    ...  # 其余逻辑不变
-
-async def get_sandbox_websocket_url(self, sandbox_id: str,
-                                    target_path: str | None = None,
-                                    port: int | None = None) -> str:
+async def get_sandbox_websocket_url(
+    self, sandbox_id: str, target_path: str | None = None, port: int | None = None
+) -> str:
     status_dicts = await self.get_service_status(sandbox_id)
     host_ip = status_dicts[0].get("host_ip")
     service_status = ServiceStatus.from_dict(status_dicts[0])
-    # port 未指定时使用 SERVER 端口（mapped）
+
     if port is None:
+        # 默认行为：连接 SERVER 映射端口（原逻辑不变）
         target_port = service_status.get_mapped_port(Port.SERVER)
+        if target_path:
+            return f"ws://{host_ip}:{target_port}/{target_path}"
+        return f"ws://{host_ip}:{target_port}"
     else:
-        target_port = port  # 直接使用用户指定端口（在容器网络内部访问）
-    if target_path:
-        return f"ws://{host_ip}:{target_port}/{target_path}"
-    return f"ws://{host_ip}:{target_port}"
+        # 自定义端口：通过 rocklet portforward 中转
+        rocklet_port = service_status.get_mapped_port(Port.PROXY)
+        return f"ws://{host_ip}:{rocklet_port}/portforward?port={port}"
+        # 注意：target_path 在此场景下通过 WebSocket 协议层传递，不拼入 URL
 ```
 
-> **注意**：用户指定 port 时，该端口是沙箱容器内部端口，需要 docker 端口映射或直接容器网络访问。目前 `portforward` 端点（`/sandboxes/{id}/portforward?port=xxx`）通过 rocklet 中转访问沙箱内任意 TCP 端口。WebSocket proxy 的直连方案需要确认网络拓扑是否支持（host_ip + 容器内端口 vs. 映射端口）。
->
-> **推荐实现方式**：与 portforward 对齐，**通过 rocklet `/portforward` 端点中转** WebSocket 流量，或者先确认 `host_ip` 直连沙箱内任意端口是否可行。
->
-> **待确认（需用户决策）**：
-> - 选项 A：直连 `ws://{host_ip}:{port}/{path}`（简单，但依赖网络拓扑）
-> - 选项 B：通过 rocklet portforward 中转（与 portforward 端点保持一致，更安全）
+> **注意**：WebSocket proxy 自定义端口时，`target_path` 无法通过 rocklet portforward 传递（rocklet portforward 是纯 TCP 隧道）。如需支持 path，需评估是否在 rocklet portforward 层扩展，本期暂不支持 path + 自定义端口的组合。
 
-### 变更 2：HTTP Proxy 支持所有 Method
+### 变更 2：rocklet 新增 HTTP proxy 端点
 
 ```python
-# sandbox_proxy_api.py
-# 移除原来的两个 @sandbox_proxy_router.post(...)
-# 改为：
-@sandbox_proxy_router.api_route(
-    "/sandboxes/{sandbox_id}/proxy",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
-)
-@sandbox_proxy_router.api_route(
-    "/sandboxes/{sandbox_id}/proxy/{path:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
-)
-@handle_exceptions(error_message="http proxy failed")
-async def http_proxy(
-    sandbox_id: str,
-    request: Request,
-    path: str = "",
-):
-    body = None
-    # GET / HEAD / DELETE 等通常没有 body
-    if request.method not in ("GET", "HEAD", "DELETE", "OPTIONS"):
-        try:
-            body = await request.json()
-        except Exception:
-            body = None
-    return await sandbox_proxy_service.http_proxy(
-        sandbox_id, path, body, request.headers, method=request.method
-    )
+# rock/rocklet/local_api.py
 
-# sandbox_proxy_service.py
-async def http_proxy(
-    self,
-    sandbox_id: str,
-    target_path: str,
-    body: dict | None,
-    headers: Headers,
-    method: str = "POST",
-) -> JSONResponse | StreamingResponse | Response:
-    """HTTP proxy supporting all methods, with SSE streaming support."""
+@local_router.api_route(
+    "/http_proxy",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+)
+@local_router.api_route(
+    "/http_proxy/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+)
+async def http_proxy(request: Request, port: int, path: str = ""):
+    """Forward HTTP request to localhost:{port}/{path} inside the container."""
+    target_url = f"http://localhost:{port}/{path}"
+
+    EXCLUDED_HEADERS = {"host", "content-length", "transfer-encoding"}
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in EXCLUDED_HEADERS}
+
+    body = None
+    if request.method not in ("GET", "HEAD", "DELETE", "OPTIONS"):
+        body = await request.body()
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(None)) as client:
+        resp = await client.send(
+            client.build_request(
+                method=request.method,
+                url=target_url,
+                content=body,
+                headers=headers,
+            ),
+            stream=True,
+        )
+        # 响应透传（支持 SSE streaming）
+        ...
+```
+
+### 变更 3：admin `http_proxy` service 有 port 时走 rocklet 中转
+
+```python
+async def http_proxy(self, sandbox_id, target_path, body, headers, method="POST", port=None):
     await self._update_expire_time(sandbox_id)
+    status_list = await self.get_service_status(sandbox_id)
+    host_ip = status_list[0].get("host_ip")
+    service_status = ServiceStatus.from_dict(status_list[0])
+
+    if port is None:
+        # 默认行为：直连 mapped SERVER port（原逻辑不变）
+        target_port = service_status.get_mapped_port(Port.SERVER)
+        target_url = f"http://{host_ip}:{target_port}/{target_path}"
+    else:
+        # 自定义端口：通过 rocklet /http_proxy 中转
+        rocklet_port = service_status.get_mapped_port(Port.PROXY)
+        target_url = f"http://{host_ip}:{rocklet_port}/http_proxy/{target_path}?port={port}"
+
+    # 其余请求构建和响应处理逻辑不变
     ...
-    resp = await client.send(
-        client.build_request(
-            method=method,          # 透传 method
-            url=target_url,
-            json=body if body is not None else None,
-            headers=request_headers,
-            timeout=120,
-        ),
-        stream=True,
-    )
-    # 其余响应处理逻辑不变（SSE / JSON / raw）
 ```
 
 ---
 
 ## Execution Plan
 
-### Step 1：修改 `get_sandbox_websocket_url` 支持 port 参数
-- 文件：`rock/sandbox/service/sandbox_proxy_service.py:646`
-- 增加 `port: int | None = None` 参数
-- 有 port 时直接使用，无 port 时保持原有 mapped port 逻辑
+### Step 1：rocklet 新增 `/http_proxy` 端点
+- 文件：`rock/rocklet/local_api.py`
+- 新增 `ANY /http_proxy` 和 `ANY /http_proxy/{path:path}` 路由
+- 接收 `port: int` query 参数，转发到 `http://localhost:{port}/{path}`
+- 支持 body 透传、header 透传（排除 hop-by-hop headers）
+- 支持 SSE streaming 响应
 
-### Step 2：修改 `websocket_proxy` service 方法传递 port
-- 文件：`rock/sandbox/service/sandbox_proxy_service.py:210`
-- 增加 `port: int | None = None` 参数，透传给 `get_sandbox_websocket_url`
+### Step 2：修改 `get_sandbox_websocket_url`
+- 文件：`rock/sandbox/service/sandbox_proxy_service.py`
+- 有 `port` 时，改用 `ws://{host_ip}:{rocklet_mapped_port}/portforward?port={port}`
+- 无 `port` 时保持原逻辑不变
 
-### Step 3：修改 websocket_proxy API 端点，增加 port query param + 校验
-- 文件：`rock/admin/entrypoints/sandbox_proxy_api.py:115`
-- 增加 `port: int | None = Query(None)` 参数
-- 在 accept 前（或 accept 后）进行端口校验
-
-### Step 4：将 `post_proxy` 改为通用 `http_proxy` service 方法
-- 文件：`rock/sandbox/service/sandbox_proxy_service.py:817`
-- 增加 `method: str = "POST"` 参数
-- 将 `method="POST"` 硬编码改为透传 `method`
-- 方法重命名为 `http_proxy`（或保留 `post_proxy` 并内部调用 `http_proxy`，维持兼容）
-
-### Step 5：修改 API 端点注册方式
-- 文件：`rock/admin/entrypoints/sandbox_proxy_api.py:183`
-- 将两个 `@sandbox_proxy_router.post(...)` 改为 `@sandbox_proxy_router.api_route(..., methods=[...])`
-- body 改为从 `request.json()` 动态读取（非强制 Body 参数）
-- 调用 `sandbox_proxy_service.http_proxy(..., method=request.method)`
+### Step 3：修改 `http_proxy` service 方法
+- 文件：`rock/sandbox/service/sandbox_proxy_service.py`
+- 有 `port` 时，改用 `http://{host_ip}:{rocklet_mapped_port}/http_proxy/{path}?port={port}`
+- 无 `port` 时保持原逻辑不变
 
 ---
 
 ## Rollback & Compatibility
 
-- 向后兼容：`port=None` 时 WebSocket proxy 行为与之前完全一致
-- 向后兼容：POST 请求仍按 POST 处理，行为不变
-- 回滚：还原 `sandbox_proxy_api.py` 和 `sandbox_proxy_service.py` 两个文件即可
+- **向后兼容**：`rock_target_port` 未指定时，所有逻辑路径与原实现完全一致
+- **回滚**：
+  - rocklet：还原 `local_api.py`，重新发布镜像
+  - admin：还原 `sandbox_proxy_service.py`
 
 ---
 
-## 待确认事项（开始实现前需用户决策）
+## 约束与注意事项
 
-**Q1**：WebSocket proxy 指定端口时，网络访问方式如何？
-
-| 选项 | 方式 | 优点 | 缺点 |
-|------|------|------|------|
-| **A（推荐）** | 直连 `ws://{host_ip}:{port}` | 简单，与现有 websocket_proxy 逻辑一致 | 要求沙箱所有端口对 admin 可路由 |
-| **B** | 通过 rocklet portforward 中转 | 与 portforward 端点一致，更安全 | 需要 rocklet 支持 WS→WS 的转发（与 TCP portforward 不同），实现复杂 |
-
-当前 `get_sandbox_websocket_url` 返回 `ws://{host_ip}:{mapped_server_port}`，说明 admin 可以直连 host_ip。如果沙箱内部端口在宿主机上可路由（docker 桥接网络 or K8s pod IP 直连），选项 A 可行。
-
-**Q2**：HTTP proxy 的 method 是否需要白名单控制（只允许特定 method），还是全部透传？
+- WebSocket proxy 自定义端口时，`path` 参数不生效（rocklet portforward 是纯 TCP 隧道，不感知 HTTP path）
+- rocklet `/http_proxy` 端点的 `port` 参数需要校验（复用 `validate_port_forward_port`）
+- rocklet 镜像需要重新发布才能生效

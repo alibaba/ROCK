@@ -19,9 +19,11 @@ WS /sandboxes/{id}/proxy/ws/{path:path}
 
 ### 行为规则
 
-- `rock_target_port` 未指定 → 使用 `Port.SERVER = 8080`（向后兼容）
-- `rock_target_port` 合法 → 连接到 `ws://{host_ip}:{port}/{path}`
+- `rock_target_port` 未指定 → 使用 `Port.SERVER = 8080` 的映射端口（向后兼容）
+- `rock_target_port` 合法 → 通过 rocklet `/portforward` WebSocket 端点中转到容器内目标端口
 - `rock_target_port` 非法 → WebSocket close code=1008，reason=错误信息
+
+> **实现说明**：admin 与 sandbox 不在同一 K8s 集群，`host_ip` 为宿主机 IP，容器内端口无法直连。因此自定义端口时复用 rocklet 的 WebSocket portforward 机制（与 `/sandboxes/{id}/portforward` 端点相同），通过 `ws://{host_ip}:{rocklet_mapped_port}/portforward?port={rock_target_port}` 中转，rocklet 在容器内访问 `localhost:{rock_target_port}`。
 
 ### 错误响应（WebSocket Close Frame）
 
@@ -62,6 +64,8 @@ ANY /sandboxes/{sandbox_id}/proxy/{path:path}
 
 - 原 `POST only` → 支持所有 HTTP method，透传原始 method 给沙箱内服务
 - 新增 `rock_target_port` query 参数，支持指定沙箱内任意 HTTP 服务端口
+
+> **实现说明**：需在 rocklet 新增 `ANY /http_proxy/{path:path}?port={port}` 端点，admin 将请求转发到 `http://{host_ip}:{rocklet_mapped_port}/http_proxy/{path}?port={rock_target_port}`，rocklet 在容器内访问 `http://localhost:{port}/{path}`。未指定 `rock_target_port` 时保持原有逻辑（直连 mapped SERVER port），向后兼容。
 
 ### Request
 
