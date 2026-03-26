@@ -212,9 +212,20 @@ class SandboxProxyService:
     ):
         target_url = await self.get_sandbox_websocket_url(sandbox_id, target_path, port=port)
 
+        # Forward client subprotocols to upstream (e.g. websockify requires 'binary')
+        client_subprotocols = getattr(client_websocket, "subprotocols", []) or []
+
         try:
             # Connect to target WebSocket service
-            async with websockets.connect(target_url, ping_interval=None, ping_timeout=None) as target_websocket:
+            async with websockets.connect(
+                target_url,
+                ping_interval=None,
+                ping_timeout=None,
+                subprotocols=client_subprotocols if client_subprotocols else [],
+            ) as target_websocket:
+                # Accept client connection with the subprotocol negotiated by upstream
+                negotiated = getattr(target_websocket, "subprotocol", None)
+                await client_websocket.accept(subprotocol=negotiated)
                 # Create bidirectional forwarding tasks
                 client_to_target = asyncio.create_task(
                     self._forward_messages(client_websocket, target_websocket, "client->target")
@@ -707,7 +718,6 @@ class SandboxProxyService:
                     await target_ws.send(message)
                 else:
                     raise ValueError(f"Unsupported target WebSocket type: {type(target_ws)}")
-                await asyncio.sleep(0.1)
         except websockets.exceptions.ConnectionClosed:
             logger.info(f"WebSocket connection closed in {direction}")
         except Exception as e:
