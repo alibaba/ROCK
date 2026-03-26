@@ -1,0 +1,150 @@
+"""Tests for WebSocket proxy subprotocol forwarding and performance fixes."""
+from unittest.mock import AsyncMock, MagicMock, patch, call
+
+import pytest
+
+from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _make_service():
+    service = MagicMock(spec=SandboxProxyService)
+    service._update_expire_time = AsyncMock()
+    service.get_sandbox_websocket_url = AsyncMock(return_value="ws://10.0.0.1:8006/websockify")
+    return service
+
+
+def _make_client_ws(subprotocols=None):
+    """Simulate a FastAPI WebSocket object."""
+    ws = MagicMock()
+    ws.subprotocols = subprotocols or []
+    ws.accept = AsyncMock()
+    ws.close = AsyncMock()
+    ws.receive_text = AsyncMock(side_effect=Exception("disconnect"))
+    ws.receive_bytes = AsyncMock(side_effect=Exception("websocket.disconnect"))
+    return ws
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Subprotocol forwarding
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestWebSocketSubprotocolForwarding:
+    """websocket_proxy must forward client subprotocols to upstream and accept with negotiated subprotocol."""
+
+    async def test_subprotocols_passed_to_upstream_connect(self):
+        """websockets.connect() must receive the client's requested subprotocols."""
+        service = _make_service()
+        client_ws = _make_client_ws(subprotocols=["binary"])
+
+        mock_target_ws = AsyncMock()
+        mock_target_ws.subprotocol = "binary"
+        mock_target_ws.__aenter__ = AsyncMock(return_value=mock_target_ws)
+        mock_target_ws.__aexit__ = AsyncMock(return_value=False)
+        mock_target_ws.recv = AsyncMock(side_effect=Exception("closed"))
+
+        connect_kwargs = {}
+
+        def fake_connect(url, **kwargs):
+            connect_kwargs.update(kwargs)
+            return mock_target_ws
+
+        with patch("rock.sandbox.service.sandbox_proxy_service.websockets.connect", side_effect=fake_connect):
+            await SandboxProxyService.websocket_proxy(service, client_ws, "sb1", "websockify", port=8006)
+
+        assert "subprotocols" in connect_kwargs
+        assert "binary" in connect_kwargs["subprotocols"]
+
+    async def test_no_subprotocol_connect_without_subprotocols(self):
+        """When client sends no subprotocols, connect() should not pass subprotocols."""
+        service = _make_service()
+        client_ws = _make_client_ws(subprotocols=[])
+
+        mock_target_ws = AsyncMock()
+        mock_target_ws.subprotocol = None
+        mock_target_ws.__aenter__ = AsyncMock(return_value=mock_target_ws)
+        mock_target_ws.__aexit__ = AsyncMock(return_value=False)
+        mock_target_ws.recv = AsyncMock(side_effect=Exception("closed"))
+
+        connect_kwargs = {}
+
+        def fake_connect(url, **kwargs):
+            connect_kwargs.update(kwargs)
+            return mock_target_ws
+
+        with patch("rock.sandbox.service.sandbox_proxy_service.websockets.connect", side_effect=fake_connect):
+            await SandboxProxyService.websocket_proxy(service, client_ws, "sb1", None, port=8006)
+
+        # subprotocols 为空时不传或传空列表
+        assert connect_kwargs.get("subprotocols", []) == []
+
+    async def test_negotiated_subprotocol_passed_to_client_accept(self):
+        """After upstream negotiates subprotocol, client accept() must be called with it."""
+        service = _make_service()
+        client_ws = _make_client_ws(subprotocols=["binary"])
+
+        mock_target_ws = AsyncMock()
+        mock_target_ws.subprotocol = "binary"  # upstream 协商结果
+        mock_target_ws.__aenter__ = AsyncMock(return_value=mock_target_ws)
+        mock_target_ws.__aexit__ = AsyncMock(return_value=False)
+        mock_target_ws.recv = AsyncMock(side_effect=Exception("closed"))
+
+        with patch("rock.sandbox.service.sandbox_proxy_service.websockets.connect", return_value=mock_target_ws):
+            await SandboxProxyService.websocket_proxy(service, client_ws, "sb1", "websockify", port=8006)
+
+        # accept 必须带上协商好的子协议
+        client_ws.accept.assert_called_once()
+        call_kwargs = client_ws.accept.call_args
+        subprotocol = call_kwargs.kwargs.get("subprotocol") or (
+            call_kwargs.args[0] if call_kwargs.args else None
+        )
+        assert subprotocol == "binary"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _forward_messages — no sleep
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestForwardMessagesNoSleep:
+    """_forward_messages must not sleep between messages (asyncio.sleep(0.1) removed)."""
+
+    async def test_no_sleep_between_messages(self):
+        """asyncio.sleep should NOT be called during message forwarding."""
+        service = MagicMock(spec=SandboxProxyService)
+
+        # source: FastAPI WS，先发一条消息，再断开
+        source_ws = MagicMock()
+        source_ws.receive_text = AsyncMock(side_effect=["hello", Exception("websocket.disconnect")])
+
+        # target: websockets 库对象
+        target_ws = MagicMock()
+        target_ws.send = AsyncMock()
+
+        with patch("rock.sandbox.service.sandbox_proxy_service.asyncio.sleep") as mock_sleep:
+            await SandboxProxyService._forward_messages(service, source_ws, target_ws, "client->target")
+
+        mock_sleep.assert_not_called()
+
+    async def test_binary_message_forwarded_without_sleep(self):
+        """Binary messages should be forwarded directly without any sleep."""
+        service = MagicMock(spec=SandboxProxyService)
+
+        source_ws = MagicMock()
+        source_ws.receive_text = AsyncMock(side_effect=Exception("not text"))
+        source_ws.receive_bytes = AsyncMock(side_effect=[b"\x00\x01\x02", Exception("websocket.disconnect")])
+
+        # websockets 库对象：有 recv/send，没有 send_text/send_bytes
+        target_ws = MagicMock(spec=["recv", "send"])
+        target_ws.send = AsyncMock()
+
+        with patch("rock.sandbox.service.sandbox_proxy_service.asyncio.sleep") as mock_sleep:
+            await SandboxProxyService._forward_messages(service, source_ws, target_ws, "client->target")
+
+        mock_sleep.assert_not_called()
+        target_ws.send.assert_called_once_with(b"\x00\x01\x02")

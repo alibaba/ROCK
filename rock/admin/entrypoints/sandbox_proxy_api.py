@@ -128,7 +128,6 @@ async def websocket_proxy_with_port(
         await websocket.close(code=1008, reason=error_msg)
         return
 
-    await websocket.accept()
     try:
         await sandbox_proxy_service.websocket_proxy(websocket, sandbox_id, path, port=rock_target_port)
     except WebSocketDisconnect:
@@ -150,7 +149,6 @@ async def websocket_proxy(websocket: WebSocket, id: str, path: str = "", rock_ta
             await websocket.close(code=1008, reason=error_msg)
             return
 
-    await websocket.accept()
     try:
         await sandbox_proxy_service.websocket_proxy(websocket, sandbox_id, path, port=rock_target_port)
     except WebSocketDisconnect:
