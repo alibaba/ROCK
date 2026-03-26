@@ -679,49 +679,40 @@ class SandboxProxyService:
             return f"ws://{host_ip}:{port}"
 
     async def _forward_messages(self, source_ws, target_ws, direction: str):
-        """Forward messages"""
+        """Forward WebSocket messages bidirectionally.
+
+        Handles both FastAPI/Starlette WebSocket and websockets library objects.
+        Uses raw ASGI receive() for FastAPI WebSocket to avoid binary data loss
+        (receive_text() consumes the message from the queue before failing on
+        binary frames, making the data unrecoverable).
+        """
         try:
             while True:
-                message = None
+                data = None
 
-                # Receive message
                 if hasattr(source_ws, "receive_text"):
-                    # FastAPI WebSocket
-                    try:
-                        message = await source_ws.receive_text()
-                    except Exception:
-                        try:
-                            message = await source_ws.receive_bytes()
-                        except Exception as e:
-                            if "websocket.disconnect" in str(e).lower():
-                                logger.info(f"FastAPI WebSocket disconnected in {direction}")
-                                break
-                            raise
+                    # FastAPI/Starlette WebSocket — use raw receive() to read
+                    # from the ASGI queue exactly once per message.
+                    msg = await source_ws.receive()
+                    if msg["type"] == "websocket.disconnect":
+                        logger.info(f"FastAPI WebSocket disconnected in {direction}")
+                        break
+                    data = msg.get("bytes") or msg.get("text", "")
                 elif hasattr(source_ws, "recv"):
-                    # websockets library
-                    message = await source_ws.recv()
+                    data = await source_ws.recv()
                 else:
                     raise ValueError(f"Unsupported WebSocket type: {type(source_ws)}")
 
-                logger.info(f"Forwarding message {direction}: length={len(str(message))} chars")
-                logger.info(f"Forwarding message {direction}: {type(message)}")
-                logger.info(f"Forwarding message {direction}: {message}")
-
-                # Send message
                 if hasattr(target_ws, "send_text"):
-                    # FastAPI WebSocket
-                    if isinstance(message, str):
-                        await target_ws.send_text(message)
-                    elif isinstance(message, bytes):
-                        await target_ws.send_bytes(message)
+                    if isinstance(data, bytes):
+                        await target_ws.send_bytes(data)
                     else:
-                        await target_ws.send_text(str(message))
+                        await target_ws.send_text(data)
                 elif hasattr(target_ws, "send"):
-                    # websockets library
-                    await target_ws.send(message)
+                    await target_ws.send(data)
                 else:
                     raise ValueError(f"Unsupported target WebSocket type: {type(target_ws)}")
-        except websockets.exceptions.ConnectionClosed:
+        except websockets.ConnectionClosed:
             logger.info(f"WebSocket connection closed in {direction}")
         except Exception as e:
             logger.error(f"Error forwarding message {direction}: {e}")
