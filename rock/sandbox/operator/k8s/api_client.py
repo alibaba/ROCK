@@ -19,6 +19,9 @@ from kubernetes import client, watch
 from rock.logger import init_logger
 
 
+# Constants
+DEFAULT_USER_AGENT = "rock-k8s-client/v1.0.0"
+
 logger = init_logger(__name__)
 
 
@@ -56,6 +59,8 @@ class K8sApiClient:
             watch_reconnect_delay_seconds: Delay after watch failure (default: 5)
         """
         self._api_client = api_client
+        # Set custom User-Agent for K8s API Server identification
+        self._api_client.user_agent = DEFAULT_USER_AGENT
         self._group = group
         self._version = version
         self._plural = plural

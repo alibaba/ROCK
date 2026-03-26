@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from rock.sandbox.operator.k8s.api_client import K8sApiClient
+from rock.sandbox.operator.k8s.api_client import DEFAULT_USER_AGENT, K8sApiClient
 
 
 class TestK8sApiClient:
@@ -19,7 +19,8 @@ class TestK8sApiClient:
     def test_initialization(self, mock_api_client):
         """Test K8sApiClient initialization.
         
-        Verifies AsyncLimiter is configured with QPS limit.
+        Verifies AsyncLimiter is configured with QPS limit,
+        and User-Agent is set for K8s API Server identification.
         """
         api_client = K8sApiClient(
             api_client=mock_api_client,
@@ -39,6 +40,7 @@ class TestK8sApiClient:
         assert api_client._rate_limiter.max_rate == 200.0
         assert api_client._watch_timeout_seconds == 60
         assert api_client._watch_reconnect_delay_seconds == 5
+        assert mock_api_client.user_agent == DEFAULT_USER_AGENT
 
     @pytest.mark.asyncio
     async def test_rate_limiting_with_context_manager(self, k8s_api_client):
