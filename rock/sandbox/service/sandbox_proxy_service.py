@@ -232,8 +232,9 @@ class SandboxProxyService:
                 negotiated = getattr(target_websocket, "subprotocol", None)
                 logger.info(f"[WS-DEBUG] Upstream connected, negotiated subprotocol={negotiated}")
 
-                logger.info(f"[WS-DEBUG] Accepting client with subprotocol={negotiated}")
-                await client_websocket.accept(subprotocol=negotiated)
+                response_subprotocol = negotiated if client_subprotocols else None
+                logger.info(f"[WS-DEBUG] Accepting client with subprotocol={response_subprotocol}")
+                await client_websocket.accept(subprotocol=response_subprotocol)
                 logger.info(f"[WS-DEBUG] Client accepted")
 
                 async def forward_client_to_target():
