@@ -60,13 +60,17 @@ class TestWebSocketSubprotocolForwarding:
         assert "subprotocols" in connect_kwargs
         assert "binary" in connect_kwargs["subprotocols"]
 
-    async def test_no_subprotocol_connect_without_subprotocols(self):
-        """When client sends no subprotocols, connect() should not pass subprotocols."""
+    async def test_no_subprotocol_falls_back_to_binary_base64(self):
+        """When client sends no subprotocols, connect() should fall back to ['binary', 'base64'].
+
+        websockify rejects connections without a Sec-WebSocket-Protocol header,
+        so we always send the default subprotocols when the client doesn't declare any.
+        """
         service = _make_service()
         client_ws = _make_client_ws(subprotocols=[])
 
         mock_target_ws = AsyncMock()
-        mock_target_ws.subprotocol = None
+        mock_target_ws.subprotocol = "binary"
         mock_target_ws.__aenter__ = AsyncMock(return_value=mock_target_ws)
         mock_target_ws.__aexit__ = AsyncMock(return_value=False)
         mock_target_ws.recv = AsyncMock(side_effect=Exception("closed"))
@@ -80,8 +84,7 @@ class TestWebSocketSubprotocolForwarding:
         with patch("rock.sandbox.service.sandbox_proxy_service.websockets.connect", side_effect=fake_connect):
             await SandboxProxyService.websocket_proxy(service, client_ws, "sb1", None, port=8006)
 
-        # subprotocols 为空时不传或传空列表
-        assert connect_kwargs.get("subprotocols", []) == []
+        assert connect_kwargs.get("subprotocols") == ["binary", "base64"]
 
     async def test_negotiated_subprotocol_passed_to_client_accept(self):
         """After upstream negotiates subprotocol, client accept() must be called with it."""

@@ -213,7 +213,10 @@ class SandboxProxyService:
         target_url = await self.get_sandbox_websocket_url(sandbox_id, target_path, port=port)
 
         # Forward client subprotocols to upstream (e.g. websockify requires 'binary')
+        # Fall back to ['binary', 'base64'] if client did not declare any subprotocols,
+        # because websockify rejects connections without a recognised subprotocol header.
         client_subprotocols = getattr(client_websocket, "subprotocols", []) or []
+        upstream_subprotocols = client_subprotocols if client_subprotocols else ["binary", "base64"]
 
         try:
             # Connect to target WebSocket service
@@ -221,7 +224,7 @@ class SandboxProxyService:
                 target_url,
                 ping_interval=None,
                 ping_timeout=None,
-                subprotocols=client_subprotocols if client_subprotocols else [],
+                subprotocols=upstream_subprotocols,
             ) as target_websocket:
                 # Accept client connection with the subprotocol negotiated by upstream
                 negotiated = getattr(target_websocket, "subprotocol", None)
