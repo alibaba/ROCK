@@ -825,16 +825,16 @@ class TestHttpProxyQueryStringForwarding:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-class TestPathBasedPortHttpRoutingDeprecated:
-    """HTTP proxy: port in path /proxy/port/{port}/{path} is now handled by generic route.
+class TestPathBasedPortHttpRouting:
+    """HTTP proxy: port in path /proxy/port/{port}/{path} is parsed by generic route.
 
-    When accessing /proxy/port/8006/index.html, it will be treated as:
-    - path = 'port/8006/index.html'
-    - port = None (from query param)
+    When accessing /proxy/port/8006/index.html, the port is extracted:
+    - resolved_path = 'index.html'
+    - port = 8006 (from path)
     """
 
-    async def test_port_in_path_treated_as_regular_path(self, app):
-        """GET /proxy/port/8006/index.html should forward path='port/8006/index.html' with port=None."""
+    async def test_port_in_path_is_extracted(self, app):
+        """GET /proxy/port/8006/index.html should forward path='index.html' with port=8006."""
         a, svc = app
         async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
             await client.get("/sandboxes/sb1/proxy/port/8006/index.html")
@@ -843,21 +843,39 @@ class TestPathBasedPortHttpRoutingDeprecated:
         call = svc.http_proxy.call_args
         path = call.args[1] if len(call.args) > 1 else call.kwargs.get("target_path")
         port = call.kwargs.get("port") or (call.args[5] if len(call.args) > 5 else None)
-        assert path == "port/8006/index.html"
-        assert port is None
+        assert path == "index.html"
+        assert port == 8006
 
-    async def test_query_param_port_takes_precedence(self, app):
-        """GET /proxy/port/8006/api?rock_target_port=9000 should use port=9000."""
+    async def test_port_in_path_with_query_param_conflict_returns_error(self, app):
+        """GET /proxy/port/8006/api?rock_target_port=9000 should return 400 error (conflict)."""
         a, svc = app
         async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            await client.get("/sandboxes/sb1/proxy/port/8006/api?rock_target_port=9000")
+            resp = await client.get("/sandboxes/sb1/proxy/port/8006/api?rock_target_port=9000")
+
+        assert resp.status_code == 400
+        assert "multiple sources" in resp.json()["detail"].lower()
+
+    async def test_port_in_path_with_empty_remaining_path(self, app):
+        """GET /proxy/port/8006/ should forward path='' with port=8006."""
+        a, svc = app
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            await client.get("/sandboxes/sb1/proxy/port/8006/")
 
         svc.http_proxy.assert_called_once()
         call = svc.http_proxy.call_args
         path = call.args[1] if len(call.args) > 1 else call.kwargs.get("target_path")
         port = call.kwargs.get("port") or (call.args[5] if len(call.args) > 5 else None)
-        assert path == "port/8006/api"
-        assert port == 9000
+        assert path == ""
+        assert port == 8006
+
+    async def test_port_in_path_with_header_conflict_returns_error(self, app):
+        """GET /proxy/port/8006/api with X-ROCK-Target-Port header should return 400 error."""
+        a, svc = app
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            resp = await client.get("/sandboxes/sb1/proxy/port/8006/api", headers={"X-ROCK-Target-Port": "9000"})
+
+        assert resp.status_code == 400
+        assert "multiple sources" in resp.json()["detail"].lower()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -865,16 +883,16 @@ class TestPathBasedPortHttpRoutingDeprecated:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-class TestPathBasedPortWsRoutingDeprecated:
-    """WS proxy: port in path /proxy/port/{port}/ws is now handled by generic route.
+class TestPathBasedPortWsRouting:
+    """WS proxy: port in path /proxy/port/{port}/ws is parsed by generic route.
 
-    When accessing /proxy/port/8006/ws, it will be treated as:
-    - path = 'port/8006/ws'
-    - port = None (from query param)
+    When accessing /proxy/port/8006/ws, the port is extracted:
+    - resolved_path = 'ws'
+    - port = 8006 (from path)
     """
 
-    async def test_ws_port_in_path_treated_as_regular_path(self, app):
-        """WS /proxy/port/8006/ws should forward path='port/8006/ws' with port=None."""
+    async def test_ws_port_in_path_is_extracted(self, app):
+        """WS /proxy/port/8006/ws should forward path='ws' with port=8006."""
         a, svc = app
         client = TestClientWS(a)
         try:
@@ -887,11 +905,11 @@ class TestPathBasedPortWsRoutingDeprecated:
         call = svc.websocket_proxy.call_args
         target_path = call.args[2] if len(call.args) > 2 else call.kwargs.get("target_path")
         port = call.kwargs.get("port") or (call.args[3] if len(call.args) > 3 else None)
-        assert target_path == "port/8006/ws"
-        assert port is None
+        assert target_path == "ws"
+        assert port == 8006
 
-    async def test_ws_query_param_port_takes_precedence(self, app):
-        """WS /proxy/port/8006/ws?rock_target_port=9000 should use port=9000."""
+    async def test_ws_port_in_path_with_query_param_conflict(self, app):
+        """WS /proxy/port/8006/ws?rock_target_port=9000 should close with error (conflict)."""
         a, svc = app
         client = TestClientWS(a)
         try:
@@ -900,12 +918,7 @@ class TestPathBasedPortWsRoutingDeprecated:
         except Exception:
             pass
 
-        svc.websocket_proxy.assert_called_once()
-        call = svc.websocket_proxy.call_args
-        target_path = call.args[2] if len(call.args) > 2 else call.kwargs.get("target_path")
-        port = call.kwargs.get("port") or (call.args[3] if len(call.args) > 3 else None)
-        assert target_path == "port/8006/ws"
-        assert port == 9000
+        svc.websocket_proxy.assert_not_called()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
