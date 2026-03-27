@@ -16,12 +16,14 @@ WS /sandboxes/{id}/proxy/ws/{path:path}
 | `id` | path | ✅ | sandbox_id |
 | `path` | path | ❌ | 目标路径，默认空字符串 |
 | `rock_target_port` | query | ❌ | 目标 WebSocket 端口，默认 8080（Port.SERVER）|
+| `X-ROCK-Target-Port` | header | ❌ | 目标 WebSocket 端口，默认 8080（Port.SERVER）|
 
 ### 行为规则
 
-- `rock_target_port` 未指定 → 使用 `Port.SERVER = 8080` 的映射端口（向后兼容）
-- `rock_target_port` 合法 → 通过 rocklet `/portforward` WebSocket 端点中转到容器内目标端口
-- `rock_target_port` 非法 → WebSocket close code=1008，reason=错误信息
+- `rock_target_port` 和 `X-ROCK-Target-Port` 都未指定 → 使用 `Port.SERVER = 8080` 的映射端口（向后兼容）
+- 仅 `rock_target_port` 或仅 `X-ROCK-Target-Port` 指定 → 通过 rocklet `/portforward` WebSocket 端点中转到容器内目标端口
+- `rock_target_port` 和 `X-ROCK-Target-Port` 同时指定 → WebSocket close code=1008，reason=错误信息
+- 端口非法（< 1024、> 65535、= 22）→ WebSocket close code=1008，reason=错误信息
 
 > **实现说明**：admin 与 sandbox 不在同一 K8s 集群，`host_ip` 为宿主机 IP，容器内端口无法直连。因此自定义端口时复用 rocklet 的 WebSocket portforward 机制（与 `/sandboxes/{id}/portforward` 端点相同），通过 `ws://{host_ip}:{rocklet_mapped_port}/portforward?port={rock_target_port}` 中转，rocklet 在容器内访问 `localhost:{rock_target_port}`。
 
@@ -42,6 +44,10 @@ WS ws://admin-host/sandboxes/my-sandbox/proxy/ws?rock_target_port=8888
 
 # 连接到 8888 端口下的特定路径
 WS ws://admin-host/sandboxes/my-sandbox/proxy/ws/api/kernels/xxx/channels?rock_target_port=8888
+
+# 使用 header 指定端口
+WS ws://admin-host/sandboxes/my-sandbox/proxy/ws
+Headers: X-ROCK-Target-Port: 8888
 
 # 不带 rock_target_port（向后兼容，使用 8080）
 WS ws://admin-host/sandboxes/my-sandbox/proxy/ws
@@ -74,8 +80,15 @@ ANY /sandboxes/{sandbox_id}/proxy/{path:path}
 | `sandbox_id` | path | ✅ | sandbox_id |
 | `path` | path | ❌ | 转发路径 |
 | `rock_target_port` | query | ❌ | 目标 HTTP 端口，默认 8080（Port.SERVER）|
+| `X-ROCK-Target-Port` | header | ❌ | 目标 HTTP 端口，默认 8080（Port.SERVER）|
 | `body` | body | ❌ | 请求体（GET/DELETE 时可为空）|
 | Headers | - | - | 透传，排除 `host`、`content-length`、`transfer-encoding` |
+
+### 行为规则
+
+- `rock_target_port` 和 `X-ROCK-Target-Port` 都未指定 → 使用 `Port.SERVER = 8080` 的映射端口（向后兼容）
+- 仅 `rock_target_port` 或仅 `X-ROCK-Target-Port` 指定 → 转发到指定端口
+- `rock_target_port` 和 `X-ROCK-Target-Port` 同时指定 → 返回 400 错误
 
 ### Response
 
