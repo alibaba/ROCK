@@ -15,6 +15,8 @@ from rock.sdk.agent import Job, JobConfig
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+# disable httpx
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def parse_args() -> argparse.Namespace:
