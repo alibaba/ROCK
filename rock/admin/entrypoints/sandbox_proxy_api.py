@@ -227,6 +227,23 @@ def resolve_target_port_from_ws(websocket: WebSocket, query_port: int | None, pa
     return None, path
 
 
+@sandbox_proxy_router.websocket("/sandboxes/{sandbox_id}/proxy/vnc")
+@sandbox_proxy_router.websocket("/sandboxes/{sandbox_id}/proxy/vnc/{path:path}")
+async def vnc_websocket_proxy(
+    websocket: WebSocket,
+    sandbox_id: str,
+    path: str = "",
+):
+    logger.info(f"Client connected to VNC WebSocket proxy: {sandbox_id}, path: {path}")
+    try:
+        await sandbox_proxy_service.websocket_proxy(websocket, sandbox_id, path, port=8006)
+    except WebSocketDisconnect:
+        logger.info(f"Client disconnected from VNC WebSocket proxy: {sandbox_id}")
+    except Exception as e:
+        logger.error(f"VNC WebSocket proxy error: {e}")
+        await websocket.close(code=1011, reason=f"Proxy error: {str(e)}")
+
+
 @sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/{path:path}")
 async def websocket_proxy(websocket: WebSocket, id: str, path: str = "", rock_target_port: int | None = Query(None)):
     sandbox_id = id
@@ -338,22 +355,6 @@ async def vnc_http_proxy(
         proxy_prefix=proxy_prefix,
         query_string=str(request.url.query),
     )
-
-
-@sandbox_proxy_router.websocket("/sandboxes/{sandbox_id}/proxy/vnc/{path:path}")
-async def vnc_websocket_proxy(
-    websocket: WebSocket,
-    sandbox_id: str,
-    path: str = "",
-):
-    logger.info(f"Client connected to VNC WebSocket proxy: {sandbox_id}, path: {path}")
-    try:
-        await sandbox_proxy_service.websocket_proxy(websocket, sandbox_id, path, port=8006)
-    except WebSocketDisconnect:
-        logger.info(f"Client disconnected from VNC WebSocket proxy: {sandbox_id}")
-    except Exception as e:
-        logger.error(f"VNC WebSocket proxy error: {e}")
-        await websocket.close(code=1011, reason=f"Proxy error: {str(e)}")
 
 
 @sandbox_proxy_router.api_route(
