@@ -657,14 +657,14 @@ def route_request(path: str, method: str, body: Dict[str, Any]) -> Dict[str, Any
     if path == "/read_file":
         file_path = body.get("path") or body.get("file_path")
         if not file_path:
-            return {"success": False, "error": "path is required"}
+            raise ValueError("path is required")
         return read_file(file_path, body.get("encoding", "utf-8"))
 
     if path == "/write_file":
         file_path = body.get("path") or body.get("file_path")
         content = body.get("content", "")
         if not file_path:
-            return {"success": False, "error": "path is required"}
+            raise ValueError("path is required")
         return write_file(file_path, content, body.get("encoding", "utf-8"))
 
     return {"success": False, "error": f"Unknown path: {path}"}

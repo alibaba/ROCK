@@ -291,8 +291,9 @@ class TestAdapterSessionManagement:
 
         result = create_session("test-session-1")
 
-        assert result["success"] is True
-        assert result["session_id"] == "test-session-1"
+        # ROCK native format: {"output": ..., "session_type": "bash"}
+        assert result["session_type"] == "bash"
+        assert "output" in result
 
         # Cleanup
         with _lock:
@@ -310,12 +311,11 @@ class TestAdapterSessionManagement:
 
         # Create first session
         result1 = create_session("duplicate-session")
-        assert result1["success"] is True
+        assert result1["session_type"] == "bash"
 
-        # Try to create duplicate
-        result2 = create_session("duplicate-session")
-        assert result2["success"] is False
-        assert "already exists" in result2["error"]
+        # Try to create duplicate - should raise ValueError
+        with pytest.raises(ValueError, match="already exists"):
+            create_session("duplicate-session")
 
         # Cleanup
         with _lock:
@@ -340,10 +340,9 @@ class TestAdapterSessionManagement:
             create_session("session-1")
             create_session("session-2")
 
-            # Third should fail
-            result = create_session("session-3")
-            assert result["success"] is False
-            assert "Maximum sessions" in result["error"]
+            # Third should fail with RuntimeError
+            with pytest.raises(RuntimeError, match="Maximum sessions"):
+                create_session("session-3")
         finally:
             _config.max_sessions = original_max
             with _lock:
@@ -362,22 +361,23 @@ class TestAdapterSessionManagement:
         create_session("close-test-session")
         result = close_session("close-test-session")
 
-        assert result["success"] is True
+        # ROCK native format: {"session_type": "bash"}
+        assert result["session_type"] == "bash"
 
     def test_close_session_nonexistent(self):
         """IT-ADAPTER-04e: Verify closing nonexistent session fails."""
         from rock.deployments.fc_rocklet.adapter.server import close_session
 
-        result = close_session("nonexistent-session")
-        assert result["success"] is False
-        assert "not found" in result["error"]
+        with pytest.raises(ValueError, match="not found"):
+            close_session("nonexistent-session")
 
     def test_close_session_force_nonexistent(self):
         """IT-ADAPTER-04f: Verify force close nonexistent session succeeds."""
         from rock.deployments.fc_rocklet.adapter.server import close_session
 
         result = close_session("nonexistent-session", force=True)
-        assert result["success"] is True
+        # ROCK native format: {"session_type": "bash"}
+        assert result["session_type"] == "bash"
 
 
 # ============================================================
@@ -492,15 +492,17 @@ class TestAdapterRouteRequest:
     def test_list_sessions_with_stats(self):
         """IT-ADAPTER-06c: Verify /list_sessions returns session stats."""
         from rock.deployments.fc_rocklet.adapter.server import (
-            route_request, create_session, _sessions, _lock
+            route_request, _sessions, _lock
         )
 
         # Clear state
         with _lock:
             _sessions.clear()
 
-        # Create a session
-        create_session("list-test-session")
+        # Directly add a session (avoid async create_session)
+        from rock.deployments.fc_rocklet.adapter.server import SessionState
+        with _lock:
+            _sessions["list-test-session"] = SessionState(session_id="list-test-session")
 
         result = route_request("/list_sessions", "GET", {})
 
@@ -508,12 +510,12 @@ class TestAdapterRouteRequest:
         assert "count" in result
         assert result["count"] >= 1
 
-        # Each session should have stats
+        # Each session should have stats (ROCK native format: "session" not "session_id")
         sessions = result["sessions"]
         assert len(sessions) >= 1
-        assert "session_id" in sessions[0]
+        assert "session" in sessions[0]
         assert "age" in sessions[0]
-        assert "commands" in sessions[0]
+        assert "command_count" in sessions[0]
 
         # Cleanup
         with _lock:

@@ -385,28 +385,25 @@ class TestFCFunctionAdapterSession:
         assert "Unknown path" in result["error"]
 
     def test_route_request_missing_session_id(self):
-        """IT-FC-06b: Verify missing session_id returns error."""
+        """IT-FC-06b: Verify missing session returns error."""
         from rock.deployments.fc_rocklet.adapter.server import route_request
 
-        result = route_request("/create_session", "POST", {})
-        assert result["success"] is False
-        assert "session_id" in result["error"]
+        with pytest.raises(ValueError, match="session"):
+            route_request("/create_session", "POST", {})
 
     def test_route_request_missing_command(self):
         """IT-FC-06c: Verify missing command returns error."""
         from rock.deployments.fc_rocklet.adapter.server import route_request
 
-        result = route_request("/run_in_session", "POST", {"session_id": "test"})
-        assert result["success"] is False
-        assert "command" in result["error"]
+        with pytest.raises(ValueError, match="command"):
+            route_request("/run_in_session", "POST", {"session": "test"})
 
     def test_route_request_missing_path_for_file_ops(self):
         """IT-FC-06d: Verify missing path returns error for file operations."""
         from rock.deployments.fc_rocklet.adapter.server import route_request
 
-        result = route_request("/read_file", "POST", {})
-        assert result["success"] is False
-        assert "path" in result["error"]
+        with pytest.raises(ValueError, match="path"):
+            route_request("/read_file", "POST", {})
 
     def test_list_sessions(self):
         """IT-FC-06e: Verify list_sessions returns sessions info."""
@@ -429,15 +426,15 @@ class TestFCFunctionAdapterFileOps:
         """IT-FC-06-2a: Verify missing path returns error for write_file."""
         from rock.deployments.fc_rocklet.adapter.server import route_request
 
-        result = route_request("/write_file", "POST", {"content": "test"})
-        assert result["success"] is False
+        with pytest.raises(ValueError, match="path"):
+            route_request("/write_file", "POST", {"content": "test"})
 
     def test_execute_missing_command(self):
         """IT-FC-06-2b: Verify missing command returns error for execute."""
         from rock.deployments.fc_rocklet.adapter.server import route_request
 
-        result = route_request("/execute", "POST", {})
-        assert result["success"] is False
+        with pytest.raises(ValueError, match="command"):
+            route_request("/execute", "POST", {})
 
 
 # ============================================================
