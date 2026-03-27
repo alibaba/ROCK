@@ -113,8 +113,6 @@ async def list_sandboxes(request: Request) -> RockResponse[SandboxListResponse]:
     return RockResponse(result=result)
 
 
-@sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/ws")
-@sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/ws/{path:path}")
 @sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/{path:path}")
 async def websocket_proxy(websocket: WebSocket, id: str, path: str = "", rock_target_port: int | None = Query(None)):
     sandbox_id = id
