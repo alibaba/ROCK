@@ -1,3 +1,19 @@
-from .config import DatasetConfig, JobConfig, OrchestratorConfig, RetryConfig
+from .config import (
+    JobConfig,
+    LocalDatasetConfig,
+    OrchestratorConfig,
+    OssRegistryInfo,
+    RegistryDatasetConfig,
+    RemoteRegistryInfo,
+    RetryConfig,
+)
 
-__all__ = ["JobConfig", "OrchestratorConfig", "RetryConfig", "DatasetConfig"]
+__all__ = [
+    "JobConfig",
+    "OrchestratorConfig",
+    "RetryConfig",
+    "RegistryDatasetConfig",
+    "LocalDatasetConfig",
+    "OssRegistryInfo",
+    "RemoteRegistryInfo",
+]
