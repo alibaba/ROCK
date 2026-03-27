@@ -233,6 +233,66 @@ async def get_token():
 
 
 @sandbox_proxy_router.api_route(
+    "/sandboxes/{sandbox_id}/proxy/port/{rock_target_port}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+)
+@sandbox_proxy_router.api_route(
+    "/sandboxes/{sandbox_id}/proxy/port/{rock_target_port}/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+)
+@handle_exceptions(error_message="http proxy failed")
+async def http_proxy_with_port(
+    sandbox_id: str,
+    request: Request,
+    rock_target_port: int,
+    path: str = "",
+):
+    is_valid, error_msg = validate_port_forward_port(rock_target_port)
+    if not is_valid:
+        return _JSONResponse(status_code=400, content={"detail": error_msg})
+
+    body = None
+    if request.method not in ("GET", "HEAD", "DELETE", "OPTIONS"):
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+    proxy_prefix = request.url.path.rstrip(path).rstrip("/")
+    return await sandbox_proxy_service.http_proxy(
+        sandbox_id,
+        path,
+        body,
+        request.headers,
+        method=request.method,
+        port=rock_target_port,
+        proxy_prefix=proxy_prefix,
+        query_string=str(request.url.query),
+    )
+
+
+@sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/port/{rock_target_port}/ws")
+@sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/port/{rock_target_port}/ws/{path:path}")
+@sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/port/{rock_target_port}/{path:path}")
+async def websocket_proxy_with_port(websocket: WebSocket, id: str, rock_target_port: int, path: str = ""):
+    sandbox_id = id
+    logger.info(
+        f"Client connected to WebSocket proxy (path-based port): {sandbox_id}, path: {path}, port: {rock_target_port}"
+    )
+    is_valid, error_msg = validate_port_forward_port(rock_target_port)
+    if not is_valid:
+        await websocket.close(code=1008, reason=error_msg)
+        return
+
+    try:
+        await sandbox_proxy_service.websocket_proxy(websocket, sandbox_id, path, port=rock_target_port)
+    except WebSocketDisconnect:
+        logger.info(f"Client disconnected from WebSocket proxy: {sandbox_id}")
+    except Exception as e:
+        logger.error(f"WebSocket proxy error: {e}")
+        await websocket.close(code=1011, reason=f"Proxy error: {str(e)}")
+
+
+@sandbox_proxy_router.api_route(
     "/sandboxes/{sandbox_id}/proxy/vnc",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
 )
@@ -252,8 +312,16 @@ async def vnc_http_proxy(
             body = await request.json()
         except Exception:
             body = None
+    proxy_prefix = request.url.path.rstrip(path).rstrip("/")
     return await sandbox_proxy_service.http_proxy(
-        sandbox_id, path, body, request.headers, method=request.method, port=8006
+        sandbox_id,
+        path,
+        body,
+        request.headers,
+        method=request.method,
+        port=8006,
+        proxy_prefix=proxy_prefix,
+        query_string=str(request.url.query),
     )
 
 
