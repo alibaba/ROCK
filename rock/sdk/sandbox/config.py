@@ -9,7 +9,6 @@ class BaseConfig(BaseModel):
     base_url: str = env_vars.ROCK_BASE_URL
     xrl_authorization: str | None = Field(
         default=None,
-        deprecated=True,
         description="DEPRECATED: Use extra_headers instead. Will be removed in the future ",
     )
     extra_headers: dict[str, str] = Field(default_factory=dict)

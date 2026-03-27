@@ -639,7 +639,7 @@ class Sandbox(AbstractSandbox):
             try:
                 # Check if process still exists
                 await asyncio.wait_for(
-                    self.run_in_session(BashAction(session=session, command=check_alive_cmd)),
+                    self._run_in_session(BashAction(session=session, command=check_alive_cmd)),
                     timeout=check_alive_timeout,
                 )
 
@@ -831,11 +831,11 @@ class Sandbox(AbstractSandbox):
         url = self._oss_bucket.sign_url("GET", tmp_obj_name, 600, slash_safe=True)
         try:
             download_cmd = f"wget -c -O {target_path} '{url}'"
-            await self.run_nohup_and_wait(cmd=download_cmd, wait_timeout=600)
+            await self.arun(cmd=download_cmd, wait_timeout=600, mode=RunMode.NOHUP)
             check_file_session = f"bash-{timestamp}"
             await self.create_session(CreateBashSessionRequest(session=check_file_session))
             check_file_cmd = f"test -f {target_path}"
-            check_response: Observation = await self.run_in_session(
+            check_response: Observation = await self._run_in_session(
                 action=BashAction(command=check_file_cmd, session=check_file_session)
             )
             if not check_response.exit_code == 0:

@@ -1,6 +1,6 @@
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class EnvMakeResponse(BaseModel):
@@ -8,22 +8,18 @@ class EnvMakeResponse(BaseModel):
 
 
 class EnvResetResponse(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     observation: Any
     info: dict = Field(default_factory=dict)
 
-    class Config:
-        arbitrary_types_allowed = True
-
 
 class EnvStepResponse(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     observation: Any
     reward: float
     terminated: bool
     truncated: bool
     info: dict = Field(default_factory=dict)
-
-    class Config:
-        arbitrary_types_allowed = True
 
 
 class EnvCloseResponse(BaseModel):
