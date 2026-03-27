@@ -1,4 +1,4 @@
-from rock.sdk.agent.job import Job, JobResult, JobStatus, TrialResult
+from rock.sdk.agent.job import Job
 from rock.sdk.agent.models.job.config import (
     JobConfig,
     LocalDatasetConfig,
@@ -8,6 +8,7 @@ from rock.sdk.agent.models.job.config import (
     RemoteRegistryInfo,
     RetryConfig,
 )
+from rock.sdk.agent.models.job.result import JobResult, JobStatus
 from rock.sdk.agent.models.metric.config import MetricConfig
 from rock.sdk.agent.models.trial.config import (
     AgentConfig,
@@ -16,12 +17,23 @@ from rock.sdk.agent.models.trial.config import (
     TaskConfig,
     VerifierConfig,
 )
+from rock.sdk.agent.models.trial.result import (
+    AgentInfo,
+    AgentResult,
+    ExceptionInfo,
+    TrialResult,
+    VerifierResult,
+)
 
 __all__ = [
     "Job",
     "JobResult",
     "JobStatus",
     "TrialResult",
+    "VerifierResult",
+    "AgentInfo",
+    "AgentResult",
+    "ExceptionInfo",
     "JobConfig",
     "RegistryDatasetConfig",
     "LocalDatasetConfig",

@@ -7,6 +7,7 @@ from .config import (
     RemoteRegistryInfo,
     RetryConfig,
 )
+from .result import JobResult, JobStatus
 
 __all__ = [
     "JobConfig",
@@ -16,4 +17,6 @@ __all__ = [
     "LocalDatasetConfig",
     "OssRegistryInfo",
     "RemoteRegistryInfo",
+    "JobResult",
+    "JobStatus",
 ]

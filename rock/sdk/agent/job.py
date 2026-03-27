@@ -8,194 +8,15 @@ handle_nohup_output).
 from __future__ import annotations
 
 import json
-import logging
 import os
 import tempfile
-from datetime import datetime
-from enum import Enum
-from typing import Any
 
-from pydantic import BaseModel, Field
+from rock.actions import Command, CreateBashSessionRequest, ReadFileRequest
+from rock.logger import init_logger
+from rock.sdk.agent.models.job.result import JobResult, JobStatus
+from rock.sdk.agent.models.trial.result import TrialResult
 
-from rock.actions import CreateBashSessionRequest, ReadFileRequest
-
-logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Result models (aligned with harbor.models.trial.result / job.result)
-# ---------------------------------------------------------------------------
-
-
-class JobStatus(str, Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-
-
-class ExceptionInfo(BaseModel):
-    """Aligned with harbor.models.trial.result.ExceptionInfo"""
-
-    exception_type: str = ""
-    exception_message: str = ""
-    exception_traceback: str = ""
-    occurred_at: str | None = None
-
-
-class ModelInfo(BaseModel):
-    """Aligned with harbor.models.trial.result.ModelInfo"""
-
-    name: str = ""
-    provider: str = ""
-
-
-class AgentInfo(BaseModel):
-    """Aligned with harbor.models.trial.result.AgentInfo"""
-
-    name: str = ""
-    version: str = ""
-    model_info: ModelInfo | None = None
-
-
-class VerifierResult(BaseModel):
-    """Aligned with harbor.models.verifier.result.VerifierResult"""
-
-    rewards: dict[str, float | int] | None = None
-
-
-class AgentResult(BaseModel):
-    """Aligned with harbor.models.agent.context.AgentContext (subset)"""
-
-    n_input_tokens: int | None = None
-    n_cache_tokens: int | None = None
-    n_output_tokens: int | None = None
-    cost_usd: float | None = None
-    rollout_details: list[dict[str, Any]] | None = None
-
-
-class TimingInfo(BaseModel):
-    started_at: str | None = None
-    finished_at: str | None = None
-
-
-class TrialResult(BaseModel):
-    """Aligned with harbor.models.trial.result.TrialResult"""
-
-    task_name: str = ""
-    trial_name: str = ""
-    source: str | None = None
-    agent_info: AgentInfo = Field(default_factory=AgentInfo)
-    agent_result: AgentResult | None = None
-    verifier_result: VerifierResult | None = None
-    exception_info: ExceptionInfo | None = None
-    started_at: str | None = None
-    finished_at: str | None = None
-    environment_setup: TimingInfo | None = None
-    agent_setup: TimingInfo | None = None
-    agent_execution: TimingInfo | None = None
-    verifier: TimingInfo | None = None
-
-    @property
-    def score(self) -> float:
-        if self.verifier_result and self.verifier_result.rewards:
-            return self.verifier_result.rewards.get("reward", 0.0)
-        return 0.0
-
-    @property
-    def status(self) -> JobStatus:
-        return JobStatus.FAILED if self.exception_info else JobStatus.COMPLETED
-
-    @property
-    def duration_sec(self) -> float:
-        if self.started_at and self.finished_at:
-            try:
-                start = datetime.fromisoformat(self.started_at.replace("Z", "+00:00"))
-                end = datetime.fromisoformat(self.finished_at.replace("Z", "+00:00"))
-                return (end - start).total_seconds()
-            except (ValueError, TypeError):
-                pass
-        return 0.0
-
-    @property
-    def token_ids(self) -> list[int]:
-        if self.agent_result and self.agent_result.rollout_details:
-            ids = []
-            for detail in self.agent_result.rollout_details:
-                ids.extend(detail.get("completion_token_ids", []))
-            return ids
-        return []
-
-    @classmethod
-    def from_harbor_json(cls, data: dict[str, Any]) -> TrialResult:
-        """Parse a harbor trial-level result.json dict into TrialResult."""
-        exception_info = None
-        if data.get("exception_info"):
-            ei = data["exception_info"]
-            if isinstance(ei, dict):
-                exception_info = ExceptionInfo(**ei)
-            else:
-                exception_info = ExceptionInfo(exception_type="unknown", exception_message=str(ei))
-
-        agent_info_data = data.get("agent_info") or {}
-        model_info = None
-        if agent_info_data.get("model_info"):
-            model_info = ModelInfo(**agent_info_data["model_info"])
-        agent_info = AgentInfo(
-            name=agent_info_data.get("name", ""),
-            version=agent_info_data.get("version", ""),
-            model_info=model_info,
-        )
-
-        verifier_result = None
-        if data.get("verifier_result"):
-            verifier_result = VerifierResult(**data["verifier_result"])
-
-        agent_result = None
-        if data.get("agent_result"):
-            agent_result = AgentResult(**data["agent_result"])
-
-        return cls(
-            task_name=data.get("task_name", ""),
-            trial_name=data.get("trial_name", ""),
-            source=data.get("source"),
-            agent_info=agent_info,
-            agent_result=agent_result,
-            verifier_result=verifier_result,
-            exception_info=exception_info,
-            started_at=data.get("started_at"),
-            finished_at=data.get("finished_at"),
-            environment_setup=TimingInfo(**data["environment_setup"]) if data.get("environment_setup") else None,
-            agent_setup=TimingInfo(**data["agent_setup"]) if data.get("agent_setup") else None,
-            agent_execution=TimingInfo(**data["agent_execution"]) if data.get("agent_execution") else None,
-            verifier=TimingInfo(**data["verifier"]) if data.get("verifier") else None,
-        )
-
-
-class JobResult(BaseModel):
-    """Aligned with harbor.models.job.result.JobResult"""
-
-    job_id: str = ""
-    status: JobStatus = JobStatus.COMPLETED
-    trial_results: list[TrialResult] = Field(default_factory=list)
-    raw_output: str = ""
-    exit_code: int = 0
-
-    @property
-    def score(self) -> float:
-        if not self.trial_results:
-            return 0.0
-        scores = [t.score for t in self.trial_results]
-        return sum(scores) / len(scores)
-
-    @property
-    def n_completed(self) -> int:
-        return sum(1 for t in self.trial_results if t.status == JobStatus.COMPLETED)
-
-    @property
-    def n_failed(self) -> int:
-        return sum(1 for t in self.trial_results if t.status == JobStatus.FAILED)
+logger = init_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +25,6 @@ class JobResult(BaseModel):
 
 _RUN_SCRIPT_TEMPLATE = r"""#!/bin/bash
 set -e
-export PATH="/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin:$PATH"
 
 # ── Environment variables ────────────────────────────────────────────
 {env_exports}
@@ -343,7 +163,7 @@ class Job:
         """Upload files + harbor config YAML + render run script -> nohup start."""
         await self._setup_session()
 
-        # 1. Upload user-specified files/dirs (e.g., locally cloned harbor source)
+        # 1. Upload user-specified files/dirs
         for local_path, sandbox_path in self._config.file_uploads:
             logger.info(f"Uploading {local_path} -> {sandbox_path}")
             await self._sandbox.fs.upload_dir(local_path, sandbox_path)
@@ -412,7 +232,7 @@ class Job:
 
     async def _setup_session(self):
         self._session = f"rock-job-{self._config.job_name}"
-        await self._sandbox.create_session(CreateBashSessionRequest(session=self._session))
+        await self._sandbox.create_session(CreateBashSessionRequest(session=self._session, env_enable=True))
 
     # ------------------------------------------------------------------
     # Private: result collection
@@ -426,14 +246,13 @@ class Job:
         """
         job_dir = f"{self._config.jobs_dir}/{self._config.job_name}"
 
-        # List trial subdirectories
+        # List trial subdirectories via execute (not arun)
         try:
-            list_result = await self._sandbox.arun(
-                cmd=f"find {job_dir} -mindepth 2 -maxdepth 2 -name result.json",
-                session=self._session,
+            list_result = await self._sandbox.execute(
+                Command(command=["find", job_dir, "-mindepth", "2", "-maxdepth", "2", "-name", "result.json"])
             )
             trial_result_files = [
-                line.strip() for line in (list_result.output or "").strip().split("\n") if line.strip()
+                line.strip() for line in (list_result.stdout or "").strip().split("\n") if line.strip()
             ]
         except Exception:
             trial_result_files = []
