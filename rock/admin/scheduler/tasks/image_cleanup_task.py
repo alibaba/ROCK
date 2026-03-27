@@ -17,7 +17,7 @@ class ImageCleanupTask(BaseTask):
         self,
         interval_seconds: int = 3600,
         disk_threshold: str = "1T",
-        keep_images: list[str] | None = None,
+        image_whitelist: list[str] | None = None,
     ):
         """
         Initialize image cleanup task.
@@ -25,7 +25,7 @@ class ImageCleanupTask(BaseTask):
         Args:
             interval_seconds: Execution interval, default 1 hour
             disk_threshold: Disk threshold to trigger cleanup, default 1T
-            keep_images: List of regex patterns for images to keep (matched against repository:tag)
+            image_whitelist: List of regex patterns for images to keep (matched against repository:tag)
         """
         super().__init__(
             type="image_cleanup",
@@ -33,17 +33,17 @@ class ImageCleanupTask(BaseTask):
             idempotency=IdempotencyType.NON_IDEMPOTENT,
         )
         self.disk_threshold = disk_threshold
-        self.keep_images = keep_images or []
+        self.image_whitelist = image_whitelist or []
 
     @classmethod
     def from_config(cls, task_config) -> "ImageCleanupTask":
         """Create task instance from config."""
         disk_threshold = task_config.params.get("disk_threshold", "1T")
-        keep_images = task_config.params.get("keep_images", [])
+        image_whitelist = task_config.params.get("image_whitelist", [])
         return cls(
             interval_seconds=task_config.interval_seconds,
             disk_threshold=disk_threshold,
-            keep_images=keep_images,
+            image_whitelist=image_whitelist,
         )
 
     async def run_action(self, runtime: RemoteSandboxRuntime) -> dict:
@@ -57,7 +57,7 @@ class ImageCleanupTask(BaseTask):
         log_redirect = (
             '[ -n "$ROCK_LOGGING_PATH" ] && DOCUUM_LOG="$ROCK_LOGGING_PATH/docuum.log" || DOCUUM_LOG="/dev/null"'
         )
-        keep_args = " ".join(f"--keep '{pattern}'" for pattern in self.keep_images)
+        keep_args = " ".join(f"--keep '{pattern}'" for pattern in self.image_whitelist)
         docuum_cmd = f"docuum --threshold {self.disk_threshold}"
         if keep_args:
             docuum_cmd = f"{docuum_cmd} {keep_args}"
@@ -70,6 +70,6 @@ class ImageCleanupTask(BaseTask):
         return {
             "pid": pid,
             "disk_threshold": self.disk_threshold,
-            "keep_images": self.keep_images,
+            "image_whitelist": self.image_whitelist,
             "status": TaskStatusEnum.RUNNING,
         }
