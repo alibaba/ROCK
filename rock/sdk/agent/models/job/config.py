@@ -60,6 +60,11 @@ class OssRegistryInfo(BaseModel):
     split: str | None = None
     revision: str | None = None
     oss_dataset_path: str | None = None
+    oss_access_key_id: str | None = None
+    oss_access_key_secret: str | None = None
+    oss_region: str | None = None
+    oss_endpoint: str | None = None
+    oss_bucket: str | None = None
 
 
 class RemoteRegistryInfo(BaseModel):

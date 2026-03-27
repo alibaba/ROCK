@@ -11,13 +11,20 @@ import json
 import logging
 import os
 import tempfile
+from datetime import datetime
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 from rock.actions import CreateBashSessionRequest, ReadFileRequest
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Result models (aligned with harbor.models.trial.result / job.result)
+# ---------------------------------------------------------------------------
 
 
 class JobStatus(str, Enum):
@@ -28,78 +35,167 @@ class JobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class ExceptionInfo(BaseModel):
+    """Aligned with harbor.models.trial.result.ExceptionInfo"""
+
+    exception_type: str = ""
+    exception_message: str = ""
+    exception_traceback: str = ""
+    occurred_at: str | None = None
+
+
+class ModelInfo(BaseModel):
+    """Aligned with harbor.models.trial.result.ModelInfo"""
+
+    name: str = ""
+    provider: str = ""
+
+
+class AgentInfo(BaseModel):
+    """Aligned with harbor.models.trial.result.AgentInfo"""
+
+    name: str = ""
+    version: str = ""
+    model_info: ModelInfo | None = None
+
+
+class VerifierResult(BaseModel):
+    """Aligned with harbor.models.verifier.result.VerifierResult"""
+
+    rewards: dict[str, float | int] | None = None
+
+
+class AgentResult(BaseModel):
+    """Aligned with harbor.models.agent.context.AgentContext (subset)"""
+
+    n_input_tokens: int | None = None
+    n_cache_tokens: int | None = None
+    n_output_tokens: int | None = None
+    cost_usd: float | None = None
+    rollout_details: list[dict[str, Any]] | None = None
+
+
+class TimingInfo(BaseModel):
+    started_at: str | None = None
+    finished_at: str | None = None
+
+
 class TrialResult(BaseModel):
-    task_name: str
-    status: JobStatus = JobStatus.COMPLETED
-    score: float = 0.0
-    rewards: dict[str, float] = Field(default_factory=dict)
-    trajectory_path: str | None = None
-    token_ids: list[int] = Field(default_factory=list)
-    duration_sec: float = 0.0
-    error: str | None = None
+    """Aligned with harbor.models.trial.result.TrialResult"""
+
+    task_name: str = ""
+    trial_name: str = ""
+    source: str | None = None
+    agent_info: AgentInfo = Field(default_factory=AgentInfo)
+    agent_result: AgentResult | None = None
+    verifier_result: VerifierResult | None = None
+    exception_info: ExceptionInfo | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    environment_setup: TimingInfo | None = None
+    agent_setup: TimingInfo | None = None
+    agent_execution: TimingInfo | None = None
+    verifier: TimingInfo | None = None
+
+    @property
+    def score(self) -> float:
+        if self.verifier_result and self.verifier_result.rewards:
+            return self.verifier_result.rewards.get("reward", 0.0)
+        return 0.0
+
+    @property
+    def status(self) -> JobStatus:
+        return JobStatus.FAILED if self.exception_info else JobStatus.COMPLETED
+
+    @property
+    def duration_sec(self) -> float:
+        if self.started_at and self.finished_at:
+            try:
+                start = datetime.fromisoformat(self.started_at.replace("Z", "+00:00"))
+                end = datetime.fromisoformat(self.finished_at.replace("Z", "+00:00"))
+                return (end - start).total_seconds()
+            except (ValueError, TypeError):
+                pass
+        return 0.0
+
+    @property
+    def token_ids(self) -> list[int]:
+        if self.agent_result and self.agent_result.rollout_details:
+            ids = []
+            for detail in self.agent_result.rollout_details:
+                ids.extend(detail.get("completion_token_ids", []))
+            return ids
+        return []
+
+    @classmethod
+    def from_harbor_json(cls, data: dict[str, Any]) -> TrialResult:
+        """Parse a harbor trial-level result.json dict into TrialResult."""
+        exception_info = None
+        if data.get("exception_info"):
+            ei = data["exception_info"]
+            if isinstance(ei, dict):
+                exception_info = ExceptionInfo(**ei)
+            else:
+                exception_info = ExceptionInfo(exception_type="unknown", exception_message=str(ei))
+
+        agent_info_data = data.get("agent_info") or {}
+        model_info = None
+        if agent_info_data.get("model_info"):
+            model_info = ModelInfo(**agent_info_data["model_info"])
+        agent_info = AgentInfo(
+            name=agent_info_data.get("name", ""),
+            version=agent_info_data.get("version", ""),
+            model_info=model_info,
+        )
+
+        verifier_result = None
+        if data.get("verifier_result"):
+            verifier_result = VerifierResult(**data["verifier_result"])
+
+        agent_result = None
+        if data.get("agent_result"):
+            agent_result = AgentResult(**data["agent_result"])
+
+        return cls(
+            task_name=data.get("task_name", ""),
+            trial_name=data.get("trial_name", ""),
+            source=data.get("source"),
+            agent_info=agent_info,
+            agent_result=agent_result,
+            verifier_result=verifier_result,
+            exception_info=exception_info,
+            started_at=data.get("started_at"),
+            finished_at=data.get("finished_at"),
+            environment_setup=TimingInfo(**data["environment_setup"]) if data.get("environment_setup") else None,
+            agent_setup=TimingInfo(**data["agent_setup"]) if data.get("agent_setup") else None,
+            agent_execution=TimingInfo(**data["agent_execution"]) if data.get("agent_execution") else None,
+            verifier=TimingInfo(**data["verifier"]) if data.get("verifier") else None,
+        )
 
 
 class JobResult(BaseModel):
-    job_id: str
-    status: JobStatus
-    trials: list[TrialResult] = Field(default_factory=list)
+    """Aligned with harbor.models.job.result.JobResult"""
+
+    job_id: str = ""
+    status: JobStatus = JobStatus.COMPLETED
+    trial_results: list[TrialResult] = Field(default_factory=list)
     raw_output: str = ""
     exit_code: int = 0
 
     @property
     def score(self) -> float:
-        if not self.trials:
+        if not self.trial_results:
             return 0.0
-        return sum(t.score for t in self.trials) / len(self.trials)
+        scores = [t.score for t in self.trial_results]
+        return sum(scores) / len(scores)
 
     @property
     def n_completed(self) -> int:
-        return sum(1 for t in self.trials if t.status == JobStatus.COMPLETED)
+        return sum(1 for t in self.trial_results if t.status == JobStatus.COMPLETED)
 
     @property
     def n_failed(self) -> int:
-        return sum(1 for t in self.trials if t.status == JobStatus.FAILED)
-
-    @classmethod
-    def from_harbor_result(cls, result_json: str, job_id: str) -> JobResult:
-        """Parse Harbor result.json content into JobResult."""
-        data = json.loads(result_json)
-        trials = []
-        for tr in data.get("trial_results", []):
-            has_error = tr.get("exception_info") is not None
-            verifier = tr.get("verifier_result") or {}
-            rewards = verifier.get("rewards", {})
-            score = rewards.get("reward", 0.0) if rewards else 0.0
-
-            duration_sec = 0.0
-            if tr.get("started_at") and tr.get("finished_at"):
-                from datetime import datetime
-
-                try:
-                    start = datetime.fromisoformat(tr["started_at"].replace("Z", "+00:00"))
-                    end = datetime.fromisoformat(tr["finished_at"].replace("Z", "+00:00"))
-                    duration_sec = (end - start).total_seconds()
-                except (ValueError, TypeError):
-                    pass
-
-            token_ids = []
-            agent_result = tr.get("agent_result") or {}
-            for detail in agent_result.get("rollout_details", []):
-                token_ids.extend(detail.get("completion_token_ids", []))
-
-            trials.append(
-                TrialResult(
-                    task_name=tr.get("task_name", ""),
-                    status=JobStatus.FAILED if has_error else JobStatus.COMPLETED,
-                    score=score if not has_error else 0.0,
-                    rewards=rewards,
-                    token_ids=token_ids,
-                    duration_sec=duration_sec,
-                    error=tr.get("exception_info"),
-                )
-            )
-
-        return cls(job_id=job_id, status=JobStatus.COMPLETED, trials=trials, raw_output=result_json, exit_code=0)
+        return sum(1 for t in self.trial_results if t.status == JobStatus.FAILED)
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +374,7 @@ class Job:
 
     def _render_run_script(self, config_path: str) -> str:
         """Render the full run script (env + dockerd + setup_commands + harbor run)."""
-        # Environment variables
+        # sandbox_env only — AgentConfig.env is injected by harbor via docker exec -e
         env_lines = []
         for k, v in self._config.sandbox_env.items():
             escaped = v.replace("'", "'\\''")
@@ -303,7 +399,6 @@ class Job:
     # ------------------------------------------------------------------
 
     async def _ensure_sandbox(self):
-        """Create sandbox from config if not provided, and start it."""
         if self._sandbox is None:
             from rock.sdk.sandbox.client import Sandbox
 
@@ -316,7 +411,6 @@ class Job:
             logger.info(f"Sandbox started: sandbox_id={self._sandbox.sandbox_id}")
 
     async def _setup_session(self):
-        """Create a bash session for job execution."""
         self._session = f"rock-job-{self._config.job_name}"
         await self._sandbox.create_session(CreateBashSessionRequest(session=self._session))
 
@@ -325,17 +419,40 @@ class Job:
     # ------------------------------------------------------------------
 
     async def _collect_results(self, job_id: str) -> JobResult:
-        """Read result.json from sandbox and parse into JobResult."""
-        result_file = self._config.result_file
-        if not result_file:
-            result_file = f"{self._config.jobs_dir}/{self._config.job_name}/result.json"
+        """Read trial-level result.json files from sandbox.
 
+        Harbor's job-level result.json excludes trial_results, so we read
+        each trial's result.json individually from subdirectories.
+        """
+        job_dir = f"{self._config.jobs_dir}/{self._config.job_name}"
+
+        # List trial subdirectories
         try:
-            response = await self._sandbox.read_file(ReadFileRequest(path=result_file))
-            return JobResult.from_harbor_result(response.content, job_id=job_id)
-        except Exception as e:
-            logger.warning(f"Failed to read result file {result_file}: {e}")
-            return JobResult(job_id=job_id, status=JobStatus.FAILED, raw_output=str(e), exit_code=1)
+            list_result = await self._sandbox.arun(
+                cmd=f"find {job_dir} -mindepth 2 -maxdepth 2 -name result.json",
+                session=self._session,
+            )
+            trial_result_files = [
+                line.strip() for line in (list_result.output or "").strip().split("\n") if line.strip()
+            ]
+        except Exception:
+            trial_result_files = []
+
+        # Parse each trial result
+        trial_results: list[TrialResult] = []
+        for trial_file in trial_result_files:
+            try:
+                response = await self._sandbox.read_file(ReadFileRequest(path=trial_file))
+                data = json.loads(response.content)
+                trial_results.append(TrialResult.from_harbor_json(data))
+            except Exception as e:
+                logger.warning(f"Failed to parse trial result {trial_file}: {e}")
+
+        return JobResult(
+            job_id=job_id,
+            status=JobStatus.COMPLETED if trial_results else JobStatus.FAILED,
+            trial_results=trial_results,
+        )
 
     # ------------------------------------------------------------------
     # Private: utilities

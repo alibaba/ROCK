@@ -29,6 +29,7 @@ async def async_main(args: argparse.Namespace) -> None:
     config = JobConfig.from_yaml(args.config)
     result = await Job(config).run()
 
+    logger.info(f"result: {result}")
     logger.info(f"Job completed: exit_code={result.exit_code}, score={result.score}")
     if result.trials:
         for trial in result.trials:
