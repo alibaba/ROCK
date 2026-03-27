@@ -227,8 +227,8 @@ def resolve_target_port_from_ws(websocket: WebSocket, query_port: int | None, pa
     return None, path
 
 
-@sandbox_proxy_router.websocket("/sandboxes/{sandbox_id}/proxy/vnc")
-@sandbox_proxy_router.websocket("/sandboxes/{sandbox_id}/proxy/vnc/{path:path}")
+@sandbox_proxy_router.websocket("/sandboxes/{sandbox_id}/vnc")
+@sandbox_proxy_router.websocket("/sandboxes/{sandbox_id}/vnc/{path:path}")
 async def vnc_websocket_proxy(
     websocket: WebSocket,
     sandbox_id: str,
@@ -325,11 +325,11 @@ async def get_token():
 
 
 @sandbox_proxy_router.api_route(
-    "/sandboxes/{sandbox_id}/proxy/vnc",
+    "/sandboxes/{sandbox_id}/vnc",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
 )
 @sandbox_proxy_router.api_route(
-    "/sandboxes/{sandbox_id}/proxy/vnc/{path:path}",
+    "/sandboxes/{sandbox_id}/vnc/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
 )
 @handle_exceptions(error_message="vnc http proxy failed")

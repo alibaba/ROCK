@@ -930,10 +930,10 @@ class TestVncHttpProxy:
     """VNC HTTP proxy should forward requests to fixed port 8006."""
 
     async def test_vnc_route_forwards_to_port_8006(self, app):
-        """GET /proxy/vnc/ should forward to port 8006."""
+        """GET /vnc/ should forward to port 8006."""
         a, svc = app
         async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            await client.get("/sandboxes/sb1/proxy/vnc/")
+            await client.get("/sandboxes/sb1/vnc/")
 
         svc.http_proxy.assert_called_once()
         call = svc.http_proxy.call_args
@@ -941,10 +941,10 @@ class TestVncHttpProxy:
         assert port == 8006
 
     async def test_vnc_route_preserves_path(self, app):
-        """GET /proxy/vnc/core/rfb.js should forward path='core/rfb.js'."""
+        """GET /vnc/core/rfb.js should forward path='core/rfb.js'."""
         a, svc = app
         async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            await client.get("/sandboxes/sb1/proxy/vnc/core/rfb.js")
+            await client.get("/sandboxes/sb1/vnc/core/rfb.js")
 
         svc.http_proxy.assert_called_once()
         call = svc.http_proxy.call_args
@@ -955,11 +955,11 @@ class TestVncHttpProxy:
         """VNC proxy should support GET, POST, PUT, DELETE, PATCH."""
         a, svc = app
         async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            await client.get("/sandboxes/sb1/proxy/vnc/")
-            await client.post("/sandboxes/sb1/proxy/vnc/api", json={"x": 1})
-            await client.put("/sandboxes/sb1/proxy/vnc/data")
-            await client.delete("/sandboxes/sb1/proxy/vnc/item/1")
-            await client.patch("/sandboxes/sb1/proxy/vnc/config", json={"y": 2})
+            await client.get("/sandboxes/sb1/vnc/")
+            await client.post("/sandboxes/sb1/vnc/api", json={"x": 1})
+            await client.put("/sandboxes/sb1/vnc/data")
+            await client.delete("/sandboxes/sb1/vnc/item/1")
+            await client.patch("/sandboxes/sb1/vnc/config", json={"y": 2})
 
         assert svc.http_proxy.call_count == 5
         for call in svc.http_proxy.call_args_list:
@@ -967,10 +967,10 @@ class TestVncHttpProxy:
             assert port == 8006
 
     async def test_vnc_route_without_trailing_slash(self, app):
-        """GET /proxy/vnc (no slash) should forward path=''."""
+        """GET /vnc (no slash) should forward path=''."""
         a, svc = app
         async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            await client.get("/sandboxes/sb1/proxy/vnc")
+            await client.get("/sandboxes/sb1/vnc")
 
         svc.http_proxy.assert_called_once()
         call = svc.http_proxy.call_args
@@ -981,7 +981,7 @@ class TestVncHttpProxy:
         """VNC proxy should ignore rock_target_port query param and always use 8006."""
         a, svc = app
         async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            await client.get("/sandboxes/sb1/proxy/vnc/?rock_target_port=9000")
+            await client.get("/sandboxes/sb1/vnc/?rock_target_port=9000")
 
         svc.http_proxy.assert_called_once()
         call = svc.http_proxy.call_args
@@ -998,11 +998,11 @@ class TestVncWebSocketProxy:
     """VNC WebSocket proxy should forward connections to fixed port 8006."""
 
     async def test_vnc_ws_route_forwards_to_port_8006(self, app):
-        """WS /proxy/vnc/ws should forward to port 8006."""
+        """WS /vnc/ws should forward to port 8006."""
         a, svc = app
         client = TestClientWS(a)
         try:
-            with client.websocket_connect("/sandboxes/sb1/proxy/vnc/ws"):
+            with client.websocket_connect("/sandboxes/sb1/vnc/ws"):
                 pass
         except Exception:
             pass
@@ -1013,11 +1013,11 @@ class TestVncWebSocketProxy:
         assert port == 8006
 
     async def test_vnc_ws_route_preserves_path(self, app):
-        """WS /proxy/vnc/ws/websockify should forward path='ws/websockify'."""
+        """WS /vnc/websockify should forward path='websockify'."""
         a, svc = app
         client = TestClientWS(a)
         try:
-            with client.websocket_connect("/sandboxes/sb1/proxy/vnc/ws/websockify"):
+            with client.websocket_connect("/sandboxes/sb1/vnc/websockify"):
                 pass
         except Exception:
             pass
@@ -1025,14 +1025,14 @@ class TestVncWebSocketProxy:
         svc.websocket_proxy.assert_called_once()
         call = svc.websocket_proxy.call_args
         target_path = call.args[2] if len(call.args) > 2 else call.kwargs.get("target_path")
-        assert target_path == "ws/websockify"
+        assert target_path == "websockify"
 
     async def test_vnc_ws_route_ignores_query_param_port(self, app):
         """VNC WS proxy should ignore rock_target_port and always use 8006."""
         a, svc = app
         client = TestClientWS(a)
         try:
-            with client.websocket_connect("/sandboxes/sb1/proxy/vnc/ws?rock_target_port=9000"):
+            with client.websocket_connect("/sandboxes/sb1/vnc/ws?rock_target_port=9000"):
                 pass
         except Exception:
             pass
