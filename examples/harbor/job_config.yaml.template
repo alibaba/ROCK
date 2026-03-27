@@ -1,0 +1,33 @@
+# ── Rock 扩展字段（控制沙箱生命周期）──────────────────────────────────
+sandbox_config:
+  base_url: "<your-rock-base-url>"
+  xrl_authorization: "<your-xrl-auth-token>"
+  image: "<your-harbor-image:tag>"
+  cluster: "<your-cluster>"
+  memory: "32g"
+  cpus: 8
+  startup_timeout: 1800
+  auto_clear_seconds: 7200
+
+auto_stop_sandbox: false
+
+# ── Harbor 原生字段（序列化为 YAML 传给 harbor jobs start -c）────────
+agents:
+  - name: "swe-agent"
+    model_name: "custom_openai/<your-model>"
+    env:
+      OPENAI_API_KEY: "<your-openai-api-key>"
+      OPENAI_BASE_URL: "<your-openai-base-url>"
+
+datasets:
+  - name: "princeton-nlp/SWE-bench_Verified"
+    registry:
+      split: "test"
+      oss_access_key_id: "<your-oss-access-key-id>"
+      oss_access_key_secret: "<your-oss-access-key-secret>"
+      oss_bucket: "<your-oss-bucket>"
+      oss_dataset_path: "<your-oss-dataset-path>"
+      oss_region: "<your-oss-region>"
+      oss_endpoint: "<your-oss-endpoint>"
+    task_names:
+      - "astropy__astropy-7606"
