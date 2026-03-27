@@ -2,6 +2,7 @@ import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Body, File, Form, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse as _JSONResponse
 
 from rock.actions import (
     BashObservation,
@@ -33,6 +34,9 @@ from rock.sdk.common.exceptions import BadRequestRockError
 
 logger = init_logger(__name__)
 
+VNC_PORT = 8006
+X_ROCK_TARGET_PORT_HEADER = "X-ROCK-Target-Port"
+
 sandbox_proxy_router = APIRouter()
 sandbox_proxy_service: SandboxProxyService
 
@@ -40,6 +44,35 @@ sandbox_proxy_service: SandboxProxyService
 def set_sandbox_proxy_service(service: SandboxProxyService):
     global sandbox_proxy_service
     sandbox_proxy_service = service
+
+
+def resolve_target_port(request: Request, query_port: int | None) -> int | None:
+    """Resolve target port from header or query param.
+
+    Args:
+        request: FastAPI Request object
+        query_port: Port from query parameter
+
+    Returns:
+        Resolved port number
+
+    Raises:
+        BadRequestRockError: If both header and query param are specified
+    """
+    header_port = request.headers.get(X_ROCK_TARGET_PORT_HEADER)
+
+    if header_port is not None and query_port is not None:
+        raise BadRequestRockError(
+            f"Cannot specify both {X_ROCK_TARGET_PORT_HEADER} header and rock_target_port query parameter"
+        )
+
+    if header_port is not None:
+        try:
+            return int(header_port)
+        except ValueError:
+            raise BadRequestRockError(f"Invalid {X_ROCK_TARGET_PORT_HEADER} header value: {header_port}")
+
+    return query_port
 
 
 @sandbox_proxy_router.post("/execute")
@@ -116,16 +149,29 @@ async def list_sandboxes(request: Request) -> RockResponse[SandboxListResponse]:
 @sandbox_proxy_router.websocket("/sandboxes/{id}/proxy/{path:path}")
 async def websocket_proxy(websocket: WebSocket, id: str, path: str = "", rock_target_port: int | None = Query(None)):
     sandbox_id = id
-    logger.info(f"Client connected to WebSocket proxy: {sandbox_id}, path: {path}, port: {rock_target_port}")
 
-    if rock_target_port is not None:
-        is_valid, error_msg = validate_port_forward_port(rock_target_port)
+    header_port_str = websocket.headers.get(X_ROCK_TARGET_PORT_HEADER)
+    header_port = int(header_port_str) if header_port_str else None
+
+    if header_port is not None and rock_target_port is not None:
+        await websocket.close(
+            code=1008,
+            reason=f"Cannot specify both {X_ROCK_TARGET_PORT_HEADER} header and rock_target_port query parameter",
+        )
+        return
+
+    port = header_port if header_port is not None else rock_target_port
+
+    logger.info(f"Client connected to WebSocket proxy: {sandbox_id}, path: {path}, port: {port}")
+
+    if port is not None:
+        is_valid, error_msg = validate_port_forward_port(port)
         if not is_valid:
             await websocket.close(code=1008, reason=error_msg)
             return
 
     try:
-        await sandbox_proxy_service.websocket_proxy(websocket, sandbox_id, path, port=rock_target_port)
+        await sandbox_proxy_service.websocket_proxy(websocket, sandbox_id, path, port=port)
     except WebSocketDisconnect:
         logger.info(f"Client disconnected from WebSocket proxy: {sandbox_id}")
     except Exception as e:
@@ -242,6 +288,11 @@ async def http_proxy(
     path: str = "",
     rock_target_port: int | None = Query(None),
 ):
+    try:
+        port = resolve_target_port(request, rock_target_port)
+    except BadRequestRockError as e:
+        return _JSONResponse(status_code=400, content={"detail": str(e)})
+
     body = None
     if request.method not in ("GET", "HEAD", "DELETE", "OPTIONS"):
         try:
@@ -249,7 +300,7 @@ async def http_proxy(
         except Exception:
             body = None
     return await sandbox_proxy_service.http_proxy(
-        sandbox_id, path, body, request.headers, method=request.method, port=rock_target_port
+        sandbox_id, path, body, request.headers, method=request.method, port=port
     )
 
 

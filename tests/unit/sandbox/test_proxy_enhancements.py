@@ -135,6 +135,28 @@ class TestHttpProxyAllMethods:
         port = call.kwargs.get("port") or (call.args[5] if len(call.args) > 5 else None)
         assert port is None
 
+    async def test_port_from_header_is_passed_to_service(self, app):
+        """When X-ROCK-Target-Port header is given, service.http_proxy should receive the port."""
+        a, svc = app
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            await client.get("/sandboxes/sb1/proxy/status", headers={"X-ROCK-Target-Port": "9000"})
+
+        svc.http_proxy.assert_called_once()
+        call = svc.http_proxy.call_args
+        port = call.kwargs.get("port") or (call.args[5] if len(call.args) > 5 else None)
+        assert port == 9000
+
+    async def test_port_conflict_returns_error(self, app):
+        """When both header and query param are given, should return 400 error."""
+        a, svc = app
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            resp = await client.get(
+                "/sandboxes/sb1/proxy/status?rock_target_port=8000", headers={"X-ROCK-Target-Port": "9000"}
+            )
+
+        assert resp.status_code == 400
+        svc.http_proxy.assert_not_called()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WebSocket Proxy — port parameter
@@ -180,6 +202,35 @@ class TestWebsocketProxyPortParam:
             pass  # Expect disconnect
 
         # Service should NOT be called for invalid port
+        svc.websocket_proxy.assert_not_called()
+
+    async def test_websocket_proxy_port_from_header(self, app):
+        """When X-ROCK-Target-Port header is given, service.websocket_proxy should receive the port."""
+        a, svc = app
+        client = TestClientWS(a)
+        try:
+            with client.websocket_connect("/sandboxes/sb1/proxy/ws", headers={"X-ROCK-Target-Port": "8888"}):
+                pass
+        except Exception:
+            pass
+
+        svc.websocket_proxy.assert_called_once()
+        call = svc.websocket_proxy.call_args
+        port = call.kwargs.get("port") or (call.args[3] if len(call.args) > 3 else None)
+        assert port == 8888
+
+    async def test_websocket_proxy_port_conflict(self, app):
+        """When both header and query param are given, should close with error."""
+        a, svc = app
+        client = TestClientWS(a)
+        try:
+            with client.websocket_connect(
+                "/sandboxes/sb1/proxy/ws?rock_target_port=8000", headers={"X-ROCK-Target-Port": "9000"}
+            ):
+                pass
+        except Exception:
+            pass
+
         svc.websocket_proxy.assert_not_called()
 
 
@@ -992,5 +1043,7 @@ class TestClientWS:
 
         self._client = TestClient(app, raise_server_exceptions=False)
 
-    def websocket_connect(self, path):
-        return self._client.websocket_connect(path)
+    def websocket_connect(self, path, headers=None):
+        if headers is None:
+            headers = {}
+        return self._client.websocket_connect(path, headers=headers)
