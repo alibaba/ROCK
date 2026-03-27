@@ -10,9 +10,9 @@ class DockerUtil:
     @classmethod
     def is_docker_available(cls):
         try:
-            result = subprocess.run(["docker", "--version"], capture_output=True, text=True, timeout=10)
+            result = subprocess.run(["docker", "--version"], capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
-                result = subprocess.run(["docker", "info"], capture_output=True, text=True, timeout=10)
+                result = subprocess.run(["docker", "info"], capture_output=True, text=True, timeout=30)
                 return result.returncode == 0
             return False
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):

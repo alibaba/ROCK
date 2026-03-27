@@ -125,21 +125,21 @@ class SandboxActor(GemActor):
         try:
             await self._deployment.start()
         except Exception as ex:
-            logger.error(f"start deployment failed: {ex}", exc_info=True)
+            logger.error(f"[{self._config.container_name}] start deployment failed: {ex}", exc_info=True)
             raise ex
         if isinstance(self._deployment, DockerDeployment):
             self._clean_container_background()
         await self._setup_monitor()
 
     async def stop(self):
-        logger.info("start to stop")
+        logger.info(f"[{self._config.container_name}] start to stop")
         try:
             await self._deployment.stop()
-            logger.info("deployment stopped")
+            logger.info(f"[{self._config.container_name}] deployment stopped")
             self._clean_container_background_process.kill()
-            logger.info("actor stopped")
+            logger.info(f"[{self._config.container_name}] actor stopped")
         except Exception as e:
-            logger.error(f"Error occurred while stopping container: {e}", exc_info=True)
+            logger.error(f"[{self._config.container_name}] Error occurred while stopping container: {e}", exc_info=True)
 
     async def commit(self, image_tag: str, username: str, password: str) -> CommandResponse:
         logger.info(f"start to commit {self._config.container_name} to {image_tag}")
@@ -179,7 +179,7 @@ class SandboxActor(GemActor):
         try:
             return await self._deployment.is_alive()
         except Exception as e:
-            logger.error(f"failed to check is alive: {e}", exc_info=True)
+            logger.error(f"[{self._config.container_name}] failed to check is alive: {e}", exc_info=True)
             return IsAliveResponse(is_alive=False)
 
     async def execute(self, command: Command) -> CommandResponse:
