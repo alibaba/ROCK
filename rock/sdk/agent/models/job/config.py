@@ -1,3 +1,9 @@
+"""Job configuration models aligned with harbor.models.job.config.
+
+Harbor-native fields are serialized to YAML and passed to ``harbor jobs start -c``.
+Rock extension fields control the sandbox lifecycle.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -44,44 +50,39 @@ class OrchestratorConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Registry info（对齐 harbor.models.registry，仅字段定义）
+# Registry info (aligned with harbor.models.registry, field definitions only)
 # ---------------------------------------------------------------------------
 
 
 class OssRegistryInfo(BaseModel):
-    """OSS registry，对应 CLI --registry-type oss"""
+    """OSS registry, corresponds to CLI ``--registry-type oss``."""
 
     split: str | None = None
     revision: str | None = None
     oss_dataset_path: str | None = None
-    oss_access_key_id: str | None = None
-    oss_access_key_secret: str | None = None
-    oss_region: str | None = None
-    oss_endpoint: str | None = None
-    oss_bucket: str | None = None
 
 
 class RemoteRegistryInfo(BaseModel):
-    """远程 registry（默认 GitHub），对应 CLI --registry-url"""
+    """Remote registry (default GitHub), corresponds to CLI ``--registry-url``."""
 
     name: str | None = None
     url: str = "https://raw.githubusercontent.com/laude-institute/harbor/main/registry.json"
 
 
 class LocalRegistryInfo(BaseModel):
-    """本地 registry，对应 CLI --registry-path"""
+    """Local registry, corresponds to CLI ``--registry-path``."""
 
     name: str | None = None
     path: Path
 
 
 # ---------------------------------------------------------------------------
-# DatasetConfig（对齐 harbor 的 LocalDatasetConfig / RegistryDatasetConfig）
+# DatasetConfig (aligned with harbor's LocalDatasetConfig / RegistryDatasetConfig)
 # ---------------------------------------------------------------------------
 
 
 class BaseDatasetConfig(BaseModel):
-    """数据集通用字段。"""
+    """Common dataset fields."""
 
     task_names: list[str] | None = None
     exclude_task_names: list[str] | None = None
@@ -89,13 +90,13 @@ class BaseDatasetConfig(BaseModel):
 
 
 class LocalDatasetConfig(BaseDatasetConfig):
-    """本地数据集目录，对应 CLI -p/--path（指向 dataset 目录时）。"""
+    """Local dataset directory, corresponds to CLI ``-p/--path`` (when pointing to a dataset dir)."""
 
     path: Path
 
 
 class RegistryDatasetConfig(BaseDatasetConfig):
-    """Registry 数据集，对应 CLI -d/--dataset + --registry-type。"""
+    """Registry dataset, corresponds to CLI ``-d/--dataset`` + ``--registry-type``."""
 
     registry: OssRegistryInfo | RemoteRegistryInfo | LocalRegistryInfo
     name: str
@@ -105,7 +106,7 @@ class RegistryDatasetConfig(BaseDatasetConfig):
 
     @model_validator(mode="after")
     def _infer_version_from_split(self):
-        """对齐 harbor CLI 行为：OssRegistryInfo 有 split 时自动填充 version。"""
+        """Align with harbor CLI behavior: auto-fill version from OssRegistryInfo.split."""
         if self.version is None and isinstance(self.registry, OssRegistryInfo) and self.registry.split:
             self.version = (
                 f"{self.registry.split}@{self.registry.revision}" if self.registry.revision else self.registry.split
@@ -113,14 +114,14 @@ class RegistryDatasetConfig(BaseDatasetConfig):
         return self
 
 
-# 兼容别名
+# Convenience alias
 DatasetConfig = LocalDatasetConfig | RegistryDatasetConfig
 
 
 class JobConfig(BaseModel):
     """Job configuration combining Harbor-native fields with Rock extensions.
 
-    Harbor-native fields are serialized to YAML and passed to `harbor jobs start -c`.
+    Harbor-native fields are serialized to YAML and passed to ``harbor jobs start -c``.
     Rock extension fields control sandbox lifecycle.
     """
 
@@ -175,7 +176,7 @@ class JobConfig(BaseModel):
         """Serialize Harbor-native fields to YAML string.
 
         Excludes Rock extension fields and None values so the output
-        can be loaded by `harbor jobs start -c`.
+        can be loaded by ``harbor jobs start -c``.
         """
         import yaml
 
@@ -188,7 +189,7 @@ class JobConfig(BaseModel):
 
         Args:
             path: Path to the YAML file.
-            **overrides: Additional fields to set (e.g., sandbox, setup_commands).
+            **overrides: Additional fields to set (e.g., sandbox_config, setup_commands).
         """
         import yaml
 

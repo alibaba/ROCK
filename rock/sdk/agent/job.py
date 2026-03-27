@@ -1,8 +1,8 @@
-"""Job SDK: 在 ROCK sandbox 内通过 harbor CLI 执行 benchmark 任务。
+"""Job SDK: Execute Harbor benchmark tasks inside ROCK sandboxes.
 
-核心设计：将 setup + harbor run 归一化为单个 bash 脚本，通过 sandbox 的
-nohup 协议（start_nohup_process / wait_for_process_completion / handle_nohup_output）
-异步执行和等待。
+Core design: Unify setup + harbor run into a single bash script, executed via
+the sandbox nohup protocol (start_nohup_process / wait_for_process_completion /
+handle_nohup_output).
 """
 
 from __future__ import annotations
@@ -103,46 +103,46 @@ class JobResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 脚本模板
+# Script template
 # ---------------------------------------------------------------------------
 
 _RUN_SCRIPT_TEMPLATE = r"""#!/bin/bash
 set -e
 export PATH="/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin:$PATH"
 
-# ── 环境变量 ─────────────────────────────────────────────────────────
+# ── Environment variables ────────────────────────────────────────────
 {env_exports}
 
-# ── dockerd 检测与启动 ───────────────────────────────────────────────
+# ── Detect and start dockerd ─────────────────────────────────────────
 if command -v docker &>/dev/null; then
     echo "docker OK: $(command -v docker)"
     if ! pgrep -x dockerd &>/dev/null; then
-        echo "正在启动 dockerd..."
+        echo "Starting dockerd..."
         nohup dockerd &>/var/log/dockerd.log &
     fi
     for i in $(seq 1 60); do
-        if docker info &>/dev/null; then echo "dockerd 已就绪"; break; fi
+        if docker info &>/dev/null; then echo "dockerd is ready"; break; fi
         sleep 1
-        if [ "$i" -eq 60 ]; then echo "WARN: dockerd 60 秒内未启动"; fi
+        if [ "$i" -eq 60 ]; then echo "WARN: dockerd failed to start within 60s"; fi
     done
 fi
 
-# ── setup commands ───────────────────────────────────────────────────
+# ── Setup commands ───────────────────────────────────────────────────
 {setup_commands}
 
-# ── harbor run ───────────────────────────────────────────────────────
+# ── Harbor run ───────────────────────────────────────────────────────
 harbor jobs start -c {config_path}
 """
 
 
 class Job:
-    """在 ROCK sandbox 内运行 harbor 任务。
+    """Execute Harbor benchmark tasks inside ROCK sandboxes.
 
-    将 setup_commands + harbor run 归一化为单个 bash 脚本，通过 sandbox
-    nohup 协议执行：
-    - ``run()``: 完整生命周期（阻塞等待）
-    - ``submit()``: 启动后立即返回 job_id
-    - ``wait()``: 等待已提交的 job
+    Unifies setup_commands + harbor run into a single bash script, executed
+    via the sandbox nohup protocol:
+    - ``run()``: Full lifecycle (blocking wait)
+    - ``submit()``: Start and return job_id immediately
+    - ``wait()``: Wait for a submitted job to complete
     """
 
     def __init__(self, config, sandbox=None):
@@ -161,7 +161,7 @@ class Job:
     # ------------------------------------------------------------------
 
     async def run(self) -> JobResult:
-        """完整生命周期：start → 上传配置和脚本 → nohup 执行 → 等待 → 收集结果。"""
+        """Full lifecycle: start sandbox -> upload config & script -> nohup execute -> wait -> collect results."""
         try:
             await self._ensure_sandbox()
             await self._prepare_and_start()
@@ -195,13 +195,13 @@ class Job:
                 await self._sandbox.close()
 
     async def submit(self) -> str:
-        """异步提交：上传配置和脚本 → nohup 启动 → 立即返回 job_id。"""
+        """Async submit: upload config & script -> nohup start -> return job_id immediately."""
         await self._ensure_sandbox()
         await self._prepare_and_start()
         return self._config.job_name
 
     async def wait(self, job_id: str | None = None) -> JobResult:
-        """等待已 submit 的 job 完成并返回结果。"""
+        """Wait for a submitted job to complete and return results."""
         if self._pid is None or self._tmp_file is None:
             raise RuntimeError("No submitted job to wait for. Call submit() first.")
 
@@ -234,37 +234,37 @@ class Job:
         return result
 
     async def cancel(self, job_id: str | None = None):
-        """取消运行中的 job。"""
+        """Cancel a running job by killing the process."""
         if self._pid is None:
             raise RuntimeError("No submitted job to cancel.")
         await self._sandbox.arun(cmd=f"kill {self._pid}", session=self._session)
 
     # ------------------------------------------------------------------
-    # Private: 核心流程
+    # Private: core flow
     # ------------------------------------------------------------------
 
     async def _prepare_and_start(self):
-        """上传文件 + harbor config YAML + 渲染运行脚本 → nohup 启动。"""
+        """Upload files + harbor config YAML + render run script -> nohup start."""
         await self._setup_session()
 
-        # 1. 上传用户指定的文件/目录（如本地 clone 的 harbor 源码）
+        # 1. Upload user-specified files/dirs (e.g., locally cloned harbor source)
         for local_path, sandbox_path in self._config.file_uploads:
-            logger.info(f"上传 {local_path} → {sandbox_path}")
+            logger.info(f"Uploading {local_path} -> {sandbox_path}")
             await self._sandbox.fs.upload_dir(local_path, sandbox_path)
 
-        # 2. 上传 harbor config YAML
+        # 2. Upload harbor config YAML
         config_path = f"/tmp/rock_job_{self._config.job_name}.yaml"
         yaml_content = self._config.to_harbor_yaml()
         await self._upload_content(yaml_content, config_path)
-        logger.info(f"harbor 配置已上传: {config_path}")
+        logger.info(f"Harbor config uploaded: {config_path}")
 
-        # 3. 渲染并上传运行脚本
+        # 3. Render and upload run script
         script_path = f"/tmp/rock_job_{self._config.job_name}.sh"
         script_content = self._render_run_script(config_path)
         await self._upload_content(script_content, script_path)
-        logger.info(f"运行脚本已上传: {script_path}")
+        logger.info(f"Run script uploaded: {script_path}")
 
-        # 4. nohup 启动脚本
+        # 4. Start script via nohup
         self._tmp_file = f"/tmp/rock_job_{self._config.job_name}.out"
         pid, error = await self._sandbox.start_nohup_process(
             cmd=f"bash {script_path}",
@@ -272,20 +272,20 @@ class Job:
             session=self._session,
         )
         if error is not None:
-            raise RuntimeError(f"启动 harbor 任务失败: {error.output}")
+            raise RuntimeError(f"Failed to start harbor job: {error.output}")
         self._pid = pid
-        logger.info(f"harbor 任务已启动: pid={pid}, job_name={self._config.job_name}")
+        logger.info(f"Harbor job started: pid={pid}, job_name={self._config.job_name}")
 
     def _render_run_script(self, config_path: str) -> str:
-        """渲染完整的运行脚本（env + dockerd + setup_commands + harbor run）。"""
-        # 环境变量
+        """Render the full run script (env + dockerd + setup_commands + harbor run)."""
+        # Environment variables
         env_lines = []
         for k, v in self._config.sandbox_env.items():
             escaped = v.replace("'", "'\\''")
             env_lines.append(f"export {k}='{escaped}'")
         env_block = "\n".join(env_lines) if env_lines else "# (no extra env vars)"
 
-        # setup commands
+        # Setup commands
         setup_lines = []
         for cmd in self._config.setup_commands:
             setup_lines.append(f"echo '>>> {cmd[:60]}...'")
@@ -303,6 +303,7 @@ class Job:
     # ------------------------------------------------------------------
 
     async def _ensure_sandbox(self):
+        """Create sandbox from config if not provided, and start it."""
         if self._sandbox is None:
             from rock.sdk.sandbox.client import Sandbox
 
@@ -312,17 +313,19 @@ class Job:
 
         if self._config.auto_start_sandbox:
             await self._sandbox.start()
-            logger.info(f"沙箱已启动: sandbox_id={self._sandbox.sandbox_id}")
+            logger.info(f"Sandbox started: sandbox_id={self._sandbox.sandbox_id}")
 
     async def _setup_session(self):
+        """Create a bash session for job execution."""
         self._session = f"rock-job-{self._config.job_name}"
         await self._sandbox.create_session(CreateBashSessionRequest(session=self._session))
 
     # ------------------------------------------------------------------
-    # Private: 结果收集
+    # Private: result collection
     # ------------------------------------------------------------------
 
     async def _collect_results(self, job_id: str) -> JobResult:
+        """Read result.json from sandbox and parse into JobResult."""
         result_file = self._config.result_file
         if not result_file:
             result_file = f"{self._config.jobs_dir}/{self._config.job_name}/result.json"
@@ -335,11 +338,11 @@ class Job:
             return JobResult(job_id=job_id, status=JobStatus.FAILED, raw_output=str(e), exit_code=1)
 
     # ------------------------------------------------------------------
-    # Private: 工具方法
+    # Private: utilities
     # ------------------------------------------------------------------
 
     async def _upload_content(self, content: str, sandbox_path: str) -> None:
-        """将文本内容写入本地临时文件，通过 upload_by_path 上传到沙箱。"""
+        """Write text content to a local temp file and upload to sandbox via upload_by_path."""
         local_tmp = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".tmp", delete=False) as f:
@@ -347,7 +350,7 @@ class Job:
                 local_tmp = f.name
             result = await self._sandbox.upload_by_path(local_tmp, sandbox_path)
             if not result.success:
-                raise RuntimeError(f"上传到 {sandbox_path} 失败: {result.message}")
+                raise RuntimeError(f"Failed to upload to {sandbox_path}: {result.message}")
         finally:
             if local_tmp and os.path.exists(local_tmp):
                 os.remove(local_tmp)
