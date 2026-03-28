@@ -1,0 +1,42 @@
+# ── Rock Extension ──────────────────────────────────
+sandbox_config:
+  base_url: "<your-rock-base-url>"
+  xrl_authorization: "<your-xrl-auth-token>"
+  image: "<your-harbor-image:tag>"
+  cluster: "<your-cluster>"
+  memory: "16g"
+  cpus: 4
+  startup_timeout: 1800
+  auto_clear_seconds: 7200
+
+auto_stop_sandbox: true
+
+# Workaround: some agents (e.g. openhands) read os.environ directly,
+# so LLM env vars must also be exported at shell level via sandbox_env.
+sandbox_env:
+  LLM_API_KEY: "<your-llm-api-key>"
+  LLM_BASE_URL: "<your-llm-base-url>"
+
+# ── Harbor Natvie ────────
+agents:
+  - name: "openhands"
+    model_name: "<your-provider>/<your-model>"
+    env:
+      LLM_API_KEY: "<your-llm-api-key>"
+      LLM_BASE_URL: "<your-llm-base-url>"
+
+orchestrator:
+  n_concurrent_trials: 1
+
+datasets:
+  - name: "terminal-bench-2-test"
+    registry:
+      split: "test"
+      oss_access_key_id: "<your-oss-access-key-id>"
+      oss_access_key_secret: "<your-oss-access-key-secret>"
+      oss_region: "<your-oss-region>"
+      oss_endpoint: "<your-oss-endpoint>"
+      oss_bucket: "<your-oss-bucket>"
+      oss_dataset_path: "<your-oss-dataset-path>"
+    task_names:
+      - "crack-7z-hash"

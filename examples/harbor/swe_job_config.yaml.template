@@ -1,4 +1,4 @@
-# ── Rock 扩展字段（控制沙箱生命周期）──────────────────────────────────
+# ── Rock Extension ────────────────────────────────────
 sandbox_config:
   base_url: "<your-rock-base-url>"
   xrl_authorization: "<your-xrl-auth-token>"
@@ -11,7 +11,7 @@ sandbox_config:
 
 auto_stop_sandbox: false
 
-# ── Harbor 原生字段（序列化为 YAML 传给 harbor jobs start -c）────────
+# ── Harbor Native ────────
 agents:
   - name: "swe-agent"
     model_name: "custom_openai/<your-model>"
