@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.5] - 2026-03-28
+
+### Fixed
+
+- **ossutil v2 Command Format** - Fixed `downloadFile` to use correct ossutil v2 command format
+  - Now uses `--access-key-id`, `--access-key-secret`, `--sts-token`, `--endpoint`, `--region` parameters directly in `ossutil cp`
+  - Removed unnecessary `ossutil config` step (not needed in v2)
+  - Matches Python SDK implementation
+  - Fixes "region must be set in sign version 4" error
+
 ## [1.3.4] - 2026-03-28
 
 ### Fixed

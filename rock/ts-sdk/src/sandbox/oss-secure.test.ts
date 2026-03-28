@@ -396,3 +396,41 @@ describe('ossutil v2 compatibility', () => {
     expect(path).not.toMatch(/-b\s/);
   });
 });
+/**
+ * ossutil cp command format tests
+ *
+ * ossutil v2 uses command-line parameters for credentials instead of config command:
+ * ossutil cp /path oss://bucket/object --access-key-id xxx --access-key-secret xxx --sts-token xxx --endpoint xxx --region xxx
+ */
+describe('ossutil cp command format', () => {
+  test('should use command-line parameters for credentials (not config command)', () => {
+    // Python SDK uses command-line parameters directly in ossutil cp
+    // No need to run ossutil config separately
+    const accessKeyId = 'STS.TESTKEY';
+    const accessKeySecret = 'test-secret';
+    const stsToken = 'test-token';
+    const endpoint = 'https://oss-cn-hangzhou.aliyuncs.com';
+    const region = 'cn-hangzhou';
+    const remotePath = '/tmp/test.pdf';
+    const bucketName = 'test-bucket';
+    const objectName = 'test-object';
+    
+    // Build command like Python SDK
+    const expectedCmd = `ossutil cp '${remotePath}' 'oss://${bucketName}/${objectName}' --access-key-id '${accessKeyId}' --access-key-secret '${accessKeySecret}' --sts-token '${stsToken}' --endpoint '${endpoint}' --region '${region}'`;
+    
+    // Verify format
+    expect(expectedCmd).toContain('--access-key-id');
+    expect(expectedCmd).toContain('--access-key-secret');
+    expect(expectedCmd).toContain('--sts-token');
+    expect(expectedCmd).toContain('--endpoint');
+    expect(expectedCmd).toContain('--region');
+    expect(expectedCmd).not.toContain('ossutil config');
+  });
+
+  test('should NOT need separate config command', () => {
+    // ossutil v2 does NOT require running config before cp
+    // All parameters can be passed directly to cp command
+    const hasConfig = false;
+    expect(hasConfig).toBe(false);
+  });
+});

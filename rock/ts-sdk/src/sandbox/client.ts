@@ -766,19 +766,16 @@ export class Sandbox extends AbstractSandbox {
       const fileName = remotePath.split('/').pop() ?? 'file';
       const objectName = `download-${timestamp}-${fileName}`;
 
-      // Get STS credentials for ossutil config
+      // Get STS credentials for ossutil
       const credentials = await this.getOssStsCredentials();
       const bucketName = envVars.ROCK_OSS_BUCKET_NAME ?? '';
       const region = envVars.ROCK_OSS_BUCKET_REGION ?? '';
       const endpoint = `https://oss-${region}.aliyuncs.com`;
 
       // Upload from sandbox to OSS via ossutil v2
-      // ossutil v2 uses environment variables for credentials and requires --region
-      const envPrefix = `OSS_ACCESS_KEY_ID=${credentials.accessKeyId} OSS_ACCESS_KEY_SECRET=${credentials.accessKeySecret} OSS_SESSION_TOKEN=${credentials.securityToken}`;
-      const ossutilConfigCmd = `${envPrefix} ossutil config -e ${endpoint} --region ${region}`;
-      await this.arun(ossutilConfigCmd, { mode: 'nohup', waitTimeout: 60 });
-
-      const uploadToOssCmd = `${envPrefix} ossutil cp ${remotePath} oss://${bucketName}/${objectName}`;
+      // ossutil v2 uses command-line parameters for credentials (no separate config needed)
+      // This matches the Python SDK implementation
+      const uploadToOssCmd = `ossutil cp '${remotePath}' 'oss://${bucketName}/${objectName}' --access-key-id '${credentials.accessKeyId}' --access-key-secret '${credentials.accessKeySecret}' --sts-token '${credentials.securityToken}' --endpoint '${endpoint}' --region '${region}'`;
       const uploadResult = await this.arun(uploadToOssCmd, { mode: 'nohup', waitTimeout: 600 });
       if (uploadResult.exitCode !== 0) {
         return { success: false, message: `Sandbox to OSS upload failed: ${uploadResult.output}` };
