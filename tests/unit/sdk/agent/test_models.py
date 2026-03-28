@@ -1,0 +1,239 @@
+from pathlib import Path
+
+from rock.sdk.agent.models.environment_type import EnvironmentType
+from rock.sdk.agent.models.job.config import (
+    DatasetConfig,
+    JobConfig,
+    OrchestratorConfig,
+    RetryConfig,
+)
+from rock.sdk.agent.models.metric.config import MetricConfig
+from rock.sdk.agent.models.metric.type import MetricType
+from rock.sdk.agent.models.orchestrator_type import OrchestratorType
+from rock.sdk.agent.models.trial.config import (
+    AgentConfig,
+    ArtifactConfig,
+    EnvironmentConfig,
+    TaskConfig,
+    VerifierConfig,
+)
+
+
+class TestOrchestratorType:
+    def test_values(self):
+        assert OrchestratorType.LOCAL == "local"
+        assert OrchestratorType.QUEUE == "queue"
+
+    def test_from_string(self):
+        assert OrchestratorType("local") == OrchestratorType.LOCAL
+        assert OrchestratorType("queue") == OrchestratorType.QUEUE
+
+
+class TestEnvironmentType:
+    def test_values(self):
+        assert EnvironmentType.DOCKER == "docker"
+        assert EnvironmentType.ROCK == "rock"
+        assert EnvironmentType.E2B == "e2b"
+
+    def test_all_types_exist(self):
+        expected = {"docker", "daytona", "e2b", "modal", "runloop", "gke", "rock"}
+        actual = {e.value for e in EnvironmentType}
+        assert actual == expected
+
+
+class TestMetricType:
+    def test_values(self):
+        assert MetricType.MEAN == "mean"
+        assert MetricType.SUM == "sum"
+        assert MetricType.UV_SCRIPT == "uv-script"
+
+    def test_all_types_exist(self):
+        expected = {"sum", "min", "max", "mean", "uv-script"}
+        actual = {e.value for e in MetricType}
+        assert actual == expected
+
+
+class TestAgentConfig:
+    def test_defaults(self):
+        agent = AgentConfig()
+        assert agent.name is None
+        assert agent.import_path is None
+        assert agent.model_name is None
+        assert agent.override_timeout_sec is None
+        assert agent.override_setup_timeout_sec is None
+        assert agent.max_timeout_sec is None
+        assert agent.kwargs == {}
+        assert agent.env == {}
+
+    def test_with_values(self):
+        agent = AgentConfig(
+            name="terminus-2",
+            model_name="hosted_vllm/my-model",
+            kwargs={"max_iterations": 30},
+            env={"LLM_API_KEY": "sk-xxx"},
+        )
+        assert agent.name == "terminus-2"
+        assert agent.model_name == "hosted_vllm/my-model"
+        assert agent.kwargs["max_iterations"] == 30
+        assert agent.env["LLM_API_KEY"] == "sk-xxx"
+
+
+class TestEnvironmentConfig:
+    def test_defaults(self):
+        env = EnvironmentConfig()
+        assert env.type is None
+        assert env.force_build is False
+        assert env.delete is True
+        assert env.env == {}
+        assert env.kwargs == {}
+
+    def test_with_type(self):
+        env = EnvironmentConfig(type=EnvironmentType.DOCKER, force_build=True)
+        assert env.type == EnvironmentType.DOCKER
+        assert env.force_build is True
+
+    def test_with_string_type(self):
+        env = EnvironmentConfig(type="docker")
+        assert env.type == EnvironmentType.DOCKER
+
+
+class TestVerifierConfig:
+    def test_defaults(self):
+        v = VerifierConfig()
+        assert v.override_timeout_sec is None
+        assert v.max_timeout_sec is None
+        assert v.disable is False
+
+
+class TestTaskConfig:
+    def test_required_path(self):
+        task = TaskConfig(path="/workspace/tasks/fix-bug")
+        assert task.path == Path("/workspace/tasks/fix-bug")
+
+    def test_optional_fields(self):
+        task = TaskConfig(path="/workspace/tasks/t1", git_url="https://github.com/repo", overwrite=True)
+        assert task.git_url == "https://github.com/repo"
+        assert task.overwrite is True
+
+
+class TestArtifactConfig:
+    def test_fields(self):
+        a = ArtifactConfig(source="logs/*.log")
+        assert a.source == "logs/*.log"
+        assert a.destination is None
+
+    def test_with_destination(self):
+        a = ArtifactConfig(source="result.json", destination="/output/result.json")
+        assert a.destination == "/output/result.json"
+
+
+class TestMetricConfig:
+    def test_defaults(self):
+        m = MetricConfig()
+        assert m.type == MetricType.MEAN
+        assert m.kwargs == {}
+
+    def test_with_type(self):
+        m = MetricConfig(type="sum")
+        assert m.type == MetricType.SUM
+
+
+class TestRetryConfig:
+    def test_defaults(self):
+        r = RetryConfig()
+        assert r.max_retries == 0
+        assert r.wait_multiplier == 1.0
+        assert r.min_wait_sec == 1.0
+        assert r.max_wait_sec == 60.0
+
+
+class TestOrchestratorConfig:
+    def test_defaults(self):
+        o = OrchestratorConfig()
+        assert o.type == OrchestratorType.LOCAL
+        assert o.n_concurrent_trials == 4
+        assert o.quiet is False
+
+    def test_with_values(self):
+        o = OrchestratorConfig(type="queue", n_concurrent_trials=8, quiet=True)
+        assert o.type == OrchestratorType.QUEUE
+        assert o.n_concurrent_trials == 8
+
+
+class TestDatasetConfig:
+    def test_minimal(self):
+        d = DatasetConfig()
+        assert d.task_names is None
+        assert d.n_tasks is None
+        assert d.path is None
+        assert d.name is None
+
+    def test_local_dataset(self):
+        d = DatasetConfig(path="/data/tasks")
+        assert d.path == Path("/data/tasks")
+
+    def test_registry_dataset(self):
+        d = DatasetConfig(name="terminal-bench", version="2.0", n_tasks=50)
+        assert d.name == "terminal-bench"
+        assert d.version == "2.0"
+        assert d.n_tasks == 50
+
+
+class TestJobConfig:
+    def test_defaults(self):
+        cfg = JobConfig()
+        assert cfg.n_attempts == 1
+        assert cfg.timeout_multiplier == 1.0
+        assert cfg.debug is False
+        assert isinstance(cfg.orchestrator, OrchestratorConfig)
+        assert isinstance(cfg.environment, EnvironmentConfig)
+        assert cfg.agents == [AgentConfig()]
+        assert cfg.datasets == []
+        assert cfg.tasks == []
+        assert cfg.metrics == []
+        assert cfg.artifacts == []
+
+    def test_rock_extension_defaults(self):
+        cfg = JobConfig()
+        assert cfg.sandbox is None
+        assert cfg.setup_commands == []
+        assert cfg.result_file == ""
+        assert cfg.collect_trajectory is False
+        assert cfg.auto_start_sandbox is True
+        assert cfg.auto_stop_sandbox is False
+
+    def test_with_full_config(self):
+        cfg = JobConfig(
+            job_name="test-job",
+            n_attempts=2,
+            agents=[AgentConfig(name="terminus-2", model_name="hosted_vllm/m")],
+            datasets=[DatasetConfig(name="terminal-bench", version="2.0")],
+            setup_commands=["pip install harbor"],
+            collect_trajectory=True,
+        )
+        assert cfg.job_name == "test-job"
+        assert cfg.n_attempts == 2
+        assert len(cfg.agents) == 1
+        assert cfg.agents[0].name == "terminus-2"
+        assert cfg.collect_trajectory is True
+
+
+class TestPublicAPI:
+    def test_import_from_agent_package(self):
+        from rock.sdk.agent import Job, JobResult, JobStatus, TrialResult
+
+        assert Job is not None
+        assert JobResult is not None
+        assert JobStatus is not None
+        assert TrialResult is not None
+
+    def test_import_from_models_package(self):
+        from rock.sdk.agent.models import (
+            AgentConfig,
+            EnvironmentType,
+            JobConfig,
+        )
+
+        assert JobConfig is not None
+        assert AgentConfig is not None
+        assert EnvironmentType is not None
