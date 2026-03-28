@@ -86,7 +86,12 @@ class Job:
 
     async def submit(self) -> None:
         """Start sandbox, upload config & script, nohup start harbor."""
-        await self._ensure_sandbox()
+        from rock.sdk.sandbox.client import Sandbox
+
+        self._sandbox = Sandbox(self._config.sandbox_config)
+        await self._sandbox.start()
+        logger.info(f"Sandbox started: sandbox_id={self._sandbox.sandbox_id}, job_name={self._config.job_name}")
+
         await self._prepare_and_start()
 
     async def wait(self) -> JobResult:
@@ -195,17 +200,6 @@ class Job:
     # ------------------------------------------------------------------
     # Private: sandbox / session
     # ------------------------------------------------------------------
-
-    async def _ensure_sandbox(self):
-        if self._sandbox is None:
-            from rock.sdk.sandbox.client import Sandbox
-
-            if self._config.sandbox_config is None:
-                raise ValueError("config.sandbox_config is required")
-            self._sandbox = Sandbox(self._config.sandbox_config)
-
-        await self._sandbox.start()
-        logger.info(f"Sandbox started: sandbox_id={self._sandbox.sandbox_id}, job_name={self._config.job_name}")
 
     async def _create_session(self) -> None:
         """Create a bash session with sandbox_env injected."""
