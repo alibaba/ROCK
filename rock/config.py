@@ -18,11 +18,16 @@ class RayConfig:
     runtime_env: dict = field(default_factory=dict)
     namespace: str = "xrl-sandbox"
     resources: dict | None = None
+    temp_dir: str | None = None
     ray_reconnect_enabled: bool = field(default=False)
     ray_reconnect_interval_seconds: int = field(default=60 * 60 * 12)
     ray_reconnect_request_threshold: int = field(default=10 * 1024 * 1024)
     ray_reconnect_check_interval_seconds: int = field(default=60 * 10)
     ray_reconnect_wait_timeout_seconds: int = field(default=30)
+
+    def __post_init__(self):
+        if self.temp_dir:
+            self.temp_dir = str(Path(self.temp_dir).resolve())
 
 
 @dataclass

@@ -28,6 +28,7 @@ class RayService:
             runtime_env=self._config.runtime_env,
             namespace=self._config.namespace,
             resources=self._config.resources,
+            _temp_dir=self._config.temp_dir,
         )
         if self._config.ray_reconnect_enabled:
             self._setup_ray_reconnect_scheduler()
@@ -76,6 +77,7 @@ class RayService:
                     runtime_env=self._config.runtime_env,
                     namespace=self._config.namespace,
                     resources=self._config.resources,
+                    _temp_dir=self._config.temp_dir,
                 )
                 self._ray_request_count = 0
                 end_time = time.time()

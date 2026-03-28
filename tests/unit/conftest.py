@@ -111,6 +111,7 @@ def ray_init_shutdown(rock_config: RockConfig):
             namespace=ray_namespace,
             runtime_env=ray_config.runtime_env,
             resources=ray_config.resources,
+            _temp_dir=ray_config.temp_dir,
         )
     yield
 
