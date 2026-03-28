@@ -1,7 +1,12 @@
-#!/usr/bin/env python3
-"""Harbor sandbox demo.
+"""Harbor benchmark demo using ROCK Job SDK.
 
-Run Harbor benchmark tasks inside a ROCK sandbox using a YAML config file.
+Run Harbor benchmark tasks inside a ROCK sandbox via the Job SDK.
+Configuration is loaded from a YAML file and passed to ``harbor jobs start``
+inside the sandbox.
+
+Example config templates:
+    - ``examples/harbor/swe_job_config.yaml.template`` — SWE-bench-verified
+    - ``examples/harbor/tb_job_config.yaml.template`` — Terminal Bench 2
 
 Usage:
     python examples/harbor/harbor_demo.py -c examples/harbor/job_config.yaml

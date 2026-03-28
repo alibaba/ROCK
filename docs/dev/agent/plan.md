@@ -1,5 +1,23 @@
 # Rock Job SDK Implementation Plan
 
+> ⚠️ **历史文档 — 实现已完成**
+>
+> 本文档是实现前的 TDD 计划，`rock/sdk/agent/` 模块已在 PR #681 中完成实现，并经过后续重构（`86f32bec`、`180d954e`）。
+>
+> **与实际实现的差异：**
+> - `DatasetConfig` 未合并为单一类，保留了 `LocalDatasetConfig`/`RegistryDatasetConfig` 分离
+> - `OssRegistryInfo`/`RemoteRegistryInfo`/`LocalRegistryInfo` 完整保留，未内联到 DatasetConfig
+> - JobConfig Rock 扩展字段为 `sandbox_config`/`file_uploads`/`sandbox_env`/`auto_stop_sandbox`（非文档中的 `sandbox`/`result_file`/`collect_trajectory`/`auto_start_sandbox`）
+> - `TrialResult`/`JobResult` 有独立文件，不在 `job.py` 中
+> - `TrialResult` 是丰富的子模型结构（`ExceptionInfo`/`AgentInfo`/`ModelInfo`/`AgentResult`/`VerifierResult`/`TimingInfo`）
+> - Job 类 `__init__` 仅接受 `JobConfig`，不接受 `sandbox` 参数；`submit()` 返回 `None`（非 `str`）
+> - 执行命令合并为单一 bash 脚本（含 dockerd 检测 + setup + harbor run）
+> - 结果从 trial 级 `result.json` 逐个读取，非 job 级
+>
+> **请参考 `README.md` 获取最新文档。**
+>
+> ---
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement `rock/sdk/agent/` module — a Job SDK that executes Harbor benchmark jobs inside Rock sandboxes via bash protocol, enabling RL training frameworks to run Harbor without importing it.
