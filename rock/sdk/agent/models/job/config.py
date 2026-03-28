@@ -141,9 +141,6 @@ class JobConfig(BaseModel):
         default_factory=dict,
         description="Shell env vars exported before harbor run (OSS keys, API keys, etc.)",
     )
-    result_file: str = ""
-    collect_trajectory: bool = False
-    auto_start_sandbox: bool = True
     auto_stop_sandbox: bool = False
 
     # ── Harbor native fields ──
@@ -171,9 +168,6 @@ class JobConfig(BaseModel):
         "setup_commands",
         "file_uploads",
         "sandbox_env",
-        "result_file",
-        "collect_trajectory",
-        "auto_start_sandbox",
         "auto_stop_sandbox",
     }
 

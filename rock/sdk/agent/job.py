@@ -18,6 +18,12 @@ from rock.sdk.agent.models.trial.result import TrialResult
 
 logger = init_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+DEFAULT_WAIT_TIMEOUT = 7200  # 2h fallback if no agent timeout configured
+CHECK_INTERVAL = 30  # seconds between process alive checks
 
 # ---------------------------------------------------------------------------
 # Script template
@@ -25,9 +31,6 @@ logger = init_logger(__name__)
 
 _RUN_SCRIPT_TEMPLATE = r"""#!/bin/bash
 set -e
-
-# ── Environment variables ────────────────────────────────────────────
-{env_exports}
 
 # ── Detect and start dockerd ─────────────────────────────────────────
 if command -v docker &>/dev/null; then
@@ -61,13 +64,13 @@ class Job:
     - ``wait()``: Wait for a submitted job to complete
     """
 
-    def __init__(self, config, sandbox=None):
+    def __init__(self, config):
         from rock.sdk.agent.models.job.config import JobConfig
 
         if not isinstance(config, JobConfig):
             raise TypeError(f"config must be JobConfig, got {type(config)}")
         self._config = config
-        self._sandbox = sandbox
+        self._sandbox = None
         self._session: str | None = None
         self._pid: int | None = None
         self._tmp_file: str | None = None
@@ -77,16 +80,26 @@ class Job:
     # ------------------------------------------------------------------
 
     async def run(self) -> JobResult:
-        """Full lifecycle: start sandbox -> upload config & script -> nohup execute -> wait -> collect results."""
-        try:
-            await self._ensure_sandbox()
-            await self._prepare_and_start()
+        """Full lifecycle: submit + wait."""
+        await self.submit()
+        return await self.wait()
 
+    async def submit(self) -> None:
+        """Start sandbox, upload config & script, nohup start harbor."""
+        await self._ensure_sandbox()
+        await self._prepare_and_start()
+
+    async def wait(self) -> JobResult:
+        """Wait for a submitted job to complete and return results."""
+        if self._pid is None or self._tmp_file is None:
+            raise RuntimeError("No submitted job to wait for. Call submit() first.")
+
+        try:
             success, message = await self._sandbox.wait_for_process_completion(
                 pid=self._pid,
                 session=self._session,
-                wait_timeout=int(self._config.timeout_multiplier * 3600),
-                wait_interval=10,
+                wait_timeout=self._get_wait_timeout(),
+                wait_interval=CHECK_INTERVAL,
             )
 
             obs = await self._sandbox.handle_nohup_output(
@@ -98,8 +111,7 @@ class Job:
                 response_limited_bytes_in_nohup=None,
             )
 
-            job_id = self._config.job_name
-            result = await self._collect_results(job_id)
+            result = await self._collect_results()
             result.raw_output = obs.output if obs else ""
             result.exit_code = obs.exit_code if obs else 1
             if not success:
@@ -110,50 +122,27 @@ class Job:
             if self._config.auto_stop_sandbox and self._sandbox:
                 await self._sandbox.close()
 
-    async def submit(self) -> str:
-        """Async submit: upload config & script -> nohup start -> return job_id immediately."""
-        await self._ensure_sandbox()
-        await self._prepare_and_start()
-        return self._config.job_name
-
-    async def wait(self, job_id: str | None = None) -> JobResult:
-        """Wait for a submitted job to complete and return results."""
-        if self._pid is None or self._tmp_file is None:
-            raise RuntimeError("No submitted job to wait for. Call submit() first.")
-
-        success, message = await self._sandbox.wait_for_process_completion(
-            pid=self._pid,
-            session=self._session,
-            wait_timeout=int(self._config.timeout_multiplier * 3600),
-            wait_interval=10,
-        )
-
-        obs = await self._sandbox.handle_nohup_output(
-            tmp_file=self._tmp_file,
-            session=self._session,
-            success=success,
-            message=message,
-            ignore_output=False,
-            response_limited_bytes_in_nohup=None,
-        )
-
-        jid = job_id or self._config.job_name
-        result = await self._collect_results(jid)
-        result.raw_output = obs.output if obs else ""
-        result.exit_code = obs.exit_code if obs else 1
-        if not success:
-            result.status = JobStatus.FAILED
-
-        if self._config.auto_stop_sandbox and self._sandbox:
-            await self._sandbox.close()
-
-        return result
-
-    async def cancel(self, job_id: str | None = None):
+    async def cancel(self):
         """Cancel a running job by killing the process."""
         if self._pid is None:
             raise RuntimeError("No submitted job to cancel.")
         await self._sandbox.arun(cmd=f"kill {self._pid}", session=self._session)
+
+    # ------------------------------------------------------------------
+    # Private: timeout
+    # ------------------------------------------------------------------
+
+    def _get_wait_timeout(self) -> int:
+        """Infer wait timeout from agent config, with buffer for env setup + verifier."""
+        multiplier = self._config.timeout_multiplier or 1.0
+        agents = self._config.agents
+        if agents:
+            agent = agents[0]
+            agent_timeout = agent.max_timeout_sec or agent.override_timeout_sec
+            if agent_timeout:
+                # agent_timeout * multiplier + 600s buffer for env setup, dataset download, verifier
+                return int(agent_timeout * multiplier) + 600
+        return int(DEFAULT_WAIT_TIMEOUT * multiplier)
 
     # ------------------------------------------------------------------
     # Private: core flow
@@ -161,26 +150,21 @@ class Job:
 
     async def _prepare_and_start(self):
         """Upload files + harbor config YAML + render run script -> nohup start."""
-        await self._setup_session()
+        await self._create_session()
 
         # 1. Upload user-specified files/dirs
         for local_path, sandbox_path in self._config.file_uploads:
             logger.info(f"Uploading {local_path} -> {sandbox_path}")
             await self._sandbox.fs.upload_dir(local_path, sandbox_path)
 
-        # 2. Upload harbor config YAML
+        # 2. Upload harbor config YAML + run script
         config_path = f"/tmp/rock_job_{self._config.job_name}.yaml"
-        yaml_content = self._config.to_harbor_yaml()
-        await self._upload_content(yaml_content, config_path)
-        logger.info(f"Harbor config uploaded: {config_path}")
-
-        # 3. Render and upload run script
         script_path = f"/tmp/rock_job_{self._config.job_name}.sh"
-        script_content = self._render_run_script(config_path)
-        await self._upload_content(script_content, script_path)
-        logger.info(f"Run script uploaded: {script_path}")
+        await self._upload_content(self._config.to_harbor_yaml(), config_path)
+        await self._upload_content(self._render_run_script(config_path), script_path)
+        logger.info(f"Config and script uploaded: {config_path}, {script_path}")
 
-        # 4. Start script via nohup
+        # 3. Start script via nohup
         self._tmp_file = f"/tmp/rock_job_{self._config.job_name}.out"
         pid, error = await self._sandbox.start_nohup_process(
             cmd=f"bash {script_path}",
@@ -190,17 +174,12 @@ class Job:
         if error is not None:
             raise RuntimeError(f"Failed to start harbor job: {error.output}")
         self._pid = pid
-        logger.info(f"Harbor job started: pid={pid}, job_name={self._config.job_name}")
+        logger.info(
+            f"Harbor job started: pid={pid}, job_name={self._config.job_name}, sandbox_id={self._sandbox.sandbox_id}"
+        )
 
     def _render_run_script(self, config_path: str) -> str:
-        """Render the full run script (env + dockerd + setup_commands + harbor run)."""
-        # sandbox_env only — AgentConfig.env is injected by harbor via docker exec -e
-        env_lines = []
-        for k, v in self._config.sandbox_env.items():
-            escaped = v.replace("'", "'\\''")
-            env_lines.append(f"export {k}='{escaped}'")
-        env_block = "\n".join(env_lines) if env_lines else "# (no extra env vars)"
-
+        """Render the run script (dockerd + setup_commands + harbor run)."""
         # Setup commands
         setup_lines = []
         for cmd in self._config.setup_commands:
@@ -209,7 +188,6 @@ class Job:
         setup_block = "\n".join(setup_lines) if setup_lines else "echo 'No setup commands'"
 
         return _RUN_SCRIPT_TEMPLATE.format(
-            env_exports=env_block,
             setup_commands=setup_block,
             config_path=config_path,
         )
@@ -223,22 +201,28 @@ class Job:
             from rock.sdk.sandbox.client import Sandbox
 
             if self._config.sandbox_config is None:
-                raise ValueError("Either pass sandbox= to Job() or set config.sandbox_config")
+                raise ValueError("config.sandbox_config is required")
             self._sandbox = Sandbox(self._config.sandbox_config)
 
-        if self._config.auto_start_sandbox:
-            await self._sandbox.start()
-            logger.info(f"Sandbox started: sandbox_id={self._sandbox.sandbox_id}")
+        await self._sandbox.start()
+        logger.info(f"Sandbox started: sandbox_id={self._sandbox.sandbox_id}, job_name={self._config.job_name}")
 
-    async def _setup_session(self):
+    async def _create_session(self) -> None:
+        """Create a bash session with sandbox_env injected."""
         self._session = f"rock-job-{self._config.job_name}"
-        await self._sandbox.create_session(CreateBashSessionRequest(session=self._session, env_enable=True))
+        await self._sandbox.create_session(
+            CreateBashSessionRequest(
+                session=self._session,
+                env_enable=True,
+                env=self._config.sandbox_env or None,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Private: result collection
     # ------------------------------------------------------------------
 
-    async def _collect_results(self, job_id: str) -> JobResult:
+    async def _collect_results(self) -> JobResult:
         """Read trial-level result.json files from sandbox.
 
         Harbor's job-level result.json excludes trial_results, so we read
@@ -268,7 +252,7 @@ class Job:
                 logger.warning(f"Failed to parse trial result {trial_file}: {e}")
 
         return JobResult(
-            job_id=job_id,
+            job_id=self._config.job_name,
             status=JobStatus.COMPLETED if trial_results else JobStatus.FAILED,
             trial_results=trial_results,
         )
