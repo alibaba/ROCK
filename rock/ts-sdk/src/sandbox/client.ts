@@ -836,6 +836,7 @@ export class Sandbox extends AbstractSandbox {
     const OSS = (await import('ali-oss')).default;
 
     this.ossBucket = new OSS({
+      secure: true, // Use HTTPS for OSS connections
       region: envVars.ROCK_OSS_BUCKET_REGION ?? '',
       accessKeyId: credentials.accessKeyId,
       accessKeySecret: credentials.accessKeySecret,
