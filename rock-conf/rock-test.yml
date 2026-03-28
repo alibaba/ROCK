@@ -3,7 +3,7 @@ ray:
         working_dir: ./
         pip: ./requirements_sandbox_actor.txt
     namespace: "rock-sandbox-test"
-    temp_dir: ./tmp/ray
+    temp_dir: ./.tmp/ray
 
 warmup:
     images:

@@ -119,7 +119,7 @@ class MetricsMonitor:
             self.base_attributes.update(self.user_defined_tags)
 
     def _should_skip(self):
-        if self.env in {"daily", "aliyun", "local"}:
+        if self.env in {"daily", "aliyun", "local", "test"}:
             return True
         return False
 
