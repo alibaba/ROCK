@@ -642,7 +642,7 @@ export class Sandbox extends AbstractSandbox {
     return this.uploadByPath(request.sourcePath, request.targetPath);
   }
 
-  async uploadByPath(sourcePath: string, targetPath: string, uploadMode: UploadMode = 'auto'): Promise<UploadResponse> {
+  async uploadByPath(sourcePath: string, targetPath: string, uploadMode: UploadMode = 'auto', timeout?: number): Promise<UploadResponse> {
     const url = `${this.url}/upload`;
     const headers = this.buildHeaders();
 
@@ -663,7 +663,7 @@ export class Sandbox extends AbstractSandbox {
       const ossThreshold = 1024 * 1024; // 1MB
 
       if (uploadMode === 'oss' || (uploadMode === 'auto' && ossEnabled && fileSize > ossThreshold)) {
-        return this.uploadViaOss(sourcePath, targetPath);
+        return this.uploadViaOss(sourcePath, targetPath, timeout);
       }
 
       // Use async readFile instead of sync readFileSync
@@ -728,7 +728,7 @@ export class Sandbox extends AbstractSandbox {
   /**
    * Download file from sandbox via OSS
    */
-  async downloadFile(remotePath: string, localPath: string): Promise<DownloadFileResponse> {
+  async downloadFile(remotePath: string, localPath: string, timeout?: number): Promise<DownloadFileResponse> {
     // Check OSS is enabled
     if (!envVars.ROCK_OSS_ENABLE) {
       return {
@@ -751,7 +751,7 @@ export class Sandbox extends AbstractSandbox {
 
       // Setup OSS bucket if needed
       if (this.ossBucket === null || this.isTokenExpired()) {
-        await this.setupOss();
+        await this.setupOss(timeout);
       }
 
       if (!this.ossBucket) {
@@ -785,8 +785,9 @@ export class Sandbox extends AbstractSandbox {
         return { success: false, message: `Sandbox to OSS upload failed: ${uploadResult.output}` };
       }
 
-      // Download from OSS to local via ali-oss
-      const result = await this.ossBucket.get(objectName, localPath);
+      // Download from OSS to local via ali-oss with timeout
+      const ossTimeout = timeout ?? envVars.ROCK_OSS_TIMEOUT;
+      const result = await this.ossBucket.get(objectName, localPath, { timeout: ossTimeout });
 
       // Cleanup OSS object
       try {
@@ -803,12 +804,13 @@ export class Sandbox extends AbstractSandbox {
 
   /**
    * Upload file via OSS (internal method)
+   * @param timeout - Optional timeout in milliseconds
    */
-  private async uploadViaOss(sourcePath: string, targetPath: string): Promise<UploadResponse> {
+  private async uploadViaOss(sourcePath: string, targetPath: string, timeout?: number): Promise<UploadResponse> {
     try {
       // Setup OSS bucket if needed
       if (this.ossBucket === null || this.isTokenExpired()) {
-        await this.setupOss();
+        await this.setupOss(timeout);
       }
 
       if (!this.ossBucket) {
@@ -819,8 +821,9 @@ export class Sandbox extends AbstractSandbox {
       const fileName = sourcePath.split('/').pop() ?? 'file';
       const objectName = `${timestamp}-${fileName}`;
 
-      // Upload to OSS
-      await this.ossBucket.put(objectName, sourcePath);
+      // Upload to OSS with timeout option
+      const ossTimeout = timeout ?? envVars.ROCK_OSS_TIMEOUT;
+      await this.ossBucket.put(objectName, sourcePath, { timeout: ossTimeout });
 
       // Generate signed URL for sandbox to download
       const signedUrl = this.ossBucket.signatureUrl(objectName, { expires: 600 });
@@ -843,14 +846,19 @@ export class Sandbox extends AbstractSandbox {
 
   /**
    * Setup OSS bucket with STS credentials
+   * @param timeout - Optional timeout in milliseconds (defaults to ROCK_OSS_TIMEOUT env var or 300000ms)
    */
-  private async setupOss(): Promise<void> {
+  private async setupOss(timeout?: number): Promise<void> {
     const credentials = await this.getOssStsCredentials();
 
     const OSS = (await import('ali-oss')).default;
 
+    // Priority: parameter > env var > default (300000ms = 5 minutes)
+    const ossTimeout = timeout ?? envVars.ROCK_OSS_TIMEOUT;
+
     this.ossBucket = new OSS({
       secure: true, // Use HTTPS for OSS connections
+      timeout: ossTimeout,
       region: envVars.ROCK_OSS_BUCKET_REGION ?? '',
       accessKeyId: credentials.accessKeyId,
       accessKeySecret: credentials.accessKeySecret,

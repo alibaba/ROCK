@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.8] - 2026-03-29
+
+### Added
+
+- **OSS Timeout Configuration** - Added configurable timeout for OSS operations
+  - New environment variable `ROCK_OSS_TIMEOUT` with default 300000ms (5 minutes)
+  - `uploadByPath(sourcePath, targetPath, uploadMode?, timeout?)` now accepts optional timeout parameter
+  - `downloadFile(remotePath, localPath, timeout?)` now accepts optional timeout parameter
+  - Priority: function parameter > environment variable > default (300000ms)
+  - Fixes `ResponseTimeoutError` for large file uploads/downloads
+
 ## [1.3.7] - 2026-03-28
 
 ### Fixed

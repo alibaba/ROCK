@@ -115,6 +115,10 @@ export const envVars = {
     return getEnv('ROCK_OSS_BUCKET_REGION');
   },
 
+  get ROCK_OSS_TIMEOUT(): number {
+    return parseInt(getEnv('ROCK_OSS_TIMEOUT', '300000')!, 10); // Default: 5 minutes
+  },
+
   // Pip
   get ROCK_PIP_INDEX_URL(): string {
     return getEnv('ROCK_PIP_INDEX_URL', 'https://pypi.org/simple/')!;
