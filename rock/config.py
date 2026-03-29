@@ -194,6 +194,7 @@ class RockConfig:
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     proxy_service: ProxyServiceConfig = field(default_factory=ProxyServiceConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
+    database: DatabaseConfig = field(default_factory=DatabaseConfig)
     nacos_provider: NacosConfigProvider | None = None
 
     @classmethod
@@ -235,6 +236,8 @@ class RockConfig:
             kwargs["proxy_service"] = ProxyServiceConfig(**config["proxy_service"])
         if "scheduler" in config:
             kwargs["scheduler"] = SchedulerConfig(**config["scheduler"])
+        if "database" in config:
+            kwargs["database"] = DatabaseConfig(**config["database"])
 
         return cls(**kwargs)
 
