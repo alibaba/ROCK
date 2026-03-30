@@ -8,7 +8,7 @@ environment:
   startup_timeout: 1800
   auto_clear_seconds: 7200
   auto_stop: false
-  envs:
+  env:
     OPENAI_API_KEY: "<your-openai-api-key>"
     OPENAI_BASE_URL: "<your-openai-base-url>"
 

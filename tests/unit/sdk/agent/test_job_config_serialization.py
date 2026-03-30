@@ -37,14 +37,14 @@ class TestRockEnvironmentConfigInheritance:
 
     def test_job_level_fields(self):
         env = RockEnvironmentConfig()
-        assert env.envs == {}
+        assert env.env == {}
         assert env.setup_commands == []
         assert env.file_uploads == []
         assert env.auto_stop is False
 
-    def test_envs_field(self):
-        env = RockEnvironmentConfig(envs={"OPENAI_API_KEY": "sk-xxx"})
-        assert env.envs == {"OPENAI_API_KEY": "sk-xxx"}
+    def test_env_field(self):
+        env = RockEnvironmentConfig(env={"OPENAI_API_KEY": "sk-xxx"})
+        assert env.env == {"OPENAI_API_KEY": "sk-xxx"}
 
     def test_harbor_fields_settable(self):
         env = RockEnvironmentConfig(force_build=True, override_cpus=4, type="docker")
@@ -81,8 +81,8 @@ class TestToHarborEnvironment:
         assert "file_uploads" not in result
         assert "auto_stop" not in result
 
-    def test_excludes_envs_field(self):
-        env = RockEnvironmentConfig(envs={"KEY": "val"})
+    def test_excludes_env_field(self):
+        env = RockEnvironmentConfig(env={"KEY": "val"})
         result = env.to_harbor_environment()
         assert "envs" not in result
 
@@ -119,7 +119,7 @@ class TestJobConfigToHarborYaml:
             environment=RockEnvironmentConfig(
                 setup_commands=["pip install harbor"],
                 file_uploads=[("local.txt", "/sandbox/remote.txt")],
-                envs={"API_KEY": "sk-xxx"},
+                env={"API_KEY": "sk-xxx"},
                 auto_stop=True,
                 image="my-image:latest",
                 memory="32g",
@@ -196,9 +196,9 @@ class TestJobConfigToHarborYaml:
         assert data["agents"][0]["kwargs"]["max_iterations"] == 30
         assert data["datasets"][0]["name"] == "terminal-bench"
 
-    def test_envs_not_in_harbor_yaml(self):
+    def test_env_not_in_harbor_yaml(self):
         """envs goes to sandbox session, not harbor YAML."""
-        cfg = JobConfig(environment=RockEnvironmentConfig(envs={"OPENAI_API_KEY": "sk-xxx"}))
+        cfg = JobConfig(environment=RockEnvironmentConfig(env={"OPENAI_API_KEY": "sk-xxx"}))
         yaml_str = cfg.to_harbor_yaml()
         data = yaml.safe_load(yaml_str)
 
@@ -237,7 +237,7 @@ environment:
   image: my-image:latest
   memory: "32g"
   cpus: 8
-  envs:
+  env:
     OPENAI_API_KEY: sk-xxx
   setup_commands:
     - pip install harbor
@@ -251,7 +251,7 @@ agents:
         cfg = JobConfig.from_yaml(str(yaml_file))
         assert cfg.environment.image == "my-image:latest"
         assert cfg.environment.memory == "32g"
-        assert cfg.environment.envs == {"OPENAI_API_KEY": "sk-xxx"}
+        assert cfg.environment.env == {"OPENAI_API_KEY": "sk-xxx"}
         assert cfg.environment.setup_commands == ["pip install harbor"]
         assert cfg.environment.auto_stop is True
 

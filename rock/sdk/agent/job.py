@@ -206,7 +206,7 @@ class Job:
             CreateBashSessionRequest(
                 session=self._session,
                 env_enable=True,
-                env=self._config.environment.envs or None,
+                env=self._config.environment.env or None,
             )
         )
 

@@ -135,7 +135,7 @@ JobConfig (Pydantic, rock/sdk/agent/models/job/config.py)
 ├── environment: RockEnvironmentConfig
 │   ├── (from SandboxConfig) image, memory, cpus, cluster, base_url, startup_timeout, ...
 │   ├── (from HarborEnvConfig) type, force_build, override_cpus, override_memory_mb, ...
-│   ├── envs: dict[str, str]            # env vars injected into sandbox bash session
+│   ├── env: dict[str, str]            # env vars injected into sandbox bash session
 │   ├── setup_commands: list[str]       # commands to run before harbor
 │   ├── file_uploads: list[tuple]       # files to upload: (local_path, sandbox_path)
 │   └── auto_stop: bool                 # close sandbox after completion
@@ -338,7 +338,7 @@ harbor jobs start -c /tmp/rock_job_xxx.yaml
        ▼
 2. submit()
        │  ├─ Sandbox(environment).start()
-       │  ├─ create_session(session_name, env=environment.envs)
+       │  ├─ create_session(session_name, env=environment.env)
        │  ├─ upload environment.file_uploads (fs.upload_dir)
        │  ├─ upload Harbor YAML config (to_harbor_yaml())
        │  ├─ render bash script (dockerd + setup + harbor)
@@ -447,7 +447,7 @@ JobConfig 分为两部分：Harbor 原生字段直接透传给 `harbor jobs star
 | `environment.base_url` | `str` | env var | Rock admin URL |
 | `environment.setup_commands` | `list[str]` | `[]` | harbor 运行前的准备命令 |
 | `environment.file_uploads` | `list[tuple[str, str]]` | `[]` | 上传文件/目录：(local_path, sandbox_path) |
-| `environment.envs` | `dict[str, str]` | `{}` | sandbox session 环境变量（OSS keys 等） |
+| `environment.env` | `dict[str, str]` | `{}` | sandbox session 环境变量（OSS keys 等） |
 | `environment.auto_stop` | `bool` | `False` | 完成后自动关闭 sandbox |
 
 #### Harbor 原生字段（核心）
@@ -531,7 +531,7 @@ config = JobConfig(
             ("/local/tasks", "/workspace/tasks"),
             ("/local/config.yaml", "/workspace/config.yaml"),
         ],
-        envs={
+        env:
             "OSS_ACCESS_KEY_ID": "xxx",
             "OSS_ACCESS_KEY_SECRET": "yyy",
         },
@@ -689,7 +689,7 @@ config = JobConfig(
         memory="16g",
         cpus=4,
         setup_commands=["pip install harbor --quiet"],
-        envs={
+        env:
             "OSS_ACCESS_KEY_ID": "xxx",
             "OSS_ACCESS_KEY_SECRET": "yyy",
         },
@@ -788,7 +788,7 @@ async def run_rollout(task_path, agent_config):
             base_url="http://rock-admin:8080",
             memory="16g",
             setup_commands=["pip install harbor --quiet"],
-            envs={"LLM_API_KEY": "sk-xxx"},
+            env:"LLM_API_KEY": "sk-xxx"},
             auto_stop=True,
         ),
         tasks=[TaskConfig(path=task_path)],

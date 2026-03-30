@@ -216,7 +216,7 @@ class TestJobConfig:
         cfg = JobConfig()
         assert cfg.environment.setup_commands == []
         assert cfg.environment.file_uploads == []
-        assert cfg.environment.envs == {}
+        assert cfg.environment.env == {}
         assert cfg.environment.auto_stop is False
 
     def test_with_full_config(self):

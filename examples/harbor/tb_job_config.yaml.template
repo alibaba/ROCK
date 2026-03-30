@@ -8,7 +8,7 @@ environment:
   startup_timeout: 1800
   auto_clear_seconds: 7200
   auto_stop: true
-  envs:
+  env:
     LLM_API_KEY: "<your-llm-api-key>"
     LLM_BASE_URL: "<your-llm-base-url>"
 

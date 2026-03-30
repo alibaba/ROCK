@@ -29,27 +29,28 @@
 
 ```
 JobConfig
-├── environment: EnvironmentConfig    # 新：统一的环境概念，平铺所有字段
+├── environment: RockEnvironmentConfig    # 新：统一的环境概念，平铺所有字段
 └── （Harbor 原生字段 — 保持不变）
     job_name, jobs_dir, n_attempts, timeout_multiplier,
     agents, verifier, metrics, orchestrator, datasets, tasks, artifacts, ...
 ```
 
-### `EnvironmentConfig`（新，多重继承）
+### `RockEnvironmentConfig`（新，多重继承，定义在 `config.py` 内）
 
-新建文件 `rock/sdk/agent/models/job/environment.py`。
+定义在 `rock/sdk/agent/models/job/config.py` 中，与 `JobConfig` 同文件。
 
 同时继承 `SandboxConfig`（Rock 沙箱层）和 trial 层的 `EnvironmentConfig`（Harbor 环境层），所有字段平铺，无嵌套结构。用户可直接填写 Harbor 高级字段（`force_build`、`override_gpus` 等），无需了解层级。
 
 ```python
-# rock/sdk/agent/models/job/environment.py
+# rock/sdk/agent/models/job/config.py
 from rock.sdk.agent.models.trial.config import EnvironmentConfig as _HarborEnvConfig
 from rock.sdk.sandbox.config import SandboxConfig
 
-class EnvironmentConfig(SandboxConfig, _HarborEnvConfig):
-    # ── 统一 env vars（override _HarborEnvConfig.env）──
+class RockEnvironmentConfig(SandboxConfig, _HarborEnvConfig):
+    # ── Rock env vars ──
     # 注入到 sandbox bash session；harbor 作为子进程自然继承，无需额外注入
     env: dict[str, str] = Field(default_factory=dict)
+    # env 继承自 _HarborEnvConfig，保留不动
 
     # ── Job 执行配置 ──
     setup_commands: list[str] = Field(default_factory=list)
@@ -58,13 +59,18 @@ class EnvironmentConfig(SandboxConfig, _HarborEnvConfig):
         description="运行前上传的文件/目录：[(本地路径, 沙箱路径), ...]",
     )
     auto_stop: bool = False
+
+    def to_harbor_environment(self) -> dict:
+        """向上转型到 _HarborEnvConfig，自动丢弃 Rock 字段，只保留 harbor 字段。"""
+        harbor = _HarborEnvConfig.model_validate(self.model_dump(mode="json"))
+        return harbor.model_dump(mode="json", exclude_none=True)
 ```
 
 继承关系：
 - `SandboxConfig` 提供：`image`、`memory`、`cpus`、`cluster`、`base_url`、`startup_timeout` 等
 - `_HarborEnvConfig`（trial 层 `EnvironmentConfig` 的别名）提供：`type`、`import_path`、`force_build`、`delete`、`override_cpus`、`override_memory_mb`、`mounts_json`、`kwargs` 等
-- `env` 字段在新类中显式定义，覆盖 `_HarborEnvConfig.env`，语义统一为注入 sandbox session
-- `trial/config.py` 零改动，`_HarborEnvConfig` 只是 `job/environment.py` 内的局部 import 别名
+- 新增 `envs` 字段作为 Rock 环境变量，注入 sandbox session；`env` 继承自 `_HarborEnvConfig`，保留不动
+- `trial/config.py` 零改动，`_HarborEnvConfig` 只是 `config.py` 内的局部 import 别名
 
 `Sandbox(config.environment)` 天然兼容，无需修改 `Sandbox` 内部逻辑。
 
@@ -79,10 +85,10 @@ class EnvironmentConfig(SandboxConfig, _HarborEnvConfig):
 | `setup_commands: list[str]` | `environment.setup_commands` |
 | `file_uploads: list[tuple]` | `environment.file_uploads` |
 | `auto_stop_sandbox: bool` | `environment.auto_stop` |
-| `environment: EnvironmentConfig`（旧 Harbor 类型） | `environment`（新统一类型，含 Harbor 字段） |
+| `environment: EnvironmentConfig`（旧 Harbor 类型） | `environment`（`RockEnvironmentConfig`，含 Harbor 字段） |
 
 **新增字段：**
-- `environment: EnvironmentConfig`（新的多重继承类型，默认值 `EnvironmentConfig()`）
+- `environment: RockEnvironmentConfig`（新的多重继承类型，默认值 `RockEnvironmentConfig()`）
 
 **删除：** `_rock_fields` 类变量。
 
@@ -96,20 +102,19 @@ Rock 字段（来自 `SandboxConfig` 和 Job 层）不序列化进去。
 通过 Pydantic 的 `model_validate` 向上转型到 `_HarborEnvConfig`，父类定义本身就是过滤器，无需维护字段列表：
 
 ```python
-# EnvironmentConfig 内
+# RockEnvironmentConfig 内
 def to_harbor_environment(self) -> dict:
     """向上转型到 _HarborEnvConfig，Pydantic 自动丢弃 Rock 字段，只保留 harbor 字段。"""
-    # exclude env：我们覆盖了它的语义，不传给 harbor
-    harbor = _HarborEnvConfig.model_validate(self.model_dump(mode="json", exclude={"env"}))
+    harbor = _HarborEnvConfig.model_validate(self.model_dump(mode="json"))
     return harbor.model_dump(mode="json", exclude_none=True)
 ```
 
 流程：
-1. `self.model_dump(exclude={"env"})` — 所有字段平铺，排除 `env`（语义已覆盖）
+1. `self.model_dump()` — 所有字段平铺（`envs` 不属于 harbor 字段）
 2. `_HarborEnvConfig.model_validate(...)` — Pydantic 忽略不认识的字段（Rock 字段），只保留 harbor 字段
 3. `.model_dump()` — 输出纯 harbor 字段
 
-`_HarborEnvConfig` 以后新增字段自动生效，零维护，不需要 `_HARBOR_ENV_FIELDS` 类变量。
+`_HarborEnvConfig` 以后新增字段自动生效，零维护。
 
 `JobConfig.to_harbor_yaml()` 实现：
 
@@ -210,24 +215,13 @@ agents:
 
 ---
 
-## 文件结构变化
-
-新增文件：
-```
-rock/sdk/agent/models/job/
-├── config.py        # JobConfig + 数据集相关（修改）
-├── environment.py   # 新增：EnvironmentConfig（多重继承）
-└── result.py
-```
-
 ## 需要修改的文件
 
 | 文件 | 变更内容 |
 |------|----------|
-| `rock/sdk/agent/models/job/environment.py` | **新建**：`EnvironmentConfig`（多重继承 `SandboxConfig` + `_HarborEnvConfig`） |
-| `rock/sdk/agent/models/job/config.py` | 删除旧 Rock 扩展字段，新增 `environment: EnvironmentConfig`，更新 `to_harbor_yaml()` |
-| `rock/sdk/agent/models/job/__init__.py` | 导出 `EnvironmentConfig` |
-| `rock/sdk/agent/__init__.py` | `EnvironmentConfig` 改从 `job.environment` 导入 |
+| `rock/sdk/agent/models/job/config.py` | 新增 `RockEnvironmentConfig`，删除旧 Rock 扩展字段，更新 `JobConfig`、`to_harbor_yaml()`、`from_yaml()` |
+| `rock/sdk/agent/models/job/__init__.py` | 导出 `RockEnvironmentConfig` |
+| `rock/sdk/agent/__init__.py` | 导出 `RockEnvironmentConfig`（替代旧 `EnvironmentConfig` 导出） |
 | `rock/sdk/agent/models/__init__.py` | 同上 |
 | `rock/sdk/agent/job.py` | 更新所有字段引用 |
 | `rock/sdk/sandbox/config.py` | 不变 |
