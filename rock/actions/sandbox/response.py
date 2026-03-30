@@ -15,6 +15,7 @@ class SandboxResponse(BaseModel):
 class State(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
+    STOPPED = "stopped"
 
 
 class IsAliveResponse(BaseModel):
