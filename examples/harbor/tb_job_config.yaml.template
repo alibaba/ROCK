@@ -1,6 +1,7 @@
 # ── Rock Environment ─────────────────────────────────
 environment:
   base_url: "<your-rock-base-url>"
+  xrl_authorization: "<your-xrl-auth-token>"
   image: "<your-harbor-image:tag>"
   cluster: "<your-cluster>"
   memory: "16g"
