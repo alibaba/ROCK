@@ -32,32 +32,29 @@ from rock.sdk.sandbox.config import SandboxConfig
 
 
 class RockEnvironmentConfig(SandboxConfig, _HarborEnvConfig):
-    """统一的 Rock 环境配置。
+    """Unified Rock environment config (SandboxConfig + HarborEnvConfig).
 
-    多重继承 SandboxConfig（Rock 沙箱层）和 _HarborEnvConfig（Harbor 环境层），
-    所有字段平铺，用户只需填写这一个块。
-
-    序列化时通过 to_harbor_environment() 向上转型到 _HarborEnvConfig，
-    自动过滤 Rock 字段，只输出 harbor 原生字段。
+    Multiple inheritance flattens all fields into a single block.
+    Rock-specific fields are stripped out when serializing to Harbor YAML
+    via to_harbor_environment() using a model_validate upcast.
     """
 
-    # ── Rock env vars ──
-    # 注入到 sandbox bash session；harbor 作为子进程自然继承
+    # Env vars injected into the sandbox bash session.
+    # Harbor runs as a subprocess and inherits them naturally.
     envs: dict[str, str] = Field(default_factory=dict)
-    # env 继承自 _HarborEnvConfig，保留不动
+    # env is inherited from _HarborEnvConfig unchanged.
 
-    # ── Job 执行配置 ──
     setup_commands: list[str] = Field(default_factory=list)
     file_uploads: list[tuple[str, str]] = Field(
         default_factory=list,
-        description="运行前上传的文件/目录：[(本地路径, 沙箱路径), ...]",
+        description="Files/dirs to upload before running: [(local_path, sandbox_path), ...]",
     )
     auto_stop: bool = False
 
     def to_harbor_environment(self) -> dict:
-        """向上转型到 _HarborEnvConfig，自动丢弃 Rock 字段，只保留 harbor 字段。
+        """Upcast to _HarborEnvConfig, discarding Rock-only fields.
 
-        envs 不属于 harbor 字段，Pydantic model_validate 自动忽略。
+        envs is not a harbor field and is silently ignored by model_validate.
         """
         harbor = _HarborEnvConfig.model_validate(self.model_dump(mode="json"))
         return harbor.model_dump(mode="json", exclude_none=True)
