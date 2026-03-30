@@ -163,7 +163,13 @@ if __name__ == "__main__":
 
 | 📣 Update Content |
 |:-----------|
-| **[Latest]** 🎉 ROCK v1.3.0 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.3.0) |
+| **[Latest]** 🎉 ROCK v1.4.7 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.4.7) |
+| **[2026-03-27]** 🎉 ROCK v1.4.4 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.4.4) |
+| **[2026-03-24]** 🎉 ROCK v1.4.3 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.4.3) |
+| **[2026-03-17]** 🎉 ROCK v1.4.2 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.4.2) |
+| **[2026-03-14]** 🎉 ROCK v1.4.1 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.4.1) |
+| **[2026-03-14]** 🎉 ROCK v1.4.0 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.4.0) |
+| **[2026-03-03]** 🎉 ROCK v1.3.0 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.3.0) |
 
 ---
 
