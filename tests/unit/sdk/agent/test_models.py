@@ -2,9 +2,11 @@ from pathlib import Path
 
 from rock.sdk.agent.models.environment_type import EnvironmentType
 from rock.sdk.agent.models.job.config import (
-    DatasetConfig,
     JobConfig,
+    LocalDatasetConfig,
     OrchestratorConfig,
+    RegistryDatasetConfig,
+    RemoteRegistryInfo,
     RetryConfig,
 )
 from rock.sdk.agent.models.metric.config import MetricConfig
@@ -160,20 +162,34 @@ class TestOrchestratorConfig:
         assert o.n_concurrent_trials == 8
 
 
-class TestDatasetConfig:
+class TestLocalDatasetConfig:
     def test_minimal(self):
-        d = DatasetConfig()
+        d = LocalDatasetConfig(path="/data/tasks")
+        assert d.path == Path("/data/tasks")
         assert d.task_names is None
         assert d.n_tasks is None
-        assert d.path is None
-        assert d.name is None
 
-    def test_local_dataset(self):
-        d = DatasetConfig(path="/data/tasks")
-        assert d.path == Path("/data/tasks")
+    def test_with_task_names(self):
+        d = LocalDatasetConfig(path="/data/tasks", task_names=["task-1", "task-2"])
+        assert d.task_names == ["task-1", "task-2"]
 
-    def test_registry_dataset(self):
-        d = DatasetConfig(name="terminal-bench", version="2.0", n_tasks=50)
+
+class TestRegistryDatasetConfig:
+    def test_minimal(self):
+        d = RegistryDatasetConfig(
+            registry=RemoteRegistryInfo(),
+            name="terminal-bench",
+        )
+        assert d.name == "terminal-bench"
+        assert d.version is None
+
+    def test_with_version(self):
+        d = RegistryDatasetConfig(
+            registry=RemoteRegistryInfo(),
+            name="terminal-bench",
+            version="2.0",
+            n_tasks=50,
+        )
         assert d.name == "terminal-bench"
         assert d.version == "2.0"
         assert d.n_tasks == 50
@@ -195,11 +211,10 @@ class TestJobConfig:
 
     def test_rock_extension_defaults(self):
         cfg = JobConfig()
-        assert cfg.sandbox is None
+        assert cfg.sandbox_config is None
         assert cfg.setup_commands == []
-        assert cfg.result_file == ""
-        assert cfg.collect_trajectory is False
-        assert cfg.auto_start_sandbox is True
+        assert cfg.file_uploads == []
+        assert cfg.sandbox_env == {}
         assert cfg.auto_stop_sandbox is False
 
     def test_with_full_config(self):
@@ -207,15 +222,13 @@ class TestJobConfig:
             job_name="test-job",
             n_attempts=2,
             agents=[AgentConfig(name="terminus-2", model_name="hosted_vllm/m")],
-            datasets=[DatasetConfig(name="terminal-bench", version="2.0")],
+            datasets=[RegistryDatasetConfig(registry=RemoteRegistryInfo(), name="terminal-bench", version="2.0")],
             setup_commands=["pip install harbor"],
-            collect_trajectory=True,
         )
         assert cfg.job_name == "test-job"
         assert cfg.n_attempts == 2
         assert len(cfg.agents) == 1
         assert cfg.agents[0].name == "terminus-2"
-        assert cfg.collect_trajectory is True
 
 
 class TestPublicAPI:

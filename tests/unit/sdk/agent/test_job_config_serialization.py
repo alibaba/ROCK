@@ -2,7 +2,12 @@ from pathlib import Path
 
 import yaml
 
-from rock.sdk.agent.models.job.config import DatasetConfig, JobConfig
+from rock.sdk.agent.models.job.config import (
+    JobConfig,
+    LocalDatasetConfig,
+    RegistryDatasetConfig,
+    RemoteRegistryInfo,
+)
 from rock.sdk.agent.models.metric.config import MetricConfig
 from rock.sdk.agent.models.trial.config import AgentConfig, EnvironmentConfig, TaskConfig
 
@@ -26,18 +31,18 @@ class TestJobConfigToHarborYaml:
     def test_excludes_rock_fields(self):
         cfg = JobConfig(
             setup_commands=["pip install harbor"],
-            collect_trajectory=True,
-            auto_start_sandbox=False,
+            file_uploads=[("local.txt", "/sandbox/remote.txt")],
+            sandbox_env={"API_KEY": "sk-xxx"},
+            auto_stop_sandbox=True,
         )
         yaml_str = cfg.to_harbor_yaml()
         data = yaml.safe_load(yaml_str)
 
-        assert "sandbox" not in data
+        assert "sandbox_config" not in data
         assert "setup_commands" not in data
-        assert "collect_trajectory" not in data
-        assert "auto_start_sandbox" not in data
+        assert "file_uploads" not in data
+        assert "sandbox_env" not in data
         assert "auto_stop_sandbox" not in data
-        assert "result_file" not in data
 
     def test_excludes_none_values(self):
         cfg = JobConfig(
@@ -73,7 +78,9 @@ class TestJobConfigToHarborYaml:
                     env={"LLM_API_KEY": "sk-xxx"},
                 )
             ],
-            datasets=[DatasetConfig(name="terminal-bench", version="2.0", n_tasks=50)],
+            datasets=[
+                RegistryDatasetConfig(registry=RemoteRegistryInfo(), name="terminal-bench", version="2.0", n_tasks=50)
+            ],
             metrics=[MetricConfig(type="mean")],
         )
         yaml_str = cfg.to_harbor_yaml()
@@ -97,7 +104,9 @@ agents:
   - name: terminus-2
     model_name: hosted_vllm/my-model
 datasets:
-  - name: terminal-bench
+  - registry:
+      url: https://example.com/registry.json
+    name: terminal-bench
     version: "2.0"
 """
         yaml_file = tmp_path / "config.yaml"
@@ -121,3 +130,20 @@ agents:
         cfg = JobConfig.from_yaml(str(yaml_file), setup_commands=["pip install harbor"])
         assert cfg.job_name == "loaded-job"
         assert cfg.setup_commands == ["pip install harbor"]
+
+    def test_from_yaml_with_local_dataset(self, tmp_path):
+        yaml_content = """
+job_name: local-dataset-job
+datasets:
+  - path: /data/tasks
+    task_names:
+      - task-1
+      - task-2
+"""
+        yaml_file = tmp_path / "config.yaml"
+        yaml_file.write_text(yaml_content)
+
+        cfg = JobConfig.from_yaml(str(yaml_file))
+        assert cfg.job_name == "local-dataset-job"
+        assert isinstance(cfg.datasets[0], LocalDatasetConfig)
+        assert cfg.datasets[0].path == Path("/data/tasks")

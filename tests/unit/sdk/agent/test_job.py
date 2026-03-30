@@ -1,9 +1,10 @@
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from rock.sdk.agent.job import Job, JobResult, JobStatus, TrialResult
-from rock.sdk.agent.models.job.config import DatasetConfig, JobConfig
+from rock.sdk.agent.job import Job, JobResult, JobStatus
+from rock.sdk.agent.models.job.config import JobConfig, RegistryDatasetConfig, RemoteRegistryInfo
 from rock.sdk.agent.models.trial.config import AgentConfig
+from rock.sdk.agent.models.trial.result import ExceptionInfo, TrialResult, VerifierResult
 
 
 class TestJobStatus:
@@ -17,26 +18,45 @@ class TestJobStatus:
 
 class TestTrialResult:
     def test_defaults(self):
-        t = TrialResult(task_name="fix-bug", score=1.0)
+        t = TrialResult(task_name="fix-bug")
         assert t.task_name == "fix-bug"
+        assert t.score == 0.0  # computed property from verifier_result
+        assert t.status == "completed"  # computed property, no exception_info
+        assert t.token_ids == []  # computed property
+        assert t.duration_sec == 0.0  # computed property
+
+    def test_with_verifier_result(self):
+        t = TrialResult(
+            task_name="fix-bug",
+            verifier_result=VerifierResult(rewards={"reward": 1.0}),
+        )
         assert t.score == 1.0
-        assert t.status == JobStatus.COMPLETED
-        assert t.rewards == {}
-        assert t.trajectory_path is None
-        assert t.token_ids == []
-        assert t.duration_sec == 0.0
-        assert t.error is None
 
     def test_failed_trial(self):
         t = TrialResult(
             task_name="fix-bug",
-            score=0.0,
-            status=JobStatus.FAILED,
-            error="TimeoutError",
-            duration_sec=300.0,
+            exception_info=ExceptionInfo(
+                exception_type="TimeoutError",
+                exception_message="agent timed out",
+            ),
         )
-        assert t.status == JobStatus.FAILED
-        assert t.error == "TimeoutError"
+        assert t.status == "failed"
+
+    def test_from_harbor_json(self):
+        data = {
+            "trial_name": "trial-001",
+            "task_name": "fix-dockerfile",
+            "started_at": "2026-03-27T10:00:00Z",
+            "finished_at": "2026-03-27T10:05:30Z",
+            "verifier_result": {"rewards": {"reward": 1.0}},
+            "agent_result": {"n_input_tokens": 15000, "n_output_tokens": 3000},
+            "exception_info": None,
+        }
+        t = TrialResult.from_harbor_json(data)
+        assert t.task_name == "fix-dockerfile"
+        assert t.trial_name == "trial-001"
+        assert t.score == 1.0
+        assert t.status == "completed"
 
 
 class TestJobResult:
@@ -44,9 +64,9 @@ class TestJobResult:
         r = JobResult(
             job_id="job-123",
             status=JobStatus.COMPLETED,
-            trials=[
-                TrialResult(task_name="t1", score=1.0),
-                TrialResult(task_name="t2", score=0.5),
+            trial_results=[
+                TrialResult(task_name="t1", verifier_result=VerifierResult(rewards={"reward": 1.0})),
+                TrialResult(task_name="t2", verifier_result=VerifierResult(rewards={"reward": 0.5})),
             ],
             raw_output="",
             exit_code=0,
@@ -60,9 +80,12 @@ class TestJobResult:
         r = JobResult(
             job_id="job-456",
             status=JobStatus.COMPLETED,
-            trials=[
-                TrialResult(task_name="t1", score=1.0),
-                TrialResult(task_name="t2", score=0.0, status=JobStatus.FAILED, error="err"),
+            trial_results=[
+                TrialResult(task_name="t1", verifier_result=VerifierResult(rewards={"reward": 1.0})),
+                TrialResult(
+                    task_name="t2",
+                    exception_info=ExceptionInfo(exception_type="Error", exception_message="err"),
+                ),
             ],
             raw_output="",
             exit_code=0,
@@ -72,69 +95,10 @@ class TestJobResult:
         assert r.n_failed == 1
 
     def test_empty_trials(self):
-        r = JobResult(job_id="job-789", status=JobStatus.FAILED, trials=[], raw_output="error", exit_code=1)
+        r = JobResult(job_id="job-789", status=JobStatus.FAILED, trial_results=[], raw_output="error", exit_code=1)
         assert r.score == 0.0
         assert r.n_completed == 0
         assert r.n_failed == 0
-
-
-class TestParseHarborResult:
-    """Test parsing Harbor result.json into JobResult."""
-
-    def test_parse_result_json(self):
-        harbor_result = {
-            "job_name": "my-job",
-            "stats": {"n_trials": 2, "n_errors": 0, "evals": {"tb": {"metrics": {"mean": 0.72}}}},
-            "trial_results": [
-                {
-                    "trial_name": "trial-001",
-                    "task_name": "fix-dockerfile",
-                    "started_at": "2026-03-27T10:00:00Z",
-                    "finished_at": "2026-03-27T10:05:30Z",
-                    "verifier_result": {"rewards": {"reward": 1.0}},
-                    "agent_result": {"n_input_tokens": 15000, "n_output_tokens": 3000},
-                    "exception_info": None,
-                },
-                {
-                    "trial_name": "trial-002",
-                    "task_name": "fix-syntax",
-                    "started_at": "2026-03-27T10:06:00Z",
-                    "finished_at": "2026-03-27T10:08:00Z",
-                    "verifier_result": {"rewards": {"reward": 0.0}},
-                    "agent_result": {"n_input_tokens": 8000, "n_output_tokens": 1500},
-                    "exception_info": None,
-                },
-            ],
-        }
-        result = JobResult.from_harbor_result(json.dumps(harbor_result), job_id="test-job")
-        assert result.job_id == "test-job"
-        assert result.status == JobStatus.COMPLETED
-        assert len(result.trials) == 2
-        assert result.trials[0].task_name == "fix-dockerfile"
-        assert result.trials[0].score == 1.0
-        assert result.trials[0].rewards == {"reward": 1.0}
-        assert result.trials[1].score == 0.0
-
-    def test_parse_result_with_error(self):
-        harbor_result = {
-            "job_name": "my-job",
-            "stats": {"n_trials": 1, "n_errors": 1},
-            "trial_results": [
-                {
-                    "trial_name": "trial-001",
-                    "task_name": "fix-bug",
-                    "started_at": "2026-03-27T10:00:00Z",
-                    "finished_at": "2026-03-27T10:01:00Z",
-                    "verifier_result": None,
-                    "agent_result": None,
-                    "exception_info": "AgentTimeoutError: agent timed out after 300s",
-                },
-            ],
-        }
-        result = JobResult.from_harbor_result(json.dumps(harbor_result), job_id="err-job")
-        assert result.trials[0].status == JobStatus.FAILED
-        assert result.trials[0].error == "AgentTimeoutError: agent timed out after 300s"
-        assert result.trials[0].score == 0.0
 
 
 def _make_mock_sandbox():
@@ -144,14 +108,14 @@ def _make_mock_sandbox():
     sandbox.start = AsyncMock()
     sandbox.close = AsyncMock()
     sandbox.create_session = AsyncMock()
-    sandbox.write_file = AsyncMock()
+    sandbox.upload_by_path = AsyncMock(return_value=MagicMock(success=True))
+    sandbox.fs = AsyncMock()
+    sandbox.fs.upload_dir = AsyncMock()
 
-    # Default arun: returns successful observation
-    obs = MagicMock()
-    obs.output = ""
-    obs.exit_code = 0
-    obs.failure_reason = ""
-    sandbox.arun = AsyncMock(return_value=obs)
+    # execute for find command
+    execute_result = MagicMock()
+    execute_result.stdout = "/jobs/test-job/trials/trial-001/result.json"
+    sandbox.execute = AsyncMock(return_value=execute_result)
 
     # start_nohup_process returns (pid, None) — success
     sandbox.start_nohup_process = AsyncMock(return_value=(12345, None))
@@ -166,23 +130,17 @@ def _make_mock_sandbox():
     nohup_obs.failure_reason = ""
     sandbox.handle_nohup_output = AsyncMock(return_value=nohup_obs)
 
-    # read_file returns result.json content
+    # read_file returns trial result.json content
     read_response = MagicMock()
     read_response.content = json.dumps(
         {
-            "job_name": "test",
-            "stats": {"n_trials": 1, "n_errors": 0},
-            "trial_results": [
-                {
-                    "trial_name": "trial-001",
-                    "task_name": "t1",
-                    "started_at": "2026-03-27T10:00:00Z",
-                    "finished_at": "2026-03-27T10:05:00Z",
-                    "verifier_result": {"rewards": {"reward": 1.0}},
-                    "agent_result": {},
-                    "exception_info": None,
-                }
-            ],
+            "trial_name": "trial-001",
+            "task_name": "t1",
+            "started_at": "2026-03-27T10:00:00Z",
+            "finished_at": "2026-03-27T10:05:00Z",
+            "verifier_result": {"rewards": {"reward": 1.0}},
+            "agent_result": {},
+            "exception_info": None,
         }
     )
     sandbox.read_file = AsyncMock(return_value=read_response)
@@ -190,81 +148,94 @@ def _make_mock_sandbox():
     return sandbox
 
 
-class TestJobRun:
+class TestJob:
+    def test_init_requires_jobconfig(self):
+        config = JobConfig()
+        job = Job(config)
+        assert job._config == config
+
+    def test_init_rejects_wrong_type(self):
+        import pytest
+
+        with pytest.raises(TypeError):
+            Job("not a config")
+
     async def test_run_full_lifecycle(self):
-        sandbox = _make_mock_sandbox()
-        config = JobConfig(
-            auto_start_sandbox=False,
-            agents=[AgentConfig(name="t2")],
-            datasets=[DatasetConfig(name="tb", version="2.0")],
-        )
-        job = Job(config, sandbox=sandbox)
-        result = await job.run()
+        mock_sandbox = _make_mock_sandbox()
 
-        assert result.status == JobStatus.COMPLETED
-        assert len(result.trials) == 1
-        assert result.trials[0].score == 1.0
+        with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
+            config = JobConfig(
+                job_name="test-job",
+                agents=[AgentConfig(name="t2")],
+                datasets=[RegistryDatasetConfig(registry=RemoteRegistryInfo(), name="tb", version="2.0")],
+            )
+            job = Job(config)
+            result = await job.run()
 
-        # Verify config was uploaded
-        sandbox.write_file.assert_called_once()
+            assert result.status == JobStatus.COMPLETED
+            assert len(result.trial_results) == 1
+            assert result.trial_results[0].score == 1.0
 
-        # Verify harbor command was started via nohup
-        sandbox.start_nohup_process.assert_called_once()
-        cmd = sandbox.start_nohup_process.call_args[1]["cmd"]
-        assert "harbor" in cmd
-        assert ".yaml" in cmd or ".yml" in cmd
+            # Verify sandbox was started
+            mock_sandbox.start.assert_called_once()
 
-    async def test_run_with_setup_commands(self):
-        sandbox = _make_mock_sandbox()
-        config = JobConfig(
-            auto_start_sandbox=False,
-            setup_commands=["pip install harbor --quiet", "echo ready"],
-        )
-        job = Job(config, sandbox=sandbox)
-        await job.run()
+            # Verify harbor command was started via nohup
+            mock_sandbox.start_nohup_process.assert_called_once()
 
-        # arun should have been called for each setup command
-        arun_calls = sandbox.arun.call_args_list
-        setup_cmds = [call[1].get("cmd", call[0][0] if call[0] else "") for call in arun_calls]
-        assert "pip install harbor --quiet" in setup_cmds
-        assert "echo ready" in setup_cmds
+    async def test_run_auto_stop_sandbox(self):
+        mock_sandbox = _make_mock_sandbox()
 
-    async def test_run_auto_start_stop_sandbox(self):
-        sandbox = _make_mock_sandbox()
-        config = JobConfig(auto_start_sandbox=True, auto_stop_sandbox=True)
-        job = Job(config, sandbox=sandbox)
-        await job.run()
+        with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
+            config = JobConfig(job_name="test-job", auto_stop_sandbox=True)
+            job = Job(config)
+            await job.run()
 
-        sandbox.start.assert_called_once()
-        sandbox.close.assert_called_once()
+            mock_sandbox.close.assert_called_once()
 
-    async def test_run_skips_start_stop_when_disabled(self):
-        sandbox = _make_mock_sandbox()
-        config = JobConfig(auto_start_sandbox=False, auto_stop_sandbox=False)
-        job = Job(config, sandbox=sandbox)
-        await job.run()
+    async def test_run_does_not_stop_when_disabled(self):
+        mock_sandbox = _make_mock_sandbox()
 
-        sandbox.start.assert_not_called()
-        sandbox.close.assert_not_called()
+        with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
+            config = JobConfig(job_name="test-job", auto_stop_sandbox=False)
+            job = Job(config)
+            await job.run()
 
+            mock_sandbox.close.assert_not_called()
 
-class TestJobSubmitWait:
-    async def test_submit_returns_job_id(self):
-        sandbox = _make_mock_sandbox()
-        config = JobConfig(auto_start_sandbox=False)
-        job = Job(config, sandbox=sandbox)
-        job_id = await job.submit()
+    async def test_submit_starts_sandbox(self):
+        mock_sandbox = _make_mock_sandbox()
 
-        assert job_id is not None
-        assert isinstance(job_id, str)
-        sandbox.start_nohup_process.assert_called_once()
+        with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
+            config = JobConfig(job_name="test-job")
+            job = Job(config)
+            await job.submit()
+
+            mock_sandbox.start.assert_called_once()
+            mock_sandbox.start_nohup_process.assert_called_once()
 
     async def test_wait_returns_result(self):
-        sandbox = _make_mock_sandbox()
-        config = JobConfig(auto_start_sandbox=False)
-        job = Job(config, sandbox=sandbox)
-        job_id = await job.submit()
-        result = await job.wait(job_id)
+        mock_sandbox = _make_mock_sandbox()
 
-        assert isinstance(result, JobResult)
-        assert result.status == JobStatus.COMPLETED
+        with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
+            config = JobConfig(job_name="test-job")
+            job = Job(config)
+            await job.submit()
+            result = await job.wait()
+
+            assert isinstance(result, JobResult)
+            assert result.status == JobStatus.COMPLETED
+
+    async def test_cancel_kills_process(self):
+        mock_sandbox = _make_mock_sandbox()
+        mock_sandbox.arun = AsyncMock(return_value=MagicMock(output="", exit_code=0))
+
+        with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
+            config = JobConfig(job_name="test-job")
+            job = Job(config)
+            await job.submit()
+            await job.cancel()
+
+            mock_sandbox.arun.assert_called_once()
+            # Verify kill command was issued
+            call_args = mock_sandbox.arun.call_args
+            assert "kill" in str(call_args)
