@@ -37,34 +37,13 @@ JobConfig
     agents, verifier, metrics, orchestrator, datasets, tasks, artifacts, ...
 ```
 
-### `EnvironmentConfig`（新，以 Rock 为主视角）
+### `EnvironmentConfig`（新，继承自 `SandboxConfig`）
 
-同时替换原来的 `SandboxConfig` 和原来的 `EnvironmentConfig`。
+直接继承 `SandboxConfig`，只在其基础上追加 Job 层新增字段。
+`SandboxConfig` 的所有字段（`image`、`memory`、`cpus`、`cluster`、`base_url` 等）全部继承，不重复定义。
 
 ```python
-class EnvironmentConfig(BaseModel):
-    # ── Rock 沙箱连接信息 ──
-    base_url: str = env_vars.ROCK_BASE_URL
-    extra_headers: dict[str, str] = Field(default_factory=dict)
-    cluster: str = "zb"
-    namespace: str | None = None
-    route_key: str | None = None
-    registry_username: str | None = None
-    registry_password: str | None = None
-    user_id: str | None = None
-    experiment_id: str | None = None
-    use_kata_runtime: bool = False
-    sandbox_id: str | None = None
-
-    # ── Rock 沙箱运行规格 ──
-    image: str = "python:3.11"
-    image_os: str = "linux"
-    memory: str = "8g"
-    cpus: float = 2
-    limit_cpus: float | None = None
-    startup_timeout: float = env_vars.ROCK_SANDBOX_STARTUP_TIMEOUT_SECONDS
-    auto_clear_seconds: int = 60 * 5
-
+class EnvironmentConfig(SandboxConfig):
     # ── 统一 env vars ──
     # 注入到 sandbox bash session；harbor 作为子进程自然继承，无需额外注入
     env: dict[str, str] = Field(default_factory=dict)
@@ -81,8 +60,11 @@ class EnvironmentConfig(BaseModel):
     advanced: AdvancedEnvConfig = Field(default_factory=AdvancedEnvConfig)
 ```
 
-### `AdvancedEnvConfig`（新，对齐原 `EnvironmentConfig`）
+`Sandbox(config.environment)` 天然兼容，无需修改 `Sandbox` 内部逻辑。
 
+### `AdvancedEnvConfig`（原 `EnvironmentConfig` 改名）
+
+即当前 `rock/sdk/agent/models/trial/config.py` 中的 `EnvironmentConfig` **直接改名**，字段不变。
 面向需要直接控制 Harbor 环境层的高级用户。绝大多数用户无需填写此字段。
 
 ```python
@@ -154,9 +136,7 @@ def to_harbor_yaml(self) -> str:
 
 ## `SandboxConfig` 的处理
 
-`rock/sdk/sandbox/config.py` 中的 `SandboxConfig` 被 `Sandbox` client 使用。
-
-**方案选择：** `EnvironmentConfig` 继承自 `SandboxConfig`，在其基础上添加 Job 层字段。
+`EnvironmentConfig` 继承自 `SandboxConfig`，在其基础上追加 Job 层字段。
 `Sandbox(config.environment)` 可直接使用，无需修改 `Sandbox` 内部逻辑。
 
 ---
