@@ -40,6 +40,7 @@ async def test_reconnect_ray_calls_ray_shutdown_and_init_and_reset_counters(ray_
             runtime_env=ray_service._config.runtime_env,
             namespace=ray_service._config.namespace,
             resources=ray_service._config.resources,
+            _temp_dir=ray_service._config.temp_dir,
         )
 
         assert service._ray_request_count == 0
@@ -72,6 +73,7 @@ async def test_reconnect_ray_skip_when_reader_exists_and_write_lock_timeout(ray_
 
         assert service._ray_request_count == old_count
         assert service._ray_establish_time == old_est
+
 
 @pytest.mark.need_docker
 @pytest.mark.need_ray
