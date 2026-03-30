@@ -81,10 +81,10 @@ class TestToHarborEnvironment:
         assert "file_uploads" not in result
         assert "auto_stop" not in result
 
-    def test_excludes_env_field(self):
+    def test_env_passes_through_to_harbor(self):
         env = RockEnvironmentConfig(env={"KEY": "val"})
         result = env.to_harbor_environment()
-        assert "envs" not in result
+        assert result["env"] == {"KEY": "val"}
 
     def test_excludes_none_values(self):
         env = RockEnvironmentConfig(type=None, import_path=None, override_cpus=None)
@@ -192,19 +192,17 @@ class TestJobConfigToHarborYaml:
         assert data["environment"]["override_cpus"] == 4
         # Rock fields must not be in environment section
         assert "image" not in data.get("environment", {})
-        assert "envs" not in data.get("environment", {})
         assert data["agents"][0]["kwargs"]["max_iterations"] == 30
         assert data["datasets"][0]["name"] == "terminal-bench"
 
-    def test_env_not_in_harbor_yaml(self):
-        """envs goes to sandbox session, not harbor YAML."""
+    def test_env_in_harbor_yaml(self):
+        """env is passed to both sandbox session and harbor YAML."""
         cfg = JobConfig(environment=RockEnvironmentConfig(env={"OPENAI_API_KEY": "sk-xxx"}))
         yaml_str = cfg.to_harbor_yaml()
         data = yaml.safe_load(yaml_str)
 
         assert "sandbox_env" not in data
-        env_section = data.get("environment", {})
-        assert "envs" not in env_section
+        assert data["environment"]["env"] == {"OPENAI_API_KEY": "sk-xxx"}
 
 
 class TestJobConfigFromYaml:

@@ -40,11 +40,6 @@ class RockEnvironmentConfig(SandboxConfig, _HarborEnvConfig):
     YAML via to_harbor_environment().
     """
 
-    # Env vars injected into the sandbox bash session.
-    # Harbor runs as a subprocess and inherits them naturally.
-    # Overrides the env field from the parent EnvironmentConfig.
-    env: dict[str, str] = Field(default_factory=dict)
-
     setup_commands: list[str] = Field(default_factory=list)
     file_uploads: list[tuple[str, str]] = Field(
         default_factory=list,
@@ -55,11 +50,9 @@ class RockEnvironmentConfig(SandboxConfig, _HarborEnvConfig):
     def to_harbor_environment(self) -> dict:
         """Return only harbor-native environment fields, discarding Rock-only fields.
 
-        env is excluded: it's injected into the sandbox session instead,
-        harbor inherits it naturally as a subprocess.
         Uses model_validate upcast — unknown fields (Rock-only) are silently ignored.
         """
-        harbor = _HarborEnvConfig.model_validate(self.model_dump(mode="json", exclude={"env"}))
+        harbor = _HarborEnvConfig.model_validate(self.model_dump(mode="json"))
         return harbor.model_dump(mode="json", exclude_none=True)
 
 
