@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from rock.sdk.agent.models.environment_type import EnvironmentType
+from rock.sdk.sandbox.config import SandboxConfig
 
 
 class AgentConfig(BaseModel):
@@ -32,6 +33,31 @@ class EnvironmentConfig(BaseModel):
     mounts_json: list[dict[str, Any]] | None = None
     env: dict[str, str] = Field(default_factory=dict)
     kwargs: dict[str, Any] = Field(default_factory=dict)
+
+
+class RockEnvironmentConfig(SandboxConfig, EnvironmentConfig):
+    """Unified Rock environment config.
+
+    Combines sandbox lifecycle fields (image, memory, cpus, ...) with
+    harbor environment fields (force_build, override_cpus, ...) in a single
+    flat block. Rock-specific fields are stripped when serializing to Harbor
+    YAML via to_harbor_environment().
+    """
+
+    setup_commands: list[str] = Field(default_factory=list)
+    file_uploads: list[tuple[str, str]] = Field(
+        default_factory=list,
+        description="Files/dirs to upload before running: [(local_path, sandbox_path), ...]",
+    )
+    auto_stop: bool = False
+
+    def to_harbor_environment(self) -> dict:
+        """Return only harbor-native environment fields, discarding Rock-only fields.
+
+        Uses model_validate upcast — unknown fields (Rock-only) are silently ignored.
+        """
+        harbor = EnvironmentConfig.model_validate(self.model_dump(mode="json"))
+        return harbor.model_dump(mode="json", exclude_none=True)
 
 
 class VerifierConfig(BaseModel):

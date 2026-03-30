@@ -1,7 +1,6 @@
 """Job configuration models aligned with harbor.models.job.config.
 
 Harbor-native fields are serialized to YAML and passed to ``harbor jobs start -c``.
-Rock environment fields live in RockEnvironmentConfig (unified SandboxConfig + HarborEnvConfig).
 """
 
 from __future__ import annotations
@@ -18,43 +17,10 @@ from rock.sdk.agent.models.orchestrator_type import OrchestratorType
 from rock.sdk.agent.models.trial.config import (
     AgentConfig,
     ArtifactConfig,
+    RockEnvironmentConfig,
     TaskConfig,
     VerifierConfig,
 )
-from rock.sdk.agent.models.trial.config import (
-    EnvironmentConfig as _HarborEnvConfig,
-)
-from rock.sdk.sandbox.config import SandboxConfig
-
-# ---------------------------------------------------------------------------
-# RockEnvironmentConfig — unified environment config
-# ---------------------------------------------------------------------------
-
-
-class RockEnvironmentConfig(SandboxConfig, _HarborEnvConfig):
-    """Unified Rock environment config.
-
-    Combines sandbox lifecycle fields (image, memory, cpus, ...) with
-    harbor environment fields (force_build, override_cpus, ...) in a single
-    flat block. Rock-specific fields are stripped when serializing to Harbor
-    YAML via to_harbor_environment().
-    """
-
-    setup_commands: list[str] = Field(default_factory=list)
-    file_uploads: list[tuple[str, str]] = Field(
-        default_factory=list,
-        description="Files/dirs to upload before running: [(local_path, sandbox_path), ...]",
-    )
-    auto_stop: bool = False
-
-    def to_harbor_environment(self) -> dict:
-        """Return only harbor-native environment fields, discarding Rock-only fields.
-
-        Uses model_validate upcast — unknown fields (Rock-only) are silently ignored.
-        """
-        harbor = _HarborEnvConfig.model_validate(self.model_dump(mode="json"))
-        return harbor.model_dump(mode="json", exclude_none=True)
-
 
 # ---------------------------------------------------------------------------
 # RetryConfig / OrchestratorConfig
