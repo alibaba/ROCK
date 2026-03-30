@@ -145,7 +145,7 @@ class JobConfig(BaseModel):
 
     # ── Harbor native fields ──
     job_name: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d__%H-%M-%S"))
-    jobs_dir: Path = Path("jobs")
+    jobs_dir: Path = Path("/data/logs/user-defined/jobs")
     n_attempts: int = 1
     timeout_multiplier: float = 1.0
     agent_timeout_multiplier: float | None = None

@@ -24,6 +24,7 @@ logger = init_logger(__name__)
 
 DEFAULT_WAIT_TIMEOUT = 7200  # 2h fallback if no agent timeout configured
 CHECK_INTERVAL = 30  # seconds between process alive checks
+USER_DEFINED_LOGS = "/data/logs/user-defined"
 
 # ---------------------------------------------------------------------------
 # Script template
@@ -45,6 +46,9 @@ if command -v docker &>/dev/null; then
         if [ "$i" -eq 60 ]; then echo "WARN: dockerd failed to start within 60s"; fi
     done
 fi
+
+# ── Ensure output directory exists ──────────────────────────────────
+mkdir -p {user_defined_dir}
 
 # ── Setup commands ───────────────────────────────────────────────────
 {setup_commands}
@@ -163,14 +167,14 @@ class Job:
             await self._sandbox.fs.upload_dir(local_path, sandbox_path)
 
         # 2. Upload harbor config YAML + run script
-        config_path = f"/tmp/rock_job_{self._config.job_name}.yaml"
-        script_path = f"/tmp/rock_job_{self._config.job_name}.sh"
+        config_path = f"{USER_DEFINED_LOGS}/rock_job_{self._config.job_name}.yaml"
+        script_path = f"{USER_DEFINED_LOGS}/rock_job_{self._config.job_name}.sh"
         await self._upload_content(self._config.to_harbor_yaml(), config_path)
         await self._upload_content(self._render_run_script(config_path), script_path)
         logger.info(f"Config and script uploaded: {config_path}, {script_path}")
 
         # 3. Start script via nohup
-        self._tmp_file = f"/tmp/rock_job_{self._config.job_name}.out"
+        self._tmp_file = f"{USER_DEFINED_LOGS}/rock_job_{self._config.job_name}.out"
         pid, error = await self._sandbox.start_nohup_process(
             cmd=f"bash {script_path}",
             tmp_file=self._tmp_file,
@@ -195,6 +199,7 @@ class Job:
         return _RUN_SCRIPT_TEMPLATE.format(
             setup_commands=setup_block,
             config_path=config_path,
+            user_defined_dir=USER_DEFINED_LOGS,
         )
 
     # ------------------------------------------------------------------
