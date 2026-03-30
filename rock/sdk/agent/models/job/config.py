@@ -1,14 +1,14 @@
 """Job configuration models aligned with harbor.models.job.config.
 
 Harbor-native fields are serialized to YAML and passed to ``harbor jobs start -c``.
-Rock extension fields control the sandbox lifecycle.
+Rock environment fields live in RockEnvironmentConfig (unified SandboxConfig + HarborEnvConfig).
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -18,11 +18,54 @@ from rock.sdk.agent.models.orchestrator_type import OrchestratorType
 from rock.sdk.agent.models.trial.config import (
     AgentConfig,
     ArtifactConfig,
-    EnvironmentConfig,
     TaskConfig,
     VerifierConfig,
 )
+from rock.sdk.agent.models.trial.config import (
+    EnvironmentConfig as _HarborEnvConfig,
+)
 from rock.sdk.sandbox.config import SandboxConfig
+
+# ---------------------------------------------------------------------------
+# RockEnvironmentConfig — unified environment (SandboxConfig + HarborEnvConfig)
+# ---------------------------------------------------------------------------
+
+
+class RockEnvironmentConfig(SandboxConfig, _HarborEnvConfig):
+    """统一的 Rock 环境配置。
+
+    多重继承 SandboxConfig（Rock 沙箱层）和 _HarborEnvConfig（Harbor 环境层），
+    所有字段平铺，用户只需填写这一个块。
+
+    序列化时通过 to_harbor_environment() 向上转型到 _HarborEnvConfig，
+    自动过滤 Rock 字段，只输出 harbor 原生字段。
+    """
+
+    # ── Rock env vars ──
+    # 注入到 sandbox bash session；harbor 作为子进程自然继承
+    envs: dict[str, str] = Field(default_factory=dict)
+    # env 继承自 _HarborEnvConfig，保留不动
+
+    # ── Job 执行配置 ──
+    setup_commands: list[str] = Field(default_factory=list)
+    file_uploads: list[tuple[str, str]] = Field(
+        default_factory=list,
+        description="运行前上传的文件/目录：[(本地路径, 沙箱路径), ...]",
+    )
+    auto_stop: bool = False
+
+    def to_harbor_environment(self) -> dict:
+        """向上转型到 _HarborEnvConfig，自动丢弃 Rock 字段，只保留 harbor 字段。
+
+        envs 不属于 harbor 字段，Pydantic model_validate 自动忽略。
+        """
+        harbor = _HarborEnvConfig.model_validate(self.model_dump(mode="json"))
+        return harbor.model_dump(mode="json", exclude_none=True)
+
+
+# ---------------------------------------------------------------------------
+# RetryConfig / OrchestratorConfig
+# ---------------------------------------------------------------------------
 
 
 class RetryConfig(BaseModel):
@@ -125,24 +168,15 @@ DatasetConfig = LocalDatasetConfig | RegistryDatasetConfig
 
 
 class JobConfig(BaseModel):
-    """Job configuration combining Harbor-native fields with Rock extensions.
+    """Job configuration: Rock environment + Harbor-native benchmark fields.
 
-    Harbor-native fields are serialized to YAML and passed to ``harbor jobs start -c``.
-    Rock extension fields control sandbox lifecycle.
+    All Rock sandbox/lifecycle configuration lives in ``environment``.
+    Harbor-native fields (agents, datasets, etc.) are serialized to YAML
+    and passed to ``harbor jobs start -c``.
     """
 
-    # ── Rock extension fields ──
-    sandbox_config: SandboxConfig | None = None
-    setup_commands: list[str] = Field(default_factory=list)
-    file_uploads: list[tuple[str, str]] = Field(
-        default_factory=list,
-        description="Files/dirs to upload before running: [(local_path, sandbox_path), ...]",
-    )
-    sandbox_env: dict[str, str] = Field(
-        default_factory=dict,
-        description="Shell env vars exported before harbor run (OSS keys, API keys, etc.)",
-    )
-    auto_stop_sandbox: bool = False
+    # ── Rock environment (sandbox + lifecycle) ──
+    environment: RockEnvironmentConfig = Field(default_factory=RockEnvironmentConfig)
 
     # ── Harbor native fields ──
     job_name: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d__%H-%M-%S"))
@@ -155,7 +189,6 @@ class JobConfig(BaseModel):
     environment_build_timeout_multiplier: float | None = None
     debug: bool = False
     orchestrator: OrchestratorConfig = Field(default_factory=OrchestratorConfig)
-    environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
     verifier: VerifierConfig = Field(default_factory=VerifierConfig)
     metrics: list[MetricConfig] = Field(default_factory=list)
     agents: list[AgentConfig] = Field(default_factory=lambda: [AgentConfig()])
@@ -163,24 +196,18 @@ class JobConfig(BaseModel):
     tasks: list[TaskConfig] = Field(default_factory=list)
     artifacts: list[str | ArtifactConfig] = Field(default_factory=list)
 
-    # ── Rock extension field names (excluded from Harbor YAML) ──
-    _rock_fields: ClassVar[set[str]] = {
-        "sandbox_config",
-        "setup_commands",
-        "file_uploads",
-        "sandbox_env",
-        "auto_stop_sandbox",
-    }
-
     def to_harbor_yaml(self) -> str:
-        """Serialize Harbor-native fields to YAML string.
+        """Serialize Harbor-native fields to YAML for ``harbor jobs start -c``.
 
-        Excludes Rock extension fields and None values so the output
-        can be loaded by ``harbor jobs start -c``.
+        Rock environment fields are excluded. Harbor environment fields
+        (force_build, override_cpus, etc.) are included under ``environment``.
         """
         import yaml
 
-        data = self.model_dump(mode="json", exclude=self._rock_fields, exclude_none=True)
+        data = self.model_dump(mode="json", exclude={"environment"}, exclude_none=True)
+        harbor_env = self.environment.to_harbor_environment()
+        if harbor_env:
+            data["environment"] = harbor_env
         return yaml.dump(data, default_flow_style=False, allow_unicode=True)
 
     @classmethod
@@ -189,11 +216,24 @@ class JobConfig(BaseModel):
 
         Args:
             path: Path to the YAML file.
-            **overrides: Additional fields to set (e.g., sandbox_config, setup_commands).
+            **overrides: Fields to override. Pass ``environment`` as a dict
+                to merge into the loaded environment block, e.g.:
+                ``from_yaml(path, environment={"setup_commands": ["pip install x"]})``
         """
         import yaml
 
         with open(path) as f:
             data = yaml.safe_load(f)
+
+        # Merge environment overrides into the loaded environment block
+        if "environment" in overrides:
+            env_override = overrides.pop("environment")
+            existing = data.get("environment") or {}
+            if isinstance(env_override, dict):
+                existing.update(env_override)
+            elif hasattr(env_override, "model_dump"):
+                existing.update(env_override.model_dump(exclude_none=True))
+            data["environment"] = existing
+
         data.update(overrides)
         return cls(**data)
