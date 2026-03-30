@@ -7,13 +7,13 @@ from rock.sdk.agent.models.job.config import (
     RegistryDatasetConfig,
     RemoteRegistryInfo,
     RetryConfig,
+    RockEnvironmentConfig,
 )
 from rock.sdk.agent.models.job.result import JobResult, JobStatus
 from rock.sdk.agent.models.metric.config import MetricConfig
 from rock.sdk.agent.models.trial.config import (
     AgentConfig,
     ArtifactConfig,
-    EnvironmentConfig,
     TaskConfig,
     VerifierConfig,
 )
@@ -35,6 +35,7 @@ __all__ = [
     "AgentResult",
     "ExceptionInfo",
     "JobConfig",
+    "RockEnvironmentConfig",
     "RegistryDatasetConfig",
     "LocalDatasetConfig",
     "OssRegistryInfo",
@@ -42,7 +43,6 @@ __all__ = [
     "OrchestratorConfig",
     "RetryConfig",
     "AgentConfig",
-    "EnvironmentConfig",
     "VerifierConfig",
     "TaskConfig",
     "ArtifactConfig",

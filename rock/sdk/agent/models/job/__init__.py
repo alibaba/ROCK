@@ -6,6 +6,7 @@ from .config import (
     RegistryDatasetConfig,
     RemoteRegistryInfo,
     RetryConfig,
+    RockEnvironmentConfig,
 )
 from .result import JobResult, JobStatus
 
@@ -17,6 +18,7 @@ __all__ = [
     "LocalDatasetConfig",
     "OssRegistryInfo",
     "RemoteRegistryInfo",
+    "RockEnvironmentConfig",
     "JobResult",
     "JobStatus",
 ]
