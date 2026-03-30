@@ -213,7 +213,7 @@ class SandboxProxyService:
         target_url = await self.get_sandbox_websocket_url(sandbox_id, target_path, port=port)
 
         client_subprotocols = getattr(client_websocket, "subprotocols", []) or []
-        upstream_subprotocols = client_subprotocols if client_subprotocols else ["binary"]
+        upstream_subprotocols = client_subprotocols if client_subprotocols else ["binary", "base64"]
 
         try:
             async with websockets.connect(
