@@ -1,48 +1,49 @@
-# JobConfig Environment Refactor Design
+# JobConfig 环境配置重构设计
 
-**Date:** 2026-03-30
-**Scope:** `rock/sdk/agent/models/job/config.py`, `rock/sdk/agent/job.py`, related tests and examples
-**Breaking change:** Yes — no deprecation shims, direct replacement
-
----
-
-## Problem
-
-`JobConfig` currently exposes two overlapping environment concepts to users:
-
-1. **Rock extension fields** (`sandbox_config`, `sandbox_env`, `setup_commands`, `file_uploads`, `auto_stop_sandbox`) — control the Rock sandbox lifecycle
-2. **Harbor native `environment: EnvironmentConfig`** — Harbor's own env config, serialized into `harbor jobs start -c`
-
-This creates confusion:
-- Two separate `env` dicts with different semantics (`sandbox_env` vs `EnvironmentConfig.env`)
-- Resource specs in two places (`SandboxConfig.cpus/memory` vs `EnvironmentConfig.override_cpus/memory_mb`)
-- Users must understand Rock's internal layering to fill in config correctly
-
-From the user's perspective, they're just running a Rock environment — they shouldn't need to know that Harbor is involved.
+**日期：** 2026-03-30
+**影响范围：** `rock/sdk/agent/models/job/config.py`、`rock/sdk/agent/job.py`、相关测试和示例
+**兼容性：** 破坏性变更，不保留 deprecated 兼容层，直接替换
 
 ---
 
-## Design
+## 问题
 
-### New Model Hierarchy
+`JobConfig` 目前对用户暴露了两套重叠的环境概念：
+
+1. **Rock 扩展字段**（`sandbox_config`、`sandbox_env`、`setup_commands`、`file_uploads`、`auto_stop_sandbox`）— 控制 Rock 沙箱生命周期
+2. **Harbor 原生 `environment: EnvironmentConfig`** — Harbor 自身的 env 配置，被序列化进 `harbor jobs start -c`
+
+由此引发的混乱：
+- 两个语义不同的 `env` 字典（`sandbox_env` vs `EnvironmentConfig.env`），对用户来说都叫"env"
+- 资源规格出现在两处（`SandboxConfig.cpus/memory` vs `EnvironmentConfig.override_cpus/memory_mb`）
+- 用户必须理解 Rock 内部的层级结构才能正确填写配置
+- 实际上 `sandbox_env` 注入到 bash session 后，子进程自然继承，`EnvironmentConfig.env` 在大多数场景是多余的重复
+
+从用户视角看，他们只是在跑一个 Rock 环境，不需要知道 Harbor 的存在。
+
+---
+
+## 设计
+
+### 新的模型层级
 
 ```
 JobConfig
-├── environment: EnvironmentConfig        # NEW: unified env concept
-│   ├── (Rock fields — main path)
-│   └── advanced: AdvancedEnvConfig       # Harbor's EnvironmentConfig, for power users
-└── (Harbor native fields — unchanged)
+├── environment: EnvironmentConfig        # 新：统一的环境概念
+│   ├── （Rock 字段 — 主路径，用户日常只填这里）
+│   └── advanced: AdvancedEnvConfig       # Harbor EnvironmentConfig 的直接映射，高级用户逃生舱
+└── （Harbor 原生字段 — 保持不变）
     job_name, jobs_dir, n_attempts, timeout_multiplier,
     agents, verifier, metrics, orchestrator, datasets, tasks, artifacts, ...
 ```
 
-### `EnvironmentConfig` (new, Rock-centric)
+### `EnvironmentConfig`（新，以 Rock 为主视角）
 
-Replaces both the old `SandboxConfig` and the old `EnvironmentConfig`.
+同时替换原来的 `SandboxConfig` 和原来的 `EnvironmentConfig`。
 
 ```python
 class EnvironmentConfig(BaseModel):
-    # ── Rock sandbox connection ──
+    # ── Rock 沙箱连接信息 ──
     base_url: str = env_vars.ROCK_BASE_URL
     extra_headers: dict[str, str] = Field(default_factory=dict)
     cluster: str = "zb"
@@ -55,7 +56,7 @@ class EnvironmentConfig(BaseModel):
     use_kata_runtime: bool = False
     sandbox_id: str | None = None
 
-    # ── Rock sandbox runtime ──
+    # ── Rock 沙箱运行规格 ──
     image: str = "python:3.11"
     image_os: str = "linux"
     memory: str = "8g"
@@ -64,25 +65,25 @@ class EnvironmentConfig(BaseModel):
     startup_timeout: float = env_vars.ROCK_SANDBOX_STARTUP_TIMEOUT_SECONDS
     auto_clear_seconds: int = 60 * 5
 
-    # ── Unified env vars ──
-    # Injected into the sandbox bash session; harbor inherits them naturally
+    # ── 统一 env vars ──
+    # 注入到 sandbox bash session；harbor 作为子进程自然继承，无需额外注入
     env: dict[str, str] = Field(default_factory=dict)
 
-    # ── Job setup ──
+    # ── Job 执行配置 ──
     setup_commands: list[str] = Field(default_factory=list)
     file_uploads: list[tuple[str, str]] = Field(
         default_factory=list,
-        description="Files/dirs to upload before running: [(local_path, sandbox_path), ...]",
+        description="运行前上传的文件/目录：[(本地路径, 沙箱路径), ...]",
     )
     auto_stop: bool = False
 
-    # ── Advanced: direct Harbor EnvironmentConfig override ──
+    # ── 高级：直接控制 Harbor EnvironmentConfig ──
     advanced: AdvancedEnvConfig = Field(default_factory=AdvancedEnvConfig)
 ```
 
-### `AdvancedEnvConfig` (new, aligns with old `EnvironmentConfig`)
+### `AdvancedEnvConfig`（新，对齐原 `EnvironmentConfig`）
 
-For power users who need to control Harbor's environment layer directly.
+面向需要直接控制 Harbor 环境层的高级用户。绝大多数用户无需填写此字段。
 
 ```python
 class AdvancedEnvConfig(BaseModel):
@@ -96,31 +97,34 @@ class AdvancedEnvConfig(BaseModel):
     override_gpus: int | None = None
     suppress_override_warnings: bool = False
     mounts_json: list[dict[str, Any]] | None = None
-    env: dict[str, str] = Field(default_factory=dict)  # Harbor-layer env only
+    env: dict[str, str] = Field(default_factory=dict)  # 仅注入 Harbor 层，不进入 sandbox session
     kwargs: dict[str, Any] = Field(default_factory=dict)
 ```
 
-### `JobConfig` changes
+### `JobConfig` 字段变更
 
-Fields removed (breaking):
-- `sandbox_config: SandboxConfig | None` → replaced by `environment`
-- `sandbox_env: dict[str, str]` → replaced by `environment.env`
-- `setup_commands: list[str]` → replaced by `environment.setup_commands`
-- `file_uploads: list[tuple]` → replaced by `environment.file_uploads`
-- `auto_stop_sandbox: bool` → replaced by `environment.auto_stop`
-- `environment: EnvironmentConfig` (old Harbor type) → replaced by `environment.advanced`
+**删除的字段（破坏性）：**
 
-Field added:
-- `environment: EnvironmentConfig` (new unified type)
+| 旧字段 | 替代 |
+|--------|------|
+| `sandbox_config: SandboxConfig \| None` | `environment` |
+| `sandbox_env: dict[str, str]` | `environment.env` |
+| `setup_commands: list[str]` | `environment.setup_commands` |
+| `file_uploads: list[tuple]` | `environment.file_uploads` |
+| `auto_stop_sandbox: bool` | `environment.auto_stop` |
+| `environment: EnvironmentConfig`（旧 Harbor 类型） | `environment.advanced` |
 
-`_rock_fields` class variable removed — no longer needed.
+**新增字段：**
+- `environment: EnvironmentConfig`（新的统一类型）
+
+**删除：** `_rock_fields` 类变量 — 不再需要。
 
 ---
 
-## Serialization: `to_harbor_yaml()`
+## 序列化：`to_harbor_yaml()`
 
-The `advanced` block maps directly to Harbor's `environment` YAML section.
-All other `EnvironmentConfig` fields are Rock-internal and excluded.
+`advanced` 块直接映射为 Harbor YAML 的 `environment` section。
+`EnvironmentConfig` 的其他字段均为 Rock 内部字段，不序列化进去。
 
 ```python
 def to_harbor_yaml(self) -> str:
@@ -134,32 +138,50 @@ def to_harbor_yaml(self) -> str:
 
 ---
 
-## `Job` class changes
+## `Job` 类字段引用变更
 
-- `self._config.sandbox_config` → `self._config.environment` (passed to `Sandbox(...)`)
-- `self._config.sandbox_env` → `self._config.environment.env`
-- `self._config.setup_commands` → `self._config.environment.setup_commands`
-- `self._config.file_uploads` → `self._config.environment.file_uploads`
-- `self._config.auto_stop_sandbox` → `self._config.environment.auto_stop`
+| 旧引用 | 新引用 |
+|--------|--------|
+| `self._config.sandbox_config` | `self._config.environment` |
+| `self._config.sandbox_env` | `self._config.environment.env` |
+| `self._config.setup_commands` | `self._config.environment.setup_commands` |
+| `self._config.file_uploads` | `self._config.environment.file_uploads` |
+| `self._config.auto_stop_sandbox` | `self._config.environment.auto_stop` |
 
-`Sandbox(...)` currently takes a `SandboxConfig`. After this refactor it receives the new `EnvironmentConfig` directly, which subsumes all `SandboxConfig` fields.
-
----
-
-## `SandboxConfig` impact
-
-`SandboxConfig` in `rock/sdk/sandbox/config.py` is used by `Sandbox` client.
-Two options:
-1. `EnvironmentConfig` inherits from `SandboxConfig` (avoids changing `Sandbox` internals)
-2. `Sandbox.__init__` accepts the new `EnvironmentConfig` directly (cleaner but touches more code)
-
-**Decision: option 1** — `EnvironmentConfig` inherits from `SandboxConfig`, adding the Rock job-level fields on top. `Sandbox(config.environment)` works without touching `Sandbox` internals.
+`Sandbox(...)` 目前接收 `SandboxConfig`，重构后直接接收新的 `EnvironmentConfig`（包含了 `SandboxConfig` 的全部字段）。
 
 ---
 
-## User-facing YAML (before / after)
+## `SandboxConfig` 的处理
 
-**Before:**
+`rock/sdk/sandbox/config.py` 中的 `SandboxConfig` 被 `Sandbox` client 使用。
+
+**方案选择：** `EnvironmentConfig` 继承自 `SandboxConfig`，在其基础上添加 Job 层字段。
+`Sandbox(config.environment)` 可直接使用，无需修改 `Sandbox` 内部逻辑。
+
+---
+
+## `from_yaml()` 接口变更
+
+重构后，传入 Rock 字段的 override 需要使用嵌套形式：
+
+```python
+# 重构前
+JobConfig.from_yaml(path, setup_commands=["pip install x"])
+
+# 重构后
+JobConfig.from_yaml(path, environment={"setup_commands": ["pip install x"]})
+# 或
+JobConfig.from_yaml(path, environment=EnvironmentConfig(setup_commands=["pip install x"]))
+```
+
+`from_yaml()` 实现需处理 `environment` override 与 YAML 加载的 `environment` dict 的合并逻辑。
+
+---
+
+## 用户 YAML 对比（重构前 / 后）
+
+**重构前：**
 ```yaml
 sandbox_config:
   base_url: "http://rock-admin:8080"
@@ -182,9 +204,12 @@ auto_stop_sandbox: false
 agents:
   - name: "swe-agent"
     model_name: "custom_openai/my-model"
+    env:                          # 用户不得不重复填一遍
+      OPENAI_API_KEY: "sk-xxx"
+      OPENAI_BASE_URL: "https://api.openai.com/v1"
 ```
 
-**After:**
+**重构后：**
 ```yaml
 environment:
   base_url: "http://rock-admin:8080"
@@ -208,43 +233,24 @@ agents:
 
 ---
 
-## Files to Change
+## 需要修改的文件
 
-| File | Change |
-|------|--------|
-| `rock/sdk/agent/models/job/config.py` | Add `AdvancedEnvConfig`, rewrite `EnvironmentConfig`, update `JobConfig`, update `to_harbor_yaml()` |
-| `rock/sdk/agent/job.py` | Update all field references |
-| `rock/sdk/sandbox/config.py` | `EnvironmentConfig` inherits from `SandboxConfig` (or adjust as needed) |
-| `examples/harbor/swe_job_config.yaml.template` | Update to new structure |
-| `examples/harbor/tb_job_config.yaml.template` | Update to new structure |
-| `tests/unit/sdk/agent/test_job_config_serialization.py` | Update all test fixtures |
-| `tests/unit/sdk/agent/test_models.py` | Update model tests |
-| `tests/unit/sdk/agent/test_job.py` | Update job tests |
-| `docs/dev/agent/README.md` | Update usage examples |
-
----
-
-## `from_yaml()` override interface
-
-Currently `from_yaml(path, **overrides)` accepts flat top-level field names as kwargs.
-After refactor, callers passing Rock fields need to use nested form:
-
-```python
-# Before
-JobConfig.from_yaml(path, setup_commands=["pip install x"])
-
-# After — pass nested dict for environment fields
-JobConfig.from_yaml(path, environment={"setup_commands": ["pip install x"]})
-# or equivalently
-JobConfig.from_yaml(path, environment=EnvironmentConfig(setup_commands=["pip install x"]))
-```
-
-`from_yaml()` implementation must handle merging `environment` overrides with YAML-loaded `environment` dict.
+| 文件 | 变更内容 |
+|------|----------|
+| `rock/sdk/agent/models/job/config.py` | 新增 `AdvancedEnvConfig`，重写 `EnvironmentConfig`，更新 `JobConfig` 和 `to_harbor_yaml()` |
+| `rock/sdk/agent/job.py` | 更新所有字段引用 |
+| `rock/sdk/sandbox/config.py` | `EnvironmentConfig` 继承自 `SandboxConfig` |
+| `examples/harbor/swe_job_config.yaml.template` | 更新为新结构 |
+| `examples/harbor/tb_job_config.yaml.template` | 更新为新结构 |
+| `tests/unit/sdk/agent/test_job_config_serialization.py` | 更新所有测试 fixture |
+| `tests/unit/sdk/agent/test_models.py` | 更新模型测试 |
+| `tests/unit/sdk/agent/test_job.py` | 更新 job 测试 |
+| `docs/dev/agent/README.md` | 更新使用示例 |
 
 ---
 
-## Out of Scope
+## 不在本次范围内
 
-- Changes to `rock/sdk/sandbox/client.py` internals beyond constructor signature
-- Changes to `SandboxGroupConfig`
-- Any changes to Harbor itself
+- `rock/sdk/sandbox/client.py` 内部逻辑（除构造函数签名外）
+- `SandboxGroupConfig` 的变更
+- Harbor 本身的任何修改
