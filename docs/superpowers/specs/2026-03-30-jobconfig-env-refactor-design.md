@@ -62,26 +62,17 @@ class EnvironmentConfig(SandboxConfig):
 
 `Sandbox(config.environment)` 天然兼容，无需修改 `Sandbox` 内部逻辑。
 
-### `AdvancedEnvConfig`（原 `EnvironmentConfig` 改名）
+### `AdvancedEnvConfig`（import 别名，非改名）
 
-即当前 `rock/sdk/agent/models/trial/config.py` 中的 `EnvironmentConfig` **直接改名**，字段不变。
-面向需要直接控制 Harbor 环境层的高级用户。绝大多数用户无需填写此字段。
+`trial/config.py` 中的 `EnvironmentConfig` **类名不变、字段不变**。
+在 `job/environment.py` 中 import 时取别名 `AdvancedEnvConfig`，避免与新 `EnvironmentConfig` 名称冲突：
 
 ```python
-class AdvancedEnvConfig(BaseModel):
-    type: EnvironmentType | None = None
-    import_path: str | None = None
-    force_build: bool = False
-    delete: bool = True
-    override_cpus: int | None = None
-    override_memory_mb: int | None = None
-    override_storage_mb: int | None = None
-    override_gpus: int | None = None
-    suppress_override_warnings: bool = False
-    mounts_json: list[dict[str, Any]] | None = None
-    env: dict[str, str] = Field(default_factory=dict)  # 仅注入 Harbor 层，不进入 sandbox session
-    kwargs: dict[str, Any] = Field(default_factory=dict)
+# job/environment.py
+from rock.sdk.agent.models.trial.config import EnvironmentConfig as AdvancedEnvConfig
 ```
+
+`trial/config.py` 零改动。`AdvancedEnvConfig` 只是 `job/environment.py` 内的局部别名。
 
 ### `JobConfig` 字段变更
 
@@ -213,13 +204,41 @@ agents:
 
 ---
 
+## 文件结构变化
+
+新增文件：
+```
+rock/sdk/agent/models/job/
+├── config.py        # JobConfig + 数据集相关（不变）
+├── environment.py   # 新增：EnvironmentConfig（继承 SandboxConfig）
+└── result.py
+```
+
+`job/environment.py` 内容：
+```python
+from rock.sdk.agent.models.trial.config import EnvironmentConfig as AdvancedEnvConfig
+from rock.sdk.sandbox.config import SandboxConfig
+
+class EnvironmentConfig(SandboxConfig):
+    env: dict[str, str] = Field(default_factory=dict)
+    setup_commands: list[str] = Field(default_factory=list)
+    file_uploads: list[tuple[str, str]] = Field(default_factory=list)
+    auto_stop: bool = False
+    advanced: AdvancedEnvConfig = Field(default_factory=AdvancedEnvConfig)
+```
+
 ## 需要修改的文件
 
 | 文件 | 变更内容 |
 |------|----------|
-| `rock/sdk/agent/models/job/config.py` | 新增 `AdvancedEnvConfig`，重写 `EnvironmentConfig`，更新 `JobConfig` 和 `to_harbor_yaml()` |
+| `rock/sdk/agent/models/job/environment.py` | **新建**：`EnvironmentConfig`（继承 `SandboxConfig`） |
+| `rock/sdk/agent/models/job/config.py` | 删除旧 Rock 扩展字段，新增 `environment: EnvironmentConfig`，更新 `to_harbor_yaml()` |
+| `rock/sdk/agent/models/job/__init__.py` | 导出 `EnvironmentConfig` |
+| `rock/sdk/agent/__init__.py` | `EnvironmentConfig` 改从 `job.environment` 导入 |
+| `rock/sdk/agent/models/__init__.py` | 同上 |
 | `rock/sdk/agent/job.py` | 更新所有字段引用 |
-| `rock/sdk/sandbox/config.py` | `EnvironmentConfig` 继承自 `SandboxConfig` |
+| `rock/sdk/sandbox/config.py` | 不变 |
+| `rock/sdk/agent/models/trial/config.py` | 不变 |
 | `examples/harbor/swe_job_config.yaml.template` | 更新为新结构 |
 | `examples/harbor/tb_job_config.yaml.template` | 更新为新结构 |
 | `tests/unit/sdk/agent/test_job_config_serialization.py` | 更新所有测试 fixture |
