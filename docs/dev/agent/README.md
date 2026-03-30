@@ -131,11 +131,11 @@ rock/sdk/agent/
 ```
 JobConfig (Pydantic, rock/sdk/agent/models/job/config.py)
 │
-│  ── Rock environment (not serialized to Harbor YAML) ──
+│  ── Rock environment (Rock sandbox + Harbor env, not serialized to Harbor YAML) ──
 ├── environment: RockEnvironmentConfig
 │   ├── (from SandboxConfig) image, memory, cpus, cluster, base_url, startup_timeout, ...
-│   ├── (from HarborEnvConfig) type, force_build, override_cpus, override_memory_mb, ...
-│   ├── env: dict[str, str]            # env vars injected into sandbox bash session
+│   ├── (from EnvironmentConfig) type, force_build, override_cpus, override_memory_mb, ...
+│   ├── env: dict[str, str]            # reuses EnvironmentConfig.env — injected into sandbox session and passed to harbor
 │   ├── setup_commands: list[str]       # commands to run before harbor
 │   ├── file_uploads: list[tuple]       # files to upload: (local_path, sandbox_path)
 │   └── auto_stop: bool                 # close sandbox after completion
@@ -447,7 +447,7 @@ JobConfig 分为两部分：Harbor 原生字段直接透传给 `harbor jobs star
 | `environment.base_url` | `str` | env var | Rock admin URL |
 | `environment.setup_commands` | `list[str]` | `[]` | harbor 运行前的准备命令 |
 | `environment.file_uploads` | `list[tuple[str, str]]` | `[]` | 上传文件/目录：(local_path, sandbox_path) |
-| `environment.env` | `dict[str, str]` | `{}` | sandbox session 环境变量（OSS keys 等） |
+| `environment.env` | `dict[str, str]` | `{}` | 复用 EnvironmentConfig.env — 注入 sandbox session，同时传给 harbor |
 | `environment.auto_stop` | `bool` | `False` | 完成后自动关闭 sandbox |
 
 #### Harbor 原生字段（核心）

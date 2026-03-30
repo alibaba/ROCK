@@ -134,7 +134,7 @@ class JobConfig(BaseModel):
     and passed to ``harbor jobs start -c``.
     """
 
-    # ── Rock environment (sandbox + lifecycle) ──
+    # ── Rock environment (Rock sandbox config + Harbor EnvironmentConfig, not serialized to Harbor YAML) ──
     environment: RockEnvironmentConfig = Field(default_factory=RockEnvironmentConfig)
 
     # ── Harbor native fields ──
