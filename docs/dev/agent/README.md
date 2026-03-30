@@ -569,17 +569,10 @@ result = await job.run()
 
 ### 4.3 从 Harbor YAML 加载
 
-已有 Harbor YAML 配置文件可以直接加载，只需补充 Rock 扩展字段：
+YAML 文件中直接写 `environment:` 块，`from_yaml` 原样加载：
 
 ```python
-config = JobConfig.from_yaml(
-    "/path/to/harbor-config.yaml",
-    environment={
-        "image": "harbor-runner:latest",
-        "base_url": "http://rock-admin:8080",
-        "setup_commands": ["pip install harbor --quiet"],
-    },
-)
+config = JobConfig.from_yaml("/path/to/config.yaml")
 job = Job(config)
 result = await job.run()
 ```
