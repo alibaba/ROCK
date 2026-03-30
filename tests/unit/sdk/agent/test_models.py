@@ -8,6 +8,7 @@ from rock.sdk.agent.models.job.config import (
     RegistryDatasetConfig,
     RemoteRegistryInfo,
     RetryConfig,
+    RockEnvironmentConfig,
 )
 from rock.sdk.agent.models.metric.config import MetricConfig
 from rock.sdk.agent.models.metric.type import MetricType
@@ -15,9 +16,11 @@ from rock.sdk.agent.models.orchestrator_type import OrchestratorType
 from rock.sdk.agent.models.trial.config import (
     AgentConfig,
     ArtifactConfig,
-    EnvironmentConfig,
     TaskConfig,
     VerifierConfig,
+)
+from rock.sdk.agent.models.trial.config import (
+    EnvironmentConfig as HarborEnvironmentConfig,
 )
 
 
@@ -82,7 +85,7 @@ class TestAgentConfig:
 
 class TestEnvironmentConfig:
     def test_defaults(self):
-        env = EnvironmentConfig()
+        env = HarborEnvironmentConfig()
         assert env.type is None
         assert env.force_build is False
         assert env.delete is True
@@ -90,12 +93,12 @@ class TestEnvironmentConfig:
         assert env.kwargs == {}
 
     def test_with_type(self):
-        env = EnvironmentConfig(type=EnvironmentType.DOCKER, force_build=True)
+        env = HarborEnvironmentConfig(type=EnvironmentType.DOCKER, force_build=True)
         assert env.type == EnvironmentType.DOCKER
         assert env.force_build is True
 
     def test_with_string_type(self):
-        env = EnvironmentConfig(type="docker")
+        env = HarborEnvironmentConfig(type="docker")
         assert env.type == EnvironmentType.DOCKER
 
 
@@ -202,20 +205,19 @@ class TestJobConfig:
         assert cfg.timeout_multiplier == 1.0
         assert cfg.debug is False
         assert isinstance(cfg.orchestrator, OrchestratorConfig)
-        assert isinstance(cfg.environment, EnvironmentConfig)
+        assert isinstance(cfg.environment, RockEnvironmentConfig)
         assert cfg.agents == [AgentConfig()]
         assert cfg.datasets == []
         assert cfg.tasks == []
         assert cfg.metrics == []
         assert cfg.artifacts == []
 
-    def test_rock_extension_defaults(self):
+    def test_environment_defaults(self):
         cfg = JobConfig()
-        assert cfg.sandbox_config is None
-        assert cfg.setup_commands == []
-        assert cfg.file_uploads == []
-        assert cfg.sandbox_env == {}
-        assert cfg.auto_stop_sandbox is False
+        assert cfg.environment.setup_commands == []
+        assert cfg.environment.file_uploads == []
+        assert cfg.environment.envs == {}
+        assert cfg.environment.auto_stop is False
 
     def test_with_full_config(self):
         cfg = JobConfig(
@@ -223,12 +225,13 @@ class TestJobConfig:
             n_attempts=2,
             agents=[AgentConfig(name="terminus-2", model_name="hosted_vllm/m")],
             datasets=[RegistryDatasetConfig(registry=RemoteRegistryInfo(), name="terminal-bench", version="2.0")],
-            setup_commands=["pip install harbor"],
+            environment=RockEnvironmentConfig(setup_commands=["pip install harbor"]),
         )
         assert cfg.job_name == "test-job"
         assert cfg.n_attempts == 2
         assert len(cfg.agents) == 1
         assert cfg.agents[0].name == "terminus-2"
+        assert cfg.environment.setup_commands == ["pip install harbor"]
 
 
 class TestPublicAPI:
