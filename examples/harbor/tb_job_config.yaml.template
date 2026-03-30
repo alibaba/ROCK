@@ -1,29 +1,21 @@
-# ── Rock Extension ──────────────────────────────────
-sandbox_config:
+# ── Rock Environment ─────────────────────────────────
+environment:
   base_url: "<your-rock-base-url>"
-  xrl_authorization: "<your-xrl-auth-token>"
   image: "<your-harbor-image:tag>"
   cluster: "<your-cluster>"
   memory: "16g"
   cpus: 4
   startup_timeout: 1800
   auto_clear_seconds: 7200
+  auto_stop: true
+  envs:
+    LLM_API_KEY: "<your-llm-api-key>"
+    LLM_BASE_URL: "<your-llm-base-url>"
 
-auto_stop_sandbox: true
-
-# Workaround: some agents (e.g. openhands) read os.environ directly,
-# so LLM env vars must also be exported at shell level via sandbox_env.
-sandbox_env:
-  LLM_API_KEY: "<your-llm-api-key>"
-  LLM_BASE_URL: "<your-llm-base-url>"
-
-# ── Harbor Natvie ────────
+# ── Harbor Native ────────────────────────────────────
 agents:
   - name: "openhands"
     model_name: "<your-provider>/<your-model>"
-    env:
-      LLM_API_KEY: "<your-llm-api-key>"
-      LLM_BASE_URL: "<your-llm-base-url>"
 
 orchestrator:
   n_concurrent_trials: 1
