@@ -40,7 +40,6 @@ async def test_reconnect_ray_calls_ray_shutdown_and_init_and_reset_counters(ray_
             runtime_env=ray_service._config.runtime_env,
             namespace=ray_service._config.namespace,
             resources=ray_service._config.resources,
-            _temp_dir=ray_service._config.temp_dir,
         )
 
         assert service._ray_request_count == 0
