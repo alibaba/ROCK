@@ -8,11 +8,27 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from starlette.datastructures import Headers
+from starlette.datastructures import Headers, MutableHeaders
 from starlette.responses import JSONResponse
 
-from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_sandbox_proxy_service
+from rock.admin.entrypoints.sandbox_proxy_api import (
+    sandbox_proxy_router,
+    set_sandbox_proxy_service,
+    vnc_websocket_proxy,
+    websocket_proxy,
+)
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+
+
+def _make_mock_websocket(query_string: str = "", headers: dict | None = None) -> MagicMock:
+    """Build a minimal mock WebSocket for testing handler logic."""
+    ws = MagicMock()
+    ws.close = AsyncMock()
+    ws.headers = MutableHeaders(
+        scope={"type": "websocket", "headers": [(k.lower().encode(), v.encode()) for k, v in (headers or {}).items()]}
+    )
+    return ws
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fixtures
@@ -168,10 +184,9 @@ class TestWebsocketProxyPortParam:
 
     async def test_websocket_proxy_passes_port_to_service(self, app):
         """When rock_target_port=8888 is given, service.websocket_proxy should receive port=8888."""
-        a, svc = app
-        client = TestClientWS(a)
-        with client.websocket_connect("/sandboxes/sb1/proxy/ws?rock_target_port=8888"):
-            pass
+        _a, svc = app
+        ws = _make_mock_websocket()
+        await websocket_proxy(ws, id="sb1", path="ws", rock_target_port=8888)
 
         svc.websocket_proxy.assert_called_once()
         call = svc.websocket_proxy.call_args
@@ -180,10 +195,9 @@ class TestWebsocketProxyPortParam:
 
     async def test_websocket_proxy_defaults_to_none_when_no_port(self, app):
         """When rock_target_port is not specified, service.websocket_proxy should receive port=None."""
-        a, svc = app
-        client = TestClientWS(a)
-        with client.websocket_connect("/sandboxes/sb1/proxy/ws"):
-            pass
+        _a, svc = app
+        ws = _make_mock_websocket()
+        await websocket_proxy(ws, id="sb1", path="ws", rock_target_port=None)
 
         svc.websocket_proxy.assert_called_once()
         call = svc.websocket_proxy.call_args
@@ -192,27 +206,19 @@ class TestWebsocketProxyPortParam:
 
     async def test_websocket_proxy_rejects_invalid_port(self, app):
         """When rock_target_port < 1024, websocket connection should close with code 1008."""
-        a, svc = app
-        client = TestClientWS(a)
-        # Port 80 is below 1024 — expect rejection without calling service
-        try:
-            with client.websocket_connect("/sandboxes/sb1/proxy/ws?rock_target_port=80"):
-                pass
-        except Exception:
-            pass  # Expect disconnect
+        _a, svc = app
+        ws = _make_mock_websocket()
+        await websocket_proxy(ws, id="sb1", path="ws", rock_target_port=80)
 
-        # Service should NOT be called for invalid port
         svc.websocket_proxy.assert_not_called()
+        ws.close.assert_called_once()
+        assert ws.close.call_args.kwargs.get("code") == 1008 or ws.close.call_args.args[0] == 1008
 
     async def test_websocket_proxy_port_from_header(self, app):
         """When X-ROCK-Target-Port header is given, service.websocket_proxy should receive the port."""
-        a, svc = app
-        client = TestClientWS(a)
-        try:
-            with client.websocket_connect("/sandboxes/sb1/proxy/ws", headers={"X-ROCK-Target-Port": "8888"}):
-                pass
-        except Exception:
-            pass
+        _a, svc = app
+        ws = _make_mock_websocket(headers={"X-ROCK-Target-Port": "8888"})
+        await websocket_proxy(ws, id="sb1", path="ws", rock_target_port=None)
 
         svc.websocket_proxy.assert_called_once()
         call = svc.websocket_proxy.call_args
@@ -221,17 +227,12 @@ class TestWebsocketProxyPortParam:
 
     async def test_websocket_proxy_port_conflict(self, app):
         """When both header and query param are given, should close with error."""
-        a, svc = app
-        client = TestClientWS(a)
-        try:
-            with client.websocket_connect(
-                "/sandboxes/sb1/proxy/ws?rock_target_port=8000", headers={"X-ROCK-Target-Port": "9000"}
-            ):
-                pass
-        except Exception:
-            pass
+        _a, svc = app
+        ws = _make_mock_websocket(headers={"X-ROCK-Target-Port": "9000"})
+        await websocket_proxy(ws, id="sb1", path="ws", rock_target_port=8000)
 
         svc.websocket_proxy.assert_not_called()
+        ws.close.assert_called_once()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -893,13 +894,9 @@ class TestPathBasedPortWsRouting:
 
     async def test_ws_port_in_path_is_extracted(self, app):
         """WS /proxy/port/8006/ws should forward path='ws' with port=8006."""
-        a, svc = app
-        client = TestClientWS(a)
-        try:
-            with client.websocket_connect("/sandboxes/sb1/proxy/port/8006/ws"):
-                pass
-        except Exception:
-            pass
+        _a, svc = app
+        ws = _make_mock_websocket()
+        await websocket_proxy(ws, id="sb1", path="port/8006/ws", rock_target_port=None)
 
         svc.websocket_proxy.assert_called_once()
         call = svc.websocket_proxy.call_args
@@ -910,15 +907,12 @@ class TestPathBasedPortWsRouting:
 
     async def test_ws_port_in_path_with_query_param_conflict(self, app):
         """WS /proxy/port/8006/ws?rock_target_port=9000 should close with error (conflict)."""
-        a, svc = app
-        client = TestClientWS(a)
-        try:
-            with client.websocket_connect("/sandboxes/sb1/proxy/port/8006/ws?rock_target_port=9000"):
-                pass
-        except Exception:
-            pass
+        _a, svc = app
+        ws = _make_mock_websocket()
+        await websocket_proxy(ws, id="sb1", path="port/8006/ws", rock_target_port=9000)
 
         svc.websocket_proxy.assert_not_called()
+        ws.close.assert_called_once()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -999,13 +993,9 @@ class TestVncWebSocketProxy:
 
     async def test_vnc_ws_route_forwards_to_port_8006(self, app):
         """WS /vnc/ws should forward to port 8006."""
-        a, svc = app
-        client = TestClientWS(a)
-        try:
-            with client.websocket_connect("/sandboxes/sb1/vnc/ws"):
-                pass
-        except Exception:
-            pass
+        _a, svc = app
+        ws = _make_mock_websocket()
+        await vnc_websocket_proxy(ws, sandbox_id="sb1", path="ws")
 
         svc.websocket_proxy.assert_called_once()
         call = svc.websocket_proxy.call_args
@@ -1014,13 +1004,9 @@ class TestVncWebSocketProxy:
 
     async def test_vnc_ws_route_preserves_path(self, app):
         """WS /vnc/websockify should forward path='websockify'."""
-        a, svc = app
-        client = TestClientWS(a)
-        try:
-            with client.websocket_connect("/sandboxes/sb1/vnc/websockify"):
-                pass
-        except Exception:
-            pass
+        _a, svc = app
+        ws = _make_mock_websocket()
+        await vnc_websocket_proxy(ws, sandbox_id="sb1", path="websockify")
 
         svc.websocket_proxy.assert_called_once()
         call = svc.websocket_proxy.call_args
@@ -1029,34 +1015,11 @@ class TestVncWebSocketProxy:
 
     async def test_vnc_ws_route_ignores_query_param_port(self, app):
         """VNC WS proxy should ignore rock_target_port and always use 8006."""
-        a, svc = app
-        client = TestClientWS(a)
-        try:
-            with client.websocket_connect("/sandboxes/sb1/vnc/ws?rock_target_port=9000"):
-                pass
-        except Exception:
-            pass
+        _a, svc = app
+        ws = _make_mock_websocket()
+        await vnc_websocket_proxy(ws, sandbox_id="sb1", path="ws")
 
         svc.websocket_proxy.assert_called_once()
         call = svc.websocket_proxy.call_args
         port = call.kwargs.get("port") or (call.args[3] if len(call.args) > 3 else None)
         assert port == 8006
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Helper — sync WebSocket test client wrapper
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-class TestClientWS:
-    """Thin wrapper around FastAPI TestClient for WebSocket connections."""
-
-    def __init__(self, app):
-        from fastapi.testclient import TestClient
-
-        self._client = TestClient(app, raise_server_exceptions=False)
-
-    def websocket_connect(self, path, headers=None):
-        if headers is None:
-            headers = {}
-        return self._client.websocket_connect(path, headers=headers)
