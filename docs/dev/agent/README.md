@@ -52,15 +52,14 @@ rock/sdk/agent/
     ├── orchestrator_type.py         # OrchestratorType (enum)
     ├── job/
     │   ├── __init__.py
-    │   ├── config.py                # JobConfig, RockEnvironmentConfig,
-    │   │                            # OrchestratorConfig, RetryConfig
+    │   ├── config.py                # JobConfig, OrchestratorConfig, RetryConfig
     │   │                            # OssRegistryInfo, RemoteRegistryInfo, LocalRegistryInfo
     │   │                            # BaseDatasetConfig, LocalDatasetConfig, RegistryDatasetConfig
     │   └── result.py                # JobResult, JobStatus
     ├── trial/
     │   ├── __init__.py
-    │   ├── config.py                # AgentConfig, EnvironmentConfig, VerifierConfig
-    │   │                            # TaskConfig, ArtifactConfig
+    │   ├── config.py                # AgentConfig, EnvironmentConfig, RockEnvironmentConfig
+    │   │                            # VerifierConfig, TaskConfig, ArtifactConfig
     │   └── result.py                # TrialResult, ExceptionInfo, AgentInfo, ModelInfo
     │                                # AgentResult, VerifierResult, TimingInfo
     └── metric/
@@ -161,13 +160,6 @@ JobConfig (Pydantic, rock/sdk/agent/models/job/config.py)
 │   │   ├── wait_multiplier: float
 │   │   ├── min_wait_sec / max_wait_sec: float
 │   └── kwargs: dict[str, Any]
-├── environment: EnvironmentConfig
-│   ├── type: EnvironmentType
-│   ├── import_path: str | None
-│   ├── force_build / delete: bool
-│   ├── override_cpus / memory_mb / storage_mb / gpus
-│   ├── mounts_json: list[dict] | None
-│   ├── env / kwargs: dict
 ├── verifier: VerifierConfig
 │   ├── override_timeout_sec / max_timeout_sec
 │   └── disable: bool
@@ -368,10 +360,9 @@ harbor jobs start -c /tmp/rock_job_xxx.yaml
 jobs = []
 for task in task_batch:
     config = JobConfig(
-        sandbox_config=sandbox_cfg,
+        environment=base_env,
         tasks=[task],
         agents=[agent_cfg],
-        ...
     )
     job = Job(config)
     await job.submit()  # 启动后立即返回，不返回 job_id
@@ -463,7 +454,7 @@ JobConfig 分为两部分：Harbor 原生字段直接透传给 `harbor jobs star
 | `agent_setup_timeout_multiplier` | `float \| None` | `None` | `--agent-setup-timeout-multiplier` |
 | `environment_build_timeout_multiplier` | `float \| None` | `None` | `--environment-build-timeout-multiplier` |
 | `orchestrator` | `OrchestratorConfig` | `{}` | `-n`, `-r`, `--orchestrator` |
-| `environment` | `EnvironmentConfig` | `{}` | `-e`, `--ek`, `--ee` |
+| `environment` | `RockEnvironmentConfig` | `RockEnvironmentConfig()` | `-e`, `--ek`, `--ee` |
 | `agents` | `list[AgentConfig]` | `[AgentConfig()]` | `-a`, `-m`, `--ak`, `--ae` |
 | `datasets` | `list[...]` | `[]` | `-d`, `--dataset` |
 | `tasks` | `list[TaskConfig]` | `[]` | `-p/--path` |
@@ -516,8 +507,7 @@ LocalRegistryInfo(
 ### 4.2 配置示例
 
 ```python
-from rock.sdk.agent import Job, JobConfig, RegistryDatasetConfig, AgentConfig, RockEnvironmentConfig
-from rock.sdk.agent.models.job.config import OssRegistryInfo
+from rock.sdk.agent import Job, JobConfig, RegistryDatasetConfig, AgentConfig, RockEnvironmentConfig, OssRegistryInfo
 
 config = JobConfig(
     environment=RockEnvironmentConfig(
@@ -531,12 +521,11 @@ config = JobConfig(
             ("/local/tasks", "/workspace/tasks"),
             ("/local/config.yaml", "/workspace/config.yaml"),
         ],
-        env:
+        env={
             "OSS_ACCESS_KEY_ID": "xxx",
             "OSS_ACCESS_KEY_SECRET": "yyy",
         },
         # Harbor advanced fields (optional)
-        type="docker",
         force_build=True,
         delete=True,
     ),
@@ -671,8 +660,7 @@ Harbor 生成的 trial 级 `result.json` 结构：
 ### 6.1 基本用法 — TB2 Benchmark
 
 ```python
-from rock.sdk.agent import Job, JobConfig, RegistryDatasetConfig, AgentConfig, RockEnvironmentConfig
-from rock.sdk.agent.models.job.config import OssRegistryInfo
+from rock.sdk.agent import Job, JobConfig, RegistryDatasetConfig, AgentConfig, RockEnvironmentConfig, OssRegistryInfo
 
 config = JobConfig(
     environment=RockEnvironmentConfig(
@@ -682,7 +670,7 @@ config = JobConfig(
         memory="16g",
         cpus=4,
         setup_commands=["pip install harbor --quiet"],
-        env:
+        env={
             "OSS_ACCESS_KEY_ID": "xxx",
             "OSS_ACCESS_KEY_SECRET": "yyy",
         },
@@ -731,7 +719,7 @@ class RockJobService(AgenticTaskService):
     async def submit_task(self, task_config: AgenticTaskConfig) -> TaskId:
         job_config = JobConfig(
             environment=self._base_env.model_copy(update={
-                "envs": {
+                "env": {
                     "LLM_API_KEY": task_config.llm_config.api_key,
                     "LLM_BASE_URL": task_config.infer_callback_url,
                 },
@@ -781,7 +769,7 @@ async def run_rollout(task_path, agent_config):
             base_url="http://rock-admin:8080",
             memory="16g",
             setup_commands=["pip install harbor --quiet"],
-            env:"LLM_API_KEY": "sk-xxx"},
+            env={"LLM_API_KEY": "sk-xxx"},
             auto_stop=True,
         ),
         tasks=[TaskConfig(path=task_path)],
