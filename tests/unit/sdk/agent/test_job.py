@@ -2,7 +2,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from rock.sdk.agent.job import Job, JobResult, JobStatus
-from rock.sdk.agent.models.job.config import JobConfig, RegistryDatasetConfig, RemoteRegistryInfo
+from rock.sdk.agent.models.job.config import JobConfig, RegistryDatasetConfig, RemoteRegistryInfo, RockEnvironmentConfig
 from rock.sdk.agent.models.trial.config import AgentConfig
 from rock.sdk.agent.models.trial.result import ExceptionInfo, TrialResult, VerifierResult
 
@@ -186,7 +186,7 @@ class TestJob:
         mock_sandbox = _make_mock_sandbox()
 
         with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
-            config = JobConfig(job_name="test-job", auto_stop_sandbox=True)
+            config = JobConfig(job_name="test-job", environment=RockEnvironmentConfig(auto_stop=True))
             job = Job(config)
             await job.run()
 
@@ -196,7 +196,7 @@ class TestJob:
         mock_sandbox = _make_mock_sandbox()
 
         with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
-            config = JobConfig(job_name="test-job", auto_stop_sandbox=False)
+            config = JobConfig(job_name="test-job", environment=RockEnvironmentConfig(auto_stop=False))
             job = Job(config)
             await job.run()
 

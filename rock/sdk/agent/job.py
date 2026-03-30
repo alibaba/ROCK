@@ -85,7 +85,7 @@ class Job:
         """Start sandbox, upload config & script, nohup start harbor."""
         from rock.sdk.sandbox.client import Sandbox
 
-        self._sandbox = Sandbox(self._config.sandbox_config)
+        self._sandbox = Sandbox(self._config.environment)
         await self._sandbox.start()
         logger.info(f"Sandbox started: sandbox_id={self._sandbox.sandbox_id}, job_name={self._config.job_name}")
 
@@ -121,7 +121,7 @@ class Job:
             return result
 
         finally:
-            if self._config.auto_stop_sandbox and self._sandbox:
+            if self._config.environment.auto_stop and self._sandbox:
                 await self._sandbox.close()
 
     async def cancel(self):
@@ -155,7 +155,7 @@ class Job:
         await self._create_session()
 
         # 1. Upload user-specified files/dirs
-        for local_path, sandbox_path in self._config.file_uploads:
+        for local_path, sandbox_path in self._config.environment.file_uploads:
             logger.info(f"Uploading {local_path} -> {sandbox_path}")
             await self._sandbox.fs.upload_dir(local_path, sandbox_path)
 
@@ -184,7 +184,7 @@ class Job:
         """Render the run script (dockerd + setup_commands + harbor run)."""
         # Setup commands
         setup_lines = []
-        for cmd in self._config.setup_commands:
+        for cmd in self._config.environment.setup_commands:
             setup_lines.append(f"echo '>>> {cmd[:60]}...'")
             setup_lines.append(cmd)
         setup_block = "\n".join(setup_lines) if setup_lines else "echo 'No setup commands'"
@@ -206,7 +206,7 @@ class Job:
             CreateBashSessionRequest(
                 session=self._session,
                 env_enable=True,
-                env=self._config.sandbox_env or None,
+                env=self._config.environment.envs or None,
             )
         )
 
