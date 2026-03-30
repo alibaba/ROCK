@@ -90,20 +90,24 @@ class EnvironmentConfig(SandboxConfig, _HarborEnvConfig):
 
 ## 序列化：`to_harbor_yaml()`
 
-Harbor 高级字段（来自 `_HarborEnvConfig`）需要序列化进 harbor YAML 的 `environment` section。
+Harbor 字段（来自 `_HarborEnvConfig`）需要序列化进 harbor YAML 的 `environment` section。
 Rock 字段（来自 `SandboxConfig` 和 Job 层）不序列化进去。
 
-用类变量维护 Harbor environment 字段集合：
+通过 Pydantic 的 `model_fields` 从 `_HarborEnvConfig` 类定义自动推导字段集合，无需手动维护列表：
 
 ```python
 # EnvironmentConfig 内
-_HARBOR_ENV_FIELDS: ClassVar[set[str]] = {
-    "type", "import_path", "force_build", "delete",
-    "override_cpus", "override_memory_mb", "override_storage_mb", "override_gpus",
-    "suppress_override_warnings", "mounts_json", "kwargs",
-    # 注意：env 不在这里，env 走 sandbox session，harbor 自然继承
-}
+_HARBOR_ENV_FIELDS: ClassVar[set[str]] = (
+    set(_HarborEnvConfig.model_fields.keys()) - {"env"}
+    # env 排除：覆盖了它的语义（走 sandbox session，harbor 自然继承）
+)
+
+def to_harbor_environment(self) -> dict:
+    """提取需要序列化进 harbor YAML environment section 的字段。"""
+    return self.model_dump(mode="json", include=self._HARBOR_ENV_FIELDS, exclude_none=True)
 ```
+
+`_HarborEnvConfig` 以后新增字段，`_HARBOR_ENV_FIELDS` 自动更新，零维护。
 
 `JobConfig.to_harbor_yaml()` 实现：
 
@@ -111,9 +115,7 @@ _HARBOR_ENV_FIELDS: ClassVar[set[str]] = {
 def to_harbor_yaml(self) -> str:
     import yaml
     data = self.model_dump(mode="json", exclude={"environment"}, exclude_none=True)
-    env_dump = self.environment.model_dump(mode="json", exclude_none=True)
-    harbor_env = {k: v for k, v in env_dump.items()
-                  if k in EnvironmentConfig._HARBOR_ENV_FIELDS}
+    harbor_env = self.environment.to_harbor_environment()
     if harbor_env:
         data["environment"] = harbor_env
     return yaml.dump(data, default_flow_style=False, allow_unicode=True)
