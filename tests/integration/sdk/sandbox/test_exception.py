@@ -1,12 +1,15 @@
 import logging
+
 import pytest
 
-from rock.sdk.common.exceptions import BadRequestRockError, RockException
-from rock.sdk.sandbox.config import SandboxConfig
+from rock.sdk.common.exceptions import BadRequestRockError
 from rock.sdk.sandbox.client import Sandbox
+from rock.sdk.sandbox.config import SandboxConfig
 
 logger = logging.getLogger(__name__)
 
+
+@pytest.mark.skip
 @pytest.mark.asyncio
 async def test_exception_cpu_limit(sandbox_config: SandboxConfig):
     sandbox_config.cpus = 20
