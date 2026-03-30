@@ -14,7 +14,7 @@ from rock.sdk.agent.models.trial.config import AgentConfig, TaskConfig
 
 
 class TestRockEnvironmentConfigInheritance:
-    """RockEnvironmentConfig 应同时继承 SandboxConfig 和 HarborEnvConfig。"""
+    """RockEnvironmentConfig should inherit from both SandboxConfig and EnvironmentConfig."""
 
     def test_is_sandbox_config_subclass(self):
         from rock.sdk.sandbox.config import SandboxConfig
@@ -54,7 +54,7 @@ class TestRockEnvironmentConfigInheritance:
 
 
 class TestToHarborEnvironment:
-    """to_harbor_environment() 应只返回 harbor 原生字段。"""
+    """to_harbor_environment() should return only harbor-native fields."""
 
     def test_returns_harbor_fields_only(self):
         env = RockEnvironmentConfig(force_build=True, override_cpus=4)
