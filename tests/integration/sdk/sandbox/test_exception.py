@@ -9,7 +9,6 @@ from rock.sdk.sandbox.config import SandboxConfig
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.skip
 @pytest.mark.asyncio
 async def test_exception_cpu_limit(sandbox_config: SandboxConfig):
     sandbox_config.cpus = 20
