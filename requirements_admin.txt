@@ -108,7 +108,10 @@ arckit==0.1.0
 async-timeout==5.0.1 ; python_full_version < '3.11.3'
     # via
     #   aiohttp
+    #   asyncpg
     #   redis
+asyncpg==0.31.0
+    # via rl-rock
 attrs==25.4.0
     # via
     #   aiohttp

@@ -43,6 +43,7 @@ admin = [
     "alibabacloud_cr20181201==2.0.5",
     "sqlmodel",
     "aiosqlite",
+    "asyncpg",
     "boto3",
     "ray[default]==2.43.0",
     "pip",
@@ -171,5 +172,6 @@ markers = [
     "need_ray: need ray start",
     "need_docker: need docker daemon running",
     "need_admin: need admin start",
-    "need_admin_and_network: need install from network"
+    "need_admin_and_network: need install from network",
+    "need_database: need database Docker containers (PostgreSQL, Redis)"
 ]

@@ -78,6 +78,9 @@ class ProxyServiceConfig:
 
 @dataclass
 class DatabaseConfig:
+    # Supported URL formats:
+    #   SQLite:     sqlite:///relative/path.db  or  sqlite:////absolute/path.db
+    #   PostgreSQL: postgresql://user:password@host:port/dbname
     url: str = ""
 
 
