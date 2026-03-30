@@ -27,22 +27,22 @@ from rock.sdk.agent.models.trial.config import (
 from rock.sdk.sandbox.config import SandboxConfig
 
 # ---------------------------------------------------------------------------
-# RockEnvironmentConfig — unified environment (SandboxConfig + HarborEnvConfig)
+# RockEnvironmentConfig — unified environment config
 # ---------------------------------------------------------------------------
 
 
 class RockEnvironmentConfig(SandboxConfig, _HarborEnvConfig):
-    """Unified Rock environment config (SandboxConfig + HarborEnvConfig).
+    """Unified Rock environment config.
 
-    Multiple inheritance flattens all fields into a single block.
-    Rock-specific fields are stripped out when serializing to Harbor YAML
-    via to_harbor_environment() using a model_validate upcast.
+    Combines sandbox lifecycle fields (image, memory, cpus, ...) with
+    harbor environment fields (force_build, override_cpus, ...) in a single
+    flat block. Rock-specific fields are stripped when serializing to Harbor
+    YAML via to_harbor_environment().
     """
 
     # Env vars injected into the sandbox bash session.
     # Harbor runs as a subprocess and inherits them naturally.
     envs: dict[str, str] = Field(default_factory=dict)
-    # env is inherited from _HarborEnvConfig unchanged.
 
     setup_commands: list[str] = Field(default_factory=list)
     file_uploads: list[tuple[str, str]] = Field(
@@ -52,9 +52,9 @@ class RockEnvironmentConfig(SandboxConfig, _HarborEnvConfig):
     auto_stop: bool = False
 
     def to_harbor_environment(self) -> dict:
-        """Upcast to _HarborEnvConfig, discarding Rock-only fields.
+        """Return only harbor-native environment fields, discarding Rock-only fields.
 
-        envs is not a harbor field and is silently ignored by model_validate.
+        Uses model_validate upcast — unknown fields (Rock-only) are silently ignored.
         """
         harbor = _HarborEnvConfig.model_validate(self.model_dump(mode="json"))
         return harbor.model_dump(mode="json", exclude_none=True)
