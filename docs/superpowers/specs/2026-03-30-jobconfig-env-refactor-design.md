@@ -93,21 +93,23 @@ class EnvironmentConfig(SandboxConfig, _HarborEnvConfig):
 Harbor 字段（来自 `_HarborEnvConfig`）需要序列化进 harbor YAML 的 `environment` section。
 Rock 字段（来自 `SandboxConfig` 和 Job 层）不序列化进去。
 
-通过 Pydantic 的 `model_fields` 从 `_HarborEnvConfig` 类定义自动推导字段集合，无需手动维护列表：
+通过 Pydantic 的 `model_validate` 向上转型到 `_HarborEnvConfig`，父类定义本身就是过滤器，无需维护字段列表：
 
 ```python
 # EnvironmentConfig 内
-_HARBOR_ENV_FIELDS: ClassVar[set[str]] = (
-    set(_HarborEnvConfig.model_fields.keys()) - {"env"}
-    # env 排除：覆盖了它的语义（走 sandbox session，harbor 自然继承）
-)
-
 def to_harbor_environment(self) -> dict:
-    """提取需要序列化进 harbor YAML environment section 的字段。"""
-    return self.model_dump(mode="json", include=self._HARBOR_ENV_FIELDS, exclude_none=True)
+    """向上转型到 _HarborEnvConfig，Pydantic 自动丢弃 Rock 字段，只保留 harbor 字段。"""
+    # exclude env：我们覆盖了它的语义，不传给 harbor
+    harbor = _HarborEnvConfig.model_validate(self.model_dump(mode="json", exclude={"env"}))
+    return harbor.model_dump(mode="json", exclude_none=True)
 ```
 
-`_HarborEnvConfig` 以后新增字段，`_HARBOR_ENV_FIELDS` 自动更新，零维护。
+流程：
+1. `self.model_dump(exclude={"env"})` — 所有字段平铺，排除 `env`（语义已覆盖）
+2. `_HarborEnvConfig.model_validate(...)` — Pydantic 忽略不认识的字段（Rock 字段），只保留 harbor 字段
+3. `.model_dump()` — 输出纯 harbor 字段
+
+`_HarborEnvConfig` 以后新增字段自动生效，零维护，不需要 `_HARBOR_ENV_FIELDS` 类变量。
 
 `JobConfig.to_harbor_yaml()` 实现：
 
