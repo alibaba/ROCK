@@ -170,29 +170,10 @@ class JobConfig(BaseModel):
         return yaml.dump(data, default_flow_style=False, allow_unicode=True)
 
     @classmethod
-    def from_yaml(cls, path: str, **overrides) -> JobConfig:
-        """Load JobConfig from a Harbor YAML config file.
-
-        Args:
-            path: Path to the YAML file.
-            **overrides: Fields to override. Pass ``environment`` as a dict
-                to merge into the loaded environment block, e.g.:
-                ``from_yaml(path, environment={"setup_commands": ["pip install x"]})``
-        """
+    def from_yaml(cls, path: str) -> JobConfig:
+        """Load JobConfig from a Harbor YAML config file."""
         import yaml
 
         with open(path) as f:
             data = yaml.safe_load(f)
-
-        # Merge environment overrides into the loaded environment block
-        if "environment" in overrides:
-            env_override = overrides.pop("environment")
-            existing = data.get("environment") or {}
-            if isinstance(env_override, dict):
-                existing.update(env_override)
-            elif hasattr(env_override, "model_dump"):
-                existing.update(env_override.model_dump(exclude_none=True))
-            data["environment"] = existing
-
-        data.update(overrides)
         return cls(**data)

@@ -253,42 +253,6 @@ agents:
         assert cfg.environment.setup_commands == ["pip install harbor"]
         assert cfg.environment.auto_stop is True
 
-    def test_from_yaml_with_environment_override(self, tmp_path):
-        yaml_content = """
-job_name: loaded-job
-agents:
-  - name: terminus-2
-"""
-        yaml_file = tmp_path / "config.yaml"
-        yaml_file.write_text(yaml_content)
-
-        cfg = JobConfig.from_yaml(
-            str(yaml_file),
-            environment={"setup_commands": ["pip install harbor"], "image": "custom:latest"},
-        )
-        assert cfg.job_name == "loaded-job"
-        assert cfg.environment.setup_commands == ["pip install harbor"]
-        assert cfg.environment.image == "custom:latest"
-
-    def test_from_yaml_environment_override_merges(self, tmp_path):
-        """Override merges into existing environment block, not replaces."""
-        yaml_content = """
-job_name: merge-job
-environment:
-  image: base-image:latest
-  memory: "16g"
-"""
-        yaml_file = tmp_path / "config.yaml"
-        yaml_file.write_text(yaml_content)
-
-        cfg = JobConfig.from_yaml(
-            str(yaml_file),
-            environment={"setup_commands": ["echo hello"]},
-        )
-        assert cfg.environment.image == "base-image:latest"  # preserved
-        assert cfg.environment.memory == "16g"  # preserved
-        assert cfg.environment.setup_commands == ["echo hello"]  # merged
-
     def test_from_yaml_with_local_dataset(self, tmp_path):
         yaml_content = """
 job_name: local-dataset-job
