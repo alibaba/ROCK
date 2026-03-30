@@ -12,6 +12,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field, model_validator
 
+from rock.sdk.agent.constants import USER_DEFINED_LOGS
 from rock.sdk.agent.models.metric.config import MetricConfig
 from rock.sdk.agent.models.orchestrator_type import OrchestratorType
 from rock.sdk.agent.models.trial.config import (
@@ -145,7 +146,7 @@ class JobConfig(BaseModel):
 
     # ── Harbor native fields ──
     job_name: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d__%H-%M-%S"))
-    jobs_dir: Path = Path("/data/logs/user-defined/jobs")
+    jobs_dir: Path = Path(USER_DEFINED_LOGS) / "jobs"
     n_attempts: int = 1
     timeout_multiplier: float = 1.0
     agent_timeout_multiplier: float | None = None
