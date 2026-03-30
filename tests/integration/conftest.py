@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 import uvicorn
@@ -99,6 +100,20 @@ def admin_client_fixture():
 
 @pytest.fixture(scope="session")
 def admin_remote_server():
+    external_base_url = os.getenv("ROCK_TEST_ADMIN_BASE_URL")
+    if external_base_url:
+        # Accept either "localhost:8080" or "http://localhost:8080".
+        normalized = external_base_url if "://" in external_base_url else f"http://{external_base_url}"
+        parsed = urlparse(normalized)
+        if not parsed.hostname or not parsed.port:
+            raise ValueError(
+                "Invalid ROCK_TEST_ADMIN_BASE_URL. Expected host:port or http://host:port, "
+                f"got: {external_base_url!r}"
+            )
+        logger.info("Using external admin server from ROCK_TEST_ADMIN_BASE_URL=%s", external_base_url)
+        yield RemoteServer(port=parsed.port, endpoint=f"{parsed.scheme}://{parsed.hostname}")
+        return
+
     port = run_until_complete(find_free_port())
     proxy_port = run_until_complete(find_free_port())
 
