@@ -148,10 +148,6 @@ class JobConfig(BaseModel):
         default=None,
         description="实验标识",
     )
-    step: str | None = Field(
-        default=None,
-        description="step 标识",
-    )
     job_name: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d__%H-%M-%S"))
     jobs_dir: Path = Path(USER_DEFINED_LOGS) / "jobs"
     n_attempts: int = 1
