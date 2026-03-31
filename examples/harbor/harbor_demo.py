@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
-def _check_env() -> None:
+def check_oss_env() -> None:
     missing = [v for v in _REQUIRED_ENV_VARS if not os.environ.get(v)]
     if missing:
         print("Missing required environment variables:")
@@ -88,6 +88,6 @@ async def async_main(args: argparse.Namespace) -> None:
 
 
 if __name__ == "__main__":
-    _check_env()
+    check_oss_env()
     args = parse_args()
     asyncio.run(async_main(args))
