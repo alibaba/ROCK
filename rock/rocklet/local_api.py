@@ -181,6 +181,7 @@ async def portforward(websocket: WebSocket, port: int):
     try:
         # Connect to local TCP port
         reader, writer = await asyncio.wait_for(asyncio.open_connection("127.0.0.1", port), timeout=TCP_CONNECT_TIMEOUT)
+        reader, writer = await asyncio.wait_for(asyncio.open_connection("127.0.0.1", port), timeout=TCP_CONNECT_TIMEOUT)
         logger.info(
             f"[Portforward] TCP connection established: target_port={port}, "
             f"local_addr={writer.get_extra_info('sockname')}"
