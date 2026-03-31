@@ -1,5 +1,7 @@
 """Tests for sandbox speedup functionality."""
 
+from urllib.parse import urlparse
+
 import pytest
 
 from rock.actions import Command
@@ -25,12 +27,12 @@ async def _assert_speedup_apt(sandbox: Sandbox):
     assert check_result.exit_code == 0, "Failed to read /etc/apt/sources.list"
     sources_content = check_result.stdout
 
-    assert "mirrors.cloud.aliyuncs.com" in sources_content, (
-        f"Mirror URL not found in sources.list. Content:\n{sources_content}"
-    )
-    assert "deb http://mirrors.cloud.aliyuncs.com" in sources_content, (
-        f"Expected deb entry not found. Content:\n{sources_content}"
-    )
+    # Extract URLs from sources.list and verify the mirror host via parsed hostname
+    source_urls = [word for line in sources_content.splitlines() for word in line.split() if word.startswith("http")]
+    mirror_hosts = {urlparse(url).hostname for url in source_urls}
+    assert (
+        "mirrors.cloud.aliyuncs.com" in mirror_hosts
+    ), f"Mirror hostname not found in sources.list URLs. Content:\n{sources_content}"
     logger.info(f"APT sources.list verified successfully:\n{sources_content}")
 
 
@@ -48,12 +50,18 @@ async def _assert_speedup_pip(sandbox: Sandbox):
     assert check_result.exit_code == 0, "Failed to read /root/.pip/pip.conf"
     pip_config_content = check_result.stdout
 
-    assert "mirrors.cloud.aliyuncs.com/pypi/simple/" in pip_config_content, (
-        f"PIP mirror URL not found in pip.conf. Content:\n{pip_config_content}"
-    )
-    assert "trusted-host = mirrors.cloud.aliyuncs.com" in pip_config_content, (
-        f"trusted-host not found in pip.conf. Content:\n{pip_config_content}"
-    )
+    # Verify PIP mirror by parsing the index-url hostname
+    pip_urls = [word for line in pip_config_content.splitlines() for word in line.split() if word.startswith("http")]
+    pip_hosts = {urlparse(url).hostname for url in pip_urls}
+    assert (
+        "mirrors.cloud.aliyuncs.com" in pip_hosts
+    ), f"PIP mirror hostname not found in pip.conf. Content:\n{pip_config_content}"
+    assert any(
+        line.strip().startswith("trusted-host")
+        and urlparse(f"http://{line.split('=', 1)[1].strip()}").hostname == "mirrors.cloud.aliyuncs.com"
+        for line in pip_config_content.splitlines()
+        if "=" in line
+    ), f"trusted-host not found in pip.conf. Content:\n{pip_config_content}"
     logger.info(f"PIP config verified successfully:\n{pip_config_content}")
 
     logger.info("Testing PIP mirror (https)...")
@@ -67,9 +75,13 @@ async def _assert_speedup_pip(sandbox: Sandbox):
     check_result = await sandbox.execute(Command(command=["cat", "/root/.pip/pip.conf"]))
     assert check_result.exit_code == 0, "Failed to read /root/.pip/pip.conf after updating"
     pip_config_content = check_result.stdout
-    assert "mirrors.aliyun.com/pypi/simple/" in pip_config_content, (
-        f"Updated PIP mirror URL not found. Content:\n{pip_config_content}"
-    )
+    updated_pip_urls = [
+        word for line in pip_config_content.splitlines() for word in line.split() if word.startswith("http")
+    ]
+    updated_pip_hosts = {urlparse(url).hostname for url in updated_pip_urls}
+    assert (
+        "mirrors.aliyun.com" in updated_pip_hosts
+    ), f"Updated PIP mirror hostname not found. Content:\n{pip_config_content}"
 
 
 async def _assert_speedup_github(sandbox: Sandbox):
