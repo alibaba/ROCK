@@ -28,7 +28,9 @@ class NacosConfigProvider:
         self.group = group
         self.config_cache: Any | None = None
 
-        self.client = nacos.NacosClient(server_addresses=self.server_addresses, endpoint=self.endpoint, namespace=self.namespace)
+        self.client = nacos.NacosClient(
+            server_addresses=self.server_addresses, endpoint=self.endpoint, namespace=self.namespace
+        )
 
     async def get_config(self) -> Any:
         """

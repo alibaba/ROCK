@@ -18,8 +18,8 @@ Usage:
        python -m examples.evaluation.swe_bench.swe_bench_verified_demo
 """
 
-import sys
 import asyncio
+import sys
 from pathlib import Path
 
 from examples.evaluation.swe_bench.common import load_task_config, parse_swebench_result, setup_test_env, start_sandbox
@@ -30,6 +30,7 @@ from rock.sdk.sandbox.client import RunMode, Sandbox
 
 test_timeout_sec = 3600
 logger = init_logger(__name__)
+
 
 async def run_swe_evaluation(sandbox: Sandbox, task_dir: Path, instruction: str, agent_config_path: str) -> bool:
     """Run SWE evaluation on the sandbox."""

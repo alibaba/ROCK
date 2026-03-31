@@ -1,11 +1,9 @@
 """Tests for WebSocket proxy subprotocol forwarding and performance fixes."""
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch, call
 
-import pytest
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -140,9 +138,7 @@ class TestWebSocketSubprotocolForwarding:
         # accept 必须带上协商好的子协议
         client_ws.accept.assert_called_once()
         call_kwargs = client_ws.accept.call_args
-        subprotocol = call_kwargs.kwargs.get("subprotocol") or (
-            call_kwargs.args[0] if call_kwargs.args else None
-        )
+        subprotocol = call_kwargs.kwargs.get("subprotocol") or (call_kwargs.args[0] if call_kwargs.args else None)
         assert subprotocol == "binary"
 
 
@@ -175,10 +171,12 @@ class TestForwardMessagesNoSleep:
         """Binary messages should be forwarded directly without any sleep."""
         service = MagicMock(spec=SandboxProxyService)
 
-        source_ws = FakeStarletteWebSocket([
-            {"type": "websocket.receive", "bytes": b"\x00\x01\x02"},
-            {"type": "websocket.disconnect", "code": 1000},
-        ])
+        source_ws = FakeStarletteWebSocket(
+            [
+                {"type": "websocket.receive", "bytes": b"\x00\x01\x02"},
+                {"type": "websocket.disconnect", "code": 1000},
+            ]
+        )
 
         target_ws = MagicMock(spec=["recv", "send"])
         target_ws.send = AsyncMock()
@@ -208,19 +206,19 @@ class TestForwardMessagesBinaryDataLoss:
         """Every binary frame from client must reach the upstream target."""
         service = MagicMock(spec=SandboxProxyService)
 
-        source_ws = FakeStarletteWebSocket([
-            {"type": "websocket.receive", "bytes": b"vnc_frame_1"},
-            {"type": "websocket.receive", "bytes": b"vnc_frame_2"},
-            {"type": "websocket.receive", "bytes": b"vnc_frame_3"},
-            {"type": "websocket.disconnect", "code": 1000},
-        ])
+        source_ws = FakeStarletteWebSocket(
+            [
+                {"type": "websocket.receive", "bytes": b"vnc_frame_1"},
+                {"type": "websocket.receive", "bytes": b"vnc_frame_2"},
+                {"type": "websocket.receive", "bytes": b"vnc_frame_3"},
+                {"type": "websocket.disconnect", "code": 1000},
+            ]
+        )
 
         target_ws = MagicMock(spec=["recv", "send"])
         target_ws.send = AsyncMock()
 
-        await SandboxProxyService._forward_messages(
-            service, source_ws, target_ws, "client->target"
-        )
+        await SandboxProxyService._forward_messages(service, source_ws, target_ws, "client->target")
 
         forwarded = [c.args[0] for c in target_ws.send.call_args_list]
         assert forwarded == [b"vnc_frame_1", b"vnc_frame_2", b"vnc_frame_3"]
@@ -229,19 +227,19 @@ class TestForwardMessagesBinaryDataLoss:
         """Interleaved text and binary frames must all be forwarded correctly."""
         service = MagicMock(spec=SandboxProxyService)
 
-        source_ws = FakeStarletteWebSocket([
-            {"type": "websocket.receive", "text": "hello"},
-            {"type": "websocket.receive", "bytes": b"\x00\x01"},
-            {"type": "websocket.receive", "text": "world"},
-            {"type": "websocket.disconnect", "code": 1000},
-        ])
+        source_ws = FakeStarletteWebSocket(
+            [
+                {"type": "websocket.receive", "text": "hello"},
+                {"type": "websocket.receive", "bytes": b"\x00\x01"},
+                {"type": "websocket.receive", "text": "world"},
+                {"type": "websocket.disconnect", "code": 1000},
+            ]
+        )
 
         target_ws = MagicMock(spec=["recv", "send"])
         target_ws.send = AsyncMock()
 
-        await SandboxProxyService._forward_messages(
-            service, source_ws, target_ws, "client->target"
-        )
+        await SandboxProxyService._forward_messages(service, source_ws, target_ws, "client->target")
 
         forwarded = [c.args[0] for c in target_ws.send.call_args_list]
         assert forwarded == ["hello", b"\x00\x01", "world"]
@@ -250,16 +248,16 @@ class TestForwardMessagesBinaryDataLoss:
         """Even a single binary frame must not be silently dropped."""
         service = MagicMock(spec=SandboxProxyService)
 
-        source_ws = FakeStarletteWebSocket([
-            {"type": "websocket.receive", "bytes": b"rfb_handshake"},
-            {"type": "websocket.disconnect", "code": 1000},
-        ])
+        source_ws = FakeStarletteWebSocket(
+            [
+                {"type": "websocket.receive", "bytes": b"rfb_handshake"},
+                {"type": "websocket.disconnect", "code": 1000},
+            ]
+        )
 
         target_ws = MagicMock(spec=["recv", "send"])
         target_ws.send = AsyncMock()
 
-        await SandboxProxyService._forward_messages(
-            service, source_ws, target_ws, "client->target"
-        )
+        await SandboxProxyService._forward_messages(service, source_ws, target_ws, "client->target")
 
         target_ws.send.assert_called_once_with(b"rfb_handshake")

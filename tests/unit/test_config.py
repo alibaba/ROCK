@@ -8,6 +8,7 @@ async def test_rock_config():
     rock_config: RockConfig = RockConfig.from_env()
     assert rock_config
 
+
 @pytest.mark.asyncio
 async def test_runtime_config():
     config = {
@@ -31,7 +32,7 @@ async def test_runtime_config():
         "max_allowed_spec": {
             "memory": "32g",
             "cpus": 4,
-        }
+        },
     }
 
     runtime_config = RuntimeConfig(**config_full)

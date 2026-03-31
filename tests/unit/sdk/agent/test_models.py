@@ -200,7 +200,7 @@ class TestRegistryDatasetConfig:
 
 class TestJobConfig:
     def test_defaults(self):
-        cfg = JobConfig()
+        cfg = JobConfig(experiment_id="test-exp")
         assert cfg.n_attempts == 1
         assert cfg.timeout_multiplier == 1.0
         assert cfg.debug is False
@@ -213,7 +213,7 @@ class TestJobConfig:
         assert cfg.artifacts == []
 
     def test_environment_defaults(self):
-        cfg = JobConfig()
+        cfg = JobConfig(experiment_id="test-exp")
         assert cfg.environment.setup_commands == []
         assert cfg.environment.file_uploads == []
         assert cfg.environment.env == {}
@@ -222,6 +222,7 @@ class TestJobConfig:
     def test_with_full_config(self):
         cfg = JobConfig(
             job_name="test-job",
+            experiment_id="test-exp",
             n_attempts=2,
             agents=[AgentConfig(name="terminus-2", model_name="hosted_vllm/m")],
             datasets=[RegistryDatasetConfig(registry=RemoteRegistryInfo(), name="terminal-bench", version="2.0")],

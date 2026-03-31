@@ -106,6 +106,8 @@ def _make_mock_sandbox():
     """Create a mock Sandbox with all required async methods."""
     sandbox = AsyncMock()
     sandbox.sandbox_id = "sb-123"
+    sandbox._namespace = "test-ns"
+    sandbox._experiment_id = "test-exp"
     sandbox.start = AsyncMock()
     sandbox.close = AsyncMock()
     sandbox.create_session = AsyncMock()
@@ -151,7 +153,7 @@ def _make_mock_sandbox():
 
 class TestJob:
     def test_init_requires_jobconfig(self):
-        config = JobConfig()
+        config = JobConfig(experiment_id="test-exp")
         job = Job(config)
         assert job._config == config
 
@@ -166,6 +168,7 @@ class TestJob:
 
         with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
             config = JobConfig(
+                experiment_id="test-exp",
                 job_name="test-job",
                 agents=[AgentConfig(name="t2")],
                 datasets=[RegistryDatasetConfig(registry=RemoteRegistryInfo(), name="tb", version="2.0")],
@@ -187,7 +190,9 @@ class TestJob:
         mock_sandbox = _make_mock_sandbox()
 
         with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
-            config = JobConfig(job_name="test-job", environment=RockEnvironmentConfig(auto_stop=True))
+            config = JobConfig(
+                job_name="test-job", experiment_id="test-exp", environment=RockEnvironmentConfig(auto_stop=True)
+            )
             job = Job(config)
             await job.run()
 
@@ -197,7 +202,9 @@ class TestJob:
         mock_sandbox = _make_mock_sandbox()
 
         with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
-            config = JobConfig(job_name="test-job", environment=RockEnvironmentConfig(auto_stop=False))
+            config = JobConfig(
+                job_name="test-job", experiment_id="test-exp", environment=RockEnvironmentConfig(auto_stop=False)
+            )
             job = Job(config)
             await job.run()
 
@@ -207,7 +214,7 @@ class TestJob:
         mock_sandbox = _make_mock_sandbox()
 
         with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
-            config = JobConfig(job_name="test-job")
+            config = JobConfig(job_name="test-job", experiment_id="test-exp")
             job = Job(config)
             await job.submit()
 
@@ -218,7 +225,7 @@ class TestJob:
         mock_sandbox = _make_mock_sandbox()
 
         with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
-            config = JobConfig(job_name="test-job")
+            config = JobConfig(job_name="test-job", experiment_id="test-exp")
             job = Job(config)
             await job.submit()
             result = await job.wait()
@@ -233,7 +240,7 @@ class TestBuildSessionEnv:
         monkeypatch.setenv("OSS_ACCESS_KEY_ID", "test-key")
         monkeypatch.setenv("HOME", "/root")
 
-        job = Job(JobConfig(job_name="test-job"))
+        job = Job(JobConfig(job_name="test-job", experiment_id="test-exp"))
         env = job._build_session_env()
 
         assert env["OSS_ENDPOINT"] == "https://oss.example.com"
@@ -246,6 +253,7 @@ class TestBuildSessionEnv:
         job = Job(
             JobConfig(
                 job_name="test-job",
+                experiment_id="test-exp",
                 environment=RockEnvironmentConfig(env={"OSS_ENDPOINT": "https://oss.from.config.com"}),
             )
         )
@@ -258,7 +266,7 @@ class TestBuildSessionEnv:
             if key.startswith("OSS"):
                 monkeypatch.delenv(key)
 
-        job = Job(JobConfig(job_name="test-job"))
+        job = Job(JobConfig(job_name="test-job", experiment_id="test-exp"))
         assert job._build_session_env() is None
 
 
@@ -268,7 +276,7 @@ class TestCancelKillsProcess:
         mock_sandbox.arun = AsyncMock(return_value=MagicMock(output="", exit_code=0))
 
         with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
-            config = JobConfig(job_name="test-job")
+            config = JobConfig(job_name="test-job", experiment_id="test-exp")
             job = Job(config)
             await job.submit()
             await job.cancel()

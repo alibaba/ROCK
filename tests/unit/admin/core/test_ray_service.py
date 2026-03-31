@@ -25,9 +25,11 @@ async def test_reconnect_ray_calls_ray_shutdown_and_init_and_reset_counters(ray_
     mock_rwlock.write_lock.return_value = mock_lock
     service._ray_rwlock = mock_rwlock
 
-    with patch("rock.admin.core.ray_service.ray.shutdown") as mock_shutdown, patch(
-        "rock.admin.core.ray_service.ray.init"
-    ) as mock_init, patch("time.time", return_value=old_establish_time + 5):
+    with (
+        patch("rock.admin.core.ray_service.ray.shutdown") as mock_shutdown,
+        patch("rock.admin.core.ray_service.ray.init") as mock_init,
+        patch("time.time", return_value=old_establish_time + 5),
+    ):
         await service._reconnect_ray()
 
         mock_rwlock.write_lock.assert_called_once()
@@ -63,9 +65,11 @@ async def test_reconnect_ray_skip_when_reader_exists_and_write_lock_timeout(ray_
 
     service._ray_rwlock._readers = 1
 
-    with patch("rock.admin.core.ray_service.ray.shutdown") as mock_shutdown, patch(
-        "rock.admin.core.ray_service.ray.init"
-    ) as mock_init, patch("time.time", return_value=old_est + 5):
+    with (
+        patch("rock.admin.core.ray_service.ray.shutdown") as mock_shutdown,
+        patch("rock.admin.core.ray_service.ray.init") as mock_init,
+        patch("time.time", return_value=old_est + 5),
+    ):
         await service._reconnect_ray()
 
         mock_shutdown.assert_not_called()

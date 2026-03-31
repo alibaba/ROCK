@@ -5,7 +5,6 @@ from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.operator.k8s.constants import K8sConstants
 from rock.sandbox.operator.k8s.provider import BatchSandboxProvider, ResourceMatchingPoolSelector
 
-
 BASIC_TEMPLATES = {
     "default": {
         "namespace": "rock-test",
@@ -28,7 +27,13 @@ def make_provider(template_map: dict = None) -> BatchSandboxProvider:
     )
 
 
-def make_config(image: str = "python:3.11", cpus: float = 2, memory: str = "4Gi", extended_params: dict = None, image_os: str = "linux") -> DockerDeploymentConfig:
+def make_config(
+    image: str = "python:3.11",
+    cpus: float = 2,
+    memory: str = "4Gi",
+    extended_params: dict = None,
+    image_os: str = "linux",
+) -> DockerDeploymentConfig:
     return DockerDeploymentConfig(
         image=image,
         cpus=cpus,
@@ -113,34 +118,38 @@ class TestGetPoolName:
     async def test_returns_pool_from_extended_params(self):
         """extended_params 中有 pool_name 时直接返回，不走 selector。"""
         provider = make_provider()
-        provider.set_nacos_provider(MockNacosProvider({
-            K8sConstants.NACOS_POOLS_KEY: {
-                "pool_nacos": {"image": "python:3.11", "cpus": 4, "memory": "8Gi"}
-            }
-        }))
+        provider.set_nacos_provider(
+            MockNacosProvider(
+                {K8sConstants.NACOS_POOLS_KEY: {"pool_nacos": {"image": "python:3.11", "cpus": 4, "memory": "8Gi"}}}
+            )
+        )
         config = make_config(extended_params={"pool_name": "my_pool"})
         assert await provider._get_pool_name(config) == "my_pool"
 
     async def test_extended_params_takes_priority_over_selector(self):
         """extended_params 优先级高于 selector。"""
         provider = make_provider()
-        provider.set_nacos_provider(MockNacosProvider({
-            K8sConstants.NACOS_POOLS_KEY: {
-                "pool_auto": {"image": "python:3.11", "cpus": 4, "memory": "8Gi"}
-            }
-        }))
+        provider.set_nacos_provider(
+            MockNacosProvider(
+                {K8sConstants.NACOS_POOLS_KEY: {"pool_auto": {"image": "python:3.11", "cpus": 4, "memory": "8Gi"}}}
+            )
+        )
         config = make_config(extended_params={"pool_name": "explicit_pool"})
         assert await provider._get_pool_name(config) == "explicit_pool"
 
     async def test_uses_selector_when_no_extended_params(self):
         """无 extended_params 时使用 selector 选择 pool。"""
         provider = make_provider()
-        provider.set_nacos_provider(MockNacosProvider({
-            K8sConstants.NACOS_POOLS_KEY: {
-                "pool_small": {"image": "python:3.11", "cpus": 2, "memory": "4Gi"},
-                "pool_large": {"image": "python:3.11", "cpus": 8, "memory": "16Gi"},
-            }
-        }))
+        provider.set_nacos_provider(
+            MockNacosProvider(
+                {
+                    K8sConstants.NACOS_POOLS_KEY: {
+                        "pool_small": {"image": "python:3.11", "cpus": 2, "memory": "4Gi"},
+                        "pool_large": {"image": "python:3.11", "cpus": 8, "memory": "16Gi"},
+                    }
+                }
+            )
+        )
         config = make_config(image="python:3.11", cpus=2, memory="4Gi")
         assert await provider._get_pool_name(config) == "pool_small"
 
@@ -206,16 +215,20 @@ class TestGetPoolPorts:
     async def test_returns_ports_from_pool_config(self):
         """从 PoolConfig 中获取端口配置。"""
         provider = make_provider()
-        provider.set_nacos_provider(MockNacosProvider({
-            K8sConstants.NACOS_POOLS_KEY: {
-                "pool_custom": {
-                    "image": "python:3.11",
-                    "cpus": 4,
-                    "memory": "8Gi",
-                    "ports": {"proxy": 9000, "server": 9090, "ssh": 2222}
+        provider.set_nacos_provider(
+            MockNacosProvider(
+                {
+                    K8sConstants.NACOS_POOLS_KEY: {
+                        "pool_custom": {
+                            "image": "python:3.11",
+                            "cpus": 4,
+                            "memory": "8Gi",
+                            "ports": {"proxy": 9000, "server": 9090, "ssh": 2222},
+                        }
+                    }
                 }
-            }
-        }))
+            )
+        )
         ports = await provider._get_pool_ports("pool_custom")
         assert ports == {"proxy": 9000, "server": 9090, "ssh": 2222}
 
@@ -229,11 +242,11 @@ class TestGetPoolPorts:
     async def test_returns_default_ports_for_pool_without_ports(self):
         """PoolConfig 未配置 ports 时由 __post_init__ 自动补全默认值。"""
         provider = make_provider()
-        provider.set_nacos_provider(MockNacosProvider({
-            K8sConstants.NACOS_POOLS_KEY: {
-                "pool_no_ports": {"image": "python:3.11", "cpus": 4, "memory": "8Gi"}
-            }
-        }))
+        provider.set_nacos_provider(
+            MockNacosProvider(
+                {K8sConstants.NACOS_POOLS_KEY: {"pool_no_ports": {"image": "python:3.11", "cpus": 4, "memory": "8Gi"}}}
+            )
+        )
         ports = await provider._get_pool_ports("pool_no_ports")
         # PoolConfig.__post_init__ fills in default ports, so provider returns them
         assert ports == {"proxy": 8000, "server": 8080, "ssh": 22}
@@ -244,10 +257,10 @@ class TestGetPoolPorts:
 
 class MockNacosProvider:
     """Mock Nacos provider for testing."""
-    
+
     def __init__(self, config: dict = None):
         self._config = config
-    
+
     async def get_config(self):
         return self._config
 
@@ -261,49 +274,43 @@ class TestGetPoolsFromNacos:
                     "image": "python:3.11",
                     "cpus": 4,
                     "memory": "8Gi",
-                    "ports": {"proxy": 9000, "server": 9090, "ssh": 2222}
+                    "ports": {"proxy": 9000, "server": 9090, "ssh": 2222},
                 }
             }
         }
         provider = make_provider()
         provider.set_nacos_provider(MockNacosProvider(nacos_config))
-        
+
         pools = await provider._get_pools()
         assert "pool_nacos" in pools
         assert pools["pool_nacos"].image == "python:3.11"
         assert pools["pool_nacos"].cpus == 4
         assert pools["pool_nacos"].ports == {"proxy": 9000, "server": 9090, "ssh": 2222}
-    
+
     async def test_returns_empty_when_no_nacos_provider(self):
         """无 nacos provider 时返回空字典。"""
         provider = make_provider()
         # No nacos provider set
-        
+
         pools = await provider._get_pools()
         assert pools == {}
-    
+
     async def test_returns_empty_when_nacos_has_no_pools(self):
         """Nacos 无 pools 配置时返回空字典。"""
         provider = make_provider()
         provider.set_nacos_provider(MockNacosProvider({"other_key": "value"}))
-        
+
         pools = await provider._get_pools()
         assert pools == {}
-    
+
     async def test_pool_selection_uses_nacos_pools(self):
         """Pool 选择使用 Nacos 中的 pools。"""
         nacos_config = {
-            K8sConstants.NACOS_POOLS_KEY: {
-                "pool_nacos": {
-                    "image": "python:3.11",
-                    "cpus": 2,
-                    "memory": "4Gi"
-                }
-            }
+            K8sConstants.NACOS_POOLS_KEY: {"pool_nacos": {"image": "python:3.11", "cpus": 2, "memory": "4Gi"}}
         }
         provider = make_provider()
         provider.set_nacos_provider(MockNacosProvider(nacos_config))
-        
+
         config = make_config(image="python:3.11", cpus=2, memory="4Gi")
         pool_name = await provider._get_pool_name(config)
         assert pool_name == "pool_nacos"

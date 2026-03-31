@@ -1,6 +1,7 @@
 import re
-import yaml
 from pathlib import Path
+
+import yaml
 
 from rock.logger import init_logger
 from rock.sdk.sandbox.client import RunMode, Sandbox
@@ -14,6 +15,7 @@ SWEBENCH_RESULT_END_MARKER = "SWEBench results ends here"
 SWEBENCH_PASSED = "PASSED"
 
 logger = init_logger(__name__)
+
 
 def load_task_config(task_dir: Path) -> dict:
     """Load task configuration from task.yaml."""

@@ -25,12 +25,12 @@ async def _assert_speedup_apt(sandbox: Sandbox):
     assert check_result.exit_code == 0, "Failed to read /etc/apt/sources.list"
     sources_content = check_result.stdout
 
-    assert (
-        "mirrors.cloud.aliyuncs.com" in sources_content
-    ), f"Mirror URL not found in sources.list. Content:\n{sources_content}"
-    assert (
-        "deb http://mirrors.cloud.aliyuncs.com" in sources_content
-    ), f"Expected deb entry not found. Content:\n{sources_content}"
+    assert "mirrors.cloud.aliyuncs.com" in sources_content, (
+        f"Mirror URL not found in sources.list. Content:\n{sources_content}"
+    )
+    assert "deb http://mirrors.cloud.aliyuncs.com" in sources_content, (
+        f"Expected deb entry not found. Content:\n{sources_content}"
+    )
     logger.info(f"APT sources.list verified successfully:\n{sources_content}")
 
 
@@ -48,12 +48,12 @@ async def _assert_speedup_pip(sandbox: Sandbox):
     assert check_result.exit_code == 0, "Failed to read /root/.pip/pip.conf"
     pip_config_content = check_result.stdout
 
-    assert (
-        "mirrors.cloud.aliyuncs.com/pypi/simple/" in pip_config_content
-    ), f"PIP mirror URL not found in pip.conf. Content:\n{pip_config_content}"
-    assert (
-        "trusted-host = mirrors.cloud.aliyuncs.com" in pip_config_content
-    ), f"trusted-host not found in pip.conf. Content:\n{pip_config_content}"
+    assert "mirrors.cloud.aliyuncs.com/pypi/simple/" in pip_config_content, (
+        f"PIP mirror URL not found in pip.conf. Content:\n{pip_config_content}"
+    )
+    assert "trusted-host = mirrors.cloud.aliyuncs.com" in pip_config_content, (
+        f"trusted-host not found in pip.conf. Content:\n{pip_config_content}"
+    )
     logger.info(f"PIP config verified successfully:\n{pip_config_content}")
 
     logger.info("Testing PIP mirror (https)...")
@@ -67,9 +67,9 @@ async def _assert_speedup_pip(sandbox: Sandbox):
     check_result = await sandbox.execute(Command(command=["cat", "/root/.pip/pip.conf"]))
     assert check_result.exit_code == 0, "Failed to read /root/.pip/pip.conf after updating"
     pip_config_content = check_result.stdout
-    assert (
-        "mirrors.aliyun.com/pypi/simple/" in pip_config_content
-    ), f"Updated PIP mirror URL not found. Content:\n{pip_config_content}"
+    assert "mirrors.aliyun.com/pypi/simple/" in pip_config_content, (
+        f"Updated PIP mirror URL not found. Content:\n{pip_config_content}"
+    )
 
 
 async def _assert_speedup_github(sandbox: Sandbox):

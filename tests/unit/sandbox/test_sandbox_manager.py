@@ -260,9 +260,9 @@ async def test_use_standard_spec_only_disabled(sandbox_manager):
 
         # Verify that requested spec was used (not standard spec)
         assert sandbox_info["cpus"] == requested_cpus, f"Expected cpus={requested_cpus}, but got {sandbox_info['cpus']}"
-        assert (
-            sandbox_info["memory"] == requested_memory
-        ), f"Expected memory='{requested_memory}', but got {sandbox_info['memory']}"
+        assert sandbox_info["memory"] == requested_memory, (
+            f"Expected memory='{requested_memory}', but got {sandbox_info['memory']}"
+        )
 
         # Also verify sandbox is alive
         is_alive = await sandbox_manager._is_actor_alive(sandbox_id)

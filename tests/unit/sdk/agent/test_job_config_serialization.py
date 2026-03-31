@@ -104,6 +104,7 @@ class TestJobConfigToHarborYaml:
     def test_basic_serialization(self):
         cfg = JobConfig(
             job_name="test-job",
+            experiment_id="test-exp",
             n_attempts=2,
             agents=[AgentConfig(name="terminus-2", model_name="hosted_vllm/m")],
         )
@@ -116,6 +117,7 @@ class TestJobConfigToHarborYaml:
 
     def test_excludes_rock_fields(self):
         cfg = JobConfig(
+            experiment_id="test-exp",
             environment=RockEnvironmentConfig(
                 setup_commands=["pip install harbor"],
                 file_uploads=[("local.txt", "/sandbox/remote.txt")],
@@ -123,7 +125,7 @@ class TestJobConfigToHarborYaml:
                 auto_stop=True,
                 image="my-image:latest",
                 memory="32g",
-            )
+            ),
         )
         yaml_str = cfg.to_harbor_yaml()
         data = yaml.safe_load(yaml_str)
@@ -142,6 +144,7 @@ class TestJobConfigToHarborYaml:
     def test_excludes_none_values(self):
         cfg = JobConfig(
             job_name="test",
+            experiment_id="test-exp",
             agents=[AgentConfig(name="t2")],
         )
         yaml_str = cfg.to_harbor_yaml()
@@ -151,6 +154,7 @@ class TestJobConfigToHarborYaml:
 
     def test_path_fields_serialized_as_strings(self):
         cfg = JobConfig(
+            experiment_id="test-exp",
             jobs_dir=Path("/workspace/jobs"),
             tasks=[TaskConfig(path="/workspace/tasks/t1")],
         )
@@ -163,6 +167,7 @@ class TestJobConfigToHarborYaml:
     def test_harbor_env_fields_serialized(self):
         cfg = JobConfig(
             job_name="full-test",
+            experiment_id="test-exp",
             n_attempts=3,
             environment=RockEnvironmentConfig(
                 type="docker",
@@ -197,7 +202,7 @@ class TestJobConfigToHarborYaml:
 
     def test_env_in_harbor_yaml(self):
         """env is passed to both sandbox session and harbor YAML."""
-        cfg = JobConfig(environment=RockEnvironmentConfig(env={"OPENAI_API_KEY": "sk-xxx"}))
+        cfg = JobConfig(experiment_id="test-exp", environment=RockEnvironmentConfig(env={"OPENAI_API_KEY": "sk-xxx"}))
         yaml_str = cfg.to_harbor_yaml()
         data = yaml.safe_load(yaml_str)
 
@@ -209,6 +214,7 @@ class TestJobConfigFromYaml:
     def test_from_yaml_basic(self, tmp_path):
         yaml_content = """
 job_name: loaded-job
+experiment_id: test-exp
 n_attempts: 2
 agents:
   - name: terminus-2
@@ -231,6 +237,7 @@ datasets:
     def test_from_yaml_with_environment_block(self, tmp_path):
         yaml_content = """
 job_name: env-job
+experiment_id: test-exp
 environment:
   image: my-image:latest
   memory: "32g"
@@ -256,6 +263,7 @@ agents:
     def test_from_yaml_with_local_dataset(self, tmp_path):
         yaml_content = """
 job_name: local-dataset-job
+experiment_id: test-exp
 datasets:
   - path: /data/tasks
     task_names:

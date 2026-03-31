@@ -8,6 +8,7 @@ from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from tests.unit.conftest import check_sandbox_status_until_alive
 
+
 @pytest.mark.need_docker
 @pytest.mark.need_ray
 @pytest.mark.asyncio
@@ -36,6 +37,7 @@ async def test_batch_get_sandbox_status(sandbox_manager: SandboxManager, sandbox
     assert len(batch_response_with_invalid) == len(sandbox_ids)
     for sandbox_id in sandbox_ids:
         await sandbox_manager.stop(sandbox_id)
+
 
 @pytest.mark.need_docker
 @pytest.mark.need_ray

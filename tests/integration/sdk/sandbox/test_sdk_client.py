@@ -77,9 +77,9 @@ async def test_sandbox_get_status(admin_remote_server):
     end_time = time.time()
     assert "Failed to pull image" in str(exc_info.value)
     execution_time = end_time - start_time
-    assert (
-        execution_time < config.startup_timeout
-    ), f"Execution time {execution_time}s should be less than startup_timeout {config.startup_timeout}s"
+    assert execution_time < config.startup_timeout, (
+        f"Execution time {execution_time}s should be less than startup_timeout {config.startup_timeout}s"
+    )
 
 
 @pytest.mark.need_admin

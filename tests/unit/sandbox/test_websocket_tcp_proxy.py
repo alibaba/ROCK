@@ -1,4 +1,5 @@
 """Tests for WebSocket TCP port forwarding proxy."""
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
