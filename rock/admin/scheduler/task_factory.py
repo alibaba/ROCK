@@ -62,8 +62,6 @@ class TaskFactory:
             try:
                 task = cls.create_task(task_config)
                 TaskRegistry.register(task)
-                logger.info(
-                    f"Registered task '{task.type}' with interval {task.interval_seconds}s"
-                )
+                logger.info(f"Registered task '{task.type}' with interval {task.interval_seconds}s")
             except Exception as e:
                 logger.error(f"Failed to create task '{task_config.task_class}': {e}")

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from rock import env_vars
+from rock.utils.docker import DockerUtil
 
 # Set test data directories at import time (before test collection triggers
 # module-level constants in production code like TRAJ_FILE in config.py).
@@ -57,9 +58,6 @@ def configure_logging(test_workdir):
 def random_container_name() -> str:
     container_name = uuid.uuid4().hex
     return container_name
-
-
-from rock.utils.docker import DockerUtil
 
 
 def pytest_collection_modifyitems(config, items):

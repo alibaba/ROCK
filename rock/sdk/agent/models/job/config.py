@@ -141,10 +141,10 @@ class JobConfig(BaseModel):
     # ── Harbor native fields ──
     namespace: str | None = Field(
         default=None,
-        description="资源租户隔离标识，用于区分不同团队/项目的资源",
+        description="Tenant isolation identifier for distinguishing resources across teams/projects",
     )
     experiment_id: str = Field(
-        description="实验标识，必填",
+        description="Experiment identifier, required",
     )
     job_name: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d__%H-%M-%S"))
     jobs_dir: Path = Path(USER_DEFINED_LOGS) / "jobs"
