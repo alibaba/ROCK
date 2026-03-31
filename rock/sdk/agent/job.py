@@ -199,6 +199,17 @@ class Job:
     # Private: sandbox / session
     # ------------------------------------------------------------------
 
+    def _build_session_env(self) -> dict[str, str] | None:
+        """Merge OSS_* vars from the current process env with explicit config env.
+
+        OSS credentials are forwarded from the process environment so that users
+        do not need to write sensitive values in the YAML config file.
+        Explicit values in config env always take precedence.
+        """
+        oss_env = {k: v for k, v in os.environ.items() if k.startswith("OSS")}
+        merged = {**oss_env, **self._config.environment.env}
+        return merged or None
+
     async def _create_session(self) -> None:
         """Create a bash session with sandbox_env injected."""
         self._session = f"rock-job-{self._config.job_name}"
@@ -206,7 +217,7 @@ class Job:
             CreateBashSessionRequest(
                 session=self._session,
                 env_enable=True,
-                env=self._config.environment.env or None,
+                env=self._build_session_env(),
             )
         )
 

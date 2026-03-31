@@ -20,3 +20,5 @@ node_modules
 
 logs
 docs/superpowers/
+
+.env

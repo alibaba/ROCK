@@ -1,4 +1,5 @@
 import json
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from rock.sdk.agent.job import Job, JobResult, JobStatus
@@ -225,6 +226,43 @@ class TestJob:
             assert isinstance(result, JobResult)
             assert result.status == JobStatus.COMPLETED
 
+
+class TestBuildSessionEnv:
+    def test_oss_vars_from_process_env_are_forwarded(self, monkeypatch):
+        monkeypatch.setenv("OSS_ENDPOINT", "https://oss.example.com")
+        monkeypatch.setenv("OSS_ACCESS_KEY_ID", "test-key")
+        monkeypatch.setenv("HOME", "/root")
+
+        job = Job(JobConfig(job_name="test-job"))
+        env = job._build_session_env()
+
+        assert env["OSS_ENDPOINT"] == "https://oss.example.com"
+        assert env["OSS_ACCESS_KEY_ID"] == "test-key"
+        assert "HOME" not in env
+
+    def test_config_env_overrides_process_oss_vars(self, monkeypatch):
+        monkeypatch.setenv("OSS_ENDPOINT", "https://oss.from.process.com")
+
+        job = Job(
+            JobConfig(
+                job_name="test-job",
+                environment=RockEnvironmentConfig(env={"OSS_ENDPOINT": "https://oss.from.config.com"}),
+            )
+        )
+        env = job._build_session_env()
+
+        assert env["OSS_ENDPOINT"] == "https://oss.from.config.com"
+
+    def test_returns_none_when_both_empty(self, monkeypatch):
+        for key in list(os.environ.keys()):
+            if key.startswith("OSS"):
+                monkeypatch.delenv(key)
+
+        job = Job(JobConfig(job_name="test-job"))
+        assert job._build_session_env() is None
+
+
+class TestCancelKillsProcess:
     async def test_cancel_kills_process(self):
         mock_sandbox = _make_mock_sandbox()
         mock_sandbox.arun = AsyncMock(return_value=MagicMock(output="", exit_code=0))
