@@ -982,10 +982,15 @@ export class Sandbox extends AbstractSandbox {
     // Priority: parameter > env var > default (300000ms = 5 minutes)
     const ossTimeout = timeout ?? envVars.ROCK_OSS_TIMEOUT;
 
+    // Build endpoint: use ROCK_OSS_BUCKET_ENDPOINT if set, otherwise construct from region
+    const region = (envVars.ROCK_OSS_BUCKET_REGION ?? '').replace(/^oss-/, '');
+    const endpoint = envVars.ROCK_OSS_BUCKET_ENDPOINT ?? `oss-${region}.aliyuncs.com`;
+
     this.ossBucket = new OSS({
       secure: true, // Use HTTPS for OSS connections
       timeout: ossTimeout,
-      region: envVars.ROCK_OSS_BUCKET_REGION ?? '',
+      endpoint: endpoint, // Explicit endpoint to avoid incorrect URL construction
+      region: `oss-${region}`, // Ensure region has oss- prefix
       accessKeyId: credentials.accessKeyId,
       accessKeySecret: credentials.accessKeySecret,
       stsToken: credentials.securityToken,
@@ -1000,6 +1005,215 @@ export class Sandbox extends AbstractSandbox {
       },
       refreshSTSTokenInterval: 300000, // 5 minutes
     });
+  }
+
+  // ========== Logs Methods ==========
+
+  /**
+   * Static host IP resolver for destroyed sandboxes
+   */
+  private static hostIpResolver: ((sandboxId: string) => Promise<string>) | null = null;
+
+  /**
+   * Set custom host IP resolver for destroyed sandboxes
+   */
+  static setHostIpResolver(resolver: (sandboxId: string) => Promise<string>): void {
+    Sandbox.hostIpResolver = resolver;
+  }
+
+  /**
+   * Use built-in Kmon resolver
+   */
+  static async useKmonHostIpResolver(config?: import('./kmon.js').KmonConfig): Promise<void> {
+    const { KmonHostIpResolver } = await import('./kmon.js');
+    const resolver = new KmonHostIpResolver(config);
+    Sandbox.hostIpResolver = (sandboxId) => resolver.resolve(sandboxId);
+  }
+
+  /**
+   * Get host info (hostIp and isAlive status)
+   */
+  private async getHostInfo(): Promise<import('./logs.js').HostInfo> {
+    // First try get_status
+    try {
+      const status = await this.getStatus();
+      if (status.hostIp) {
+        return { hostIp: status.hostIp, isAlive: status.isAlive };
+      }
+    } catch {
+      // Sandbox may be destroyed
+    }
+
+    // Use resolver for destroyed sandbox
+    if (!Sandbox.hostIpResolver) {
+      throw new Error('Sandbox is destroyed and no hostIpResolver is set');
+    }
+
+    const hostIp = await Sandbox.hostIpResolver(this.sandboxId ?? '');
+    return { hostIp, isAlive: false };
+  }
+
+  /**
+   * Execute command on host via host proxy
+   * Note: Host proxy returns direct Rocklet response (not wrapped in RockResponse)
+   */
+  private async hostProxyExecute(
+    hostIp: string,
+    command: import('../types/requests.js').Command
+  ): Promise<import('../types/responses.js').CommandResponse> {
+    const url = `${this.url}/host/proxy/execute`;
+    const headers = {
+      ...this.buildHeaders(),
+      'rock-host-ip': hostIp,
+      'Content-Type': 'application/json',
+    };
+    
+    // Wrap string command with bash -c for shell execution
+    // Rocklet execute expects array format for shell commands
+    const cmdValue = typeof command.command === 'string'
+      ? ['bash', '-c', command.command]
+      : command.command;
+    
+    const data = {
+      sandbox_id: this.sandboxId,  // Required: host/proxy/* interfaces need sandbox_id
+      command: cmdValue,
+      timeout: command.timeout,
+      cwd: command.cwd,
+      env: command.env,
+    };
+
+    // Use axios directly because host proxy returns Rocklet response directly
+    // (not wrapped in { status: "Success", result: {...} } format)
+    const axios = (await import('axios')).default;
+    const { objectToSnake, objectToCamel } = await import('../utils/case.js');
+    
+    const response = await axios.post(url, objectToSnake(data), { headers });
+    const camelData = objectToCamel(response.data) as import('../types/responses.js').CommandResponse;
+    
+    return CommandResponseSchema.parse(camelData);
+  }
+
+  /**
+   * List log files in /data/logs/ directory
+   */
+  async listLogs(options?: import('./logs.js').ListLogsOptions): Promise<import('./logs.js').LogFileInfo[]> {
+    const { validateLogPath, getLogBasePath, parseFileList, buildListCommand } = await import('./logs.js');
+
+    const { hostIp, isAlive } = await this.getHostInfo();
+    const basePath = getLogBasePath(this.sandboxId ?? '', isAlive);
+    const cmd = buildListCommand(basePath, options);
+
+    const result = await this.hostProxyExecute(hostIp, { command: cmd, timeout: 60 });
+
+    if (result.exitCode !== 0) {
+      logger.warn(`Failed to list logs: ${result.stderr}`);
+      return [];
+    }
+
+    return parseFileList(result.stdout, basePath);
+  }
+
+  /**
+   * Download log file via OSS
+   */
+  async downloadLog(
+    logPath: string,
+    localPath: string,
+    options?: import('./logs.js').DownloadLogOptions
+  ): Promise<import('./logs.js').DownloadLogResponse> {
+    const { validateLogPath, getLogBasePath } = await import('./logs.js');
+
+    // Validate path security
+    validateLogPath(logPath);
+
+    const { hostIp, isAlive } = await this.getHostInfo();
+    const basePath = getLogBasePath(this.sandboxId ?? '', isAlive);
+    const fullRemotePath = `${basePath}/${logPath}`;
+
+    // Download via OSS from host
+    return this.downloadViaOssFromHost(hostIp, fullRemotePath, localPath, options);
+  }
+
+  /**
+   * Download file from host via OSS
+   */
+  private async downloadViaOssFromHost(
+    hostIp: string,
+    remotePath: string,
+    localPath: string,
+    options?: import('./logs.js').DownloadLogOptions
+  ): Promise<import('./logs.js').DownloadLogResponse> {
+    // Check OSS is enabled
+    if (!envVars.ROCK_OSS_ENABLE) {
+      return {
+        success: false,
+        message: 'OSS download is not enabled. Please set ROCK_OSS_ENABLE=true',
+      };
+    }
+
+    try {
+      // Setup OSS bucket if needed
+      if (this.ossBucket === null || this.isTokenExpired()) {
+        await this.setupOss(options?.timeout);
+      }
+
+      if (!this.ossBucket) {
+        return { success: false, message: 'Failed to setup OSS bucket' };
+      }
+
+      // Install ossutil on host via host proxy
+      const installResult = await this.hostProxyExecute(hostIp, { command: ENSURE_OSSUTIL_SCRIPT, timeout: 300 });
+      if (installResult.exitCode !== 0) {
+        return { success: false, message: `Failed to install ossutil on host: ${installResult.stderr || installResult.stdout}` };
+      }
+
+      // Generate unique object name
+      const timestamp = Date.now();
+      const fileName = remotePath.split('/').pop() ?? 'file';
+      const objectName = `download-${timestamp}-${fileName}`;
+
+      // Get STS credentials for ossutil
+      const credentials = await this.getOssStsCredentials();
+      const bucketName = envVars.ROCK_OSS_BUCKET_NAME ?? '';
+      const region = (envVars.ROCK_OSS_BUCKET_REGION ?? '').replace(/^oss-/, '');
+      const endpoint = envVars.ROCK_OSS_BUCKET_ENDPOINT ?? `oss-${region}.aliyuncs.com`;
+
+      // Upload from host to OSS via ossutil (use full path to ensure it's found)
+      const ossutilCmd = `/usr/local/bin/ossutil cp '${remotePath}' 'oss://${bucketName}/${objectName}' --access-key-id '${credentials.accessKeyId}' --access-key-secret '${credentials.accessKeySecret}' --sts-token '${credentials.securityToken}' --endpoint '${endpoint}' --region '${region}'`;
+      const uploadResult = await this.hostProxyExecute(hostIp, { command: ossutilCmd, timeout: 600 });
+      if (uploadResult.exitCode !== 0) {
+        return { success: false, message: `Host to OSS upload failed: ${uploadResult.stderr}` };
+      }
+
+      // Notify progress: download phase
+      options?.onProgress?.({
+        phase: 'download-to-local',
+        percent: 0,
+      });
+
+      // Download from OSS to local via ali-oss
+      const ossTimeout = options?.timeout ?? envVars.ROCK_OSS_TIMEOUT;
+      await this.ossBucket.get(objectName, localPath, {
+        timeout: ossTimeout,
+        progress: (p: number) => {
+          options?.onProgress?.({
+            phase: 'download-to-local',
+            percent: Math.round(p * 100),
+          });
+        },
+      });
+
+      // Cleanup OSS object
+      try {
+        await this.ossBucket.delete(objectName);
+      } catch {
+        // Ignore cleanup errors
+      }
+
+      return { success: true, message: `Successfully downloaded ${remotePath} to ${localPath}` };
+    } catch (e) {
+      return { success: false, message: `OSS download failed: ${e}` };
+    }
   }
 
   // Close
