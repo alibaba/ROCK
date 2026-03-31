@@ -97,6 +97,7 @@ async def lifespan(app: FastAPI):
         operator_context = OperatorContext(
             runtime_config=rock_config.runtime,
             ray_service=ray_service,
+            redis_provider=redis_provider,
             nacos_provider=rock_config.nacos_provider,
             k8s_config=rock_config.k8s,
         )
