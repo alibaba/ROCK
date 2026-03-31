@@ -1,7 +1,8 @@
 .vscode/
 .venv/
 .idea/
-.claude/
+.claude/*
+!.claude/skills/
 .worktrees/
 .pytest_cache/
 .DS_Store
