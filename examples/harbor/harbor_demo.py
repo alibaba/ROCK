@@ -11,18 +11,53 @@ Example config templates:
 Usage:
     python examples/harbor/harbor_demo.py -c examples/harbor/job_config.yaml
     python examples/harbor/harbor_demo.py -c examples/harbor/tb_job_config.yaml -t mailman
+
+Required environment variables (OSS_* are auto-forwarded into the sandbox):
+    OSS_ACCESS_KEY_ID       Alibaba Cloud OSS access key ID
+    OSS_ACCESS_KEY_SECRET   Alibaba Cloud OSS access key secret
+    OSS_REGION              OSS region, e.g. cn-shanghai
+    OSS_ENDPOINT            OSS endpoint, e.g. oss-cn-shanghai.aliyuncs.com
+    OSS_BUCKET              OSS bucket name
+    OSS_DATASET_PATH        Path prefix inside the bucket for datasets
+
+Recommended setup:
+    1. Copy .env.example to .env and fill in your credentials
+    2. source .env
+    3. python examples/harbor/harbor_demo.py -c ...
 """
 
 import argparse
 import asyncio
 import logging
+import os
+import sys
 
 from rock.sdk.agent import Job, JobConfig
+
+_REQUIRED_ENV_VARS = [
+    "OSS_ACCESS_KEY_ID",
+    "OSS_ACCESS_KEY_SECRET",
+    "OSS_REGION",
+    "OSS_ENDPOINT",
+    "OSS_BUCKET",
+    "OSS_DATASET_PATH",
+]
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 # disable httpx
 logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+def _check_env() -> None:
+    missing = [v for v in _REQUIRED_ENV_VARS if not os.environ.get(v)]
+    if missing:
+        print("Missing required environment variables:")
+        for v in missing:
+            print(f"  {v}")
+        print("\nSet them with `source .env` or export them manually.")
+        sys.exit(1)
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,5 +88,6 @@ async def async_main(args: argparse.Namespace) -> None:
 
 
 if __name__ == "__main__":
+    _check_env()
     args = parse_args()
     asyncio.run(async_main(args))
