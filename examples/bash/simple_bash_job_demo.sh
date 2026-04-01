@@ -76,4 +76,12 @@ PYEOF
 
 echo "Starting simple bash job demo..."
 
+# Install rl-rock if not already available
+if ! python -c "import rock" 2>/dev/null; then
+    echo "Installing rl-rock..."
+    pip install rl-rock
+else
+    echo "rl-rock is already installed."
+fi
+
 python "$PYTHON_RUNNER"
