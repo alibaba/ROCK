@@ -7,7 +7,7 @@
 set -euo pipefail
 
 # ===== Configuration =====
-# Override via environment variables: API_KEY, USER_ID, EXPERIMENT_ID
+# Override via environment variables: YOUR_API_KEY, YOUR_USER_ID, YOUR_EXPERIMENT_ID
 YOUR_API_KEY="${YOUR_API_KEY}"
 YOUR_USER_ID="${YOUR_USER_ID}"
 YOUR_EXPERIMENT_ID="${YOUR_EXPERIMENT_ID}"
@@ -57,6 +57,7 @@ async def main():
         )
     )
     await sandbox.start()
+    print(f"Sandbox ID: {sandbox.sandbox_id}")
     try:
         result = await sandbox.process.execute_script(
             script_content=BASH_SCRIPT,
