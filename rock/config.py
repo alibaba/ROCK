@@ -159,6 +159,10 @@ class RuntimeConfig:
     use_standard_spec_only: bool = False
     metrics_endpoint: str = ""
     user_defined_tags: dict = field(default_factory=dict)
+    enable_gpu_passthrough: bool = False
+    gpu_device_request: str = "all"
+    gpu_allocation_mode: str = "fixed"
+    gpu_count_per_sandbox: int = 1
 
     def __post_init__(self) -> None:
         # Convert dict to StandardSpec if needed

@@ -23,6 +23,25 @@ async def test_runtime_config():
     assert runtime_config.max_allowed_spec.cpus == 16
     assert runtime_config.standard_spec.memory == "8g"
     assert runtime_config.standard_spec.cpus == 2
+    assert runtime_config.enable_gpu_passthrough is False
+    assert runtime_config.gpu_device_request == "all"
+    assert runtime_config.gpu_allocation_mode == "fixed"
+    assert runtime_config.gpu_count_per_sandbox == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_config_gpu_fields():
+    runtime_config = RuntimeConfig(
+        enable_gpu_passthrough=True,
+        gpu_device_request="device=1",
+        gpu_allocation_mode="round_robin",
+        gpu_count_per_sandbox=2,
+    )
+
+    assert runtime_config.enable_gpu_passthrough is True
+    assert runtime_config.gpu_device_request == "device=1"
+    assert runtime_config.gpu_allocation_mode == "round_robin"
+    assert runtime_config.gpu_count_per_sandbox == 2
 
     config_full = {
         "standard_spec": {
