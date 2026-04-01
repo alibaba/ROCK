@@ -8,9 +8,11 @@ set -euo pipefail
 
 # ===== Configuration =====
 # Override via environment variables: YOUR_API_KEY, YOUR_USER_ID, YOUR_EXPERIMENT_ID
+ROCK_BASE_URL="${ROCK_BASE_URL}"
 YOUR_API_KEY="${YOUR_API_KEY}"
 YOUR_USER_ID="${YOUR_USER_ID}"
 YOUR_EXPERIMENT_ID="${YOUR_EXPERIMENT_ID}"
+ROCK_IMAGE="${ROCK_IMAGE:-python:3.11}"
 # =========================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -49,8 +51,8 @@ BASH_SCRIPT = '''${BASH_SCRIPT}'''
 async def main():
     sandbox = Sandbox(
         SandboxConfig(
-            image="python:3.11",
-            base_url="http://xrl.alibaba-inc.com",
+            image="${ROCK_IMAGE}",
+            base_url="${ROCK_BASE_URL}",
             extra_headers={"XRL-Authorization": "Bearer ${YOUR_API_KEY}"},
             user_id="${YOUR_USER_ID}",
             experiment_id="${YOUR_EXPERIMENT_ID}",
@@ -76,6 +78,10 @@ if __name__ == "__main__":
 PYEOF
 
 echo "Starting simple bash job demo..."
+echo "Bash Script:"
+echo "========================================"
+echo "$BASH_SCRIPT"
+echo "========================================"
 
 # Install rl-rock if not already available
 if ! python -c "import rock" 2>/dev/null; then
