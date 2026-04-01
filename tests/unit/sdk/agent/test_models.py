@@ -108,6 +108,26 @@ class TestVerifierConfig:
         assert v.override_timeout_sec is None
         assert v.max_timeout_sec is None
         assert v.disable is False
+        assert v.mode is None
+
+    def test_mode_harbor(self):
+        v = VerifierConfig(mode="harbor")
+        assert v.mode == "harbor"
+
+    def test_mode_native(self):
+        v = VerifierConfig(mode="native")
+        assert v.mode == "native"
+
+    def test_mode_invalid_raises_validation_error(self):
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            VerifierConfig(mode="invalid")
+
+    def test_mode_none_explicit(self):
+        v = VerifierConfig(mode=None)
+        assert v.mode is None
 
 
 class TestTaskConfig:

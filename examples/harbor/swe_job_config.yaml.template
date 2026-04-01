@@ -1,3 +1,6 @@
+# ── Job Identity ─────────────────────────────────────
+experiment_id: "<your-experiment-id>"
+
 # ── Rock Environment ─────────────────────────────────
 environment:
   base_url: "<your-rock-base-url>"

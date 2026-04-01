@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -80,6 +80,7 @@ class VerifierConfig(BaseModel):
     override_timeout_sec: float | None = None
     max_timeout_sec: float | None = None
     disable: bool = False
+    mode: Literal["harbor", "native"] | None = None
 
 
 class TaskConfig(BaseModel):
