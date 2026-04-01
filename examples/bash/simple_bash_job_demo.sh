@@ -12,8 +12,14 @@ ROCK_BASE_URL="${ROCK_BASE_URL}"
 YOUR_API_KEY="${YOUR_API_KEY}"
 YOUR_USER_ID="${YOUR_USER_ID}"
 YOUR_EXPERIMENT_ID="${YOUR_EXPERIMENT_ID}"
-ROCK_IMAGE="${ROCK_IMAGE:-python:3.11}"
+ROCK_IMAGE="${ROCK_IMAGE:-rl-rock-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11}"
+ROCK_CLUSTER="${ROCK_CLUSTER:-vpc-sg-sl-a}"
 # =========================
+
+EXTERNAL_VARIABLE_1="external_value"
+TO_RENDERED_KEYS=(
+    "EXTERNAL_VARIABLE_1"
+)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -22,11 +28,22 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 read -r -d '' BASH_SCRIPT << 'EOF' || true
 #!/bin/bash
 echo "=== Simple Bash Job Demo ==="
+echo ""
 echo "Hostname: $(hostname)"
 echo "Date: $(date)"
-echo "Python version: $(python3 --version 2>&1)"
-echo "Working directory: $(pwd)"
 echo ""
+
+# --- Pattern 1: Internal Variables ---
+INTERNAL_VARIABLE_1="internal_value"
+echo "--- Internal Variables ---"
+echo "INTERNAL_VARIABLE_1: ${INTERNAL_VARIABLE_1}"
+echo ""
+
+# --- Pattern 2: External Variables (rendered into script content) ---
+echo "--- External Variables (rendered) ---"
+echo "EXTERNAL_VARIABLE_1: ${EXTERNAL_VARIABLE_1}"
+echo ""
+
 echo "Running a simple computation..."
 for i in $(seq 1 5); do
     echo "  Step $i: processing..."
@@ -35,6 +52,12 @@ done
 echo ""
 echo "Job completed successfully!"
 EOF
+
+# Render the bash script by replacing placeholders with actual values from environment variables
+for key in "${TO_RENDERED_KEYS[@]}"; do
+    value="${!key}"
+    BASH_SCRIPT="${BASH_SCRIPT//\$\{$key\}/$value}"
+done
 
 # Create a temporary Python runner that invokes execute_script with the script above
 PYTHON_RUNNER=$(mktemp /tmp/bash_job_demo_XXXXXX.py)
@@ -56,6 +79,7 @@ async def main():
             extra_headers={"XRL-Authorization": "Bearer ${YOUR_API_KEY}"},
             user_id="${YOUR_USER_ID}",
             experiment_id="${YOUR_EXPERIMENT_ID}",
+            cluster="${ROCK_CLUSTER}",
         )
     )
     await sandbox.start()
