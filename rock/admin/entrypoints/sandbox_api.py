@@ -25,7 +25,13 @@ from rock.admin.proto.request import (
     StartHeaders,
 )
 from rock.admin.proto.response import SandboxStartResponse
-from rock.common.constants import CPU_PREEMPT_SWITCH, GET_STATUS_SWITCH, KATA_RUNTIME_SWITCH, SUPPORT_KATA_SWITCH
+from rock.common.constants import (
+    CPU_PREEMPT_SWITCH,
+    GET_STATUS_SWITCH,
+    KATA_DIND_DISK_SIZE_KEY,
+    KATA_RUNTIME_SWITCH,
+    SUPPORT_KATA_SWITCH,
+)
 from rock.common.exception import handle_exceptions
 from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.sandbox_manager import SandboxManager
@@ -53,6 +59,16 @@ async def _apply_kata_runtime_switch(config: DockerDeploymentConfig) -> None:
         config.use_kata_runtime = False
 
 
+async def _apply_kata_disk_size(config: DockerDeploymentConfig) -> None:
+    """Read kata_dind_disk_size from nacos and override config.kata_disk_size if present."""
+    if not config.use_kata_runtime:
+        return
+    if sandbox_manager.rock_config.nacos_provider is not None:
+        disk_size = await sandbox_manager.rock_config.nacos_provider.get_config_value(KATA_DIND_DISK_SIZE_KEY)
+        if disk_size:
+            config.kata_disk_size = disk_size
+
+
 async def _apply_cpu_preempt_switch(config: DockerDeploymentConfig) -> None:
     """Check nacos switch and enable CPU preemption on the config if the switch is on.
 
@@ -71,6 +87,7 @@ async def _apply_cpu_preempt_switch(config: DockerDeploymentConfig) -> None:
 async def start(request: SandboxStartRequest) -> RockResponse[SandboxStartResponse]:
     config = DockerDeploymentConfig.from_request(request)
     await _apply_kata_runtime_switch(config)
+    await _apply_kata_disk_size(config)
     await _apply_cpu_preempt_switch(config)
     sandbox_start_response = await sandbox_manager.start(config)
     return RockResponse(result=sandbox_start_response)
@@ -84,6 +101,7 @@ async def start_async(
 ) -> RockResponse[SandboxStartResponse]:
     config = DockerDeploymentConfig.from_request(request)
     await _apply_kata_runtime_switch(config)
+    await _apply_kata_disk_size(config)
     await _apply_cpu_preempt_switch(config)
     sandbox_start_response = await sandbox_manager.start_async(
         config,

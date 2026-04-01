@@ -169,6 +169,61 @@ class DockerDeployment(AbstractDeployment):
             ]
         return ["--privileged"]
 
+    def _get_kata_disk_image_path(self) -> str:
+        """Returns the host path for the kata disk image file."""
+        return os.path.join(self._config.kata_disk_base_path, f"{self._container_name}.img")
+
+    def _prepare_kata_disk(self) -> None:
+        """Create and format a sparse disk image for kata DinD on the host.
+
+        Only called when use_kata_runtime is enabled. Creates a sparse file
+        using truncate (no actual disk space consumed until written) and
+        formats it as ext4.
+        """
+        if not self._config.use_kata_runtime:
+            return
+
+        disk_path = self._get_kata_disk_image_path()
+        os.makedirs(self._config.kata_disk_base_path, exist_ok=True)
+        logger.info(f"Creating kata disk image: {disk_path} (size={self._config.kata_disk_size})")
+
+        try:
+            subprocess.check_call(
+                ["truncate", "-s", self._config.kata_disk_size, disk_path],
+                timeout=10,
+            )
+            subprocess.check_call(
+                ["mkfs.ext4", "-F", disk_path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=60,
+            )
+            logger.info(f"Kata disk image created and formatted: {disk_path}")
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.error(f"Failed to prepare kata disk image {disk_path}: {e}", exc_info=True)
+            if os.path.exists(disk_path):
+                os.remove(disk_path)
+            raise
+
+    def _cleanup_kata_disk(self) -> None:
+        """Remove the kata disk image file from the host.
+
+        Only called when use_kata_runtime is enabled. Silently ignores
+        missing files to handle cases where preparation failed.
+        """
+        if not self._config or not self._config.use_kata_runtime:
+            return
+        if not self._container_name:
+            return
+
+        disk_path = self._get_kata_disk_image_path()
+        try:
+            if os.path.exists(disk_path):
+                os.remove(disk_path)
+                logger.info(f"Kata disk image removed: {disk_path}")
+        except OSError as e:
+            logger.warning(f"Failed to remove kata disk image {disk_path}: {e}", exc_info=False)
+
     def _get_rocklet_start_cmd(self) -> list[str]:
         cmd = self._runtime_env.get_rocklet_start_cmd()
 
@@ -340,6 +395,13 @@ class DockerDeployment(AbstractDeployment):
 
         env_arg.extend(["-e", f"ROCK_TIME_ZONE={env_vars.ROCK_TIME_ZONE}"])
 
+        # Kata DinD: prepare disk image and add volume mount + env var
+        if self._config.use_kata_runtime:
+            self._prepare_kata_disk()
+            disk_path = self._get_kata_disk_image_path()
+            volume_args.extend(["-v", f"{disk_path}:/docker-disk.img"])
+            env_arg.extend(["-e", "ROCK_KATA_RUNTIME=true"])
+
         time.sleep(random.randint(0, 5))
         runtime_args = self._build_runtime_args()
         cmds = [
@@ -455,6 +517,7 @@ class DockerDeployment(AbstractDeployment):
                 logger.warning(f"Failed to kill container {self._container_name} with SIGKILL")
 
             self._container_process = None
+            self._cleanup_kata_disk()
             self._container_name = None
 
         if self._config and self._config.remove_images and DockerUtil.is_image_available(self._config.image):
