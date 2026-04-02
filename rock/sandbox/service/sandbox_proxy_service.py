@@ -39,6 +39,7 @@ from rock.deployments.status import ServiceStatus
 from rock.common.port_validation import validate_port_forward_port
 from rock.logger import init_logger
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
+from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var
 
@@ -721,8 +722,14 @@ class SandboxProxyService:
             logger.error(f"Error forwarding message {direction}: {e}")
 
     async def _update_expire_time(self, sandbox_id):
-        if self._meta_store:
-            await self._meta_store.refresh_timeout(sandbox_id)
+        if not self._meta_store:
+            return
+        timeout_info = await self._meta_store.get_timeout(sandbox_id)
+        if timeout_info is None:
+            return
+        new_timeout = SandboxTimeoutHelper.refresh_timeout(timeout_info)
+        if new_timeout is not None:
+            await self._meta_store.update_timeout(sandbox_id, new_timeout)
 
     async def list_all_sandboxes_by_query_params(
         self, query_params: SandboxQueryParams, use_legacy_states: bool = True

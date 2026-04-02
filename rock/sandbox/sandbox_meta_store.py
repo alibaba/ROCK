@@ -7,7 +7,6 @@ All DB operations are awaited for consistency.
 
 from __future__ import annotations
 
-import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
@@ -132,6 +131,11 @@ class SandboxMetaStore:
             return timeout_info[0]
         return None
 
+    async def update_timeout(self, sandbox_id: str, timeout_info: dict[str, str]) -> None:
+        """Overwrite the Redis timeout key with *timeout_info*."""
+        if self._redis:
+            await self._redis.json_set(timeout_sandbox_key(sandbox_id), "$", timeout_info)
+
     async def iter_alive_sandbox_ids(self) -> AsyncIterator[str]:
         """Yield active sandbox IDs.
 
@@ -212,38 +216,6 @@ class SandboxMetaStore:
             if sandbox_info.get(field) == value:
                 results.append(sandbox_info)
         return results
-
-    async def refresh_timeout(self, sandbox_id: str) -> None:
-        """Recalculate ``expire_time`` from the stored ``auto_clear_time`` and write back."""
-        if not self._redis:
-            return
-
-        timeout_info = await self._redis.json_get(timeout_sandbox_key(sandbox_id), "$")
-        if not timeout_info or len(timeout_info) == 0:
-            logger.warning("refresh_timeout: timeout key not found for sandbox_id=%s", sandbox_id)
-            return
-
-        auto_clear_time = timeout_info[0].get("auto_clear_time")
-        if auto_clear_time is None:
-            logger.warning("refresh_timeout: auto_clear_time missing for sandbox_id=%s", sandbox_id)
-            return
-
-        expire_time = int(time.time()) + int(auto_clear_time) * 60
-        new_dict: dict[str, str] = {
-            "auto_clear_time": str(auto_clear_time),
-            "expire_time": str(expire_time),
-        }
-        await self._redis.json_set(timeout_sandbox_key(sandbox_id), "$", new_dict)
-
-    async def is_expired(self, sandbox_id: str) -> bool:
-        """Return *True* when the sandbox's ``expire_time`` is in the past."""
-        timeout_info = await self.get_timeout(sandbox_id)
-        if not timeout_info:
-            logger.warning("is_expired: timeout key not found for sandbox_id=%s", sandbox_id)
-            return False
-
-        expire_time = int(timeout_info.get("expire_time", 0))
-        return int(time.time()) > expire_time
 
     # ------------------------------------------------------------------
     # Internal helpers

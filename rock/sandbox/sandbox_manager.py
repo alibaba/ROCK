@@ -1,5 +1,4 @@
 import asyncio
-import time
 
 from fastapi import UploadFile
 
@@ -38,6 +37,7 @@ from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
 from rock.utils.crypto_utils import AESEncryption
+from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 from rock.utils.format import convert_to_gb, parse_size_to_bytes
 from rock.utils.providers.redis_provider import RedisProvider
 from rock.utils.service import build_sandbox_from_redis
@@ -126,14 +126,10 @@ class SandboxManager(BaseManager):
             docker_deployment_config.cpus = self.rock_config.runtime.standard_spec.cpus
             docker_deployment_config.memory = self.rock_config.runtime.standard_spec.memory
         sandbox_info: SandboxInfo = await self._operator.submit(docker_deployment_config, user_info)
-        stop_time = str(int(time.time()) + docker_deployment_config.auto_clear_time * 60)
-        auto_clear_time_dict = {
-            env_vars.ROCK_SANDBOX_AUTO_CLEAR_TIME_KEY: str(docker_deployment_config.auto_clear_time),
-            env_vars.ROCK_SANDBOX_EXPIRE_TIME_KEY: stop_time,
-        }
         await self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)
         if self._meta_store:
-            await self._meta_store.create(sandbox_id, sandbox_info, timeout_info=auto_clear_time_dict)
+            timeout_info = SandboxTimeoutHelper.make_timeout_info(docker_deployment_config.auto_clear_time)
+            await self._meta_store.create(sandbox_id, sandbox_info, timeout_info=timeout_info)
         return SandboxStartResponse(
             sandbox_id=sandbox_id,
             host_name=sandbox_info.get("host_name"),
@@ -228,7 +224,7 @@ class SandboxManager(BaseManager):
             current = await self._meta_store.get(sandbox_id)
             if current is None or current.get("state") != sandbox_info.get("state"):
                 await self._meta_store.update(sandbox_id, sandbox_info)
-            await self._meta_store.refresh_timeout(sandbox_id)
+            await self._refresh_timeout(sandbox_id)
         return SandboxStatusResponse(
             sandbox_id=sandbox_id,
             status=sandbox_info.get("phases"),
@@ -299,10 +295,27 @@ class SandboxManager(BaseManager):
     async def upload(self, file: UploadFile, target_path: str, sandbox_id: str) -> UploadResponse:
         return await self._proxy_service.upload(file, target_path, sandbox_id)
 
+    async def _refresh_timeout(self, sandbox_id: str) -> None:
+        if not self._meta_store:
+            return
+        timeout_info = await self._meta_store.get_timeout(sandbox_id)
+        if timeout_info is None:
+            logger.warning("refresh_timeout: timeout key not found for sandbox_id=%s", sandbox_id)
+            return
+        new_timeout = SandboxTimeoutHelper.refresh_timeout(timeout_info)
+        if new_timeout is None:
+            logger.warning("refresh_timeout: auto_clear_time missing for sandbox_id=%s", sandbox_id)
+            return
+        await self._meta_store.update_timeout(sandbox_id, new_timeout)
+
     async def _is_expired(self, sandbox_id: str) -> bool:
         if not self._meta_store:
             return False
-        return await self._meta_store.is_expired(sandbox_id)
+        timeout_info = await self._meta_store.get_timeout(sandbox_id)
+        if timeout_info is None:
+            logger.warning("is_expired: timeout key not found for sandbox_id=%s", sandbox_id)
+            return False
+        return SandboxTimeoutHelper.is_expired(timeout_info)
 
     async def _is_actor_alive(self, sandbox_id):
         try:

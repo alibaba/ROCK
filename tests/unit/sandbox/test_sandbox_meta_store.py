@@ -451,42 +451,20 @@ class TestListBy:
         assert sandbox_ids == {"sbx-a", "sbx-b"}
 
 
-class TestRefreshTimeout:
-    async def test_refresh_timeout_updates_expire_time(self, repo, redis):
-        """refresh_timeout() should recalculate expire_time from auto_clear_time."""
-        # Setup: write alive key and timeout key
-        await redis.json_set(alive_sandbox_key(SANDBOX_ID), "$", SANDBOX_INFO)
-        old_expire = int(time.time()) - 100  # Already past
-        timeout_data = {"auto_clear_time": "30", "expire_time": str(old_expire)}
-        await redis.json_set(timeout_sandbox_key(SANDBOX_ID), "$", timeout_data)
+class TestUpdateTimeout:
+    async def test_update_timeout_writes_redis(self, repo, redis):
+        """update_timeout() should overwrite the timeout key in Redis."""
+        new_info = {"auto_clear_time": "60", "expire_time": "9999999999"}
+        await repo.update_timeout(SANDBOX_ID, new_info)
 
-        # Act
-        await repo.refresh_timeout(SANDBOX_ID)
-
-        # Verify: expire_time should be recalculated to ~now + 30 min
         result = await redis.json_get(timeout_sandbox_key(SANDBOX_ID), "$")
         assert result is not None
-        new_expire = int(result[0]["expire_time"])
-        expected_min = int(time.time()) + 30 * 60 - 5  # Allow 5s tolerance
-        assert new_expire >= expected_min, f"expire_time {new_expire} should be >= {expected_min}"
+        assert result[0]["auto_clear_time"] == "60"
+        assert result[0]["expire_time"] == "9999999999"
 
-
-class TestIsExpired:
-    async def test_is_expired_true(self, repo, redis):
-        """is_expired() should return True when expire_time is in the past."""
-        past_expire = str(int(time.time()) - 100)
-        timeout_data = {"auto_clear_time": "30", "expire_time": past_expire}
-        await redis.json_set(timeout_sandbox_key(SANDBOX_ID), "$", timeout_data)
-
-        assert await repo.is_expired(SANDBOX_ID) is True
-
-    async def test_is_expired_false(self, repo, redis):
-        """is_expired() should return False when expire_time is in the future."""
-        future_expire = str(int(time.time()) + 3600)
-        timeout_data = {"auto_clear_time": "30", "expire_time": future_expire}
-        await redis.json_set(timeout_sandbox_key(SANDBOX_ID), "$", timeout_data)
-
-        assert await repo.is_expired(SANDBOX_ID) is False
+    async def test_update_timeout_no_op_without_redis(self, repo_no_redis):
+        """update_timeout() should not raise when redis is absent."""
+        await repo_no_redis.update_timeout(SANDBOX_ID, {"auto_clear_time": "30", "expire_time": "0"})
 
 
 # ---------------------------------------------------------------------------
