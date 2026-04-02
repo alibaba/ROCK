@@ -129,7 +129,12 @@ class SandboxManager(BaseManager):
         await self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)
         if self._meta_store:
             timeout_info = SandboxTimeoutHelper.make_timeout_info(docker_deployment_config.auto_clear_time)
-            await self._meta_store.create(sandbox_id, sandbox_info, timeout_info=timeout_info)
+            await self._meta_store.create(
+                sandbox_id,
+                sandbox_info,
+                timeout_info=timeout_info,
+                deployment_config=docker_deployment_config,
+            )
         return SandboxStartResponse(
             sandbox_id=sandbox_id,
             host_name=sandbox_info.get("host_name"),

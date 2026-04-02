@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.types import JSON
 
+
 _JSONB_VARIANT = JSON().with_variant(JSONB(), "postgresql")
 
 
@@ -48,6 +49,8 @@ class SandboxRecord(Base):
     create_user_gray_flag = Column(Boolean, nullable=True)
     phases = Column(_JSONB_VARIANT, nullable=True)
     port_mapping = Column(_JSONB_VARIANT, nullable=True)
+    spec = Column(_JSONB_VARIANT, nullable=True)
+    status = Column(_JSONB_VARIANT, nullable=True)
 
     __table_args__ = (
         Index("ix_sandbox_record_user_id", "user_id"),

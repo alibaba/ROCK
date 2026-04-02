@@ -7,14 +7,18 @@ All DB operations are awaited for consistency.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from typing import Any
 
-from rock.actions.sandbox._generated_types import SandboxInfoField
+from typing import TYPE_CHECKING
+
 from rock.actions.sandbox.response import State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.core.redis_key import ALIVE_PREFIX, alive_sandbox_key, timeout_sandbox_key
 from rock.admin.core.sandbox_table import SandboxTable
+
+if TYPE_CHECKING:
+    from rock.deployments.config import DockerDeploymentConfig
 from rock.logger import init_logger
 from rock.utils.providers.redis_provider import RedisProvider
 
@@ -52,6 +56,7 @@ class SandboxMetaStore:
         sandbox_id: str,
         sandbox_info: SandboxInfo,
         timeout_info: dict[str, str] | None = None,
+        deployment_config: DockerDeploymentConfig | None = None,
     ) -> None:
         """Write sandbox info to the Redis alive key and await DB insert.
 
@@ -59,6 +64,9 @@ class SandboxMetaStore:
         ----------
         timeout_info:
             If provided, also write the timeout key (``auto_clear_time`` / ``expire_time``).
+        deployment_config:
+            ``DockerDeploymentConfig`` snapshot written once to the ``spec`` DB column.
+            Redis does not store this.
         """
         if self._redis:
             await self._redis.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
@@ -66,7 +74,7 @@ class SandboxMetaStore:
                 await self._redis.json_set(timeout_sandbox_key(sandbox_id), "$", timeout_info)
 
         if self._db:
-            await self._safe_db_call(self._db.create, sandbox_id, sandbox_info)
+            await self._db.create(sandbox_id, sandbox_info, deployment_config)
 
     async def update(self, sandbox_id: str, sandbox_info: SandboxInfo) -> None:
         """Merge *sandbox_info* into the existing Redis alive key and await DB update."""
@@ -76,7 +84,7 @@ class SandboxMetaStore:
             await self._redis.json_set(alive_sandbox_key(sandbox_id), "$", merged)
 
         if self._db:
-            await self._safe_db_call(self._db.update, sandbox_id, sandbox_info)
+            await self._db.update(sandbox_id, sandbox_info)
 
     async def delete(self, sandbox_id: str) -> None:
         """Delete Redis alive + timeout keys and await DB delete."""
@@ -85,7 +93,7 @@ class SandboxMetaStore:
             await self._redis.json_delete(timeout_sandbox_key(sandbox_id))
 
         if self._db:
-            await self._safe_db_call(self._db.delete, sandbox_id)
+            await self._db.delete(sandbox_id)
 
     async def archive(self, sandbox_id: str, final_info: SandboxInfo) -> None:
         """Persist final state to DB, then remove sandbox from Redis.
@@ -97,11 +105,11 @@ class SandboxMetaStore:
 
         The DB write is awaited before the Redis keys are deleted so that
         the final state is always durably stored before the alive key
-        disappears.  If the DB write fails the exception is swallowed and
-        logged, but Redis cleanup still proceeds.
+        disappears.  If the DB write fails the exception propagates and
+        Redis cleanup is skipped.
         """
         if self._db:
-            await self._safe_db_call(self._db.update, sandbox_id, final_info)
+            await self._db.update(sandbox_id, final_info)
 
         if self._redis:
             await self._redis.json_delete(alive_sandbox_key(sandbox_id))
@@ -188,7 +196,7 @@ class SandboxMetaStore:
 
         return results
 
-    async def list_by(self, field: SandboxInfoField, value: str | int | float | bool) -> list[SandboxInfo]:
+    async def list_by(self, field: str, value: str | int | float | bool) -> list[SandboxInfo]:
         """Query sandboxes by *field* == *value*.
 
         Prefer the DB when configured; otherwise fall back to filtering Redis alive records.
@@ -217,14 +225,3 @@ class SandboxMetaStore:
                 results.append(sandbox_info)
         return results
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    async def _safe_db_call(fn: Callable[..., Awaitable[Any]], *args: Any) -> None:
-        """Shared error handler: swallows and logs DB exceptions so they never propagate."""
-        try:
-            await fn(*args)
-        except Exception:
-            logger.warning("DB write failed", exc_info=True)
