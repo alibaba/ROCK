@@ -47,6 +47,7 @@ class EnvironmentConfig(BaseModel):
     suppress_override_warnings: bool = False
     mounts_json: list[dict[str, Any]] | None = None
     oss_mirror: OssMirrorConfig | None = None
+    oss_deps: dict[str, str] = Field(default_factory=dict)
     env: dict[str, str] = Field(default_factory=dict)
     kwargs: dict[str, Any] = Field(default_factory=dict)
 
