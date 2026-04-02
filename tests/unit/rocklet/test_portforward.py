@@ -1,4 +1,5 @@
 """Tests for rocklet portforward WebSocket endpoint."""
+
 import pytest
 from fastapi import FastAPI
 

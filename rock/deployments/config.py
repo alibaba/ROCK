@@ -105,6 +105,12 @@ class DockerDeploymentConfig(DeploymentConfig):
     use_kata_runtime: bool = False
     """Whether to use kata container runtime (io.containerd.kata.v2) instead of --privileged mode."""
 
+    kata_disk_size: str = "50G"
+    """Size of the sparse disk image for kata DinD. Can be overridden by nacos config 'kata_dind_disk_size'."""
+
+    kata_disk_base_path: str = "/data/docker-disk"
+    """Base directory on the host for storing kata disk image files."""
+
     # TODO: Refine these fields in future versions
     actor_resource: str | None = None
     """Resource type for actor allocation (to be refined)."""

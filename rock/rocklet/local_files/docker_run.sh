@@ -28,6 +28,22 @@ is_nix() {
     fi
 }
 
+# Kata DinD: set up loop device and mount disk image for Docker storage
+setup_kata_dind() {
+    mkdir -p /var/lib/docker
+    for i in $(seq 0 7); do
+        mknod -m 660 /dev/loop$i b 7 $i 2>/dev/null || true
+    done
+    mount -o loop /docker-disk.img /var/lib/docker
+    mount -o remount,rw /sys/fs/cgroup
+    mount -o remount,rw /proc/sys
+}
+
+if [ "${ROCK_KATA_RUNTIME}" = "true" ]; then
+    echo "Kata runtime detected, setting up DinD disk..."
+    setup_kata_dind
+fi
+
 # Run rocklet
 if [ "$(is_nix)" = "true" ]; then
     # NixOS

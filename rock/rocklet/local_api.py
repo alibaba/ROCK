@@ -180,19 +180,13 @@ async def portforward(websocket: WebSocket, port: int):
 
     try:
         # Connect to local TCP port
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection("127.0.0.1", port),
-            timeout=TCP_CONNECT_TIMEOUT
-        )
+        reader, writer = await asyncio.wait_for(asyncio.open_connection("127.0.0.1", port), timeout=TCP_CONNECT_TIMEOUT)
         logger.info(
             f"[Portforward] TCP connection established: target_port={port}, "
             f"local_addr={writer.get_extra_info('sockname')}"
         )
     except asyncio.TimeoutError:
-        logger.error(
-            f"[Portforward] TCP connection timeout: target_port={port}, "
-            f"timeout={TCP_CONNECT_TIMEOUT}s"
-        )
+        logger.error(f"[Portforward] TCP connection timeout: target_port={port}, " f"timeout={TCP_CONNECT_TIMEOUT}s")
         await websocket.close(code=1011, reason=f"Connection to port {port} timed out")
         return
     except OSError as e:
@@ -204,8 +198,7 @@ async def portforward(websocket: WebSocket, port: int):
         return
     except Exception as e:
         logger.error(
-            f"[Portforward] Unexpected TCP error: target_port={port}, "
-            f"error_type={type(e).__name__}, error={e}"
+            f"[Portforward] Unexpected TCP error: target_port={port}, " f"error_type={type(e).__name__}, error={e}"
         )
         await websocket.close(code=1011, reason=f"Unexpected error: {e}")
         return
@@ -232,13 +225,10 @@ async def portforward(websocket: WebSocket, port: int):
                     f"bytes={len(data)}, total_msgs={ws_to_tcp_msgs}, total_bytes={ws_to_tcp_bytes}"
                 )
         except WebSocketDisconnect as e:
-            logger.info(
-                f"[Portforward] ws->tcp: client disconnected: target_port={port}, code={e.code}"
-            )
+            logger.info(f"[Portforward] ws->tcp: client disconnected: target_port={port}, code={e.code}")
         except Exception as e:
             logger.debug(
-                f"[Portforward] ws->tcp error: target_port={port}, "
-                f"error_type={type(e).__name__}, error={e}"
+                f"[Portforward] ws->tcp error: target_port={port}, " f"error_type={type(e).__name__}, error={e}"
             )
         finally:
             writer.close()
@@ -261,8 +251,7 @@ async def portforward(websocket: WebSocket, port: int):
                 )
         except Exception as e:
             logger.debug(
-                f"[Portforward] tcp->ws error: target_port={port}, "
-                f"error_type={type(e).__name__}, error={e}"
+                f"[Portforward] tcp->ws error: target_port={port}, " f"error_type={type(e).__name__}, error={e}"
             )
         finally:
             try:
@@ -275,8 +264,7 @@ async def portforward(websocket: WebSocket, port: int):
         await asyncio.gather(ws_to_tcp(), tcp_to_ws())
     except Exception as e:
         logger.debug(
-            f"[Portforward] Forwarding error: target_port={port}, "
-            f"error_type={type(e).__name__}, error={e}"
+            f"[Portforward] Forwarding error: target_port={port}, " f"error_type={type(e).__name__}, error={e}"
         )
     finally:
         writer.close()

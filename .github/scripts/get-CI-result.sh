@@ -9,6 +9,8 @@ fi
 COMMIT_ID=$1
 SECURITY=$2
 REPOSITORY=$3
+PIPELINE_ID="42305"
+PROJECT_ID="3567319"
 
 # 设置最大等待时间
 MAX_WAIT_TIME=7200
@@ -19,7 +21,7 @@ while true; do
 
     response=$(curl -s  -H "Content-Type: application/json" \
                         -H "Authorization: Basic ${SECURITY}" \
-                        -d "{\"type\": \"RETRIEVE-TASK-STATUS\", \"repositoryUrl\": \"${REPOSITORY}\", \"commitId\": \"${COMMIT_ID}\"}" "http://get-tasend-back-twkvcdsbpj.cn-hangzhou.fcapp.run")
+                        -d "{\"type\": \"RETRIEVE-TASK-STATUS\", \"aone\": { \"projectId\": \"${PROJECT_ID}\", \"pipelineId\": \"${PIPELINE_ID}\"}, \"repositoryUrl\": \"${REPOSITORY}\",\"commitId\": \"${COMMIT_ID}\"}" "http://get-tasend-back-twkvcdsbpj.cn-hangzhou.fcapp.run")
     echo "Response: $response"
 
     # 检查curl是否成功

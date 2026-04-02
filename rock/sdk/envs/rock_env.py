@@ -8,6 +8,7 @@ from rock.logger import init_logger
 
 logger = init_logger(__name__)
 
+
 class RockEnv(Env):
     def __init__(self, env_id: str) -> None:
         """
@@ -136,7 +137,7 @@ class RockEnv(Env):
         timeout = httpx.Timeout(timeout=300.0, connect=300.0, read=300.0)
         try:
             logger.debug(f"Calling Admin API {url} with params: {params}")
-            
+
             with httpx.Client(timeout=timeout) as client:
                 response = client.post(url, headers=headers, json=params)
                 response.raise_for_status()

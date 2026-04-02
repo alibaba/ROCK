@@ -7,32 +7,33 @@ environment:
   xrl_authorization: "<your-xrl-auth-token>"
   image: "<your-harbor-image:tag>"
   cluster: "<your-cluster>"
-  memory: "16g"
-  cpus: 4
+  memory: "32g"
+  cpus: 8
   startup_timeout: 1800
   auto_clear_seconds: 7200
-  auto_stop: true
+  auto_stop: false
   env:
-    LLM_API_KEY: "<your-llm-api-key>"
-    LLM_BASE_URL: "<your-llm-base-url>"
+    OPENAI_API_KEY: "<your-openai-api-key>"
+    OPENAI_BASE_URL: "<your-openai-base-url>"
 
 # ── Harbor Native ────────────────────────────────────
 agents:
-  - name: "openhands"
-    model_name: "<your-provider>/<your-model>"
-
-orchestrator:
-  n_concurrent_trials: 1
+  - name: "swe-agent"
+    model_name: "custom_openai/<your-model>"
 
 datasets:
-  - name: "terminal-bench-2-test"
+  - name: "princeton-nlp/SWE-bench_Verified"
     registry:
       split: "test"
       oss_access_key_id: "<your-oss-access-key-id>"
       oss_access_key_secret: "<your-oss-access-key-secret>"
-      oss_region: "<your-oss-region>"
-      oss_endpoint: "<your-oss-endpoint>"
       oss_bucket: "<your-oss-bucket>"
       oss_dataset_path: "<your-oss-dataset-path>"
+      oss_region: "<your-oss-region>"
+      oss_endpoint: "<your-oss-endpoint>"
     task_names:
-      - "crack-7z-hash"
+      - "astropy__astropy-7606"
+
+# ── Verifier (optional) ──────────────────────────────
+verifier:
+  mode: "native"

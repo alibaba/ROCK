@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -47,6 +47,7 @@ class EnvironmentConfig(BaseModel):
     suppress_override_warnings: bool = False
     mounts_json: list[dict[str, Any]] | None = None
     oss_mirror: OssMirrorConfig | None = None
+    oss_deps: dict[str, str] = Field(default_factory=dict)
     env: dict[str, str] = Field(default_factory=dict)
     kwargs: dict[str, Any] = Field(default_factory=dict)
 
@@ -80,6 +81,7 @@ class VerifierConfig(BaseModel):
     override_timeout_sec: float | None = None
     max_timeout_sec: float | None = None
     disable: bool = False
+    mode: Literal["harbor", "native"] | None = None
 
 
 class TaskConfig(BaseModel):

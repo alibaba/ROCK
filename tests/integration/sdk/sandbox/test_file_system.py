@@ -104,9 +104,9 @@ async def test_download_file(sandbox_instance: Sandbox, monkeypatch):
         )
 
         assert not response.success, "Download should fail when OSS is disabled"
-        assert (
-            "not enabled" in response.message.lower()
-        ), f"Error message should mention OSS disabled: {response.message}"
+        assert "not enabled" in response.message.lower(), (
+            f"Error message should mention OSS disabled: {response.message}"
+        )
         logger.info("✓ OSS disabled error handling works correctly")
 
         # Setup mocks for remaining tests

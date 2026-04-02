@@ -20,14 +20,10 @@ async def mock_arun(cmd: str, response_limited_bytes: int = 1024 * 64):
     session_name = f"bash-{temp_id}"
     d = LocalDeployment()
     await d.start()
-    await d.runtime.create_session(
-        SandboxCreateBashSessionRequest(session=session_name)
-    )
+    await d.runtime.create_session(SandboxCreateBashSessionRequest(session=session_name))
     cmd = f"/bin/bash -c '{cmd}'"
     nohup_command = f"nohup {cmd} < /dev/null > {out_file} 2>&1 & echo {PID_PREFIX}$!{PID_SUFFIX};disown"
-    resp = await d.runtime.run_in_session(
-        BashAction(command=nohup_command, session=session_name)
-    )
+    resp = await d.runtime.run_in_session(BashAction(command=nohup_command, session=session_name))
     logger.info(f"nohup_command response: {resp.output}")
     pid = extract_nohup_pid(resp.output)
     start_time = time.perf_counter()
@@ -35,9 +31,7 @@ async def mock_arun(cmd: str, response_limited_bytes: int = 1024 * 64):
     while time.perf_counter() < end_time:
         try:
             await asyncio.wait_for(
-                d.runtime.run_in_session(
-                    BashAction(command=f"kill -0 {pid}", session=session_name)
-                ),
+                d.runtime.run_in_session(BashAction(command=f"kill -0 {pid}", session=session_name)),
                 timeout=30,
             )
             await asyncio.sleep(1)
@@ -48,9 +42,7 @@ async def mock_arun(cmd: str, response_limited_bytes: int = 1024 * 64):
         BashAction(command=f"head -c {response_limited_bytes} {out_file}", session=session_name)
     )
     yield pid, nohup_resp.output
-    await d.runtime.run_in_session(
-        BashAction(command=f"rm -rf {out_file}", session=session_name)
-    )
+    await d.runtime.run_in_session(BashAction(command=f"rm -rf {out_file}", session=session_name))
     await d.stop()
 
 
@@ -146,9 +138,7 @@ echo "a"
 echo "b"
 echo "c"
 """
-    write_script_cmd = (
-        f"cat > {script_file} << 'SCRIPT_EOF'\n{script_content}SCRIPT_EOF"
-    )
+    write_script_cmd = f"cat > {script_file} << 'SCRIPT_EOF'\n{script_content}SCRIPT_EOF"
     async for pid, _ in mock_arun(write_script_cmd):
         assert pid
     async for pid, _ in mock_arun(f"chmod +x {script_file}"):

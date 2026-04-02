@@ -266,7 +266,14 @@ class Job:
     # ------------------------------------------------------------------
 
     async def _autofill_sandbox_info(self) -> None:
-        self._config.namespace = self._sandbox._namespace
+        sandbox_ns = self._sandbox._namespace
+        if self._config.namespace is not None and sandbox_ns is not None:
+            if self._config.namespace != sandbox_ns:
+                raise ValueError(
+                    f"namespace mismatch: JobConfig has '{self._config.namespace}', but sandbox returned '{sandbox_ns}'"
+                )
+        if sandbox_ns is not None:
+            self._config.namespace = sandbox_ns
 
     async def _upload_content(self, content: str, sandbox_path: str) -> None:
         """Write text content to a local temp file and upload to sandbox via upload_by_path."""

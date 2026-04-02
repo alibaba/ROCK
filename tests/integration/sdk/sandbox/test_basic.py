@@ -63,9 +63,9 @@ async def test_sandbox_file_operations(admin_remote_server: RemoteServer):
 
                 # Verify file exists
                 verify_response = await sandbox.arun(cmd=f"ls -la {target_path}", session="bash-session")
-                assert (
-                    target_path in verify_response.output or "test.txt" in verify_response.output
-                ), "File not found after upload"
+                assert target_path in verify_response.output or "test.txt" in verify_response.output, (
+                    "File not found after upload"
+                )
 
             finally:
                 # Clean up local temp file

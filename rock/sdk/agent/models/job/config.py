@@ -17,7 +17,6 @@ from rock.sdk.agent.models.orchestrator_type import OrchestratorType
 from rock.sdk.agent.models.trial.config import (
     AgentConfig,
     ArtifactConfig,
-    EnvironmentConfig,
     OssMirrorConfig,
     RockEnvironmentConfig,
     TaskConfig,
@@ -142,11 +141,10 @@ class JobConfig(BaseModel):
     # ── Harbor native fields ──
     namespace: str | None = Field(
         default=None,
-        description="资源租户隔离标识，用于区分不同团队/项目的资源",
+        description="Tenant isolation identifier for distinguishing resources across teams/projects",
     )
-    experiment_id: str | None = Field(
-        default=None,
-        description="实验标识",
+    experiment_id: str = Field(
+        description="Experiment identifier, required",
     )
     job_name: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d__%H-%M-%S"))
     jobs_dir: Path = Path(USER_DEFINED_LOGS) / "jobs"
@@ -164,6 +162,25 @@ class JobConfig(BaseModel):
     datasets: list[LocalDatasetConfig | RegistryDatasetConfig] = Field(default_factory=list)
     tasks: list[TaskConfig] = Field(default_factory=list)
     artifacts: list[str | ArtifactConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _sync_experiment_id(self):
+        """Validate and sync experiment_id between JobConfig and SandboxConfig.
+
+        1. experiment_id must not be empty.
+        2. If environment.experiment_id is already set, it must match.
+        3. Propagate experiment_id down to environment (SandboxConfig).
+        """
+        if not self.experiment_id:
+            raise ValueError("experiment_id must not be empty")
+        env_exp = self.environment.experiment_id
+        if env_exp is not None and env_exp != self.experiment_id:
+            raise ValueError(
+                f"experiment_id mismatch: JobConfig has '{self.experiment_id}', "
+                f"but environment (SandboxConfig) has '{env_exp}'"
+            )
+        self.environment.experiment_id = self.experiment_id
+        return self
 
     def to_harbor_yaml(self) -> str:
         """Serialize Harbor-native fields to YAML for ``harbor jobs start -c``.

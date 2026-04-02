@@ -9,6 +9,7 @@ from rock.actions import (
 )
 from rock.deployments.config import DockerDeploymentConfig, get_deployment
 
+
 @pytest.mark.need_docker
 async def test_docker_deployment(container_name):
     deployment_config = DockerDeploymentConfig(

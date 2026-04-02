@@ -1,5 +1,5 @@
+from collections.abc import Sequence
 from time import time_ns
-from typing import Dict, List, Optional, Sequence
 
 from opentelemetry.sdk.metrics._internal._view_instrument_match import (
     _ViewInstrumentMatch as _OrigViewInstrumentMatch,
@@ -15,16 +15,15 @@ class _GcViewInstrumentMatch(_OrigViewInstrumentMatch):
     metric series (based on attributes). This is useful for preventing memory
     leaks when dealing with high-cardinality metrics.
     """
+
     # Idle metric series are cleaned up after 20 minutes. This can be adjusted.
     _IDLE_TIMEOUT_NS = 20 * 60 * 1_000_000_000
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._last_used_ns: Dict[frozenset, int] = {}
+        self._last_used_ns: dict[frozenset, int] = {}
 
-    def consume_measurement(
-            self, measurement: Measurement, should_sample_exemplar: bool = True
-    ) -> None:
+    def consume_measurement(self, measurement: Measurement, should_sample_exemplar: bool = True) -> None:
         """
         Consumes a measurement, aggregates it, and tracks its usage for GC.
         """
@@ -32,11 +31,7 @@ class _GcViewInstrumentMatch(_OrigViewInstrumentMatch):
         measurement_for_aggregation = measurement
 
         if self._view._attribute_keys is not None:
-            filtered_attributes = {
-                key: value
-                for key, value in attributes.items()
-                if key in self._view._attribute_keys
-            }
+            filtered_attributes = {key: value for key, value in attributes.items() if key in self._view._attribute_keys}
 
             # If attributes were filtered, a new Measurement object must be used
             # for aggregation. This ensures that if an exemplar is recorded, it
@@ -61,22 +56,20 @@ class _GcViewInstrumentMatch(_OrigViewInstrumentMatch):
                 should_sample_exemplar,
             )
         else:
-            self._attributes_aggregation[aggr_key].aggregate(
-                measurement_for_aggregation, should_sample_exemplar
-            )
+            self._attributes_aggregation[aggr_key].aggregate(measurement_for_aggregation, should_sample_exemplar)
         self._last_used_ns[aggr_key] = now_ns
 
     def collect(
-            self,
-            collection_aggregation_temporality: AggregationTemporality,
-            collection_start_nanos: int,
-    ) -> Optional[Sequence[DataPointT]]:
+        self,
+        collection_aggregation_temporality: AggregationTemporality,
+        collection_start_nanos: int,
+    ) -> Sequence[DataPointT] | None:
         """
         Collects all data points for the metric, and garbage collects idle series.
         """
-        data_points: List[DataPointT] = []
+        data_points: list[DataPointT] = []
         now_ns = time_ns()
-        to_delete: List[frozenset] = []
+        to_delete: list[frozenset] = []
 
         with self._lock:
             # First, collect data points and identify idle series
@@ -104,7 +97,9 @@ def patch_view_instrument_match() -> None:
     # Call this once at application startup, before initializing any metric
     # readers or providers, to replace the SDK's internal class.
     import opentelemetry.sdk.metrics._internal._view_instrument_match as vim_mod
+
     vim_mod._ViewInstrumentMatch = _GcViewInstrumentMatch
 
     from opentelemetry.sdk.metrics._internal import metric_reader_storage as mrs
+
     mrs._ViewInstrumentMatch = _GcViewInstrumentMatch

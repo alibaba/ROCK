@@ -195,7 +195,7 @@ class Sandbox(AbstractSandbox):
         self._sandbox_id = response.get("result").get("sandbox_id")
         self._host_name = response.get("result").get("host_name")
         self._host_ip = response.get("result").get("host_ip")
-        
+
         start_time = time.time()
         while time.time() - start_time < self.config.startup_timeout:
             sandbox_info = await self.get_status()

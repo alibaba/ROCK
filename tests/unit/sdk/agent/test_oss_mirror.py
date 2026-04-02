@@ -97,9 +97,8 @@ class TestJobConfigNamespaceFields:
     def test_default_namespace_is_none(self):
         from rock.sdk.agent.models.job.config import JobConfig
 
-        cfg = JobConfig(job_name="test")
+        cfg = JobConfig(job_name="test", experiment_id="test-exp")
         assert cfg.namespace is None
-        assert cfg.experiment_id is None
 
     def test_namespace_settable_at_top_level(self):
         from rock.sdk.agent.models.job.config import JobConfig
@@ -118,9 +117,7 @@ class TestToHarborYamlOssMirror:
     def test_namespace_at_top_level_in_yaml(self):
         """namespace/experiment_id 序列化为 JobConfig 顶层字段。"""
         from rock.sdk.agent.models.job.config import JobConfig
-        from rock.sdk.agent.models.trial.config import OssMirrorConfig
-
-        from rock.sdk.agent.models.trial.config import RockEnvironmentConfig
+        from rock.sdk.agent.models.trial.config import OssMirrorConfig, RockEnvironmentConfig
 
         cfg = JobConfig(
             job_name="mirror-test",
@@ -151,7 +148,7 @@ class TestToHarborYamlOssMirror:
         """When oss_mirror is default (disabled), it should not clutter the YAML."""
         from rock.sdk.agent.models.job.config import JobConfig
 
-        cfg = JobConfig(job_name="no-mirror")
+        cfg = JobConfig(job_name="no-mirror", experiment_id="test-exp")
         data = yaml.safe_load(cfg.to_harbor_yaml())
 
         env_data = data.get("environment", {})
@@ -196,6 +193,7 @@ agents:
 
         yaml_content = """\
 job_name: compat-mirror
+experiment_id: test-exp
 environment:
   oss_mirror:
     enabled: true
@@ -222,6 +220,7 @@ agents:
 
         yaml_content = """\
 job_name: no-mirror
+experiment_id: test-exp
 agents:
   - name: test-agent
 """
@@ -241,7 +240,7 @@ class TestEnableOssMirror:
     def test_enable_with_all_params(self):
         from rock.sdk.agent.models.job.config import JobConfig
 
-        cfg = JobConfig(job_name="conv-test")
+        cfg = JobConfig(job_name="conv-test", experiment_id="test-exp")
         cfg.enable_oss_mirror(
             oss_bucket="conv-bucket",
             oss_access_key_id="ak-conv",
@@ -255,16 +254,11 @@ class TestEnableOssMirror:
     def test_does_not_touch_namespace_or_experiment_id(self):
         """enable_oss_mirror 不修改顶层 namespace / experiment_id。"""
         from rock.sdk.agent.models.job.config import JobConfig
-        from rock.sdk.sandbox.config import SandboxConfig
 
         cfg = JobConfig(
             job_name="no-touch-test",
             namespace="preset-ns",
             experiment_id="preset-exp",
-            sandbox_config=SandboxConfig(
-                namespace="sandbox-ns",
-                experiment_id="sandbox-exp",
-            ),
         )
         cfg.enable_oss_mirror(
             oss_bucket="b",

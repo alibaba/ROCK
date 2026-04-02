@@ -1,10 +1,9 @@
 """Tests for common port validation utilities."""
-import pytest
 
 from rock.common.port_validation import (
-    PORT_FORWARD_MIN_PORT,
-    PORT_FORWARD_MAX_PORT,
     PORT_FORWARD_EXCLUDED_PORTS,
+    PORT_FORWARD_MAX_PORT,
+    PORT_FORWARD_MIN_PORT,
     validate_port_forward_port,
 )
 

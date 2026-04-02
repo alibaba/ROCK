@@ -1,4 +1,5 @@
 """Tests for WebSocket TCP port forwarding proxy."""
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -137,7 +138,7 @@ class TestPortForwardRoute:
         # The WebSocket connection will be accepted and the service called
         # Since the mock returns immediately, the connection should close
         try:
-            with client.websocket_connect("/sandboxes/test-sandbox/portforward?port=8080") as websocket:
+            with client.websocket_connect("/sandboxes/test-sandbox/portforward?port=8080"):
                 # Connection established, service should be called
                 pass
         except Exception:
@@ -160,7 +161,7 @@ class TestPortForwardRoute:
         client = TestClient(app)
 
         # The WebSocket connection will be closed with code 1008
-        with client.websocket_connect("/sandboxes/test-sandbox/portforward?port=22") as websocket:
+        with client.websocket_connect("/sandboxes/test-sandbox/portforward?port=22"):
             # Connection should be closed by server
             pass
 
