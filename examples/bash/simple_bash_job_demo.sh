@@ -14,12 +14,14 @@ YOUR_USER_ID="${YOUR_USER_ID}"
 YOUR_EXPERIMENT_ID="${YOUR_EXPERIMENT_ID}"
 ROCK_IMAGE="${ROCK_IMAGE:-rl-rock-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11}"
 ROCK_CLUSTER="${ROCK_CLUSTER:-vpc-sg-sl-a}"
-# =========================
 
 EXTERNAL_VARIABLE_1="external_value"
 TO_RENDERED_KEYS=(
     "EXTERNAL_VARIABLE_1"
 )
+LOCAL_WORKSPACE_DIR=""
+ROCK_WORKSPACE_DIR="/root/workspace"
+# =========================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -70,6 +72,8 @@ from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.sandbox.config import SandboxConfig
 
 BASH_SCRIPT = '''${BASH_SCRIPT}'''
+LOCAL_WORKSPACE_DIR = "${LOCAL_WORKSPACE_DIR}"
+ROCK_WORKSPACE_DIR = "${ROCK_WORKSPACE_DIR}"
 
 async def main():
     sandbox = Sandbox(
@@ -85,6 +89,17 @@ async def main():
     await sandbox.start()
     print(f"Sandbox ID: {sandbox.sandbox_id}")
     try:
+        if LOCAL_WORKSPACE_DIR:
+            print(f"Uploading {LOCAL_WORKSPACE_DIR} -> {ROCK_WORKSPACE_DIR}")
+            result = await sandbox.fs.upload_dir(
+                source_dir=LOCAL_WORKSPACE_DIR,
+                target_dir=ROCK_WORKSPACE_DIR,
+            )
+            if result.exit_code != 0:
+                print(f"Upload failed: {result.failure_reason}")
+                sys.exit(1)
+            print(f"Upload succeeded: {result.output}")
+
         result = await sandbox.process.execute_script(
             script_content=BASH_SCRIPT,
             script_name="simple_bash_job.sh",
