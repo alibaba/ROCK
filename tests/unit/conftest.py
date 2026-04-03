@@ -9,8 +9,10 @@ from fakeredis import aioredis
 from kubernetes import client
 from ray.util.state import list_actors
 
+from rock.admin.core.db_provider import DatabaseProvider
 from rock.admin.core.ray_service import RayService
-from rock.config import K8sConfig, RockConfig
+from rock.admin.core.sandbox_table import SandboxTable
+from rock.config import DatabaseConfig, K8sConfig, RockConfig
 from rock.deployments.abstract import AbstractDeployment
 from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
 from rock.logger import init_logger
@@ -80,10 +82,20 @@ def ray_operator(ray_service, runtime_config):
 
 
 @pytest.fixture
+async def _memory_sandbox_table():
+    provider = DatabaseProvider(db_config=DatabaseConfig(url="sqlite+aiosqlite:///:memory:"))
+    await provider.init_pool()
+    table = SandboxTable(provider)
+    yield table
+    await provider.close_pool()
+
+
+@pytest.fixture
 async def sandbox_manager(
-    rock_config: RockConfig, redis_provider: RedisProvider, ray_init_shutdown, ray_service, ray_operator
+    rock_config: RockConfig, redis_provider: RedisProvider, ray_init_shutdown, ray_service, ray_operator,
+    _memory_sandbox_table: SandboxTable,
 ):
-    meta_store = SandboxMetaStore(redis_provider=redis_provider)
+    meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=_memory_sandbox_table)
     sandbox_manager = SandboxManager(
         rock_config,
         meta_store=meta_store,
@@ -96,8 +108,10 @@ async def sandbox_manager(
 
 
 @pytest.fixture
-async def sandbox_proxy_service(rock_config: RockConfig, redis_provider: RedisProvider):
-    meta_store = SandboxMetaStore(redis_provider=redis_provider)
+async def sandbox_proxy_service(
+    rock_config: RockConfig, redis_provider: RedisProvider, _memory_sandbox_table: SandboxTable
+):
+    meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=_memory_sandbox_table)
     sandbox_proxy_service = SandboxProxyService(rock_config, meta_store=meta_store)
     return sandbox_proxy_service
 

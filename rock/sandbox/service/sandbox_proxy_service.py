@@ -22,6 +22,7 @@ from rock.actions import (
     UploadResponse,
     WriteFileResponse,
 )
+from rock.actions.sandbox.response import State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.metrics.decorator import monitor_sandbox_operation
 from rock.admin.metrics.monitor import MetricsMonitor
@@ -176,14 +177,11 @@ class SandboxProxyService:
         logger.info(f"batch_get_sandbox_status, sandbox_ids count is {len(sandbox_ids)}")
         results = []
         sandbox_infos: list[SandboxInfo] = await self._meta_store.batch_get(sandbox_ids)
-        from rock.actions.sandbox.response import State
-
         for sandbox_info in sandbox_infos:
-            if sandbox_info:
-                state = sandbox_info.get("state")
-                if use_legacy_states and state not in (State.RUNNING, State.PENDING):
-                    continue
-                results.append(SandboxStatusResponse.from_sandbox_info(sandbox_info))
+            state = sandbox_info.get("state")
+            if use_legacy_states and state not in (State.RUNNING, State.PENDING):
+                continue
+            results.append(SandboxStatusResponse.from_sandbox_info(sandbox_info))
         logger.info(f"batch_get_sandbox_status succ, result count is {len(results)}")
         return results
 
@@ -742,14 +740,10 @@ class SandboxProxyService:
 
         all_sandbox_data = []
         batch_size = self._batch_get_status_max_count
-        from rock.actions.sandbox.response import State
-
         for i in range(0, len(all_ids), batch_size):
             batch_ids = all_ids[i : i + batch_size]
             sandbox_infos_list = await self._meta_store.batch_get(batch_ids)
             for sandbox_info in sandbox_infos_list:
-                if not sandbox_info:
-                    continue
                 state = sandbox_info.get("state")
                 if use_legacy_states and state not in (State.RUNNING, State.PENDING):
                     continue

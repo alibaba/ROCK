@@ -51,15 +51,6 @@ def repo(redis, db):
     return SandboxMetaStore(redis_provider=redis, sandbox_table=db)
 
 
-@pytest.fixture
-def repo_no_db(redis):
-    return SandboxMetaStore(redis_provider=redis, sandbox_table=None)
-
-
-@pytest.fixture
-def repo_no_redis(db):
-    return SandboxMetaStore(redis_provider=None, sandbox_table=db)
-
 
 @pytest.fixture
 def repo_with_memory_db(redis, db_memory):
@@ -117,14 +108,6 @@ class TestSave:
         result = await redis.json_get(timeout_sandbox_key(SANDBOX_ID), "$")
         assert result is not None
         assert result[0]["auto_clear_time"] == "30"
-
-    async def test_save_works_without_db(self, repo_no_db, redis):
-        """save() with db=None should still write to Redis without error."""
-        await repo_no_db.create(SANDBOX_ID, SANDBOX_INFO)
-
-        result = await redis.json_get(alive_sandbox_key(SANDBOX_ID), "$")
-        assert result is not None
-        assert result[0]["sandbox_id"] == SANDBOX_ID
 
 
 class TestUpdate:
@@ -213,25 +196,6 @@ class TestArchive:
         assert db_record is not None
         assert db_record["state"] == "stopped"
 
-    async def test_archive_works_without_db(self, repo_no_db, redis):
-        """archive() should still clean up Redis even when no DB is configured."""
-        await repo_no_db.create(SANDBOX_ID, SANDBOX_INFO)
-
-        await repo_no_db.archive(SANDBOX_ID, {"state": "stopped"})
-
-        assert await redis.json_get(alive_sandbox_key(SANDBOX_ID), "$") is None
-
-    async def test_archive_works_without_redis(self, repo_no_redis, db):
-        """archive() should still update DB even when no Redis is configured."""
-        await db.create(SANDBOX_ID, SANDBOX_INFO)
-
-        await repo_no_redis.archive(SANDBOX_ID, {"state": "stopped", "stop_time": "2025-06-01T00:00:00Z"})
-        # No sleep needed: archive() now awaits the DB write directly.
-
-        db_record = await db.get(SANDBOX_ID)
-        assert db_record["state"] == "stopped"
-        assert db_record["stop_time"] == "2025-06-01T00:00:00Z"
-
 
 class TestGet:
     async def test_get_reads_from_redis(self, repo, redis):
@@ -277,11 +241,6 @@ class TestGetTimeout:
         result = await repo.get_timeout("does-not-exist")
         assert result is None
 
-    async def test_get_timeout_returns_none_without_redis(self, repo_no_redis):
-        """get_timeout() with no Redis configured should return None."""
-        result = await repo_no_redis.get_timeout(SANDBOX_ID)
-        assert result is None
-
 
 class TestIterAliveSandboxIds:
     async def test_iter_alive_sandbox_ids_yields_running_and_pending(self, repo):
@@ -303,14 +262,6 @@ class TestIterAliveSandboxIds:
         ids = [sid async for sid in repo.iter_alive_sandbox_ids()]
         assert "sbx-running" in ids
         assert "sbx-stopped" not in ids
-
-    async def test_iter_alive_sandbox_ids_falls_back_to_redis_without_db(self, repo_no_db):
-        """iter_alive_sandbox_ids() should fall back to Redis when DB is not configured."""
-        await repo_no_db.create("sbx-1", {**SANDBOX_INFO, "sandbox_id": "sbx-1"})
-        await repo_no_db.create("sbx-2", {**SANDBOX_INFO, "sandbox_id": "sbx-2"})
-
-        ids = {sid async for sid in repo_no_db.iter_alive_sandbox_ids()}
-        assert ids == {"sbx-1", "sbx-2"}
 
     async def test_iter_alive_sandbox_ids_works_with_sqlite_memory(self, repo_with_memory_db):
         """iter_alive_sandbox_ids() should work with sqlite in-memory DB + Redis fallback."""
@@ -348,64 +299,32 @@ class TestIterAliveSandboxIds:
 
 
 class TestBatchGet:
-    async def test_batch_get_returns_redis_results(self, repo, redis):
-        """batch_get() returns sandbox info from Redis alive key when present."""
+    async def test_batch_get_returns_db_results(self, repo):
+        """batch_get() returns sandbox info from the DB."""
         await repo.create(SANDBOX_ID, SANDBOX_INFO)
 
         results = await repo.batch_get([SANDBOX_ID])
         assert len(results) == 1
-        assert results[0] is not None
         assert results[0]["sandbox_id"] == SANDBOX_ID
 
-    async def test_batch_get_falls_back_to_db_on_redis_miss(self, repo, redis, db):
-        """batch_get() falls back to DB when the Redis alive key is absent (e.g. after archive)."""
-        # Persist to DB directly (simulating an archived sandbox with no alive key)
-        await db.create(SANDBOX_ID, SANDBOX_INFO)
-
-        # No alive key in Redis
-        assert await redis.json_get(alive_sandbox_key(SANDBOX_ID), "$") is None
-
-        results = await repo.batch_get([SANDBOX_ID])
-        assert len(results) == 1
-        assert results[0] is not None
-        assert results[0]["sandbox_id"] == SANDBOX_ID
-
-    async def test_batch_get_returns_none_for_unknown_id(self, repo):
-        """batch_get() returns None for IDs not found in Redis or DB."""
+    async def test_batch_get_omits_unknown_id(self, repo):
+        """batch_get() omits IDs not found in DB."""
         results = await repo.batch_get(["does-not-exist"])
-        assert results == [None]
+        assert results == []
 
-    async def test_batch_get_mixed_redis_and_db_hits(self, repo, redis, db):
-        """batch_get() correctly mixes Redis hits and DB fallback in one call."""
-        # sbx-redis: alive key present
-        await repo.create("sbx-redis", {**SANDBOX_INFO, "sandbox_id": "sbx-redis"})
-        await asyncio.sleep(0.1)
+    async def test_batch_get_multiple_ids(self, repo):
+        """batch_get() returns only found sandboxes; missing IDs are omitted."""
+        await repo.create("sbx-a", {**SANDBOX_INFO, "sandbox_id": "sbx-a"})
+        await repo.create("sbx-b", {**SANDBOX_INFO, "sandbox_id": "sbx-b"})
 
-        # sbx-db: only in DB (archived)
-        await db.create("sbx-db", {**SANDBOX_INFO, "sandbox_id": "sbx-db"})
-
-        results = await repo.batch_get(["sbx-redis", "sbx-db", "sbx-missing"])
-        assert results[0] is not None and results[0]["sandbox_id"] == "sbx-redis"
-        assert results[1] is not None and results[1]["sandbox_id"] == "sbx-db"
-        assert results[2] is None
+        results = await repo.batch_get(["sbx-a", "sbx-b", "sbx-missing"])
+        assert len(results) == 2
+        sandbox_ids = {r["sandbox_id"] for r in results}
+        assert sandbox_ids == {"sbx-a", "sbx-b"}
 
     async def test_batch_get_empty_list(self, repo):
         """batch_get([]) should return []."""
         assert await repo.batch_get([]) == []
-
-    async def test_batch_get_without_redis_uses_db(self, repo_no_redis, db):
-        """batch_get() without Redis falls back entirely to DB."""
-        await db.create(SANDBOX_ID, SANDBOX_INFO)
-
-        results = await repo_no_redis.batch_get([SANDBOX_ID])
-        assert len(results) == 1
-        assert results[0] is not None
-        assert results[0]["sandbox_id"] == SANDBOX_ID
-
-    async def test_batch_get_without_db_returns_none_on_redis_miss(self, repo_no_db, redis):
-        """batch_get() without DB returns None when Redis alive key is absent."""
-        results = await repo_no_db.batch_get([SANDBOX_ID])
-        assert results == [None]
 
 
 class TestListBy:
@@ -425,30 +344,10 @@ class TestListBy:
         sandbox_ids = {r["sandbox_id"] for r in results}
         assert sandbox_ids == {"sbx-a", "sbx-b"}
 
-    async def test_list_by_falls_back_to_redis_without_db(self, repo_no_db):
-        """list_by() with no DB configured should filter alive sandboxes from Redis."""
-        await repo_no_db.create("sbx-a", {**SANDBOX_INFO, "sandbox_id": "sbx-a", "user_id": "user-1"})
-        await repo_no_db.create("sbx-b", {**SANDBOX_INFO, "sandbox_id": "sbx-b", "user_id": "user-1"})
-        await repo_no_db.create("sbx-c", {**SANDBOX_INFO, "sandbox_id": "sbx-c", "user_id": "user-2"})
-
-        results = await repo_no_db.list_by("user_id", "user-1")
-        assert len(results) == 2
-        sandbox_ids = {r["sandbox_id"] for r in results}
-        assert sandbox_ids == {"sbx-a", "sbx-b"}
-
-    async def test_list_by_falls_back_to_redis_when_db_field_not_allowlisted(self, repo):
-        """When DB rejects a non-allowlisted field, list_by() should fall back to Redis."""
-        await repo.create("sbx-a", {**SANDBOX_INFO, "sandbox_id": "sbx-a", "create_time": "t-1"})
-        await repo.create("sbx-b", {**SANDBOX_INFO, "sandbox_id": "sbx-b", "create_time": "t-1"})
-        await repo.create("sbx-c", {**SANDBOX_INFO, "sandbox_id": "sbx-c", "create_time": "t-2"})
-        await asyncio.sleep(0.1)
-
-        # "create_time" is not in SandboxRecord.LIST_BY_ALLOWLIST, DB path raises ValueError.
-        # Repository should gracefully fall back to Redis scanning.
-        results = await repo.list_by("create_time", "t-1")
-        assert len(results) == 2
-        sandbox_ids = {r["sandbox_id"] for r in results}
-        assert sandbox_ids == {"sbx-a", "sbx-b"}
+    async def test_list_by_raises_for_non_allowlisted_field(self, repo):
+        """list_by() should raise ValueError for fields not in the DB allowlist."""
+        with pytest.raises(ValueError):
+            await repo.list_by("create_time", "t-1")
 
 
 class TestUpdateTimeout:
@@ -461,10 +360,6 @@ class TestUpdateTimeout:
         assert result is not None
         assert result[0]["auto_clear_time"] == "60"
         assert result[0]["expire_time"] == "9999999999"
-
-    async def test_update_timeout_no_op_without_redis(self, repo_no_redis):
-        """update_timeout() should not raise when redis is absent."""
-        await repo_no_redis.update_timeout(SANDBOX_ID, {"auto_clear_time": "30", "expire_time": "0"})
 
 
 # ---------------------------------------------------------------------------

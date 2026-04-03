@@ -13,13 +13,15 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 
 from rock import env_vars
+from rock.admin.core.db_provider import DatabaseProvider
+from rock.admin.core.sandbox_table import SandboxTable
 from rock.admin.core.ray_service import RayService
 from rock.admin.entrypoints.sandbox_api import sandbox_router, set_sandbox_manager
 from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_sandbox_proxy_service
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
 from rock.admin.gem.api import gem_router, set_env_service
 from rock.admin.scheduler.scheduler import SchedulerThread
-from rock.config import RockConfig
+from rock.config import RockConfig, DatabaseConfig
 from rock.logger import init_logger
 from rock.sandbox.gem_manager import GemManager
 from rock.sandbox.operator.factory import OperatorContext, OperatorFactory
@@ -51,10 +53,12 @@ async def lifespan(app: FastAPI):
     env_vars.ROCK_ADMIN_ENV = args.env
     env_vars.ROCK_ADMIN_ROLE = args.role
 
-    # init redis provider
-    if args.env in ["local", "test", "dev"]:
+    # init redis provider (fallback to fakeredis if no host configured)
+    if args.env in ["local", "test", "dev"] or not rock_config.redis.host:
         from fakeredis import aioredis
 
+        if not rock_config.redis.host:
+            logger.info("redis.host is not configured, falling back to FakeRedis")
         redis_provider = RedisProvider(host=None, port=None, password="")
         redis_provider.client = aioredis.FakeRedis(decode_responses=True)
     else:
@@ -65,20 +69,13 @@ async def lifespan(app: FastAPI):
         )
         await redis_provider.init_pool()
 
-    # init optional database provider
-    db_provider = None
-    sandbox_table = None
-    db_url = rock_config.database.url
-    if db_url:
-        from rock.admin.core.db_provider import DatabaseProvider
-        from rock.admin.core.sandbox_table import SandboxTable
-        from rock.config import DatabaseConfig
-
-        db_provider = DatabaseProvider(db_config=DatabaseConfig(url=db_url))
-        await db_provider.init_pool()
-        sandbox_table = SandboxTable(db_provider)
-    else:
-        logger.info("database.url is not configured, DB persistence disabled")
+    # init database provider (fallback to sqlite in-memory if no url configured)
+    db_url = rock_config.database.url or "sqlite+aiosqlite:///:memory:"
+    if not rock_config.database.url:
+        logger.info("database.url is not configured, falling back to SQLite in-memory")
+    db_provider = DatabaseProvider(db_config=DatabaseConfig(url=db_url))
+    await db_provider.init_pool()
+    sandbox_table = SandboxTable(db_provider)
 
     from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 

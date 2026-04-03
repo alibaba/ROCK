@@ -120,6 +120,7 @@ class SandboxQueryParams(TypedDict, total=False):
 
     page: str
     page_size: str
+    use_legacy_states: str
     user_id: str
     experiment_id: str
     namespace: str

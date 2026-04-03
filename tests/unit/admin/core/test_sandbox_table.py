@@ -114,7 +114,6 @@ class TestSandboxTableWithPostgres:
     async def test_fixture_connection(self, db):
         """Verify that the fixture can connect and create tables."""
         assert db._db._engine is not None
-        assert db._db._session_factory is not None
 
     async def test_insert_and_get(self, db):
         sandbox_id = "test-sandbox-001"

@@ -14,12 +14,14 @@ from starlette.datastructures import Headers, MutableHeaders
 from starlette.responses import JSONResponse
 
 from rock.actions.sandbox.response import State
-from rock.admin.core.redis_key import alive_sandbox_key
-from rock.config import RockConfig
+from rock.admin.core.db_provider import DatabaseProvider
+from rock.admin.core.sandbox_table import SandboxTable
+from rock.config import DatabaseConfig, RockConfig
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.utils.providers.redis_provider import RedisProvider
 
+from rock.admin.proto.response import SandboxListResponse
 from rock.admin.entrypoints.sandbox_proxy_api import (
     sandbox_proxy_router,
     set_sandbox_proxy_service,
@@ -1059,9 +1061,18 @@ async def _redis():
 
 
 @pytest.fixture
-def _svc(_redis, rock_config):
-    meta_store = SandboxMetaStore(redis_provider=_redis)
-    return SandboxProxyService(rock_config, meta_store=meta_store), _redis
+async def _db():
+    provider = DatabaseProvider(db_config=DatabaseConfig(url="sqlite+aiosqlite:///:memory:"))
+    await provider.init_pool()
+    table = SandboxTable(provider)
+    yield table
+    await provider.close_pool()
+
+
+@pytest.fixture
+def _svc(_redis, _db, rock_config):
+    meta_store = SandboxMetaStore(redis_provider=_redis, sandbox_table=_db)
+    return SandboxProxyService(rock_config, meta_store=meta_store), meta_store
 
 
 @pytest.fixture
@@ -1069,57 +1080,130 @@ def rock_config():
     return RockConfig()
 
 
-async def _seed(redis, sandbox_id: str, state: str) -> None:
+async def _seed(meta_store: SandboxMetaStore, sandbox_id: str, state: str) -> None:
     info = {**_BASE_INFO, "sandbox_id": sandbox_id, "state": state}
-    await redis.json_set(alive_sandbox_key(sandbox_id), "$", info)
+    await meta_store.create(sandbox_id, info)
 
 
 class TestBatchGetLegacyStates:
     """batch_get_sandbox_status with use_legacy_states=True (default)."""
 
     async def test_running_sandbox_included(self, _svc):
-        svc, redis = _svc
-        await _seed(redis, "sb-running", State.RUNNING)
+        svc, meta_store = _svc
+        await _seed(meta_store, "sb-running", State.RUNNING)
         result = await svc.batch_get_sandbox_status(["sb-running"])
         assert len(result) == 1
         assert result[0].sandbox_id == "sb-running"
 
     async def test_pending_sandbox_included(self, _svc):
-        svc, redis = _svc
-        await _seed(redis, "sb-pending", State.PENDING)
+        svc, meta_store = _svc
+        await _seed(meta_store, "sb-pending", State.PENDING)
         result = await svc.batch_get_sandbox_status(["sb-pending"])
         assert len(result) == 1
         assert result[0].sandbox_id == "sb-pending"
 
     async def test_stopped_sandbox_excluded(self, _svc):
         """stopped sandbox must be filtered out when use_legacy_states=True."""
-        svc, redis = _svc
-        await _seed(redis, "sb-stopped", State.STOPPED)
+        svc, meta_store = _svc
+        await _seed(meta_store, "sb-stopped", State.STOPPED)
         result = await svc.batch_get_sandbox_status(["sb-stopped"])
         assert result == []
 
     async def test_mixed_states_only_active_returned(self, _svc):
         """Only running/pending survive; stopped is silently dropped."""
-        svc, redis = _svc
-        await _seed(redis, "sb-r", State.RUNNING)
-        await _seed(redis, "sb-p", State.PENDING)
-        await _seed(redis, "sb-s", State.STOPPED)
+        svc, meta_store = _svc
+        await _seed(meta_store, "sb-r", State.RUNNING)
+        await _seed(meta_store, "sb-p", State.PENDING)
+        await _seed(meta_store, "sb-s", State.STOPPED)
         result = await svc.batch_get_sandbox_status(["sb-r", "sb-p", "sb-s"])
         ids = {r.sandbox_id for r in result}
         assert ids == {"sb-r", "sb-p"}
 
     async def test_unknown_id_omitted(self, _svc):
-        """sandbox_id not in Redis → entry absent from result (not None/empty status)."""
-        svc, redis = _svc
-        await _seed(redis, "sb-exists", State.RUNNING)
+        """sandbox_id not in DB → entry absent from result (not None/empty status)."""
+        svc, meta_store = _svc
+        await _seed(meta_store, "sb-exists", State.RUNNING)
         result = await svc.batch_get_sandbox_status(["sb-exists", "sb-ghost"])
         assert len(result) == 1
         assert result[0].sandbox_id == "sb-exists"
 
     async def test_stopped_included_when_legacy_disabled(self, _svc):
         """use_legacy_states=False → stopped sandbox is returned."""
-        svc, redis = _svc
-        await _seed(redis, "sb-stopped2", State.STOPPED)
+        svc, meta_store = _svc
+        await _seed(meta_store, "sb-stopped2", State.STOPPED)
         result = await svc.batch_get_sandbox_status(["sb-stopped2"], use_legacy_states=False)
         assert len(result) == 1
         assert result[0].sandbox_id == "sb-stopped2"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GET /sandboxes — use_legacy_states query param
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestListSandboxesLegacyStates:
+    """GET /sandboxes should forward use_legacy_states to the service."""
+
+    async def test_default_uses_legacy_states(self, app):
+        a, svc = app
+        svc.list_sandboxes = AsyncMock(return_value=SandboxListResponse())
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            await client.get("/sandboxes")
+        _, kwargs = svc.list_sandboxes.call_args
+        assert "use_legacy_states" not in kwargs
+
+    async def test_false_string_disables_legacy_states(self, app):
+        a, svc = app
+        svc.list_sandboxes = AsyncMock(return_value=SandboxListResponse())
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            await client.get("/sandboxes?use_legacy_states=false")
+        _, kwargs = svc.list_sandboxes.call_args
+        assert kwargs["use_legacy_states"] is False
+
+    async def test_true_string_keeps_legacy_states(self, app):
+        a, svc = app
+        svc.list_sandboxes = AsyncMock(return_value=SandboxListResponse())
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            await client.get("/sandboxes?use_legacy_states=true")
+        _, kwargs = svc.list_sandboxes.call_args
+        assert kwargs["use_legacy_states"] is True
+
+    async def test_use_legacy_states_not_passed_as_filter(self, app):
+        """use_legacy_states must be popped from query_params, not forwarded as a filter."""
+        a, svc = app
+        svc.list_sandboxes = AsyncMock(return_value=SandboxListResponse())
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            await client.get("/sandboxes?use_legacy_states=false&user_id=u1")
+        query_params, _ = svc.list_sandboxes.call_args
+        assert "use_legacy_states" not in query_params[0]
+        assert query_params[0].get("user_id") == "u1"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# POST /sandboxes/batch — use_legacy_states query param
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestBatchGetStatusLegacyStates:
+    """POST /sandboxes/batch should forward use_legacy_states to the service."""
+
+    async def test_default_uses_legacy_states(self, app):
+        a, svc = app
+        svc.batch_get_sandbox_status = AsyncMock(return_value=[])
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            await client.post("/sandboxes/batch", json={"sandbox_ids": ["sbx-1"]})
+        svc.batch_get_sandbox_status.assert_called_once_with(["sbx-1"], True)
+
+    async def test_false_disables_legacy_states(self, app):
+        a, svc = app
+        svc.batch_get_sandbox_status = AsyncMock(return_value=[])
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            await client.post("/sandboxes/batch?use_legacy_states=false", json={"sandbox_ids": ["sbx-1"]})
+        svc.batch_get_sandbox_status.assert_called_once_with(["sbx-1"], False)
+
+    async def test_true_keeps_legacy_states(self, app):
+        a, svc = app
+        svc.batch_get_sandbox_status = AsyncMock(return_value=[])
+        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
+            await client.post("/sandboxes/batch?use_legacy_states=true", json={"sandbox_ids": ["sbx-1"]})
+        svc.batch_get_sandbox_status.assert_called_once_with(["sbx-1"], True)
