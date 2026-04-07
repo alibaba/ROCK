@@ -22,6 +22,7 @@ from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExp
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
+from rock import env_vars
 from rock.logger import init_logger
 from rock.utils.system import get_instance_id, get_uniagent_endpoint
 
@@ -94,6 +95,9 @@ class RockletMetricsMonitor:
         self._gauges["net"] = meter.create_gauge(
             name="xrl_gateway.system.network", description="Network Usage", unit="1"
         )
+        self._gauges["rt"] = meter.create_gauge(
+            name="xrl_gateway.system.lifespan_rt", description="Life Span Rt", unit="1"
+        )
 
     async def _fetch_statistics(self) -> dict | None:
         """Fetch sandbox statistics from the local rocklet HTTP endpoint."""
@@ -145,6 +149,10 @@ class RockletMetricsMonitor:
             self._gauges["mem"].set(stats["mem"], attributes=attributes)
             self._gauges["disk"].set(stats["disk"], attributes=attributes)
             self._gauges["net"].set(stats["net"], attributes=attributes)
+
+            if env_vars.ROCK_SANDBOX_CREATED_TIME is not None:
+                lifespan_rt = time.time() - env_vars.ROCK_SANDBOX_CREATED_TIME
+                self._gauges["rt"].set(lifespan_rt, attributes=attributes)
 
             logger.debug(f"Successfully reported metrics for sandbox: {self._sandbox_id}")
             report_rt = time.perf_counter() - start
