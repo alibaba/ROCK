@@ -74,7 +74,7 @@ async def lifespan(app: FastAPI):
     if not rock_config.database.url:
         logger.info("database.url is not configured, falling back to SQLite in-memory")
     db_provider = DatabaseProvider(db_config=DatabaseConfig(url=db_url))
-    await db_provider.init_pool()
+    await db_provider.init()
     sandbox_table = SandboxTable(db_provider)
 
     from rock.sandbox.sandbox_meta_store import SandboxMetaStore
@@ -148,7 +148,7 @@ async def lifespan(app: FastAPI):
         logger.info("Scheduler thread stopped")
 
     if db_provider:
-        await db_provider.close_pool()
+        await db_provider.close()
 
     if redis_provider:
         await redis_provider.close_pool()

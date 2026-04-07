@@ -17,10 +17,10 @@ class TestSandboxTableWithSQLite:
     @pytest.fixture
     async def db(self):
         provider = DatabaseProvider(db_config=DatabaseConfig(url="sqlite:///:memory:"))
-        await provider.init_pool()
+        await provider.init()
         table = SandboxTable(provider)
         yield table
-        await provider.close_pool()
+        await provider.close()
 
     async def test_insert_and_get(self, db):
         sandbox_id = "sqlite-sbx-001"
@@ -106,10 +106,10 @@ class TestSandboxTableWithPostgres:
     async def db(self, pg_container):
         """Create a SandboxTable connected to the test PostgreSQL container."""
         provider = DatabaseProvider(db_config=DatabaseConfig(url=pg_container["url"]))
-        await provider.init_pool()
+        await provider.init()
         table = SandboxTable(provider)
         yield table
-        await provider.close_pool()
+        await provider.close()
 
     async def test_fixture_connection(self, db):
         """Verify that the fixture can connect and create tables."""

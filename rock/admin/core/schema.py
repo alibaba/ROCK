@@ -22,7 +22,7 @@ class Base(DeclarativeBase):
 
 
 # All ORM models that inherit from Base must be imported (or defined) in this file
-# so that Base.metadata is fully populated before DatabaseProvider.init_pool() calls
+# so that Base.metadata is fully populated before DatabaseProvider.init() calls
 # create_all.  When adding a new table in a separate module, add its import here:
 #   from rock.admin.core.<module> import <Model>  # noqa: F401
 class SandboxRecord(Base):

@@ -31,19 +31,19 @@ async def redis():
 @pytest.fixture
 async def db(tmp_path):
     provider = DatabaseProvider(db_config=DatabaseConfig(url=f"sqlite:///{tmp_path / 'test.db'}"))
-    await provider.init_pool()
+    await provider.init()
     table = SandboxTable(provider)
     yield table
-    await provider.close_pool()
+    await provider.close()
 
 
 @pytest.fixture
 async def db_memory():
     provider = DatabaseProvider(db_config=DatabaseConfig(url="sqlite:///:memory:"))
-    await provider.init_pool()
+    await provider.init()
     table = SandboxTable(provider)
     yield table
-    await provider.close_pool()
+    await provider.close()
 
 
 @pytest.fixture
@@ -382,10 +382,10 @@ async def real_redis(redis_container):
 @pytest.fixture
 async def real_db(pg_container):
     provider = DatabaseProvider(db_config=DatabaseConfig(url=pg_container["url"]))
-    await provider.init_pool()
+    await provider.init()
     table = SandboxTable(provider)
     yield table
-    await provider.close_pool()
+    await provider.close()
 
 
 @pytest.fixture

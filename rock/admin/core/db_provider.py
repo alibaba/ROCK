@@ -28,23 +28,17 @@ class DatabaseProvider:
     @property
     def engine(self) -> AsyncEngine:
         if self._engine is None:
-            raise RuntimeError("DatabaseProvider not initialised. Call init_pool() first.")
+            raise RuntimeError("DatabaseProvider not initialised. Call init() first.")
         return self._engine
 
-    async def init_pool(self) -> None:
+    async def init(self) -> None:
         """Create the async engine and ensure tables exist."""
-        logger.info("Initializing database connection pool ...")
         self._engine = create_async_engine(self._url, echo=False)
-        async with self._engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database connection pool initialised; tables created.")
 
-    async def close_pool(self) -> None:
+    async def close(self) -> None:
         """Dispose of the engine and release all connections."""
         if self._engine is not None:
-            logger.info("Closing database connection pool ...")
             await self._engine.dispose()
-            logger.info("Database connection pool closed.")
 
     @staticmethod
     def _convert_url(url: str) -> str:
