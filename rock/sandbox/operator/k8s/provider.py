@@ -123,7 +123,7 @@ class K8sProvider(Protocol):
     - stop: Stop and delete a sandbox
     """
 
-    async def submit(self, config: DeploymentConfig, user_info: dict = {}) -> SandboxInfo:
+    async def submit(self, config: DockerDeploymentConfig, user_info: dict = {}) -> SandboxInfo:
         """Submit a sandbox deployment.
 
         Args:
@@ -236,13 +236,15 @@ class BatchSandboxProvider(K8sProvider):
 
         try:
             # Create the sandbox without waiting for IP
-            created_sandbox_id = await self._create(config)
+            created_sandbox_id, resource_version = await self._create(config)
 
             # Extract and set user info
             user_id = user_info.get("user_id", "default")
             experiment_id = user_info.get("experiment_id", "default")
             namespace = user_info.get("namespace", "default")
             rock_authorization = user_info.get("rock_authorization", "default")
+            extended_params = dict(config.extended_params)
+            extended_params[K8sConstants.EXT_RESOURCE_VERSION] = resource_version
 
             # Build sandbox info with empty IP and port_mapping
             sandbox_info = SandboxInfo(
@@ -259,6 +261,7 @@ class BatchSandboxProvider(K8sProvider):
                 port_mapping={},
                 state=State.PENDING,
                 phases={},
+                extended_params=extended_params,
             )
 
             logger.info(f"sandbox {sandbox_id} is submitted")
@@ -286,12 +289,13 @@ class BatchSandboxProvider(K8sProvider):
             sandbox_id: Sandbox identifier
 
         Returns:
-            SandboxInfo with current status (without user_info fields)
+            SandboxInfo with current status and resource_version in extended_params
+            (without user_info fields)
         """
         from rock.actions.sandbox.response import State
 
-        # Get host_ip and port_mapping
-        host_ip, port_mapping = await self._get_sandbox_runtime_info(sandbox_id)
+        # Get host_ip, port_mapping and resource_version
+        host_ip, port_mapping, resource_version = await self._get_sandbox_runtime_info(sandbox_id)
 
         # Check is_alive through runtime
         is_alive = False
@@ -303,7 +307,7 @@ class BatchSandboxProvider(K8sProvider):
             except Exception as e:
                 logger.debug(f"Failed to check is_alive for {sandbox_id}: {e}")
 
-        # Build sandbox info with current state
+        # Build sandbox info with current state and resource_version
         sandbox_info = SandboxInfo(
             sandbox_id=sandbox_id,
             host_name=sandbox_id,
@@ -311,6 +315,7 @@ class BatchSandboxProvider(K8sProvider):
             port_mapping=port_mapping,
             state=State.RUNNING if is_alive else State.PENDING,
             phases={},
+            extended_params={K8sConstants.EXT_RESOURCE_VERSION: resource_version},
         )
 
         return sandbox_info
@@ -555,14 +560,16 @@ class BatchSandboxProvider(K8sProvider):
         )
         return manifest
 
-    async def _create(self, config: DockerDeploymentConfig) -> str:
+    async def _create(self, config: DockerDeploymentConfig) -> tuple[str, str]:
         """Create a BatchSandbox resource without waiting for IP allocation.
 
         Args:
             config: Docker deployment configuration
 
         Returns:
-            sandbox_id (same as config.container_name)
+            tuple: (sandbox_id, resource_version)
+            - sandbox_id: same as config.container_name
+            - resource_version: K8s resource version for optimistic concurrency control
 
         Raises:
             Exception: If creation fails or sandbox already exists
@@ -574,11 +581,12 @@ class BatchSandboxProvider(K8sProvider):
         try:
             manifest = await self._build_batchsandbox_manifest(config)
 
-            # Create BatchSandbox resource
-            await self._k8s_api.create_custom_object(body=manifest)
+            # Create BatchSandbox resource and get the created object
+            created_resource = await self._k8s_api.create_custom_object(body=manifest)
+            resource_version = created_resource.get("metadata", {}).get("resourceVersion", "")
 
             logger.info(f"Created BatchSandbox: {sandbox_id} in namespace: {self.namespace}")
-            return sandbox_id
+            return sandbox_id, resource_version
 
         except client.exceptions.ApiException as e:
             if e.status == 409:
@@ -590,16 +598,17 @@ class BatchSandboxProvider(K8sProvider):
             logger.error(f"Unexpected error creating sandbox: {e}", exc_info=True)
             raise
 
-    async def _get_sandbox_runtime_info(self, sandbox_id: str) -> tuple[str, dict[int, int]]:
-        """Get sandbox runtime info (host_ip and port_mapping).
+    async def _get_sandbox_runtime_info(self, sandbox_id: str) -> tuple[str, dict[int, int], str]:
+        """Get sandbox runtime info (host_ip, port_mapping and resource_version).
 
         Args:
             sandbox_id: ID of the sandbox
 
         Returns:
-            tuple: (host_ip, port_mapping)
+            tuple: (host_ip, port_mapping, resource_version)
             - host_ip: Pod IP from endpoints annotation (empty string if not allocated)
             - port_mapping: Port configuration from annotations
+            - resource_version: K8s resource version for optimistic concurrency control
 
         Raises:
             Exception: If sandbox not found
@@ -613,7 +622,13 @@ class BatchSandboxProvider(K8sProvider):
 
             # Extract metadata
             metadata = resource.get("metadata", {})
+            resource_version = metadata.get("resourceVersion", "")
             annotations = metadata.get("annotations", {})
+
+            # Check if resource is being deleted
+            deletion_timestamp = metadata.get("deletionTimestamp")
+            if deletion_timestamp:
+                raise Exception(f"Sandbox '{sandbox_id}' is being deleted (deletionTimestamp: {deletion_timestamp})")
 
             # Parse endpoints from annotations
             endpoints_str = annotations.get(K8sConstants.ANNOTATION_ENDPOINTS)
@@ -649,7 +664,7 @@ class BatchSandboxProvider(K8sProvider):
                 Port.SSH: ports_config["ssh"],
             }
 
-            return host_ip, port_mapping
+            return host_ip, port_mapping, resource_version
 
         except Exception as e:
             logger.error(f"Failed to fetch resource from cache for {sandbox_id}: {e}", exc_info=True)

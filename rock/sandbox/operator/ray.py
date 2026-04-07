@@ -6,7 +6,6 @@ from rock import env_vars
 from rock.actions.sandbox.response import IsAliveResponse, State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.core.ray_service import RayService
-from rock.admin.core.redis_key import alive_sandbox_key
 from rock.common.constants import GET_STATUS_SWITCH
 from rock.config import RuntimeConfig
 from rock.deployments.config import DockerDeploymentConfig
@@ -104,13 +103,6 @@ class RayOperator(AbstractOperator):
                 return redis_info
             else:
                 return sandbox_info
-
-    async def get_sandbox_info_from_redis(self, sandbox_id: str) -> SandboxInfo:
-        sandbox_status = await self._redis_provider.json_get(alive_sandbox_key(sandbox_id), "$")
-        if sandbox_status and len(sandbox_status) > 0:
-            sandbox_info = sandbox_status[0]
-            return sandbox_info
-        return None
 
     async def stop(self, sandbox_id: str) -> bool:
         async with self._ray_service.get_ray_rwlock().read_lock():

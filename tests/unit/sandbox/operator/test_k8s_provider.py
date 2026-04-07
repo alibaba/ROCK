@@ -1,9 +1,12 @@
 """Unit tests for BatchSandboxProvider helper methods."""
 
+import pytest
+
 from rock.config import K8sConfig, PoolConfig
 from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.operator.k8s.constants import K8sConstants
 from rock.sandbox.operator.k8s.provider import BatchSandboxProvider, ResourceMatchingPoolSelector
+from rock.deployments.constants import Port
 
 BASIC_TEMPLATES = {
     "default": {
@@ -49,7 +52,7 @@ def make_config(
 
 class TestResourceMatchingPoolSelector:
     def test_select_pool_by_image_and_resource_match(self):
-        """image 和资源均匹配时选中，多个满足时选资源最小的。"""
+        """Select pool when image and resources match, choose smallest when multiple satisfy."""
         selector = ResourceMatchingPoolSelector()
         pools = {
             "pool_large": PoolConfig(image="python:3.11", cpus=8, memory="16Gi"),
@@ -60,7 +63,7 @@ class TestResourceMatchingPoolSelector:
         assert selector.select_pool(config, pools) == "pool_tiny"
 
     def test_returns_none_when_image_not_match(self):
-        """image 不匹配时返回 None。"""
+        """Return None when image does not match."""
         selector = ResourceMatchingPoolSelector()
         pools = {
             "pool_win": PoolConfig(image="windows:latest", cpus=4, memory="8Gi"),
@@ -69,7 +72,7 @@ class TestResourceMatchingPoolSelector:
         assert selector.select_pool(config, pools) is None
 
     def test_returns_none_when_cpus_not_enough(self):
-        """pool cpus 不足时返回 None。"""
+        """Return None when pool cpus are insufficient."""
         selector = ResourceMatchingPoolSelector()
         pools = {
             "pool_small": PoolConfig(image="python:3.11", cpus=2, memory="8Gi"),
@@ -78,7 +81,7 @@ class TestResourceMatchingPoolSelector:
         assert selector.select_pool(config, pools) is None
 
     def test_returns_none_when_memory_not_enough(self):
-        """pool memory 不足时返回 None。"""
+        """Return None when pool memory is insufficient."""
         selector = ResourceMatchingPoolSelector()
         pools = {
             "pool_small": PoolConfig(image="python:3.11", cpus=8, memory="4Gi"),
@@ -87,13 +90,13 @@ class TestResourceMatchingPoolSelector:
         assert selector.select_pool(config, pools) is None
 
     def test_returns_none_when_pools_empty(self):
-        """pools 为空时返回 None。"""
+        """Return None when pools is empty."""
         selector = ResourceMatchingPoolSelector()
         config = make_config()
         assert selector.select_pool(config, {}) is None
 
     def test_pool_exact_resource_match(self):
-        """pool 资源与需求完全相等时可被选中。"""
+        """Pool can be selected when resources exactly match requirements."""
         selector = ResourceMatchingPoolSelector()
         pools = {
             "pool_exact": PoolConfig(image="python:3.11", cpus=2, memory="4Gi"),
@@ -102,7 +105,7 @@ class TestResourceMatchingPoolSelector:
         assert selector.select_pool(config, pools) == "pool_exact"
 
     def test_memory_unit_conversion(self):
-        """不同内存单位可正确比较（4096Mi >= 4Gi）。"""
+        """Different memory units can be compared correctly (4096Mi >= 4Gi)."""
         selector = ResourceMatchingPoolSelector()
         pools = {
             "pool_mi": PoolConfig(image="python:3.11", cpus=2, memory="4096Mi"),
@@ -116,7 +119,7 @@ class TestResourceMatchingPoolSelector:
 
 class TestGetPoolName:
     async def test_returns_pool_from_extended_params(self):
-        """extended_params 中有 pool_name 时直接返回，不走 selector。"""
+        """Return pool directly from extended_params without using selector."""
         provider = make_provider()
         provider.set_nacos_provider(
             MockNacosProvider(
@@ -127,7 +130,7 @@ class TestGetPoolName:
         assert await provider._get_pool_name(config) == "my_pool"
 
     async def test_extended_params_takes_priority_over_selector(self):
-        """extended_params 优先级高于 selector。"""
+        """extended_params takes priority over selector."""
         provider = make_provider()
         provider.set_nacos_provider(
             MockNacosProvider(
@@ -138,7 +141,7 @@ class TestGetPoolName:
         assert await provider._get_pool_name(config) == "explicit_pool"
 
     async def test_uses_selector_when_no_extended_params(self):
-        """无 extended_params 时使用 selector 选择 pool。"""
+        """Use selector to choose pool when no extended_params."""
         provider = make_provider()
         provider.set_nacos_provider(
             MockNacosProvider(
@@ -154,7 +157,7 @@ class TestGetPoolName:
         assert await provider._get_pool_name(config) == "pool_small"
 
     async def test_returns_none_when_no_matching_pool(self):
-        """无匹配 pool 时返回 None。"""
+        """Return None when no matching pool."""
         provider = make_provider()
         # No nacos provider set, so pools is empty
         config = make_config()
@@ -166,43 +169,43 @@ class TestGetPoolName:
 
 class TestGetTemplateName:
     def test_returns_template_from_extended_params(self):
-        """extended_params 中有 template_name 时直接返回，不走 template_map。"""
+        """Return template directly from extended_params without using template_map."""
         provider = make_provider()
         config = make_config(extended_params={"template_name": "gpu_template"})
         assert provider._get_template_name(config) == "gpu_template"
 
     def test_extended_params_takes_priority_over_template_map(self):
-        """extended_params 优先级高于 template_map。"""
+        """extended_params takes priority over template_map."""
         provider = make_provider(template_map={"linux": "map_template"})
         config = make_config(extended_params={"template_name": "ext_template"}, image_os="linux")
         assert provider._get_template_name(config) == "ext_template"
 
     def test_returns_template_from_template_map_by_image_os(self):
-        """Priority 2: extended_params 无值时，根据 image_os 从 template_map 查找。"""
+        """Priority 2: Look up template_map by image_os when extended_params is empty."""
         provider = make_provider(template_map={"windows": "windows_template"})
         config = make_config(image_os="windows")
         assert provider._get_template_name(config) == "windows_template"
 
     def test_returns_default_when_image_os_not_in_template_map(self):
-        """image_os 不在 template_map 中时返回 'default'。"""
+        """Return 'default' when image_os is not in template_map."""
         provider = make_provider(template_map={"windows": "windows_template"})
         config = make_config(image_os="linux")
         assert provider._get_template_name(config) == "default"
 
     def test_returns_default_when_no_image_os(self):
-        """image_os 为空字符串时跳过 template_map 查找，返回 'default'。"""
+        """Skip template_map lookup when image_os is empty, return 'default'."""
         provider = make_provider(template_map={"windows": "windows_template"})
         config = make_config(image_os="")
         assert provider._get_template_name(config) == "default"
 
     def test_returns_default_when_template_map_empty(self):
-        """template_map 为空时返回 'default'。"""
+        """Return 'default' when template_map is empty."""
         provider = make_provider(template_map={})
         config = make_config(image_os="windows")
         assert provider._get_template_name(config) == "default"
 
     def test_returns_default_when_no_params_and_no_template_map(self):
-        """extended_params 和 template_map 均无值时返回 'default'。"""
+        """Return 'default' when both extended_params and template_map are empty."""
         provider = make_provider()
         config = make_config()
         assert provider._get_template_name(config) == "default"
@@ -213,7 +216,7 @@ class TestGetTemplateName:
 
 class TestGetPoolPorts:
     async def test_returns_ports_from_pool_config(self):
-        """从 PoolConfig 中获取端口配置。"""
+        """Get port configuration from PoolConfig."""
         provider = make_provider()
         provider.set_nacos_provider(
             MockNacosProvider(
@@ -233,14 +236,14 @@ class TestGetPoolPorts:
         assert ports == {"proxy": 9000, "server": 9090, "ssh": 2222}
 
     async def test_returns_default_ports_when_pool_not_found(self):
-        """pool 不存在时返回默认端口。"""
+        """Return default ports when pool does not exist."""
         provider = make_provider()
         # No nacos provider set, so pools is empty
         ports = await provider._get_pool_ports("unknown_pool")
         assert ports == {"proxy": 8000, "server": 8080, "ssh": 22}
 
     async def test_returns_default_ports_for_pool_without_ports(self):
-        """PoolConfig 未配置 ports 时由 __post_init__ 自动补全默认值。"""
+        """PoolConfig without ports config gets default values via __post_init__."""
         provider = make_provider()
         provider.set_nacos_provider(
             MockNacosProvider(
@@ -265,9 +268,21 @@ class MockNacosProvider:
         return self._config
 
 
+class MockK8sApiClient:
+    """Mock K8s API client for testing."""
+    
+    def __init__(self, custom_object: dict = None):
+        self._custom_object = custom_object
+    
+    async def get_custom_object(self, name: str) -> dict:
+        if self._custom_object is None:
+            raise Exception(f"Sandbox '{name}' not found")
+        return self._custom_object
+
+
 class TestGetPoolsFromNacos:
     async def test_get_pools_from_nacos(self):
-        """从 Nacos 获取 pools 配置。"""
+        """Get pools configuration from Nacos."""
         nacos_config = {
             K8sConstants.NACOS_POOLS_KEY: {
                 "pool_nacos": {
@@ -288,7 +303,7 @@ class TestGetPoolsFromNacos:
         assert pools["pool_nacos"].ports == {"proxy": 9000, "server": 9090, "ssh": 2222}
 
     async def test_returns_empty_when_no_nacos_provider(self):
-        """无 nacos provider 时返回空字典。"""
+        """Return empty dict when no nacos provider."""
         provider = make_provider()
         # No nacos provider set
 
@@ -296,7 +311,7 @@ class TestGetPoolsFromNacos:
         assert pools == {}
 
     async def test_returns_empty_when_nacos_has_no_pools(self):
-        """Nacos 无 pools 配置时返回空字典。"""
+        """Return empty dict when Nacos has no pools config."""
         provider = make_provider()
         provider.set_nacos_provider(MockNacosProvider({"other_key": "value"}))
 
@@ -304,7 +319,7 @@ class TestGetPoolsFromNacos:
         assert pools == {}
 
     async def test_pool_selection_uses_nacos_pools(self):
-        """Pool 选择使用 Nacos 中的 pools。"""
+        """Pool selection uses pools from Nacos."""
         nacos_config = {
             K8sConstants.NACOS_POOLS_KEY: {"pool_nacos": {"image": "python:3.11", "cpus": 2, "memory": "4Gi"}}
         }
@@ -314,3 +329,70 @@ class TestGetPoolsFromNacos:
         config = make_config(image="python:3.11", cpus=2, memory="4Gi")
         pool_name = await provider._get_pool_name(config)
         assert pool_name == "pool_nacos"
+
+
+# ========== _get_sandbox_runtime_info ==========
+
+
+class TestGetSandboxRuntimeInfo:
+    async def test_raises_when_sandbox_being_deleted(self):
+        """Raise exception when sandbox is being deleted."""
+        provider = make_provider()
+        provider._initialized = True
+        
+        # Mock K8s API to return a resource with deletionTimestamp
+        provider._k8s_api = MockK8sApiClient({
+            "metadata": {
+                "name": "test-sandbox",
+                "deletionTimestamp": "2024-01-01T00:00:00Z",
+                "annotations": {}
+            }
+        })
+        
+        with pytest.raises(Exception, match="is being deleted"):
+            await provider._get_sandbox_runtime_info("test-sandbox")
+
+    async def test_returns_runtime_info_when_sandbox_active(self):
+        """Return runtime info when sandbox is active."""
+        provider = make_provider()
+        provider._initialized = True
+        
+        # Mock K8s API to return a normal resource
+        provider._k8s_api = MockK8sApiClient({
+            "metadata": {
+                "name": "test-sandbox",
+                "annotations": {
+                    K8sConstants.ANNOTATION_ENDPOINTS: '["10.0.0.1"]',
+                    K8sConstants.ANNOTATION_PORTS: '{"proxy": 8000, "server": 8080, "ssh": 22}'
+                }
+            }
+        })
+        
+        host_ip, port_mapping, resource_version = await provider._get_sandbox_runtime_info("test-sandbox")
+        assert host_ip == "10.0.0.1"
+        assert port_mapping[Port.PROXY] == 8000
+        assert port_mapping[Port.SERVER] == 8080
+        assert port_mapping[Port.SSH] == 22
+        assert resource_version == ""
+
+    async def test_returns_resource_version_when_present(self):
+        """Return resourceVersion correctly when present in resource."""
+        provider = make_provider()
+        provider._initialized = True
+
+        # Mock K8s API to return a resource with resourceVersion
+        provider._k8s_api = MockK8sApiClient({
+            "metadata": {
+                "name": "test-sandbox",
+                "resourceVersion": "12345",
+                "annotations": {
+                    K8sConstants.ANNOTATION_ENDPOINTS: '["10.0.0.1"]',
+                    K8sConstants.ANNOTATION_PORTS: '{"proxy": 8000, "server": 8080, "ssh": 22}'
+                }
+            }
+        })
+
+        host_ip, port_mapping, resource_version = await provider._get_sandbox_runtime_info("test-sandbox")
+        assert host_ip == "10.0.0.1"
+        assert port_mapping[Port.PROXY] == 8000
+        assert resource_version == "12345"
