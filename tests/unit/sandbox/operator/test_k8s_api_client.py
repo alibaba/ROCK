@@ -2,11 +2,11 @@
 
 Tests cover:
 - AsyncLimiter rate limiting integration
-- Informer pattern cache synchronization
+- SharedInformer integration for cache
 - CRUD operations on K8s custom resources
 """
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -28,8 +28,7 @@ class TestK8sApiClient:
             plural="batchsandboxes",
             namespace="rock-test",
             qps=200.0,
-            watch_timeout_seconds=60,
-            watch_reconnect_delay_seconds=5,
+            resync_period=60,
         )
 
         assert api_client._group == "sandbox.opensandbox.io"
@@ -37,8 +36,7 @@ class TestK8sApiClient:
         assert api_client._plural == "batchsandboxes"
         assert api_client._namespace == "rock-test"
         assert api_client._rate_limiter.max_rate == 200.0
-        assert api_client._watch_timeout_seconds == 60
-        assert api_client._watch_reconnect_delay_seconds == 5
+        assert api_client._informer is not None
 
     @pytest.mark.asyncio
     async def test_rate_limiting_with_context_manager(self, k8s_api_client):
@@ -78,19 +76,21 @@ class TestK8sApiClient:
 
         When resource exists in local cache, no API Server request is made.
         """
-        k8s_api_client._cache = {"test-sandbox": {"metadata": {"name": "test-sandbox"}}}
+        # Populate the informer cache with namespace/name key
+        k8s_api_client._informer.cache._objects["rock-test/test-sandbox"] = {
+            "metadata": {"name": "test-sandbox", "namespace": "rock-test"}
+        }
 
         result = await k8s_api_client.get_custom_object(name="test-sandbox")
 
-        assert result == {"metadata": {"name": "test-sandbox"}}
+        assert result == {"metadata": {"name": "test-sandbox", "namespace": "rock-test"}}
 
     @pytest.mark.asyncio
     async def test_get_custom_object_cache_miss(self, k8s_api_client):
         """Test cache miss scenario with API Server fallback.
 
-        When resource not in cache, queries API Server and updates cache.
+        When resource not in cache, queries API Server.
         """
-        k8s_api_client._cache = {}
         mock_response = {"metadata": {"name": "test-sandbox"}}
 
         with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
@@ -99,7 +99,7 @@ class TestK8sApiClient:
             result = await k8s_api_client.get_custom_object(name="test-sandbox")
 
             assert result == mock_response
-            assert k8s_api_client._cache["test-sandbox"] == mock_response
+            mock_thread.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_delete_custom_object(self, k8s_api_client):
@@ -113,17 +113,26 @@ class TestK8sApiClient:
             mock_thread.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_start_initializes_watch(self, k8s_api_client):
-        """Test watch task initialization for Informer pattern.
+    async def test_update_custom_object(self, k8s_api_client):
+        """Test updating K8s custom resource with rate limiting."""
+        with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
+            mock_thread.return_value = {"updated": True}
 
-        start() creates background task to watch K8s resource changes
-        and sync them to local cache.
-        """
-        with patch("asyncio.create_task") as mock_create_task:
+            result = await k8s_api_client.update_custom_object(
+                name="test-sandbox", body={"spec": {"new": "value"}}
+            )
+
+            assert result == {"updated": True}
+            mock_thread.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_start_initializes_informer(self, k8s_api_client):
+        """Test start() initializes the SharedInformer."""
+        with patch.object(k8s_api_client._informer, 'start') as mock_start:
             await k8s_api_client.start()
 
             assert k8s_api_client._initialized is True
-            mock_create_task.assert_called_once()
+            mock_start.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_start_idempotent(self, k8s_api_client):
@@ -131,33 +140,35 @@ class TestK8sApiClient:
 
         Multiple start() calls should only initialize watch once.
         """
-        with patch("asyncio.create_task") as mock_create_task:
+        with patch.object(k8s_api_client._informer, 'start') as mock_start:
             await k8s_api_client.start()
             await k8s_api_client.start()
 
-            assert mock_create_task.call_count == 1
+            # start() should only be called once
+            assert mock_start.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_list_and_sync_cache(self, k8s_api_client):
-        """Test initial cache sync from K8s API Server.
+    async def test_stop_informer(self, k8s_api_client):
+        """Test stop() stops the SharedInformer."""
+        with patch.object(k8s_api_client._informer, 'start') as mock_start, \
+             patch.object(k8s_api_client._informer, 'stop') as mock_stop:
+            await k8s_api_client.start()
+            await k8s_api_client.stop()
 
-        Populates local cache with all resources and returns resourceVersion
-        for subsequent watch operations.
-        """
-        mock_resources = {
-            "metadata": {"resourceVersion": "12345"},
-            "items": [
-                {"metadata": {"name": "sandbox-1"}},
-                {"metadata": {"name": "sandbox-2"}},
-            ],
+            assert k8s_api_client._initialized is False
+            mock_stop.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_list_custom_objects(self, k8s_api_client):
+        """Test list_custom_objects returns all cached resources."""
+        # Populate the cache with namespace/name keys
+        k8s_api_client._informer.cache._objects = {
+            "rock-test/sandbox-1": {"metadata": {"name": "sandbox-1", "namespace": "rock-test"}},
+            "rock-test/sandbox-2": {"metadata": {"name": "sandbox-2", "namespace": "rock-test"}},
         }
 
-        with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
-            mock_thread.return_value = mock_resources
+        result = await k8s_api_client.list_custom_objects()
 
-            resource_version = await k8s_api_client._list_and_sync_cache()
-
-            assert resource_version == "12345"
-            assert len(k8s_api_client._cache) == 2
-            assert "sandbox-1" in k8s_api_client._cache
-            assert "sandbox-2" in k8s_api_client._cache
+        assert len(result) == 2
+        names = {obj["metadata"]["name"] for obj in result}
+        assert names == {"sandbox-1", "sandbox-2"}

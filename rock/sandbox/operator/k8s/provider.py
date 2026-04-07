@@ -367,8 +367,7 @@ class BatchSandboxProvider(K8sProvider):
                 plural=K8sConstants.CRD_PLURAL,
                 namespace=self.namespace,
                 qps=self._k8s_config.api_qps,
-                watch_timeout_seconds=self._k8s_config.watch_timeout_seconds,
-                watch_reconnect_delay_seconds=self._k8s_config.watch_reconnect_delay_seconds,
+                resync_period=self._k8s_config.resync_period,
             )
             await self._k8s_api.start()
             self._initialized = True
