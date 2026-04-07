@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
     ROCK_PIP_INDEX_URL: str | None = "https://mirrors.aliyun.com/pypi/simple/"
     ROCK_MONITOR_ENABLE: bool = False
+    ROCK_DOCKER_ROOT: str | None = None
     ROCK_PROJECT_ROOT: str | None = None
     ROCK_WORKER_ENV_TYPE: str | None = "local"
     ROCK_PYTHON_ENV_PATH: str | None = None
@@ -89,6 +90,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_OSS_BUCKET_REGION": lambda: os.getenv("ROCK_OSS_BUCKET_REGION"),
     "ROCK_PIP_INDEX_URL": lambda: os.getenv("ROCK_PIP_INDEX_URL", "https://mirrors.aliyun.com/pypi/simple/"),
     "ROCK_MONITOR_ENABLE": lambda: os.getenv("ROCK_MONITOR_ENABLE", "false").lower() == "true",
+    "ROCK_DOCKER_ROOT": lambda: os.getenv("ROCK_DOCKER_ROOT"),
     "ROCK_PROJECT_ROOT": lambda: os.getenv("ROCK_PROJECT_ROOT", str(Path(__file__).resolve().parents[1])),
     "ROCK_WORKER_ENV_TYPE": lambda: os.getenv("ROCK_WORKER_ENV_TYPE", "local"),
     "ROCK_PYTHON_ENV_PATH": lambda: os.getenv("ROCK_PYTHON_ENV_PATH", sys.base_prefix),

@@ -19,5 +19,7 @@ class MetricsConstants:
     TOTAL_MEM_RESOURCE = "resource.mem.total"
     AVAILABLE_CPU_RESOURCE = "resource.cpu.available"
     AVAILABLE_MEM_RESOURCE = "resource.mem.available"
+    WORKER_DISK_DOCKER_DIR_PERCENT = "resource.worker_pod.disk.docker_dir.percent"
+    WORKER_DISK_LOG_DIR_PERCENT = "resource.worker_pod.disk.log_dir.percent"
 
     SANDBOX_PHASE_FAILURE = "sandbox.phase.failure"
