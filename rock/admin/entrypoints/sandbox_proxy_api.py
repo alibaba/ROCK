@@ -132,9 +132,9 @@ async def run(action: SandboxBashAction) -> RockResponse[BashObservation]:
 @sandbox_proxy_router.post("/sandboxes/batch")
 @handle_exceptions(error_message="batch get sandbox status failed")
 async def batch_get_status(
-    request: BatchSandboxStatusRequest, use_legacy_states: bool = True
+    request: BatchSandboxStatusRequest,
 ) -> RockResponse[BatchSandboxStatusResponse]:
-    statuses_list = await sandbox_proxy_service.batch_get_sandbox_status(request.sandbox_ids, use_legacy_states)
+    statuses_list = await sandbox_proxy_service.batch_get_sandbox_status(request.sandbox_ids)
     response = BatchSandboxStatusResponse(statuses=statuses_list)
     return RockResponse(result=response)
 
@@ -177,10 +177,7 @@ async def upload(
 @handle_exceptions(error_message="list sandboxes failed")
 async def list_sandboxes(request: Request) -> RockResponse[SandboxListResponse]:
     query_params: SandboxQueryParams = dict(request.query_params)
-    kwargs = {}
-    if "use_legacy_states" in query_params:
-        kwargs["use_legacy_states"] = query_params.pop("use_legacy_states").lower() != "false"
-    result = await sandbox_proxy_service.list_sandboxes(query_params, **kwargs)
+    result = await sandbox_proxy_service.list_sandboxes(query_params)
     return RockResponse(result=result)
 
 

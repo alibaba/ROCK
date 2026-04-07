@@ -1086,7 +1086,7 @@ async def _seed(meta_store: SandboxMetaStore, sandbox_id: str, state: str) -> No
 
 
 class TestBatchGetLegacyStates:
-    """batch_get_sandbox_status with use_legacy_states=True (default)."""
+    """batch_get_sandbox_status only returns RUNNING/PENDING sandboxes."""
 
     async def test_running_sandbox_included(self, _svc):
         svc, meta_store = _svc
@@ -1103,7 +1103,7 @@ class TestBatchGetLegacyStates:
         assert result[0].sandbox_id == "sb-pending"
 
     async def test_stopped_sandbox_excluded(self, _svc):
-        """stopped sandbox must be filtered out when use_legacy_states=True."""
+        """stopped sandbox must be filtered out."""
         svc, meta_store = _svc
         await _seed(meta_store, "sb-stopped", State.STOPPED)
         result = await svc.batch_get_sandbox_status(["sb-stopped"])
@@ -1127,83 +1127,3 @@ class TestBatchGetLegacyStates:
         assert len(result) == 1
         assert result[0].sandbox_id == "sb-exists"
 
-    async def test_stopped_included_when_legacy_disabled(self, _svc):
-        """use_legacy_states=False → stopped sandbox is returned."""
-        svc, meta_store = _svc
-        await _seed(meta_store, "sb-stopped2", State.STOPPED)
-        result = await svc.batch_get_sandbox_status(["sb-stopped2"], use_legacy_states=False)
-        assert len(result) == 1
-        assert result[0].sandbox_id == "sb-stopped2"
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# GET /sandboxes — use_legacy_states query param
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-class TestListSandboxesLegacyStates:
-    """GET /sandboxes should forward use_legacy_states to the service."""
-
-    async def test_default_uses_legacy_states(self, app):
-        a, svc = app
-        svc.list_sandboxes = AsyncMock(return_value=SandboxListResponse())
-        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            await client.get("/sandboxes")
-        _, kwargs = svc.list_sandboxes.call_args
-        assert "use_legacy_states" not in kwargs
-
-    async def test_false_string_disables_legacy_states(self, app):
-        a, svc = app
-        svc.list_sandboxes = AsyncMock(return_value=SandboxListResponse())
-        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            await client.get("/sandboxes?use_legacy_states=false")
-        _, kwargs = svc.list_sandboxes.call_args
-        assert kwargs["use_legacy_states"] is False
-
-    async def test_true_string_keeps_legacy_states(self, app):
-        a, svc = app
-        svc.list_sandboxes = AsyncMock(return_value=SandboxListResponse())
-        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            await client.get("/sandboxes?use_legacy_states=true")
-        _, kwargs = svc.list_sandboxes.call_args
-        assert kwargs["use_legacy_states"] is True
-
-    async def test_use_legacy_states_not_passed_as_filter(self, app):
-        """use_legacy_states must be popped from query_params, not forwarded as a filter."""
-        a, svc = app
-        svc.list_sandboxes = AsyncMock(return_value=SandboxListResponse())
-        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            await client.get("/sandboxes?use_legacy_states=false&user_id=u1")
-        query_params, _ = svc.list_sandboxes.call_args
-        assert "use_legacy_states" not in query_params[0]
-        assert query_params[0].get("user_id") == "u1"
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# POST /sandboxes/batch — use_legacy_states query param
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-class TestBatchGetStatusLegacyStates:
-    """POST /sandboxes/batch should forward use_legacy_states to the service."""
-
-    async def test_default_uses_legacy_states(self, app):
-        a, svc = app
-        svc.batch_get_sandbox_status = AsyncMock(return_value=[])
-        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            await client.post("/sandboxes/batch", json={"sandbox_ids": ["sbx-1"]})
-        svc.batch_get_sandbox_status.assert_called_once_with(["sbx-1"], True)
-
-    async def test_false_disables_legacy_states(self, app):
-        a, svc = app
-        svc.batch_get_sandbox_status = AsyncMock(return_value=[])
-        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            await client.post("/sandboxes/batch?use_legacy_states=false", json={"sandbox_ids": ["sbx-1"]})
-        svc.batch_get_sandbox_status.assert_called_once_with(["sbx-1"], False)
-
-    async def test_true_keeps_legacy_states(self, app):
-        a, svc = app
-        svc.batch_get_sandbox_status = AsyncMock(return_value=[])
-        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            await client.post("/sandboxes/batch?use_legacy_states=true", json={"sandbox_ids": ["sbx-1"]})
-        svc.batch_get_sandbox_status.assert_called_once_with(["sbx-1"], True)

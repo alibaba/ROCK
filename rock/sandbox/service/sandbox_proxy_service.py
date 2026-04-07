@@ -163,7 +163,7 @@ class SandboxProxyService:
 
     @monitor_sandbox_operation()
     async def batch_get_sandbox_status(
-        self, sandbox_ids: list[str], use_legacy_states: bool = True
+        self, sandbox_ids: list[str]
     ) -> list[SandboxStatusResponse]:
         if self._meta_store is None:
             logger.info("batch_get_sandbox_status, meta_store is None, return empty")
@@ -179,7 +179,7 @@ class SandboxProxyService:
         sandbox_infos: list[SandboxInfo] = await self._meta_store.batch_get(sandbox_ids)
         for sandbox_info in sandbox_infos:
             state = sandbox_info.get("state")
-            if use_legacy_states and state not in (State.RUNNING, State.PENDING):
+            if state not in (State.RUNNING, State.PENDING):
                 continue
             results.append(SandboxStatusResponse.from_sandbox_info(sandbox_info))
         logger.info(f"batch_get_sandbox_status succ, result count is {len(results)}")
@@ -187,7 +187,7 @@ class SandboxProxyService:
 
     @monitor_sandbox_operation()
     async def list_sandboxes(
-        self, query_params: SandboxQueryParams, use_legacy_states: bool = True
+        self, query_params: SandboxQueryParams
     ) -> SandboxListResponse:
         if self._meta_store is None:
             logger.warning("meta_store is not available, list_sandboxes returning empty result")
@@ -200,7 +200,7 @@ class SandboxProxyService:
             raise BadRequestRockError(f"page_size exceeds maximum {self._batch_get_status_max_count}")
         logger.info(f"list sandboxes with filters: {query_params}, page: {page}, page_size: {page_size}")
         try:
-            all_sandbox_data = await self.list_all_sandboxes_by_query_params(query_params, use_legacy_states)
+            all_sandbox_data = await self.list_all_sandboxes_by_query_params(query_params)
             total = len(all_sandbox_data)
             start_index = (page - 1) * page_size
             end_index = start_index + page_size
@@ -730,7 +730,7 @@ class SandboxProxyService:
             await self._meta_store.update_timeout(sandbox_id, new_timeout)
 
     async def list_all_sandboxes_by_query_params(
-        self, query_params: SandboxQueryParams, use_legacy_states: bool = True
+        self, query_params: SandboxQueryParams
     ):
         all_ids = []
         async for sandbox_id in self._meta_store.iter_alive_sandbox_ids():
@@ -745,7 +745,7 @@ class SandboxProxyService:
             sandbox_infos_list = await self._meta_store.batch_get(batch_ids)
             for sandbox_info in sandbox_infos_list:
                 state = sandbox_info.get("state")
-                if use_legacy_states and state not in (State.RUNNING, State.PENDING):
+                if state not in (State.RUNNING, State.PENDING):
                     continue
                 if self._matches_query_params(sandbox_info, query_params):
                     all_sandbox_data.append(SandboxListStatusResponse.from_sandbox_info(sandbox_info))
