@@ -38,7 +38,6 @@ if TYPE_CHECKING:
     ROCK_PIP_INDEX_URL: str | None = "https://mirrors.aliyun.com/pypi/simple/"
     ROCK_MONITOR_ENABLE: bool = False
     ROCK_MONITOR_VIA_ROCKLET: bool = False
-    ROCK_SANDBOX_CREATED_TIME: float | None = None
     ROCK_PROJECT_ROOT: str | None = None
     ROCK_WORKER_ENV_TYPE: str | None = "local"
     ROCK_PYTHON_ENV_PATH: str | None = None
@@ -129,7 +128,6 @@ environment_variables: dict[str, Callable[[], Any]] = {
         "ROCK_DOCUUM_INSTALL_URL", "https://raw.githubusercontent.com/stepchowfun/docuum/main/install.sh"
     ),
     "ROCK_MONITOR_VIA_ROCKLET": lambda: os.getenv("ROCK_MONITOR_VIA_ROCKLET", "false").lower() == "true",
-    "ROCK_SANDBOX_CREATED_TIME": lambda: (val := os.getenv("ROCK_SANDBOX_CREATED_TIME")) and float(val),
 }
 
 

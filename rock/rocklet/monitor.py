@@ -22,7 +22,6 @@ from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExp
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
-from rock import env_vars
 from rock.logger import init_logger
 from rock.utils.system import get_instance_id, get_uniagent_endpoint
 
@@ -70,6 +69,7 @@ class RockletMetricsMonitor:
         self._gauges: dict = {}
         self._scheduler: AsyncIOScheduler | None = None
         self._http_client: httpx.AsyncClient | None = None
+        self._startup_time = time.time()
 
     def _init_otel(self):
         """Initialize the OpenTelemetry metrics pipeline."""
@@ -150,9 +150,8 @@ class RockletMetricsMonitor:
             self._gauges["disk"].set(stats["disk"], attributes=attributes)
             self._gauges["net"].set(stats["net"], attributes=attributes)
 
-            if env_vars.ROCK_SANDBOX_CREATED_TIME is not None:
-                lifespan_rt = time.time() - env_vars.ROCK_SANDBOX_CREATED_TIME
-                self._gauges["rt"].set(lifespan_rt, attributes=attributes)
+            lifespan_rt = time.time() - self._startup_time
+            self._gauges["rt"].set(lifespan_rt, attributes=attributes)
 
             logger.debug(f"Successfully reported metrics for sandbox: {self._sandbox_id}")
             report_rt = time.perf_counter() - start
@@ -185,6 +184,7 @@ class RockletMetricsMonitor:
             logger.info("Stopping RockletMetricsMonitor scheduler...")
             self._scheduler.shutdown(wait=True)
             logger.info("RockletMetricsMonitor scheduler stopped")
+        self._scheduler = None
         if self._http_client:
             await self._http_client.aclose()
             self._http_client = None

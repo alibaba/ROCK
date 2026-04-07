@@ -100,19 +100,20 @@ class TestRockletMetricsMonitor:
     def test_init_otel_registers_gauges(
         self, mock_metrics, mock_meter_provider, mock_reader, mock_exporter, mock_get_endpoint
     ):
-        """Test OTEL initialization registers all four gauge metrics."""
+        """Test OTEL initialization registers all five gauge metrics."""
         mock_meter = MagicMock()
         mock_metrics.get_meter.return_value = mock_meter
 
         monitor = self._make_monitor()
         monitor._init_otel()
 
-        assert mock_meter.create_gauge.call_count == 4
+        assert mock_meter.create_gauge.call_count == 5
         gauge_names = [call.kwargs["name"] for call in mock_meter.create_gauge.call_args_list]
         assert "xrl_gateway.system.cpu" in gauge_names
         assert "xrl_gateway.system.memory" in gauge_names
         assert "xrl_gateway.system.disk" in gauge_names
         assert "xrl_gateway.system.network" in gauge_names
+        assert "xrl_gateway.system.lifespan_rt" in gauge_names
 
 
 class TestRockletMetricsMonitorAsync:
@@ -281,7 +282,7 @@ class TestRockletMetricsMonitorAsync:
         assert monitor._http_client is not None
 
         await monitor.stop()
-        assert not monitor._scheduler.running
+        assert monitor._scheduler is None
         assert monitor._http_client is None
 
     @pytest.mark.asyncio

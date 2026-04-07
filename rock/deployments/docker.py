@@ -395,9 +395,6 @@ class DockerDeployment(AbstractDeployment):
 
         env_arg.extend(["-e", f"ROCK_TIME_ZONE={env_vars.ROCK_TIME_ZONE}"])
 
-        # Inject sandbox creation time so rocklet monitor can compute lifespan_rt
-        env_arg.extend(["-e", f"ROCK_SANDBOX_CREATED_TIME={time.time()}"])
-
         # Kata DinD: prepare disk image and add volume mount + env var
         if self._config.use_kata_runtime:
             self._prepare_kata_disk()
