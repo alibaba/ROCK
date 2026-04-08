@@ -11,27 +11,75 @@ The Informer pattern reduces API Server load by maintaining a local cache.
 """
 
 import asyncio
-from typing import Any
+from typing import Any, Callable
 
 from aiolimiter import AsyncLimiter
-from kubernetes import client, watch
+from kubernetes import client
 
 from rock.logger import init_logger
-
+from rock.utils.k8s.informer import SharedInformer
+from rock.utils.k8s.informer.cache import ObjectCache
 
 logger = init_logger(__name__)
+
+# User-Agent for K8s API requests
+USER_AGENT = "rock-k8s-client/v1.0.0"
+
+def _make_list_func(
+    custom_api: client.CustomObjectsApi,
+    group: str,
+    version: str,
+    plural: str,
+) -> Callable:
+    """Create a list function compatible with SharedInformer.
+
+    SharedInformer expects a callable that accepts optional keyword arguments:
+    - namespace: str (the namespace to list from)
+    - watch: bool (for watch mode)
+    - resource_version: str (for resuming watch)
+    - timeout_seconds: int (watch timeout)
+    - label_selector: str
+    - field_selector: str
+
+    Returns a function that matches this signature.
+    """
+
+    def list_func(
+        namespace: str,
+        watch: bool = False,
+        resource_version: str | None = None,
+        timeout_seconds: int | None = None,
+        label_selector: str | None = None,
+        field_selector: str | None = None,
+        **kwargs,
+    ):
+        # CustomObjectsApi returns dict (unlike CoreV1Api which returns model objects)
+        return custom_api.list_namespaced_custom_object(
+            group=group,
+            version=version,
+            namespace=namespace,
+            plural=plural,
+            watch=watch,
+            resource_version=resource_version,
+            timeout_seconds=timeout_seconds,
+            label_selector=label_selector,
+            field_selector=field_selector,
+            **kwargs,
+        )
+
+    return list_func
 
 
 class K8sApiClient:
     """K8s API client wrapper with rate limiting and Informer cache.
-    
+
     Centralizes K8s API Server access with:
     - Rate limiting via aiolimiter to prevent API Server overload
     - Local cache with watch-based sync (Informer pattern) to reduce API calls
     - Consistent error handling
     - Simple CRUD interface for K8s custom resources
     """
-    
+
     def __init__(
         self,
         api_client: client.ApiClient,
@@ -40,11 +88,12 @@ class K8sApiClient:
         plural: str,
         namespace: str,
         qps: float = 5.0,
-        watch_timeout_seconds: int = 60,
-        watch_reconnect_delay_seconds: int = 5,
+        resync_period: int = 0,
+        label_selector: str | None = None,
+        field_selector: str | None = None,
     ):
         """Initialize K8s API client.
-        
+
         Args:
             api_client: Kubernetes ApiClient instance
             group: CRD API group
@@ -52,137 +101,103 @@ class K8sApiClient:
             plural: CRD resource plural name
             namespace: Namespace for operations
             qps: Queries per second limit (default: 5 for small clusters)
-            watch_timeout_seconds: Watch timeout before reconnect (default: 60)
-            watch_reconnect_delay_seconds: Delay after watch failure (default: 5)
+            resync_period: How often (seconds) to perform a full re-list.
+                Defaults to 0 which disables periodic resyncs.
+            label_selector: Optional label selector for filtering resources
+            field_selector: Optional field selector for filtering resources
         """
-        self._api_client = api_client
         self._group = group
         self._version = version
         self._plural = plural
         self._namespace = namespace
+
+        # Set custom User-Agent for identification
+        api_client.user_agent = USER_AGENT
+
         self._custom_api = client.CustomObjectsApi(api_client)
-        
+
         # Rate limiting
         self._rate_limiter = AsyncLimiter(max_rate=qps, time_period=1.0)
-        
-        # Watch configuration
-        self._watch_timeout_seconds = watch_timeout_seconds
-        self._watch_reconnect_delay_seconds = watch_reconnect_delay_seconds
-        
-        # Local cache for resources (Informer pattern)
-        self._cache: dict[str, dict] = {}
-        self._cache_lock = asyncio.Lock()
-        self._watch_task = None
+
+        # Create SharedInformer with custom list function
+        list_func = _make_list_func(
+            self._custom_api, group, version, plural
+        )
+        self._informer = SharedInformer(
+            list_func=list_func,
+            namespace=namespace,
+            resync_period=resync_period,
+            label_selector=label_selector,
+            field_selector=field_selector,
+        )
         self._initialized = False
-    
-    async def start(self):
+
+    @property
+    def cache(self) -> ObjectCache:
+        """Access the underlying ObjectCache."""
+        return self._informer.cache
+
+    async def start(self) -> None:
         """Start the API client and initialize cache watch."""
         if self._initialized:
             return
-        
-        self._watch_task = asyncio.create_task(self._watch_resources())
+        self._informer.start()
         self._initialized = True
         logger.info(f"Started K8sApiClient watch for {self._plural} in namespace {self._namespace}")
-    
-    async def _list_and_sync_cache(self) -> str:
-        """List all resources and sync to cache.
-        
+
+    async def stop(self) -> None:
+        """Stop the informer and clean up resources."""
+        if self._initialized:
+            self._informer.stop()
+            self._initialized = False
+            logger.info(f"Stopped K8sApiClient watch for {self._plural} in namespace {self._namespace}")
+
+    async def list_custom_objects(self) -> list[dict[str, Any]]:
+        """List all cached custom resources.
+
         Returns:
-            resourceVersion for next watch
+            List of all cached resources
         """
+        # ObjectCache.list() is thread-safe, no need for async wrapper
+        return self._informer.cache.list()
+
+    async def get_custom_object(self, name: str) -> dict[str, Any] | None:
+        """Get a custom resource from cache.
+
+        Args:
+            name: Resource name
+
+        Returns:
+            Resource object or None if not found
+        """
+        # For namespaced resources, the key is namespace/name
+        key = f"{self._namespace}/{name}"
+        resource = self._informer.cache.get_by_key(key)
+        if resource:
+            return resource
+
+        # Cache miss - query API Server directly
+        logger.debug(f"Cache miss for {name}, querying API Server")
         async with self._rate_limiter:
-            resources = await asyncio.to_thread(
-                self._custom_api.list_namespaced_custom_object,
+            resource = await asyncio.to_thread(
+                self._custom_api.get_namespaced_custom_object,
                 group=self._group,
                 version=self._version,
                 namespace=self._namespace,
                 plural=self._plural,
+                name=name,
             )
-        
-        resource_version = resources.get('metadata', {}).get('resourceVersion')
-        async with self._cache_lock:
-            self._cache.clear()
-            for item in resources.get('items', []):
-                name = item.get('metadata', {}).get('name')
-                if name:
-                    self._cache[name] = item
-        return resource_version
-    
-    async def _watch_resources(self):
-        """Background task to watch resources and maintain cache.
-        
-        Implements Kubernetes Informer pattern:
-        1. Initial list-and-sync to populate cache
-        2. Continuous watch for ADDED/MODIFIED/DELETED events
-        3. Auto-reconnect on watch timeout or network failures
-        4. Re-sync on reconnect to avoid event loss
-        """
-        resource_version = None
-        try:
-            resource_version = await self._list_and_sync_cache()
-            logger.info(f"Initial cache populated with {len(self._cache)} resources, resourceVersion={resource_version}")
-        except Exception as e:
-            logger.error(f"Failed to populate initial cache: {e}")
-        
-        while True:
-            try:
-                def _watch_in_thread():
-                    w = watch.Watch()
-                    stream = w.stream(
-                        self._custom_api.list_namespaced_custom_object,
-                        group=self._group,
-                        version=self._version,
-                        namespace=self._namespace,
-                        plural=self._plural,
-                        resource_version=resource_version,
-                        timeout_seconds=self._watch_timeout_seconds,
-                    )
-                    events = []
-                    for event in stream:
-                        events.append(event)
-                    return events
-                
-                events = await asyncio.to_thread(_watch_in_thread)
-                
-                async with self._cache_lock:
-                    for event in events:
-                        event_type = event['type']
-                        obj = event['object']
-                        name = obj.get('metadata', {}).get('name')
-                        new_rv = obj.get('metadata', {}).get('resourceVersion')
-                        
-                        if new_rv:
-                            resource_version = new_rv
-                        
-                        if not name:
-                            continue
-                        
-                        if event_type in ['ADDED', 'MODIFIED']:
-                            self._cache[name] = obj
-                        elif event_type == 'DELETED':
-                            self._cache.pop(name, None)
-            
-            except asyncio.CancelledError:
-                logger.info("Watch task cancelled")
-                raise
-            except Exception as e:
-                logger.warning(f"Watch stream disconnected: {e}, reconnecting immediately...")
-                try:
-                    resource_version = await self._list_and_sync_cache()
-                    logger.info(f"Re-synced cache with {len(self._cache)} resources, resourceVersion={resource_version}")
-                except Exception as list_err:
-                    logger.error(f"Failed to re-list resources: {list_err}, retrying in {self._watch_reconnect_delay_seconds}s...")
-                    await asyncio.sleep(self._watch_reconnect_delay_seconds)
-    
+        return resource
+
     async def create_custom_object(
         self,
         body: dict[str, Any],
     ) -> dict[str, Any]:
         """Create a custom resource.
-        
+
         Args:
             body: Resource manifest
-            
+
         Returns:
             Created resource
         """
@@ -195,50 +210,41 @@ class K8sApiClient:
                 plural=self._plural,
                 body=body,
             )
-    
-    async def get_custom_object(
+
+    async def update_custom_object(
         self,
         name: str,
+        body: dict[str, Any],
     ) -> dict[str, Any]:
-        """Get a custom resource (from cache with fallback to API Server).
-        
+        """Update a custom resource.
+
         Args:
             name: Resource name
-            
+            body: Updated resource manifest
+
         Returns:
-            Resource object
+            Updated resource
         """
-        async with self._cache_lock:
-            resource = self._cache.get(name)
-        
-        if resource:
-            return resource
-        
-        logger.debug(f"Cache miss for {name}, querying API Server")
         async with self._rate_limiter:
-            resource = await asyncio.to_thread(
-                self._custom_api.get_namespaced_custom_object,
+            return await asyncio.to_thread(
+                self._custom_api.patch_namespaced_custom_object,
                 group=self._group,
                 version=self._version,
                 namespace=self._namespace,
                 plural=self._plural,
                 name=name,
+                body=body,
             )
-        
-        async with self._cache_lock:
-            self._cache[name] = resource
-        
-        return resource
-    
+
     async def delete_custom_object(
         self,
         name: str,
     ) -> dict[str, Any]:
         """Delete a custom resource.
-        
+
         Args:
             name: Resource name
-            
+
         Returns:
             Delete status
         """
