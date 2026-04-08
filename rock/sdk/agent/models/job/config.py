@@ -141,7 +141,7 @@ class JobConfig(BaseModel):
     # ── Harbor native fields ──
     namespace: str | None = Field(
         default=None,
-        description="Resource tenant isolation identifier for distinguishing resources across teams/projects",
+        description="Tenant isolation identifier for distinguishing resources across teams/projects",
     )
     experiment_id: str | None = Field(
         default=None,
