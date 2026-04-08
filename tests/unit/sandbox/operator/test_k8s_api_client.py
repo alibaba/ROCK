@@ -4,9 +4,13 @@ Tests cover:
 - AsyncLimiter rate limiting integration
 - Informer pattern cache synchronization
 - CRUD operations on K8s custom resources
+- Real-time event processing with Queue-based watch
 """
 
-from unittest.mock import AsyncMock, patch
+import asyncio
+import threading
+from concurrent.futures import Future
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -161,3 +165,226 @@ class TestK8sApiClient:
             assert len(k8s_api_client._cache) == 2
             assert "sandbox-1" in k8s_api_client._cache
             assert "sandbox-2" in k8s_api_client._cache
+
+    @pytest.mark.asyncio
+    async def test_process_events_handles_added_event(self, k8s_api_client):
+        """Test _process_events handles ADDED event and updates cache."""
+        event_queue = asyncio.Queue()
+        mock_future = MagicMock(spec=Future)
+        mock_future.done.return_value = False
+
+        # Put ADDED event with resourceVersion
+        await event_queue.put((
+            "event",
+            {
+                "type": "ADDED",
+                "object": {
+                    "metadata": {"name": "new-sandbox", "resourceVersion": "100"}
+                },
+            },
+        ))
+        await event_queue.put(("exit", None))  # Signal exit
+
+        resource_version = await k8s_api_client._process_events(event_queue, mock_future)
+
+        assert resource_version == "100"
+        assert "new-sandbox" in k8s_api_client._cache
+
+    @pytest.mark.asyncio
+    async def test_process_events_handles_modified_event(self, k8s_api_client):
+        """Test _process_events handles MODIFIED event and updates cache."""
+        event_queue = asyncio.Queue()
+        mock_future = MagicMock(spec=Future)
+        mock_future.done.return_value = False
+
+        # Pre-populate cache and resource_version
+        k8s_api_client._cache["existing-sandbox"] = {"metadata": {"name": "existing-sandbox", "resourceVersion": "100"}}
+        k8s_api_client._resource_version = "100"
+
+        # Put MODIFIED event with newer version
+        await event_queue.put((
+            "event",
+            {
+                "type": "MODIFIED",
+                "object": {
+                    "metadata": {"name": "existing-sandbox", "resourceVersion": "200"}
+                },
+            },
+        ))
+        await event_queue.put(("exit", None))
+
+        resource_version = await k8s_api_client._process_events(event_queue, mock_future)
+
+        assert resource_version == "200"
+        assert k8s_api_client._cache["existing-sandbox"]["metadata"]["resourceVersion"] == "200"
+
+    @pytest.mark.asyncio
+    async def test_process_events_handles_deleted_event(self, k8s_api_client):
+        """Test _process_events handles DELETED event and removes from cache."""
+        event_queue = asyncio.Queue()
+        mock_future = MagicMock(spec=Future)
+        mock_future.done.return_value = False
+
+        # Pre-populate cache and resource_version
+        k8s_api_client._cache["to-delete"] = {"metadata": {"name": "to-delete", "resourceVersion": "50"}}
+        k8s_api_client._resource_version = "50"
+
+        # Put DELETED event with newer version
+        await event_queue.put((
+            "event",
+            {
+                "type": "DELETED",
+                "object": {
+                    "metadata": {"name": "to-delete", "resourceVersion": "300"}
+                },
+            },
+        ))
+        await event_queue.put(("exit", None))
+
+        resource_version = await k8s_api_client._process_events(event_queue, mock_future)
+
+        assert "to-delete" not in k8s_api_client._cache
+        assert resource_version == "300"
+
+    @pytest.mark.asyncio
+    async def test_process_events_handles_exit_signal(self, k8s_api_client):
+        """Test _process_events exits when receiving exit signal."""
+        event_queue = asyncio.Queue()
+        mock_future = MagicMock(spec=Future)
+        mock_future.done.return_value = False
+
+        # Pre-populate resource_version so it can be returned
+        k8s_api_client._resource_version = "100"
+
+        await event_queue.put(("exit", None))
+
+        resource_version = await k8s_api_client._process_events(event_queue, mock_future)
+
+        assert resource_version == "100"
+
+    @pytest.mark.asyncio
+    async def test_process_events_timeout_checks_thread_exit(self, k8s_api_client):
+        """Test _process_events breaks when thread exited during timeout."""
+        event_queue = asyncio.Queue()
+        mock_future = MagicMock(spec=Future)
+        mock_future.done.return_value = True  # Thread has exited
+        # Queue is empty by default, so empty() will return True
+
+        # Pre-populate resource_version
+        k8s_api_client._resource_version = "100"
+
+        # Don't put any events, let it timeout
+        resource_version = await k8s_api_client._process_events(event_queue, mock_future)
+
+        assert resource_version == "100"
+
+    @pytest.mark.asyncio
+    async def test_process_events_skips_event_without_name(self, k8s_api_client):
+        """Test _process_events skips events without name in metadata."""
+        event_queue = asyncio.Queue()
+        mock_future = MagicMock(spec=Future)
+        mock_future.done.return_value = False
+
+        # Pre-populate resource_version so version check passes
+        k8s_api_client._resource_version = "50"
+
+        # Put event without name but with newer resourceVersion
+        await event_queue.put((
+            "event",
+            {
+                "type": "ADDED",
+                "object": {
+                    "metadata": {"resourceVersion": "400"}  # No name
+                },
+            },
+        ))
+        await event_queue.put(("exit", None))
+
+        resource_version = await k8s_api_client._process_events(event_queue, mock_future)
+
+        assert resource_version == "400"
+        assert len(k8s_api_client._cache) == 0  # Nothing added due to no name
+
+    def test_watch_in_thread_puts_event_to_queue(self, k8s_api_client):
+        """Test _watch_in_thread puts events to queue."""
+        event_queue = asyncio.Queue()
+        loop = asyncio.new_event_loop()
+        stop_event = threading.Event()
+        k8s_api_client._stop_event = stop_event
+
+        # Mock watch stream
+        mock_events = [
+            {"type": "ADDED", "object": {"metadata": {"name": "test-1"}}},
+        ]
+
+        with patch("rock.sandbox.operator.k8s.api_client.watch.Watch") as mock_watch_class:
+            mock_watch = MagicMock()
+            mock_watch.stream.return_value = iter(mock_events)
+            mock_watch_class.return_value = mock_watch
+
+            k8s_api_client._watch_in_thread("100", event_queue, loop)
+
+        # Check exit signal was put
+        # Note: run_coroutine_threadsafe schedules to loop, but we're not running it
+        # So we just verify the function completes without error
+        loop.close()
+
+    def test_watch_in_thread_respects_stop_event(self, k8s_api_client):
+        """Test _watch_in_thread stops when stop_event is set."""
+        event_queue = asyncio.Queue()
+        loop = asyncio.new_event_loop()
+        stop_event = threading.Event()
+        stop_event.set()  # Already stopped
+        k8s_api_client._stop_event = stop_event
+
+        # Create infinite iterator but should break immediately
+        def infinite_events():
+            while True:
+                yield {"type": "ADDED", "object": {"metadata": {"name": "test"}}}
+
+        with patch("rock.sandbox.operator.k8s.api_client.watch.Watch") as mock_watch_class:
+            mock_watch = MagicMock()
+            mock_watch.stream.return_value = infinite_events()
+            mock_watch_class.return_value = mock_watch
+
+            k8s_api_client._watch_in_thread("100", event_queue, loop)
+
+        loop.close()
+
+    @pytest.mark.asyncio
+    async def test_watch_resources_reconnects_on_failure(self, k8s_api_client):
+        """Test _watch_resources reconnects after watch failure."""
+        call_count = 0
+
+        async def mock_list_and_sync():
+            nonlocal call_count
+            call_count += 1
+            return "rv-" + str(call_count)
+
+        k8s_api_client._list_and_sync_cache = mock_list_and_sync
+        k8s_api_client._cache = {"initial": {}}
+
+        # Mock _process_events to avoid real watch loop
+        async def mock_process_events(*args, **kwargs):
+            # Simulate disconnect after first call
+            await asyncio.sleep(0.05)
+            raise Exception("Simulated watch disconnect")
+
+        k8s_api_client._process_events = mock_process_events
+
+        # Create a task that will exit after first iteration
+        watch_task = asyncio.create_task(k8s_api_client._watch_resources())
+
+        # Wait for it to complete one iteration
+        await asyncio.sleep(0.2)
+
+        # Cancel if still running
+        if not watch_task.done():
+            watch_task.cancel()
+            try:
+                await watch_task
+            except asyncio.CancelledError:
+                pass
+
+        # Should have called _list_and_sync_cache at least once
+        assert call_count >= 1

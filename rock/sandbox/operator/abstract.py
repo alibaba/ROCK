@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
 from rock.actions.sandbox.sandbox_info import SandboxInfo
+from rock.admin.core.redis_key import alive_sandbox_key
 from rock.config import RuntimeConfig
 from rock.deployments.config import DeploymentConfig
 from rock.utils.providers.nacos_provider import NacosConfigProvider
@@ -29,3 +30,11 @@ class AbstractOperator(ABC):
 
     def set_nacos_provider(self, nacos_provider: NacosConfigProvider):
         self._nacos_provider = nacos_provider
+
+    async def get_sandbox_info_from_redis(self, sandbox_id: str) -> dict | None:
+        if not self._redis_provider:
+            raise RuntimeError("Redis provider is not configured")
+        sandbox_status = await self._redis_provider.json_get(alive_sandbox_key(sandbox_id), "$")
+        if sandbox_status and len(sandbox_status) > 0:
+            return sandbox_status[0]
+        return None
