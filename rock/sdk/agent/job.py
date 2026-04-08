@@ -278,7 +278,12 @@ class Job:
 
         sandbox_exp = self._sandbox._experiment_id
         if sandbox_exp is not None:
-            self._config.environment.experiment_id = sandbox_exp
+            if self._config.experiment_id is not None and self._config.experiment_id != sandbox_exp:
+                raise ValueError(
+                    f"experiment_id mismatch: JobConfig has '{self._config.experiment_id}', "
+                    f"but sandbox returned '{sandbox_exp}'"
+                )
+            self._config.experiment_id = sandbox_exp
 
     async def _upload_content(self, content: str, sandbox_path: str) -> None:
         """Write text content to a local temp file and upload to sandbox via upload_by_path."""
