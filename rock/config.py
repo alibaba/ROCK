@@ -138,8 +138,14 @@ class K8sConfig:
     api_qps: float = 20.0  # Queries per second
 
     # Watch configuration
-    watch_timeout_seconds: int = 60  # Watch timeout before reconnect
-    watch_reconnect_delay_seconds: int = 5  # Delay after watch failure
+    resync_period: int = 60  # How often (seconds) to perform a full re-list
+
+    # ============================================================================
+    # DEPRECATED: The following fields are deprecated and will be removed in a
+    # future version. Do NOT use them in new code.
+    # ============================================================================
+    watch_timeout_seconds: int = 60  # DEPRECATED: Use resync_period instead
+    watch_reconnect_delay_seconds: int = 5  # DEPRECATED: No longer used
 
 
 @dataclass

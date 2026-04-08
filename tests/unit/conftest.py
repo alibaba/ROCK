@@ -213,8 +213,7 @@ def k8s_api_client(mock_api_client):
         plural="batchsandboxes",
         namespace="rock-test",
         qps=5.0,
-        watch_timeout_seconds=60,
-        watch_reconnect_delay_seconds=5,
+        resync_period=60,
     )
 
 

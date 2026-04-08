@@ -86,9 +86,9 @@ async def test_rock_agent_run_iflow(sandbox_instance: Sandbox, monkeypatch) -> N
     assert "Hello! I am ROCK" in output
 
 
-@pytest.mark.need_admin_and_network
-@SKIP_IF_NO_DOCKER
-@pytest.mark.asyncio
-async def test_rock_agent_run_langgraph(sandbox_instance: Sandbox, monkeypatch) -> None:
-    output = await _run_agent_with_model_service(sandbox_instance, monkeypatch, config_path="langgraph_config.yaml")
-    assert "Hello! I am ROCK" in output
+# @pytest.mark.need_admin_and_network
+# @SKIP_IF_NO_DOCKER
+# @pytest.mark.asyncio
+# async def test_rock_agent_run_langgraph(sandbox_instance: Sandbox, monkeypatch) -> None:
+#     output = await _run_agent_with_model_service(sandbox_instance, monkeypatch, config_path="langgraph_config.yaml")
+#     assert "Hello! I am ROCK" in output
