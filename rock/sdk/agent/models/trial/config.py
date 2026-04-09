@@ -81,9 +81,9 @@ class VerifierConfig(BaseModel):
     override_timeout_sec: float | None = None
     max_timeout_sec: float | None = None
     disable: bool = False
-    mode: Literal["harbor", "native", "container"] | None = None
-    container_image: str | None = None
-    container_script: str | None = None
+    mode: Literal["harbor", "native"] | None = None
+    image: str | None = None
+    script: str | None = None
     oss_deps: dict[str, str] = Field(default_factory=dict)
 
 
