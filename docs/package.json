@@ -29,6 +29,9 @@
     "react-countup": "^6.5.3",
     "react-dom": "^19.0.0"
   },
+  "overrides": {
+    "webpack": "5.105.4"
+  },
   "devDependencies": {
     "@docusaurus/module-type-aliases": "3.9.2",
     "@docusaurus/types": "3.9.2"
