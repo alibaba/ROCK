@@ -146,7 +146,10 @@ class JobConfig(BaseModel):
     experiment_id: str = Field(
         description="Experiment identifier, required",
     )
-    job_name: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d__%H-%M-%S"))
+    job_name: str | None = Field(
+        default=None,
+        description="Job name, auto-generated if not set",
+    )
     jobs_dir: Path = Path(USER_DEFINED_LOGS) / "jobs"
     n_attempts: int = 1
     timeout_multiplier: float = 1.0

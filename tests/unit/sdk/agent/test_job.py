@@ -1,9 +1,16 @@
 import json
 import os
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from rock.sdk.agent.job import Job, JobResult, JobStatus
-from rock.sdk.agent.models.job.config import JobConfig, RegistryDatasetConfig, RemoteRegistryInfo, RockEnvironmentConfig
+from rock.sdk.agent.models.job.config import (
+    JobConfig,
+    LocalDatasetConfig,
+    RegistryDatasetConfig,
+    RemoteRegistryInfo,
+    RockEnvironmentConfig,
+)
 from rock.sdk.agent.models.trial.config import AgentConfig
 from rock.sdk.agent.models.trial.result import ExceptionInfo, TrialResult, VerifierResult
 
@@ -285,3 +292,115 @@ class TestCancelKillsProcess:
             # Verify kill command was issued
             call_args = mock_sandbox.arun.call_args
             assert "kill" in str(call_args)
+
+
+class TestGenerateDefaultJobName:
+    """Tests for _generate_default_job_name method."""
+
+    def test_custom_job_name_not_overwritten(self):
+        """User-set job_name should not be overwritten."""
+        config = JobConfig(
+            job_name="my-custom-job",
+            experiment_id="test-exp",
+            datasets=[RegistryDatasetConfig(registry=RemoteRegistryInfo(), name="tb", version="2.0")],
+        )
+        job = Job(config)
+        job._generate_default_job_name()
+
+        assert job._config.job_name == "my-custom-job"
+
+    def test_job_name_generated_with_dataset_and_single_task(self):
+        """Default job_name should be generated with dataset name and single task."""
+        config = JobConfig(
+            experiment_id="test-exp",
+            datasets=[
+                RegistryDatasetConfig(
+                    registry=RemoteRegistryInfo(),
+                    name="terminal-bench",
+                    version="2.0",
+                    task_names=["fix-bug"],
+                )
+            ],
+        )
+        job = Job(config)
+        job._generate_default_job_name()
+
+        # Should be: terminal-bench_fix-bug_{uuid}
+        job_name = job._config.job_name
+        parts = job_name.split("_")
+        assert len(parts) == 3
+        assert parts[0] == "terminal-bench"
+        assert parts[1] == "fix-bug"
+        assert len(parts[2]) == 8  # UUID is 8 chars
+
+    def test_job_name_generated_with_dataset_multiple_tasks(self):
+        """With multiple tasks, only dataset name and UUID should be used."""
+        config = JobConfig(
+            experiment_id="test-exp",
+            datasets=[
+                RegistryDatasetConfig(
+                    registry=RemoteRegistryInfo(),
+                    name="terminal-bench",
+                    version="2.0",
+                    task_names=["task1", "task2"],
+                )
+            ],
+        )
+        job = Job(config)
+        job._generate_default_job_name()
+
+        # Should be: terminal-bench_{uuid}
+        job_name = job._config.job_name
+        parts = job_name.split("_")
+        assert len(parts) == 2
+        assert parts[0] == "terminal-bench"
+        assert len(parts[1]) == 8  # UUID is 8 chars
+
+    def test_job_name_generated_without_dataset(self):
+        """Without dataset, only UUID should be used."""
+        config = JobConfig(experiment_id="test-exp")
+        job = Job(config)
+        job._generate_default_job_name()
+
+        # Should be: {uuid}
+        job_name = job._config.job_name
+        assert len(job_name) == 8  # Only UUID
+
+    def test_job_name_generated_with_dataset_no_name(self):
+        """Dataset without name field should still work."""
+        config = JobConfig(
+            experiment_id="test-exp",
+            datasets=[LocalDatasetConfig(path=Path("/data/tasks"))],
+        )
+        job = Job(config)
+        job._generate_default_job_name()
+
+        # LocalDatasetConfig has no name, so only UUID
+        job_name = job._config.job_name
+        assert len(job_name) == 8  # Only UUID
+
+    async def test_submit_generates_job_name(self):
+        """Verify that submit() triggers the job_name generation."""
+        mock_sandbox = _make_mock_sandbox()
+
+        with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
+            config = JobConfig(
+                experiment_id="test-exp",
+                datasets=[
+                    RegistryDatasetConfig(
+                        registry=RemoteRegistryInfo(),
+                        name="my-dataset",
+                        task_names=["my-task"],
+                    )
+                ],
+            )
+            job = Job(config)
+
+            # job_name is None initially
+            assert config.job_name is None
+
+            await job.submit()
+
+            # job_name should have been generated
+            assert job._config.job_name is not None
+            assert job._config.job_name.startswith("my-dataset_my-task_")

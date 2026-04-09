@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import uuid
 
 from rock.actions import Command, CreateBashSessionRequest, ReadFileRequest
 from rock.logger import init_logger
@@ -84,6 +85,9 @@ class Job:
     async def submit(self) -> None:
         """Start sandbox, upload config & script, nohup start harbor."""
         from rock.sdk.sandbox.client import Sandbox
+
+        # Generate job_name if not set (must be done before using it)
+        self._generate_default_job_name()
 
         self._sandbox = Sandbox(self._config.environment)
         await self._sandbox.start()
@@ -264,6 +268,36 @@ class Job:
     # ------------------------------------------------------------------
     # Private: utilities
     # ------------------------------------------------------------------
+
+    def _generate_default_job_name(self) -> None:
+        """Generate default job_name if not explicitly set by user.
+
+        If job_name is None, generate one with the format:
+        {dataset_name}_{task_name if single task}_{uuid}
+        """
+        if self._config.job_name is not None:
+            # User has set a custom job_name, keep it
+            return
+
+        # Generate new job_name based on datasets
+        parts = []
+
+        # Get dataset name
+        if self._config.datasets:
+            dataset = self._config.datasets[0]
+            if hasattr(dataset, "name") and dataset.name:
+                parts.append(dataset.name)
+
+            # Get task name if there's only one task
+            task_names = dataset.task_names
+            if task_names and len(task_names) == 1:
+                parts.append(task_names[0])
+
+        # Add short UUID (8 characters)
+        parts.append(uuid.uuid4().hex[:8])
+
+        self._config.job_name = "_".join(parts)
+        logger.info(f"Auto-generated job_name: {self._config.job_name}")
 
     async def _autofill_sandbox_info(self) -> None:
         sandbox_ns = self._sandbox._namespace
