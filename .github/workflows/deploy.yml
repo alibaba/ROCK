@@ -38,6 +38,7 @@ jobs:
             ${{ runner.os }}-node-
 
       - run: npm install
+      - run: npm install webpack@5.105.4 --no-save
       - run: npm run build
 
       - name: Deploy
