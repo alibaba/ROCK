@@ -77,14 +77,24 @@ class RockEnvironmentConfig(SandboxConfig, EnvironmentConfig):
         return harbor.model_dump(mode="json", exclude_none=True)
 
 
+class NativeConfig(BaseModel):
+    """Config specific to native verifier mode.
+    When image and script are both provided, a ContainerVerifier is used to
+    run evaluation in an isolated container. Otherwise the built-in SWE-bench
+    run_instance flow is used.
+    """
+
+    image: str | None = None
+    script: str | None = None
+    oss_deps: dict[str, str] = Field(default_factory=dict)
+
+
 class VerifierConfig(BaseModel):
     override_timeout_sec: float | None = None
     max_timeout_sec: float | None = None
     disable: bool = False
     mode: Literal["harbor", "native"] | None = None
-    image: str | None = None
-    script: str | None = None
-    oss_deps: dict[str, str] = Field(default_factory=dict)
+    native_config: NativeConfig = Field(default_factory=NativeConfig)
 
 
 class TaskConfig(BaseModel):
