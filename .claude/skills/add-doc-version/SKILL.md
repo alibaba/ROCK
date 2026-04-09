@@ -1,6 +1,6 @@
 # Add Doc Version
 
-为 MY_ROCK 项目添加新版本的 Docusaurus 文档。
+为 ROCK 项目添加新版本的 Docusaurus 文档。
 
 ## 项目文档背景
 
