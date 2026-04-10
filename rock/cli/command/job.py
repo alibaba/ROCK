@@ -39,14 +39,15 @@ class JobCommand(Command):
         else:
             script_content = args.script_content
 
-        # 2. Validate local path
-        local_path = Path(args.local_path).resolve()
-        if not local_path.exists():
-            logger.error(f"Local path not found: {local_path}")
-            return
-
-        src_dir = str(local_path)
+        # 2. Validate local path (optional)
+        src_dir = None
         target_path = args.target_path
+        if args.local_path:
+            local_path = Path(args.local_path).resolve()
+            if not local_path.exists():
+                logger.error(f"Local path not found: {local_path}")
+                return
+            src_dir = str(local_path)
 
         # 3. Build sandbox config
         sandbox_config = SandboxConfig()
@@ -65,13 +66,14 @@ class JobCommand(Command):
             await sandbox.start()
             logger.info(f"Sandbox started: id={sandbox.sandbox_id}, ip={sandbox.host_ip}")
 
-            # 5. Copy source directory to sandbox
-            assert sandbox.fs is not None
-            logger.info(f"Uploading {src_dir} -> {target_path}")
-            result = await sandbox.fs.upload_dir(source_dir=src_dir, target_dir=target_path)
-            if result.exit_code != 0:
-                logger.error(f"Upload failed: {result.failure_reason}")
-                return
+            # 5. Copy source directory to sandbox (optional)
+            if src_dir is not None:
+                assert sandbox.fs is not None
+                logger.info(f"Uploading {src_dir} -> {target_path}")
+                result = await sandbox.fs.upload_dir(source_dir=src_dir, target_dir=target_path)
+                if result.exit_code != 0:
+                    logger.error(f"Upload failed: {result.failure_reason}")
+                    return
 
             # 6. Execute the script
             assert sandbox.process is not None
@@ -102,7 +104,7 @@ class JobCommand(Command):
         run_parser.add_argument("--memory", default=None, help="Memory allocation (e.g., 8g)")
         run_parser.add_argument("--cpus", default=None, type=float, help="CPU allocation (e.g., 2)")
 
-        run_parser.add_argument("--local-path", required=True, help="Local directory to upload to the sandbox")
+        run_parser.add_argument("--local-path", default=None, help="Local directory to upload to the sandbox")
         run_parser.add_argument(
             "--target-path", default="/root/job", help="Target directory in sandbox (default: /root/job)"
         )
