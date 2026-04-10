@@ -71,6 +71,8 @@ class OperatorFactory:
                 raise ValueError("K8sConfig is required for K8sOperator")
             logger.info("Creating K8sOperator")
             k8s_operator = K8sOperator(k8s_config=context.k8s_config)
+            if context.redis_provider is not None:
+                k8s_operator.set_redis_provider(context.redis_provider)
             if context.nacos_provider is not None:
                 k8s_operator.set_nacos_provider(context.nacos_provider)
             return k8s_operator
