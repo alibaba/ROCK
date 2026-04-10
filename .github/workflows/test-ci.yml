@@ -214,8 +214,8 @@ jobs:
   # Runs only after ALL unit tests pass
   # ============================================================
 
-  integration:
-    name: "Integration Tests"
+  integration-ray:
+    name: "Integration / Ray Tests"
     needs: [unit-fast, unit-ray, unit-admin, unit-admin-network]
     if: ${{ github.event.inputs.skip_integration != 'true' }}
     runs-on: self-hosted
@@ -227,22 +227,31 @@ jobs:
 
       - name: Verify Docker availability
         run: |
-          echo "🐳 Checking Docker..."
-          docker info > /dev/null 2>&1 || { echo "❌ Docker is not available, skipping integration tests"; exit 1; }
-          echo "✅ Docker is available"
+          docker info > /dev/null 2>&1 || { echo "Docker is not available"; exit 1; }
+          echo "Docker is available"
 
-      - name: Run integration tests
+      - name: Run integration ray tests
         run: |
           mkdir -p data/logs
           echo "========================================"
-          echo "  Integration Tests"
+          echo "  Integration / Ray Tests"
           echo "  Started at: $(date '+%Y-%m-%d %H:%M:%S')"
           echo "========================================"
+          set +e
           uv run pytest tests/integration \
             -n auto \
-            -m "integration or not integration" \
+            -m "need_ray" \
             --reruns 1 \
-            --junitxml=reports/integration.xml
+            --junitxml=reports/integration-ray.xml
+          exit_code=$?
+          set -e
+          if [ $exit_code -eq 5 ]; then
+            echo ""
+            echo "[SKIP] No tests with marker 'need_ray' found in tests/integration/."
+            echo ""
+            exit 0
+          fi
+          exit $exit_code
         env:
           ROCK_WORKER_ENV_TYPE: local
 
@@ -250,8 +259,97 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: integration-report
-          path: reports/integration.xml
+          name: integration-ray-report
+          path: reports/integration-ray.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  integration-admin:
+    name: "Integration / Admin Tests"
+    needs: integration-ray
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: uv sync --all-extras --group test --python ${{ env.PYTHON_VERSION }}
+
+      - name: Run integration admin tests
+        run: |
+          mkdir -p data/logs
+          echo "========================================"
+          echo "  Integration / Admin Tests"
+          echo "  Started at: $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "========================================"
+          set +e
+          uv run pytest tests/integration \
+            -n auto \
+            -m "need_admin" \
+            --reruns 1 \
+            --junitxml=reports/integration-admin.xml
+          exit_code=$?
+          set -e
+          if [ $exit_code -eq 5 ]; then
+            echo ""
+            echo "[SKIP] No tests with marker 'need_admin' found in tests/integration/."
+            echo ""
+            exit 0
+          fi
+          exit $exit_code
+        env:
+          ROCK_WORKER_ENV_TYPE: local
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-admin-report
+          path: reports/integration-admin.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  integration-admin-network:
+    name: "Integration / Admin + Network Tests"
+    needs: integration-admin
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: uv sync --all-extras --group test --python ${{ env.PYTHON_VERSION }}
+
+      - name: Run integration admin + network tests
+        run: |
+          mkdir -p data/logs
+          echo "========================================"
+          echo "  Integration / Admin + Network Tests"
+          echo "  Started at: $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "========================================"
+          set +e
+          uv run pytest tests/integration \
+            -n auto \
+            -m "need_admin_and_network" \
+            --reruns 1 \
+            --junitxml=reports/integration-admin-network.xml
+          exit_code=$?
+          set -e
+          if [ $exit_code -eq 5 ]; then
+            echo ""
+            echo "[SKIP] No tests with marker 'need_admin_and_network' found in tests/integration/."
+            echo ""
+            exit 0
+          fi
+          exit $exit_code
+        env:
+          ROCK_WORKER_ENV_TYPE: local
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-admin-network-report
+          path: reports/integration-admin-network.xml
+          if-no-files-found: ignore
           retention-days: 7
 
   # ============================================================
@@ -260,32 +358,36 @@ jobs:
 
   test-summary:
     name: "Test Summary"
-    needs: [unit-fast, unit-ray, unit-admin, unit-admin-network, integration]
+    needs: [unit-fast, unit-ray, unit-admin, unit-admin-network, integration-ray, integration-admin, integration-admin-network]
     if: always()
     runs-on: self-hosted
     steps:
       - name: Check results
         run: |
-          echo "=============================="
-          echo "       Test Results Summary"
-          echo "=============================="
+          echo "=========================================="
+          echo "          Test Results Summary"
+          echo "=========================================="
           echo ""
-          echo "Unit / Fast:            ${{ needs.unit-fast.result }}"
-          echo "Unit / Ray:             ${{ needs.unit-ray.result }}"
-          echo "Unit / Admin:           ${{ needs.unit-admin.result }}"
-          echo "Unit / Admin + Network: ${{ needs.unit-admin-network.result }}"
-          echo "Integration:            ${{ needs.integration.result }}"
+          echo "Unit / Fast:                    ${{ needs.unit-fast.result }}"
+          echo "Unit / Ray:                     ${{ needs.unit-ray.result }}"
+          echo "Unit / Admin:                   ${{ needs.unit-admin.result }}"
+          echo "Unit / Admin + Network:         ${{ needs.unit-admin-network.result }}"
+          echo "Integration / Ray:              ${{ needs.integration-ray.result }}"
+          echo "Integration / Admin:            ${{ needs.integration-admin.result }}"
+          echo "Integration / Admin + Network:  ${{ needs.integration-admin-network.result }}"
           echo ""
-          echo "=============================="
+          echo "=========================================="
 
           # Fail if any required job failed
           if [[ "${{ needs.unit-fast.result }}" == "failure" ]] || \
              [[ "${{ needs.unit-ray.result }}" == "failure" ]] || \
              [[ "${{ needs.unit-admin.result }}" == "failure" ]] || \
              [[ "${{ needs.unit-admin-network.result }}" == "failure" ]] || \
-             [[ "${{ needs.integration.result }}" == "failure" ]]; then
-            echo "❌ Some tests failed!"
+             [[ "${{ needs.integration-ray.result }}" == "failure" ]] || \
+             [[ "${{ needs.integration-admin.result }}" == "failure" ]] || \
+             [[ "${{ needs.integration-admin-network.result }}" == "failure" ]]; then
+            echo "Some tests failed!"
             exit 1
           fi
 
-          echo "✅ All tests passed!"
+          echo "All tests passed!"
