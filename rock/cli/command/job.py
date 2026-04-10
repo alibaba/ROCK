@@ -57,6 +57,12 @@ class JobCommand(Command):
             sandbox_config.memory = args.memory
         if args.cpus:
             sandbox_config.cpus = args.cpus
+        if args.base_url:
+            sandbox_config.base_url = args.base_url
+        if args.cluster:
+            sandbox_config.cluster = args.cluster
+        if args.extra_headers:
+            sandbox_config.extra_headers.update(args.extra_headers)
 
         sandbox = Sandbox(sandbox_config)
 
@@ -77,10 +83,9 @@ class JobCommand(Command):
 
             # 6. Execute the script
             assert sandbox.process is not None
-            logger.info(f"Running: {script_path.name}")
+            logger.info(f"Executing script: {script_content}")
             result = await sandbox.process.execute_script(
                 script_content=script_content,
-                script_name=script_path.name,
                 wait_timeout=args.timeout,
             )
 
