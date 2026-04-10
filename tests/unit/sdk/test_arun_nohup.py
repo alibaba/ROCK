@@ -10,6 +10,58 @@ from rock.sdk.sandbox.config import SandboxConfig
 
 
 @pytest.mark.asyncio
+async def test_arun_normal_mode_without_session_creates_temp_session(monkeypatch):
+    """When arun is called in NORMAL mode without a session, it should auto-create one."""
+    timestamp = 3001
+    monkeypatch.setattr("rock.sdk.sandbox.client.time.time_ns", lambda: timestamp)
+    sandbox = Sandbox(SandboxConfig(image="mock-image"))
+
+    created_sessions: list[str] = []
+    captured_session = None
+
+    async def fake_create_session(self, request):
+        created_sessions.append(request.session)
+
+    async def fake_run_in_session(self, action):
+        nonlocal captured_session
+        captured_session = action.session
+        return Observation(output="ok", exit_code=0)
+
+    sandbox.create_session = types.MethodType(fake_create_session, sandbox)  # type: ignore
+    sandbox._run_in_session = types.MethodType(fake_run_in_session, sandbox)  # type: ignore
+
+    result = await sandbox.arun(cmd="ls -la", mode="normal")
+
+    assert result.exit_code == 0
+    assert result.output == "ok"
+    assert len(created_sessions) == 1
+    assert created_sessions[0] == f"bash-{timestamp}"
+    assert captured_session == f"bash-{timestamp}"
+
+
+@pytest.mark.asyncio
+async def test_arun_normal_mode_with_session_does_not_create_new_session(monkeypatch):
+    """When arun is called in NORMAL mode with an existing session, it should NOT create a new one."""
+    sandbox = Sandbox(SandboxConfig(image="mock-image"))
+
+    session_created = False
+
+    async def fake_create_session(self, request):
+        nonlocal session_created
+        session_created = True
+
+    async def fake_run_in_session(self, action):
+        return Observation(output="ok", exit_code=0)
+
+    sandbox.create_session = types.MethodType(fake_create_session, sandbox)  # type: ignore
+    sandbox._run_in_session = types.MethodType(fake_run_in_session, sandbox)  # type: ignore
+
+    await sandbox.arun(cmd="ls -la", session="bash-existing", mode="normal")
+
+    assert not session_created
+
+
+@pytest.mark.asyncio
 async def test_arun_nohup_ignore_output_true_returns_hint(monkeypatch):
     timestamp = 1701
     monkeypatch.setattr("rock.sdk.sandbox.client.time.time_ns", lambda: timestamp)

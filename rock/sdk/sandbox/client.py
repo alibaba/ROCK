@@ -398,7 +398,7 @@ class Sandbox(AbstractSandbox):
         Args:
             cmd (str): The command to execute in the sandbox
             session (str, optional): The session identifier to run the command in.
-                If None, a temporary session will be created for nohup mode. Defaults to None.
+                If None, a temporary session will be created automatically. Defaults to None.
             wait_timeout (int, optional): Maximum time in seconds to wait for nohup command completion.
                 Defaults to 300.
             wait_interval (int, optional): Interval in seconds between process completion checks for nohup mode.
@@ -441,6 +441,9 @@ class Sandbox(AbstractSandbox):
             raise InvalidParameterRockException(f"Unsupported arun mode: {mode}")
 
         if mode == RunMode.NORMAL:
+            if session is None:
+                session = await self._generate_tmp_session_name()
+                await self.create_session(CreateBashSessionRequest(session=session))
             return await self._run_in_session(action=Action(command=cmd, session=session))
         if mode == RunMode.NOHUP:
             return await self._arun_with_nohup(
