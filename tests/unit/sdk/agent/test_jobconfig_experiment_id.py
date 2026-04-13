@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import ValidationError
 
-from rock.sdk.agent.job import Job
-from rock.sdk.agent.models.job.config import JobConfig
-from rock.sdk.agent.models.trial.config import RockEnvironmentConfig
+from rock.sdk.bench.job import Job
+from rock.sdk.bench.models.job.config import JobConfig
+from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
 
 
 class TestExperimentIdNotEmpty:

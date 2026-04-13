@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from rock.sdk.agent.models.environment_type import EnvironmentType
-from rock.sdk.agent.models.job.config import (
+from rock.sdk.bench.models.environment_type import EnvironmentType
+from rock.sdk.bench.models.job.config import (
     JobConfig,
     LocalDatasetConfig,
     OrchestratorConfig,
@@ -10,16 +10,16 @@ from rock.sdk.agent.models.job.config import (
     RetryConfig,
     RockEnvironmentConfig,
 )
-from rock.sdk.agent.models.metric.config import MetricConfig
-from rock.sdk.agent.models.metric.type import MetricType
-from rock.sdk.agent.models.orchestrator_type import OrchestratorType
-from rock.sdk.agent.models.trial.config import (
+from rock.sdk.bench.models.metric.config import MetricConfig
+from rock.sdk.bench.models.metric.type import MetricType
+from rock.sdk.bench.models.orchestrator_type import OrchestratorType
+from rock.sdk.bench.models.trial.config import (
     AgentConfig,
     ArtifactConfig,
     TaskConfig,
     VerifierConfig,
 )
-from rock.sdk.agent.models.trial.config import (
+from rock.sdk.bench.models.trial.config import (
     EnvironmentConfig as HarborEnvironmentConfig,
 )
 
@@ -257,7 +257,7 @@ class TestJobConfig:
 
 class TestPublicAPI:
     def test_import_from_agent_package(self):
-        from rock.sdk.agent import Job, JobResult, JobStatus, TrialResult
+        from rock.sdk.bench import Job, JobResult, JobStatus, TrialResult
 
         assert Job is not None
         assert JobResult is not None
@@ -265,7 +265,7 @@ class TestPublicAPI:
         assert TrialResult is not None
 
     def test_import_from_models_package(self):
-        from rock.sdk.agent.models import (
+        from rock.sdk.bench.models import (
             AgentConfig,
             EnvironmentType,
             JobConfig,

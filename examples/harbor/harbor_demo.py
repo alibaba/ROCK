@@ -32,7 +32,7 @@ import logging
 import os
 import sys
 
-from rock.sdk.agent import Job, JobConfig
+from rock.sdk.bench import Job, JobConfig
 
 _REQUIRED_ENV_VARS = [
     "OSS_ACCESS_KEY_ID",

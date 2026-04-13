@@ -3,16 +3,16 @@ import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from rock.sdk.agent.job import Job, JobResult, JobStatus
-from rock.sdk.agent.models.job.config import (
+from rock.sdk.bench.job import Job, JobResult, JobStatus
+from rock.sdk.bench.models.job.config import (
     JobConfig,
     LocalDatasetConfig,
     RegistryDatasetConfig,
     RemoteRegistryInfo,
     RockEnvironmentConfig,
 )
-from rock.sdk.agent.models.trial.config import AgentConfig
-from rock.sdk.agent.models.trial.result import ExceptionInfo, TrialResult, VerifierResult
+from rock.sdk.bench.models.trial.config import AgentConfig
+from rock.sdk.bench.models.trial.result import ExceptionInfo, TrialResult, VerifierResult
 
 
 class TestJobStatus:

@@ -2,15 +2,15 @@ from pathlib import Path
 
 import yaml
 
-from rock.sdk.agent.models.job.config import (
+from rock.sdk.bench.models.job.config import (
     JobConfig,
     LocalDatasetConfig,
     RegistryDatasetConfig,
     RemoteRegistryInfo,
     RockEnvironmentConfig,
 )
-from rock.sdk.agent.models.metric.config import MetricConfig
-from rock.sdk.agent.models.trial.config import AgentConfig, TaskConfig
+from rock.sdk.bench.models.metric.config import MetricConfig
+from rock.sdk.bench.models.trial.config import AgentConfig, TaskConfig
 
 
 class TestRockEnvironmentConfigInheritance:

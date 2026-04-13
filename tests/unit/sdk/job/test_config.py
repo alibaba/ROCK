@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from rock.sdk.agent.constants import USER_DEFINED_LOGS
-from rock.sdk.agent.models.job.config import JobConfig as HarborJobConfig
-from rock.sdk.agent.models.trial.config import (
+from rock.sdk.bench.constants import USER_DEFINED_LOGS
+from rock.sdk.bench.models.job.config import JobConfig as HarborJobConfig
+from rock.sdk.bench.models.trial.config import (
     AgentConfig,
     ArtifactConfig,
     RockEnvironmentConfig,
@@ -130,7 +130,7 @@ class TestHarborJobConfig:
         assert len(cfg.agents) == 1
         assert isinstance(cfg.agents[0], AgentConfig)
         assert cfg.datasets == []
-        from rock.sdk.agent.models.job.config import OrchestratorConfig
+        from rock.sdk.bench.models.job.config import OrchestratorConfig
 
         assert isinstance(cfg.orchestrator, OrchestratorConfig)
         assert isinstance(cfg.verifier, VerifierConfig)

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from rock.sdk.agent.models.trial.config import RockEnvironmentConfig
+from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
 
 
 class JobConfig(BaseModel):
