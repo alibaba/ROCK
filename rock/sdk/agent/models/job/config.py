@@ -1,13 +1,13 @@
 """Job configuration models aligned with harbor.models.job.config.
 
 Harbor-native fields are serialized to YAML and passed to ``harbor jobs start -c``.
+JobConfig inherits from rock.sdk.job.config.JobConfig (base).
 """
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -18,10 +18,11 @@ from rock.sdk.agent.models.trial.config import (
     AgentConfig,
     ArtifactConfig,
     OssMirrorConfig,
-    RockEnvironmentConfig,
+    RockEnvironmentConfig,  # noqa: F401 — re-exported for backward compat
     TaskConfig,
     VerifierConfig,
 )
+from rock.sdk.job.config import JobConfig as _BaseJobConfig
 
 # ---------------------------------------------------------------------------
 # RetryConfig / OrchestratorConfig
@@ -127,30 +128,15 @@ class RegistryDatasetConfig(BaseDatasetConfig):
 DatasetConfig = LocalDatasetConfig | RegistryDatasetConfig
 
 
-class JobConfig(BaseModel):
-    """Job configuration: Rock environment + Harbor-native benchmark fields.
+class JobConfig(_BaseJobConfig):
+    """Harbor Job configuration: extends base JobConfig with Harbor-native fields.
 
-    All Rock sandbox/lifecycle configuration lives in ``environment``.
+    All Rock sandbox/lifecycle configuration lives in ``environment`` (inherited).
     Harbor-native fields (agents, datasets, etc.) are serialized to YAML
     and passed to ``harbor jobs start -c``.
     """
 
-    # ── Rock environment (Rock sandbox config + Harbor EnvironmentConfig, not serialized to Harbor YAML) ──
-    environment: RockEnvironmentConfig = Field(default_factory=RockEnvironmentConfig)
-
-    # ── Harbor native fields ──
-    namespace: str | None = Field(
-        default=None,
-        description="Tenant isolation identifier for distinguishing resources across teams/projects",
-    )
-    experiment_id: str | None = Field(
-        default=None,
-        description="Experiment identifier",
-    )
-    job_name: str | None = Field(
-        default=None,
-        description="Job name, auto-generated if not set",
-    )
+    # ── Harbor native fields (base fields: environment, job_name, namespace, etc. are inherited) ──
     jobs_dir: Path = Path(USER_DEFINED_LOGS) / "jobs"
     n_attempts: int = 1
     timeout_multiplier: float = 1.0
@@ -166,13 +152,6 @@ class JobConfig(BaseModel):
     datasets: list[LocalDatasetConfig | RegistryDatasetConfig] = Field(default_factory=list)
     tasks: list[TaskConfig] = Field(default_factory=list)
     artifacts: list[str | ArtifactConfig] = Field(default_factory=list)
-    labels: dict[str, str] = Field(
-        default_factory=dict,
-        description="Key-value labels for organizing and filtering jobs. "
-        "Example: {'step': '42', 'env': 'prod'}. "
-        "Keys: [prefix/]name, lowercase, max 63 chars. "
-        "Values: max 255 chars. Reserved prefix: 'harbor.io/'.",
-    )
 
     @model_validator(mode="after")
     def _sync_experiment_id(self):
@@ -193,15 +172,19 @@ class JobConfig(BaseModel):
         self.environment.experiment_id = self.experiment_id
         return self
 
+    # Base JobConfig fields to exclude when serializing to Harbor YAML
+    _BASE_FIELDS: ClassVar[set[str]] = set(_BaseJobConfig.model_fields.keys())
+
     def to_harbor_yaml(self) -> str:
         """Serialize Harbor-native fields to YAML for ``harbor jobs start -c``.
 
-        Rock environment fields are excluded. Harbor environment fields
-        (force_build, override_cpus, etc.) are included under ``environment``.
+        Base JobConfig fields (environment, job_name, setup_commands, etc.)
+        are excluded. Harbor environment fields (force_build, override_cpus, etc.)
+        are re-injected under ``environment``.
         """
         import yaml
 
-        data = self.model_dump(mode="json", exclude={"environment"}, exclude_none=True)
+        data = self.model_dump(mode="json", exclude=self._BASE_FIELDS, exclude_none=True)
         harbor_env = self.environment.to_harbor_environment()
         if harbor_env:
             data["environment"] = harbor_env

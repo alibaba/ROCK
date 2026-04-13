@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from rock.sdk.agent.constants import USER_DEFINED_LOGS
+from rock.sdk.agent.models.job.config import JobConfig as HarborJobConfig
 from rock.sdk.agent.models.trial.config import (
     AgentConfig,
     ArtifactConfig,
@@ -16,7 +17,7 @@ from rock.sdk.agent.models.trial.config import (
     TaskConfig,
     VerifierConfig,
 )
-from rock.sdk.job.config import BashJobConfig, HarborJobConfig, JobConfig
+from rock.sdk.job.config import BashJobConfig, JobConfig
 
 # ---------------------------------------------------------------------------
 # JobConfig (base)
@@ -120,7 +121,7 @@ class TestHarborJobConfig:
         assert issubclass(HarborJobConfig, JobConfig)
 
     def test_defaults(self):
-        cfg = HarborJobConfig()
+        cfg = HarborJobConfig(experiment_id="test-exp")
         # Inherited
         assert cfg.timeout == 3600
         assert cfg.labels == {}
@@ -129,7 +130,9 @@ class TestHarborJobConfig:
         assert len(cfg.agents) == 1
         assert isinstance(cfg.agents[0], AgentConfig)
         assert cfg.datasets == []
-        assert cfg.orchestrator == {}
+        from rock.sdk.agent.models.job.config import OrchestratorConfig
+
+        assert isinstance(cfg.orchestrator, OrchestratorConfig)
         assert isinstance(cfg.verifier, VerifierConfig)
         assert cfg.tasks == []
         assert cfg.metrics == []
@@ -146,6 +149,7 @@ class TestHarborJobConfig:
         task = TaskConfig(path=Path("/tasks/task1.json"))
         artifact = ArtifactConfig(source="/data/output")
         cfg = HarborJobConfig(
+            experiment_id="test-exp",
             agents=[agent],
             tasks=[task],
             artifacts=[artifact, "/data/logs"],
@@ -189,13 +193,23 @@ class TestHarborJobConfigToHarborYaml:
         )
         yaml_str = cfg.to_harbor_yaml()
         data = yaml.safe_load(yaml_str)
-        # Rock-only fields (not environment) must be absent
-        rock_only = HarborJobConfig._ROCK_FIELDS - {"environment"}
+        # Rock-only fields must be absent from Harbor YAML
+        rock_only = {
+            "job_name",
+            "namespace",
+            "experiment_id",
+            "labels",
+            "auto_stop",
+            "setup_commands",
+            "file_uploads",
+            "env",
+            "timeout",
+        }
         for rock_field in rock_only:
             assert rock_field not in data, f"Rock field '{rock_field}' should be excluded from Harbor YAML"
 
     def test_includes_harbor_fields(self):
-        cfg = HarborJobConfig(n_attempts=5, debug=True)
+        cfg = HarborJobConfig(experiment_id="test-exp", n_attempts=5, debug=True)
         yaml_str = cfg.to_harbor_yaml()
         data = yaml.safe_load(yaml_str)
         assert data["n_attempts"] == 5
@@ -204,7 +218,7 @@ class TestHarborJobConfigToHarborYaml:
     def test_harbor_environment_included_when_present(self):
         """Harbor environment fields (e.g., force_build) should appear under 'environment'."""
         env = RockEnvironmentConfig(force_build=True, override_cpus=4)
-        cfg = HarborJobConfig(environment=env)
+        cfg = HarborJobConfig(experiment_id="test-exp", environment=env)
         yaml_str = cfg.to_harbor_yaml()
         data = yaml.safe_load(yaml_str)
         assert "environment" in data
@@ -214,21 +228,21 @@ class TestHarborJobConfigToHarborYaml:
     def test_harbor_environment_omitted_when_default(self):
         """When environment has no harbor-specific fields set, 'environment' key should still appear
         (because to_harbor_environment returns default fields like delete=True)."""
-        cfg = HarborJobConfig()
+        cfg = HarborJobConfig(experiment_id="test-exp")
         yaml_str = cfg.to_harbor_yaml()
         data = yaml.safe_load(yaml_str)
         # The harbor env may or may not have fields; just check it's valid YAML
         assert isinstance(data, dict)
 
     def test_excludes_none_values(self):
-        cfg = HarborJobConfig()
+        cfg = HarborJobConfig(experiment_id="test-exp")
         yaml_str = cfg.to_harbor_yaml()
         data = yaml.safe_load(yaml_str)
         # agent_timeout_multiplier is None by default → should not appear
         assert "agent_timeout_multiplier" not in data
 
     def test_returns_valid_yaml_string(self):
-        cfg = HarborJobConfig(n_attempts=3)
+        cfg = HarborJobConfig(experiment_id="test-exp", n_attempts=3)
         yaml_str = cfg.to_harbor_yaml()
         assert isinstance(yaml_str, str)
         parsed = yaml.safe_load(yaml_str)
@@ -245,6 +259,7 @@ class TestHarborJobConfigFromYaml:
         """Write a YAML config, read it back, verify fields."""
         yaml_content = textwrap.dedent(
             """\
+            experiment_id: test-exp
             n_attempts: 3
             debug: true
             agents:
@@ -266,6 +281,7 @@ class TestHarborJobConfigFromYaml:
     def test_from_yaml_with_environment(self, tmp_path):
         yaml_content = textwrap.dedent(
             """\
+            experiment_id: test-exp
             environment:
               force_build: true
               override_cpus: 8
@@ -285,28 +301,9 @@ class TestHarborJobConfigFromYaml:
             HarborJobConfig.from_yaml("/nonexistent/path.yaml")
 
 
-# ---------------------------------------------------------------------------
-# _ROCK_FIELDS class attribute
-# ---------------------------------------------------------------------------
-
-
-class TestRockFieldsAttribute:
-    def test_rock_fields_is_set(self):
-        expected = {
-            "environment",
-            "job_name",
-            "namespace",
-            "experiment_id",
-            "labels",
-            "auto_stop",
-            "setup_commands",
-            "file_uploads",
-            "env",
-            "timeout",
-        }
-        assert HarborJobConfig._ROCK_FIELDS == expected
-
-    def test_rock_fields_are_subset_of_model_fields(self):
-        """All _ROCK_FIELDS must be actual model fields."""
-        model_fields = set(HarborJobConfig.model_fields.keys())
-        assert HarborJobConfig._ROCK_FIELDS.issubset(model_fields)
+class TestHarborInheritsBase:
+    def test_harbor_inherits_base_fields(self):
+        """HarborJobConfig (agent's) inherits all base JobConfig fields."""
+        base_fields = set(JobConfig.model_fields.keys())
+        harbor_fields = set(HarborJobConfig.model_fields.keys())
+        assert base_fields.issubset(harbor_fields)

@@ -1,3 +1,4 @@
+from rock.sdk.agent.models.trial.config import RockEnvironmentConfig
 from rock.sdk.job.result import JobResult, JobStatus
 
 from .config import (
@@ -8,7 +9,6 @@ from .config import (
     RegistryDatasetConfig,
     RemoteRegistryInfo,
     RetryConfig,
-    RockEnvironmentConfig,
 )
 
 __all__ = [

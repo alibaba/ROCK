@@ -136,8 +136,9 @@ class TestToHarborYamlOssMirror:
         )
         data = yaml.safe_load(cfg.to_harbor_yaml())
 
-        assert data["namespace"] == "my-ns"
-        assert data["experiment_id"] == "exp-1"
+        # namespace/experiment_id are base JobConfig fields, excluded from harbor YAML
+        assert "namespace" not in data
+        assert "experiment_id" not in data
         oss = data["environment"]["oss_mirror"]
         assert oss["enabled"] is True
         assert oss["oss_bucket"] == "test-bucket"

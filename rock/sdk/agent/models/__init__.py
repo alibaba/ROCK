@@ -4,7 +4,6 @@ from rock.sdk.agent.models.job.config import (
     JobConfig,
     OrchestratorConfig,
     RetryConfig,
-    RockEnvironmentConfig,
 )
 from rock.sdk.agent.models.metric.config import MetricConfig
 from rock.sdk.agent.models.metric.type import MetricType
@@ -14,6 +13,7 @@ from rock.sdk.agent.models.trial.config import (
     ArtifactConfig,
     EnvironmentConfig,
     OssMirrorConfig,
+    RockEnvironmentConfig,
     TaskConfig,
     VerifierConfig,
 )

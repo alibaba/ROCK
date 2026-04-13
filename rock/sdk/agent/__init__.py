@@ -7,7 +7,6 @@ from rock.sdk.agent.models.job.config import (
     RegistryDatasetConfig,
     RemoteRegistryInfo,
     RetryConfig,
-    RockEnvironmentConfig,
 )
 from rock.sdk.agent.models.metric.config import MetricConfig
 from rock.sdk.agent.models.trial.config import (
@@ -15,6 +14,7 @@ from rock.sdk.agent.models.trial.config import (
     ArtifactConfig,
     EnvironmentConfig,
     OssMirrorConfig,
+    RockEnvironmentConfig,
     TaskConfig,
     VerifierConfig,
 )
