@@ -91,8 +91,12 @@ class TestTaskResult:
 
 class TestJobStatus:
     def test_values(self):
+        # JobStatus reused from rock.sdk.agent.models.job.result
         assert JobStatus.COMPLETED == "completed"
         assert JobStatus.FAILED == "failed"
+        assert JobStatus.PENDING == "pending"
+        assert JobStatus.RUNNING == "running"
+        assert JobStatus.CANCELLED == "cancelled"
 
     def test_is_str(self):
         assert isinstance(JobStatus.COMPLETED, str)

@@ -6,7 +6,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
-from rock.sdk.agent.models.trial.result import TrialResult, VerifierResult  # noqa: F401
+from rock.sdk.agent.models.job.result import JobStatus
+from rock.sdk.agent.models.trial.result import TrialResult
 
 
 class TaskStatus(str, Enum):
@@ -20,8 +21,8 @@ class TaskStatus(str, Enum):
 class TaskResult(BaseModel):
     """Result produced by a single task execution."""
 
-    task_id: str
-    status: TaskStatus
+    task_id: str = ""
+    status: TaskStatus = TaskStatus.COMPLETED
     output: str = ""
     exit_code: int = 0
     data: dict = Field(default_factory=dict)
@@ -40,20 +41,23 @@ class TaskResult(BaseModel):
         return sum(t.score for t in self.trial_results) / len(self.trial_results)
 
 
-class JobStatus(str, Enum):
-    """Terminal status of a job."""
-
-    COMPLETED = "completed"
-    FAILED = "failed"
+# JobStatus 直接复用 rock.sdk.agent.models.job.result.JobStatus
+# 包含: PENDING, RUNNING, COMPLETED, FAILED, CANCELLED
 
 
 class JobResult(BaseModel):
-    """Aggregated result of a complete job run."""
+    """Aggregated result of a complete job run.
 
-    job_id: str
-    status: JobStatus
+    Aligned with rock.sdk.agent.models.job.result.JobResult,
+    but uses task_results instead of trial_results.
+    """
+
+    job_id: str = ""
+    status: JobStatus = JobStatus.COMPLETED
     labels: dict[str, str] = Field(default_factory=dict)
     task_results: list[TaskResult] = Field(default_factory=list)
+    raw_output: str = ""
+    exit_code: int = 0
 
     @property
     def score(self) -> float:
