@@ -1,17 +1,17 @@
 #!/bin/bash
-# Simple bash job demo using Sandbox.process.execute_script
+# Simple bash job demo using `rock job run`
 #
 # This script defines a bash job inline and executes it inside a ROCK sandbox
-# via sandbox.process.execute_script().
+# via the `rock job run` CLI command.
 
 set -euo pipefail
 
 # ===== Configuration =====
-# Override via environment variables: YOUR_API_KEY, YOUR_USER_ID, YOUR_EXPERIMENT_ID
+# Override via environment variables: ROCK_BASE_URL, YOUR_API_KEY, YOUR_USER_ID, YOUR_EXPERIMENT_ID
 ROCK_BASE_URL="${ROCK_BASE_URL}"
 YOUR_API_KEY="${YOUR_API_KEY}"
 YOUR_USER_ID="${YOUR_USER_ID}"
-YOUR_EXPERIMENT_ID="${YOUR_EXPERIMENT_ID}"
+YOUR_EXPERIMENT_ID="${YOUR_EXPERIMENT_ID:-simple_bash}"
 ROCK_IMAGE="${ROCK_IMAGE:-rl-rock-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11}"
 ROCK_CLUSTER="${ROCK_CLUSTER:-vpc-sg-sl-a}"
 
@@ -19,8 +19,6 @@ EXTERNAL_VARIABLE_1="external_value"
 TO_RENDERED_KEYS=(
     "EXTERNAL_VARIABLE_1"
 )
-LOCAL_WORKSPACE_DIR=""
-ROCK_WORKSPACE_DIR="/root/workspace"
 # =========================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -61,61 +59,6 @@ for key in "${TO_RENDERED_KEYS[@]}"; do
     BASH_SCRIPT="${BASH_SCRIPT//\$\{$key\}/$value}"
 done
 
-# Create a temporary Python runner that invokes execute_script with the script above
-PYTHON_RUNNER=$(mktemp /tmp/bash_job_demo_XXXXXX.py)
-trap 'rm -f "$PYTHON_RUNNER"' EXIT
-
-cat > "$PYTHON_RUNNER" << PYEOF
-import asyncio
-import sys
-from rock.sdk.sandbox.client import Sandbox
-from rock.sdk.sandbox.config import SandboxConfig
-
-BASH_SCRIPT = '''${BASH_SCRIPT}'''
-LOCAL_WORKSPACE_DIR = "${LOCAL_WORKSPACE_DIR}"
-ROCK_WORKSPACE_DIR = "${ROCK_WORKSPACE_DIR}"
-
-async def main():
-    sandbox = Sandbox(
-        SandboxConfig(
-            image="${ROCK_IMAGE}",
-            base_url="${ROCK_BASE_URL}",
-            extra_headers={"XRL-Authorization": "Bearer ${YOUR_API_KEY}"},
-            user_id="${YOUR_USER_ID}",
-            experiment_id="${YOUR_EXPERIMENT_ID}",
-            cluster="${ROCK_CLUSTER}",
-        )
-    )
-    await sandbox.start()
-    print(f"Sandbox ID: {sandbox.sandbox_id}")
-    try:
-        if LOCAL_WORKSPACE_DIR:
-            print(f"Uploading {LOCAL_WORKSPACE_DIR} -> {ROCK_WORKSPACE_DIR}")
-            result = await sandbox.fs.upload_dir(
-                source_dir=LOCAL_WORKSPACE_DIR,
-                target_dir=ROCK_WORKSPACE_DIR,
-            )
-            if result.exit_code != 0:
-                print(f"Upload failed: {result.failure_reason}")
-                sys.exit(1)
-            print(f"Upload succeeded: {result.output}")
-
-        result = await sandbox.process.execute_script(
-            script_content=BASH_SCRIPT,
-            script_name="simple_bash_job.sh",
-            wait_timeout=60,
-        )
-        print(f"Exit code: {result.exit_code}")
-        print(f"Output:\n{result.output}")
-        if result.exit_code != 0:
-            sys.exit(1)
-    finally:
-        await sandbox.stop()
-
-if __name__ == "__main__":
-    asyncio.run(main())
-PYEOF
-
 echo "Starting simple bash job demo..."
 echo "Bash Script:"
 echo "========================================"
@@ -130,4 +73,11 @@ else
     echo "rl-rock is already installed."
 fi
 
-python "$PYTHON_RUNNER"
+# Run the job via ROCK CLI
+rock --base-url "$ROCK_BASE_URL" \
+    --extra-header "XRL-Authorization=Bearer ${YOUR_API_KEY}" \
+    --cluster "$ROCK_CLUSTER" \
+    job run \
+    --image "$ROCK_IMAGE" \
+    --timeout 3600 \
+    --script-content "$BASH_SCRIPT"
