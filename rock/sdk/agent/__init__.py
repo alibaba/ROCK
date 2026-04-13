@@ -9,7 +9,6 @@ from rock.sdk.agent.models.job.config import (
     RetryConfig,
     RockEnvironmentConfig,
 )
-from rock.sdk.agent.models.job.result import JobResult, JobStatus
 from rock.sdk.agent.models.metric.config import MetricConfig
 from rock.sdk.agent.models.trial.config import (
     AgentConfig,
@@ -26,6 +25,7 @@ from rock.sdk.agent.models.trial.result import (
     TrialResult,
     VerifierResult,
 )
+from rock.sdk.job.result import JobResult, JobStatus
 
 __all__ = [
     "Job",

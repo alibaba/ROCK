@@ -1,46 +1,35 @@
-"""Trial result models aligned with harbor.models.trial.result."""
+"""Harbor trial result models.
+
+TrialResult base class is in rock.sdk.job.result.
+This module extends it with Harbor-specific fields.
+"""
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-
-class ExceptionInfo(BaseModel):
-    """Aligned with harbor.models.trial.result.ExceptionInfo"""
-
-    exception_type: str = ""
-    exception_message: str = ""
-    exception_traceback: str = ""
-    occurred_at: str | None = None
+from rock.sdk.job.result import ExceptionInfo
+from rock.sdk.job.result import TrialResult as _BaseTrialResult
 
 
 class ModelInfo(BaseModel):
-    """Aligned with harbor.models.trial.result.ModelInfo"""
-
     name: str = ""
     provider: str = ""
 
 
 class AgentInfo(BaseModel):
-    """Aligned with harbor.models.trial.result.AgentInfo"""
-
     name: str = ""
     version: str = ""
     model_info: ModelInfo | None = None
 
 
 class VerifierResult(BaseModel):
-    """Aligned with harbor.models.verifier.result.VerifierResult"""
-
     rewards: dict[str, float | int] | None = None
 
 
 class AgentResult(BaseModel):
-    """Aligned with harbor.models.agent.context.AgentContext (subset)"""
-
     n_input_tokens: int | None = None
     n_cache_tokens: int | None = None
     n_output_tokens: int | None = None
@@ -53,18 +42,14 @@ class TimingInfo(BaseModel):
     finished_at: str | None = None
 
 
-class TrialResult(BaseModel):
-    """Aligned with harbor.models.trial.result.TrialResult"""
+class TrialResult(_BaseTrialResult):
+    """Harbor TrialResult: extends base with agent/verifier/timing fields."""
 
-    task_name: str = ""
     trial_name: str = ""
     source: str | None = None
     agent_info: AgentInfo = Field(default_factory=AgentInfo)
     agent_result: AgentResult | None = None
     verifier_result: VerifierResult | None = None
-    exception_info: ExceptionInfo | None = None
-    started_at: str | None = None
-    finished_at: str | None = None
     environment_setup: TimingInfo | None = None
     agent_setup: TimingInfo | None = None
     agent_execution: TimingInfo | None = None
@@ -79,17 +64,6 @@ class TrialResult(BaseModel):
     @property
     def status(self) -> str:
         return "failed" if self.exception_info else "completed"
-
-    @property
-    def duration_sec(self) -> float:
-        if self.started_at and self.finished_at:
-            try:
-                start = datetime.fromisoformat(self.started_at.replace("Z", "+00:00"))
-                end = datetime.fromisoformat(self.finished_at.replace("Z", "+00:00"))
-                return (end - start).total_seconds()
-            except (ValueError, TypeError):
-                pass
-        return 0.0
 
     @property
     def token_ids(self) -> list[int]:

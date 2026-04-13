@@ -44,9 +44,9 @@ SDK 视角:
 
 ---
 
-## 2. 架构方案: Config 驱动类型 + Task 内部抽象 + Job 编排层
+## 2. 架构方案: Config 驱动类型 + Trial 内部抽象 + Job 编排层
 
-**核心思路**: Job 是 Facade 入口。JobExecutor 是主控方，驱动 Operator（算子）。Operator 决定分发多少份 Task（类比 torch.distributed.scatter），JobExecutor 并行执行 TaskList。
+**核心思路**: Job 是 Facade 入口。JobExecutor 是主控方，驱动 Operator（算子）。Operator 决定分发 8 份 Trial（类比 torch.distributed.scatter），JobExecutor 并行执行 TrialList。
 
 ```
 ┌────────────────────────────────────────────────────────────┐
@@ -60,25 +60,25 @@ SDK 视角:
 │  │                                                      │  │
 │  │  submit(operator, config):                           │  │
 │  │    1. operator.apply(config)                          │  │
-│  │       → 创建 Task, 决定分发数量                        │  │
-│  │       → 返回 list[AbstractTask]  (TaskList)          │  │
-│  │    2. 并行 _do_submit(task) for each task            │  │
-│  │       → sandbox + task.setup/build + nohup           │  │
+│  │       → 创建 Trial, 决定分发数量                        │  │
+│  │       → 返回 list[AbstractTrial]  (TrialList)          │  │
+│  │    2. 并行 _(do_submit(trial) for each task            │  │
+│  │       → sandbox + trial.setup/build + nohup           │  │
 │  │    → 返回 JobClient                                   │  │
 │  │                                                      │  │
 │  │  wait(job_client):                                   │  │
-│  │    → _do_wait(tc) for each TaskClient                │  │
-│  │      → task.collect(sandbox, output, exit_code)      │  │
-│  │    → 返回 list[TaskResult]                           │  │
+│  │    → _do_wait(tc) for each TrialClient                │  │
+│  │      → trial.collect(sandbox, output, exit_code)      │  │
+│  │    → 返回 list[TrialResult]                           │  │
 │  └──────────────────────────────────────────────────────┘  │
 │                                                            │
 │  Operator (算子, 可替换):                                    │
-│   ├── ScatterOperator(size=8) — 分发 8 份 Task              │
+│   ├── ScatterOperator(size=8) — 分发 8 份 Trial              │
 │   └── (future: RayScatterOperator, K8sOperator, ...)       │
 │                                                            │
-│  Task (内部, 由 Config 子类决定):                              │
-│   ├── BashTask     ← BashJobConfig                         │
-│   ├── HarborTask   ← HarborJobConfig                      │
+│  Trial (内部, 由 Config 子类决定):                              │
+│   ├── BashTrial     ← BashJobConfig                         │
+│   ├── HarborTrial   ← HarborJobConfig                      │
 │   └── (扩展...)                                             │
 └────────────────────────────────────────────────────────────┘
 ```
@@ -86,9 +86,9 @@ SDK 视角:
 #### 设计原则
 
 1. **Job = 极薄 Facade** — 只有 `config` + `operator` 两个参数
-2. **JobExecutor = 主控方** — 驱动 Operator 生成 TaskList，并行执行，收集结果
-3. **Operator = 算子 (通用接口 apply)** — 从 config 生成 TaskList，ScatterOperator 是默认实现
-4. **Task = 任务逻辑** — 数据 IO、脚本生成、结果解析，全部由 Task 自行控制
+2. **JobExecutor = 主控方** — 驱动 Operator 生成 TrialList，并行执行，收集结果
+3. **Operator = 算子 (通用接口 apply)** — 从 config 生成 TrialList，ScatterOperator 是默认实现
+4. **Trial = 任务逻辑** — 数据 IO、脚本生成、结果解析，全部由 Trial 自行控制
 5. **Config 子类 = 类型** — `BashJobConfig` / `HarborJobConfig` 携带类型信息
 
 #### 调用链
@@ -99,22 +99,22 @@ Job.run() = Job.submit() + Job.wait()
 submit 阶段:
   Job.submit()
     → JobExecutor.submit(operator, config)
-      1. task_list = operator.apply(config)     # Operator 决定分发几份 Task
-         → _create_task(config)                    # 创建 Task
-         → 返回 [task] * size                      # size=0 返回 [], 什么都不做
-      2. 并行 _do_submit(task) for task in task_list  # Executor 并行启动
-      → 返回 JobClient(tasks=[TaskClient, ...])
+      1. trial_list = operator.apply(config)     # Operator 决定分发 8 份 Trial
+         → _create_trial(config)                    # 创建 Trial
+         → 返回 [trial] * size                      # size=0 返回 [], 什么都不做
+      2. 并行 _(do_submit(trial) for trial in trial_list  # Executor 并行启动
+      → 返回 JobClient(tasks=[TrialClient, ...])
 
 wait 阶段:
   Job.wait()
     → JobExecutor.wait(job_client)
-      → _do_wait(tc) for each TaskClient            # 等待 + task.collect()
-      → 返回 list[TaskResult]                       # size=0 时返回 []
+      → _do_wait(tc) for each TrialClient            # 等待 + trial.collect()
+      → 返回 list[TrialResult]                       # size=0 时返回 []
 ```
 
 **关键**:
-- **Operator 只做 apply** — 生成 TaskList，不启动 sandbox，不管执行
-- **JobExecutor 做并行执行** — 拿到 TaskList 后并行 submit + 并行 wait
+- **Operator 只做 apply** — 生成 TrialList，不启动 sandbox，不管执行
+- **JobExecutor 做并行执行** — 拿到 TrialList 后并行 submit + 并行 wait
 - **size=0 安全返回** — Operator 返回空 list，Executor 什么都不执行，Job 返回空结果
 
 #### 职责分离
@@ -122,9 +122,9 @@ wait 阶段:
 | 组件 | 职责 | 不负责 | 类比 |
 |------|------|--------|------|
 | **Job** | 极薄 Facade: 接收 config，组装组件 | 不包含任何执行/调度逻辑 | — |
-| **Operator** | 算子: apply(config) → TaskList | 不启动 sandbox，不执行 | torch.distributed.scatter |
-| **JobExecutor** | 主控方: 并行执行 TaskList，管理 sandbox 生命周期 | 不决定分发数量 | Executor |
-| **Task** | 任务逻辑: setup/build/collect | 不管理 sandbox 生命周期 | UDF |
+| **Operator** | 算子: apply(config) → TrialList | 不启动 sandbox，不执行 | torch.distributed.scatter |
+| **JobExecutor** | 主控方: 并行执行 TrialList，管理 sandbox 生命周期 | 不决定分发数量 | Executor |
+| **Trial** | 任务逻辑: setup/build/collect | 不管理 sandbox 生命周期 | UDF |
 
 #### 类设计
 
@@ -180,10 +180,10 @@ class HarborJobConfig(JobConfig):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Task 层: 定义"在 sandbox 中做什么"，三阶段接口
+# Trial 层: 定义"在 sandbox 中做什么"，三阶段接口
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-class AbstractTask(ABC):
+class AbstractTrial(ABC):
     """Task: 定义在 Sandbox 中执行什么
 
     三阶段接口:
@@ -191,7 +191,7 @@ class AbstractTask(ABC):
       build()   — 构建: 生成要执行的脚本
       collect() — 执行后: 从 sandbox 收集解析结果
 
-    Task 不管理 sandbox 生命周期 (由 JobExecutor 负责)，
+    Trial 不管理 sandbox 生命周期 (由 JobExecutor 负责)，
     也不关心调度策略 (由 Operator 负责)。
     """
 
@@ -207,7 +207,7 @@ class AbstractTask(ABC):
         """构建: 生成要在 sandbox 中执行的 bash 脚本"""
 
     @abstractmethod
-    async def collect(self, sandbox: Sandbox, output: str, exit_code: int) -> TaskResult:
+    async def collect(self, sandbox: Sandbox, output: str, exit_code: int) -> TrialResult:
         """执行后: 从 sandbox 收集并解析结果"""
 
     async def _upload_files(self, sandbox: Sandbox) -> None:
@@ -216,7 +216,7 @@ class AbstractTask(ABC):
             await sandbox.fs.upload_dir(local_path, sandbox_path)
 
 
-class BashTask(AbstractTask):
+class BashTrial(AbstractTrial):
     """Bash 脚本执行"""
 
     async def setup(self, sandbox):
@@ -229,15 +229,15 @@ class BashTask(AbstractTask):
         return f"#!/bin/bash\nset -e\n{setup}\n{self._config.script}"
 
     async def collect(self, sandbox, output, exit_code):
-        return TaskResult(
+        return TrialResult(
             task_id=self._config.job_name or "",
-            status=TaskStatus.COMPLETED if exit_code == 0 else TaskStatus.FAILED,
+            status=TrialStatus.COMPLETED if exit_code == 0 else TrialStatus.FAILED,
             output=output,
             exit_code=exit_code,
         )
 
 
-class HarborTask(AbstractTask):
+class HarborTrial(AbstractTrial):
     """Harbor benchmark 执行 (重构自现有 rock.sdk.agent.job.Job)"""
 
     async def setup(self, sandbox):
@@ -250,34 +250,34 @@ class HarborTask(AbstractTask):
 
     async def collect(self, sandbox, output, exit_code):
         trial_results = await self._collect_trial_results(sandbox)
-        return TaskResult(
+        return TrialResult(
             task_id=self._config.job_name or "",
-            status=TaskStatus.COMPLETED if trial_results else TaskStatus.FAILED,
+            status=TrialStatus.COMPLETED if trial_results else TrialStatus.FAILED,
             output=output, exit_code=exit_code,
             trial_results=trial_results,
         )
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Task Registry: Config 类型 → Task 实现
+# Trial Registry: Config 类型 → Trial 实现
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-_TASK_REGISTRY: dict[type[JobConfig], type[AbstractTask]] = {
-    BashJobConfig: BashTask,
-    HarborJobConfig: HarborTask,
+_TRIAL_REGISTRY: dict[type[JobConfig], type[AbstractTrial]] = {
+    BashJobConfig: BashTrial,
+    HarborJobConfig: HarborTrial,
 }
 
-def register_task(config_type: type[JobConfig], task_type: type[AbstractTask]):
+def register_trial(config_type: type[JobConfig], task_type: type[AbstractTrial]):
     """注册新的 Config → Task 映射 (扩展点)"""
-    _TASK_REGISTRY[config_type] = task_type
+    _TRIAL_REGISTRY[config_type] = task_type
 
-def _create_task(config: JobConfig) -> AbstractTask:
+def _create_trial(config: JobConfig) -> AbstractTrial:
     """根据 config 类型创建对应的 Task 实例"""
-    task_cls = _TASK_REGISTRY.get(type(config))
+    task_cls = _TRIAL_REGISTRY.get(type(config))
     if task_cls is None:
         raise TypeError(
             f"No task registered for {type(config).__name__}. "
-            f"Supported: {[c.__name__ for c in _TASK_REGISTRY]}"
+            f"Supported: {[c.__name__ for c in _TRIAL_REGISTRY]}"
         )
     return task_cls(config)
 
@@ -287,20 +287,20 @@ def _create_task(config: JobConfig) -> AbstractTask:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 class Operator(ABC):
-    """算子基类: 从 config 生成 TaskList
+    """算子基类: 从 config 生成 TrialList
 
-    通用接口 apply(config) → list[AbstractTask]:
+    通用接口 apply(config) → list[AbstractTrial]:
       - 输入: JobConfig
-      - 输出: TaskList (待执行的 Task 列表)
+      - 输出: TrialList (待执行的 Task 列表)
       - 返回空 list 表示什么都不做
 
-    Operator 只负责生成 TaskList，不启动 sandbox，不执行。
+    Operator 只负责生成 TrialList，不启动 sandbox，不执行。
     执行由 JobExecutor 负责。
     """
 
     @abstractmethod
-    def apply(self, config: JobConfig) -> list[AbstractTask]:
-        """从 config 生成 TaskList
+    def apply(self, config: JobConfig) -> list[AbstractTrial]:
+        """从 config 生成 TrialList
 
         返回空 list 表示什么都不做。
         """
@@ -308,11 +308,11 @@ class Operator(ABC):
 
 
 class ScatterOperator(Operator):
-    """Scatter 算子: 将 config 分发为 size 份 Task
+    """Scatter 算子: 将 config 分发 8 份 Trial
 
     类比 torch.distributed.scatter:
       scatter_list = [tensor] * size   → 每个 rank 拿一份
-      task_list    = [task] * size     → 每个 sandbox 执行一份
+      trial_list    = [trial] * size     → 每个 sandbox 执行一份
 
     用法:
       ScatterOperator()         # size=1，默认 1 份 Task
@@ -323,32 +323,32 @@ class ScatterOperator(Operator):
     def __init__(self, size: int = 1):
         self.size = size
 
-    def apply(self, config) -> list[AbstractTask]:
+    def apply(self, config) -> list[AbstractTrial]:
         if self.size <= 0:
             return []
-        task = _create_task(config)
-        return [task] * self.size
+        trial = _create_trial(config)
+        return [trial] * self.size
 
 
 # 未来扩展 — 不同的 Operator 实现:
 #
 # class DataScatterOperator(Operator):
-#     """数据驱动: 按数据列表生成 TaskList，每个 Task 注入不同 env"""
+#     """数据驱动: 按数据列表生成 TrialList，每个 Task 注入不同 env"""
 #     def __init__(self, data: list[dict[str, str]]):
 #         self.data = data
 #     def apply(self, config):
 #         if not self.data:
 #             return []
 #         return [
-#             _create_task(config.model_copy(update={"env": {**config.env, **shard}}))
+#             _create_trial(config.model_copy(update={"env": {**config.env, **shard}}))
 #             for shard in self.data
 #         ]
 #
 # class RayScatterOperator(Operator):
-#     """Ray 分发: 生成 TaskList，JobExecutor 通过 ray.remote 执行"""
+#     """Ray 分发: 生成 TrialList，JobExecutor 通过 ray.remote 执行"""
 #
 # class K8sOperator(Operator):
-#     """K8s 分发: 生成 TaskList，JobExecutor 创建 K8s Job 执行"""
+#     """K8s 分发: 生成 TrialList，JobExecutor 创建 K8s Job 执行"""
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -359,40 +359,40 @@ class JobExecutor:
     """执行引擎 + 主控方
 
     职责:
-      1. 调用 operator.apply(config) 获取 TaskList
+      1. 调用 operator.apply(config) 获取 TrialList
       2. 并行启动每个 Task (_do_submit)
       3. 并行等待完成 + 收集结果 (_do_wait)
 
-    JobExecutor 负责并行执行，Operator 只负责生成 TaskList。
+    JobExecutor 负责并行执行，Operator 只负责生成 TrialList。
     """
 
     # ── run = submit + wait ──
 
-    async def run(self, operator: Operator, config: JobConfig) -> list[TaskResult]:
+    async def run(self, operator: Operator, config: JobConfig) -> list[TrialResult]:
         """完整生命周期: submit + wait"""
         job_client = await self.submit(operator, config)
         return await self.wait(job_client)
 
-    # ── submit: Operator 生成 TaskList → 并行启动 ──
+    # ── submit: Operator 生成 TrialList → 并行启动 ──
 
     async def submit(self, operator: Operator, config: JobConfig) -> JobClient:
-        """Operator apply 生成 TaskList，并行启动所有 sandbox"""
-        # 1. Operator 决定分发几份 Task
-        task_list = operator.apply(config)
+        """Operator apply 生成 TrialList，并行启动所有 sandbox"""
+        # 1. Operator 决定分发 8 份 Trial
+        trial_list = operator.apply(config)
 
         # 2. size=0 → 什么都不做
-        if not task_list:
+        if not trial_list:
             return JobClient(tasks=[])
 
         # 3. 并行启动每个 Task
         task_clients = await asyncio.gather(*[
-            self._do_submit(task) for task in task_list
+            self._(do_submit(trial) for trial in trial_list
         ])
         return JobClient(tasks=list(task_clients))
 
     # ── wait: 并行等待 + 收集结果 ──
 
-    async def wait(self, job_client: JobClient) -> list[TaskResult]:
+    async def wait(self, job_client: JobClient) -> list[TrialResult]:
         """并行等待所有 task 完成，收集结果"""
         if not job_client.tasks:
             return []
@@ -402,7 +402,7 @@ class JobExecutor:
 
     # ── 内部: 单个 task 的 submit / wait ──
 
-    async def _do_submit(self, task: AbstractTask) -> TaskClient:
+    async def _do_submit(self, trial: AbstractTrial) -> TrialClient:
         """启动单个 sandbox + 执行脚本 (被 Operator 回调)"""
         config = task._config  # Task 已持有 config
 
@@ -417,8 +417,8 @@ class JobExecutor:
         )
 
         # Task: setup → build
-        await task.setup(sandbox)
-        script_content = task.build()
+        await trial.setup(sandbox)
+        script_content = trial.build()
 
         # 上传脚本 + nohup 启动
         script_path = f"/tmp/rock_job_{config.job_name}.sh"
@@ -430,11 +430,11 @@ class JobExecutor:
         if error:
             raise RuntimeError(f"Failed to start task: {error.output}")
 
-        return TaskClient(sandbox=sandbox, session=session, pid=pid, task=task)
+        return TrialClient(sandbox=sandbox, session=session, pid=pid, task=task)
 
-    async def _do_wait(self, client: TaskClient) -> TaskResult:
-        """等待单个 task 完成，调用 task.collect() 收集结果"""
-        config = client.task._config
+    async def _do_wait(self, client: TrialClient) -> TrialResult:
+        """等待单个 task 完成，调用 trial.collect() 收集结果"""
+        config = client.trial._config
         try:
             success, message = await client.sandbox.wait_for_process_completion(
                 pid=client.pid, session=client.session, wait_timeout=config.timeout,
@@ -443,9 +443,9 @@ class JobExecutor:
                 tmp_file=f"/tmp/rock_job_{config.job_name}.out",
                 session=client.session, success=success, message=message,
             )
-            result = await client.task.collect(client.sandbox, obs.output or "", obs.exit_code or 1)
+            result = await client.trial.collect(client.sandbox, obs.output or "", obs.exit_code or 1)
             if not success:
-                result.status = TaskStatus.FAILED
+                result.status = TrialStatus.FAILED
             return result
         finally:
             if config.auto_stop:
@@ -457,17 +457,17 @@ class JobExecutor:
 
 
 @dataclass
-class TaskClient:
+class TrialClient:
     """单个运行中 task 的句柄 (config 通过 task._config 访问)"""
     sandbox: Sandbox
     session: str
     pid: int
-    task: AbstractTask
+    trial: AbstractTrial
 
 @dataclass
 class JobClient:
-    """Job.submit() 返回的句柄，持有多个 TaskClient，类比 Flink JobClient"""
-    tasks: list[TaskClient]
+    """Job.submit() 返回的句柄，持有多个 TrialClient，类比 Flink JobClient"""
+    tasks: list[TrialClient]
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -483,12 +483,12 @@ class Job:
     调用链:
       Job.run() = Job.submit() + Job.wait()
         submit: → JobExecutor.submit(operator, config)
-                    → operator.apply(config) → TaskList      # 算子生成 N 份 Task
-                    → 并行 _do_submit(task) for each          # Executor 并行启动
+                    → operator.apply(config) → TrialList      # 算子生成 N 份 Task
+                    → 并行 _(do_submit(trial) for each          # Executor 并行启动
                     → 返回 JobClient
         wait:   → JobExecutor.wait(job_client)
-                    → 并行 _do_wait(tc) for each              # 等待 + task.collect()
-                    → 返回 list[TaskResult]
+                    → 并行 _do_wait(tc) for each              # 等待 + trial.collect()
+                    → 返回 list[TrialResult]
 
     用法:
         # 单次执行
@@ -535,7 +535,7 @@ class Job:
             for tc in self._job_client.tasks:
                 await tc.sandbox.arun(cmd=f"kill {tc.pid}", session=tc.session)
 
-    def _build_result(self, task_results: list[TaskResult]) -> JobResult:
+    def _build_result(self, task_results: list[TrialResult]) -> JobResult:
         all_success = all(r.success for r in task_results)
         return JobResult(
             job_id=self._config.job_name or "",
@@ -549,10 +549,10 @@ class Job:
 # Result 模型
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-class TaskResult(BaseModel):
+class TrialResult(BaseModel):
     """单个 Task 的执行结果"""
     task_id: str = ""
-    status: TaskStatus = TaskStatus.COMPLETED
+    status: TrialStatus = TrialStatus.COMPLETED
     output: str = ""
     exit_code: int = 0
     data: dict[str, Any] = {}           # 通用数据输出
@@ -563,14 +563,14 @@ class TaskResult(BaseModel):
 
     @property
     def success(self) -> bool:
-        return self.status == TaskStatus.COMPLETED
+        return self.status == TrialStatus.COMPLETED
 
 class JobResult(BaseModel):
     """Job 聚合结果"""
     job_id: str = ""
     status: JobStatus = JobStatus.COMPLETED
     labels: dict[str, str] = {}
-    task_results: list[TaskResult] = []
+    task_results: list[TrialResult] = []
 
     @property
     def score(self) -> float: ...
@@ -581,7 +581,7 @@ class JobResult(BaseModel):
     @property
     def n_failed(self) -> int: ...
 
-    # 便捷属性: 直接访问第一个 TaskResult 的 trial_results (Harbor 兼容)
+    # 便捷属性: 直接访问第一个 TrialResult 的 trial_results (Harbor 兼容)
     @property
     def trial_results(self) -> list[TrialResult]:
         if self.task_results:
@@ -599,9 +599,9 @@ result = await Job(BashJobConfig(
 )).run()
 # 内部: Job.submit()
 #   → JobExecutor.submit(ScatterOperator(size=1), config)
-#     → ScatterOperator.apply(config) → [BashTask]       (1 份)
-#     → _do_submit(BashTask) → sandbox → task.setup/build
-#   Job.wait() → _do_wait → task.collect
+#     → ScatterOperator.apply(config) → [BashTrial]       (1 份)
+#     → _do_submit(BashTrial) → sandbox → trial.setup/build
+#   Job.wait() → _do_wait → trial.collect
 
 # ── 2. 单次 Harbor Benchmark ──
 result = await Job(HarborJobConfig(
@@ -652,12 +652,12 @@ async def run_eval(row):
 
 results = await asyncio.gather(*[run_eval(row) for row in rows])
 
-# ── 7. 自定义 Task 类型 ──
+# ── 7. 自定义 Trial 类型 ──
 class EvalJobConfig(JobConfig):
     eval_script: str
     model_endpoint: str
 
-class EvalTask(AbstractTask):
+class EvalTask(AbstractTrial):
     async def setup(self, sandbox):
         await sandbox.fs.upload_dir(self._config.eval_script, "/workspace/")
 
@@ -666,9 +666,9 @@ class EvalTask(AbstractTask):
 
     async def collect(self, sandbox, output, exit_code):
         result_content = await sandbox.read_file(ReadFileRequest(path="/workspace/result.json"))
-        return TaskResult(output=output, exit_code=exit_code, data=json.loads(result_content.content))
+        return TrialResult(output=output, exit_code=exit_code, data=json.loads(result_content.content))
 
-register_task(EvalJobConfig, EvalTask)
+register_trial(EvalJobConfig, EvalTask)
 result = await Job(EvalJobConfig(eval_script="eval.py", model_endpoint="http://...")).run()
 ```
 
@@ -750,9 +750,9 @@ result.trial_results                   result.trial_results  ← 兼容属性
 - **职责清晰** — Job(Facade) / JobExecutor(主控+执行) / Operator(算子) / Task(逻辑) 各司其职
 - **Operator 可扩展** — ABC 基类，ScatterOperator 默认实现，未来可加 DataScatterOperator / RayScatterOperator
 - **三层都是 run=submit+wait** — Job / JobExecutor / 内部全统一为 submit+wait 模式
-- **Task 接口清晰** — `setup/build/collect` 三阶段，语义明确
+- **Trial 接口清晰** — `setup/build/collect` 三阶段，语义明确
 - **`Job(config)` 签名一致** — 用户只需记 Config 子类
-- **注册表扩展** — `register_task()` 支持第三方扩展
+- **注册表扩展** — `register_trial()` 支持第三方扩展
 - **完全兼容** — `rock/sdk/agent/` 不动
 
 #### 缺点
@@ -766,8 +766,8 @@ result.trial_results                   result.trial_results  ← 兼容属性
 |---------|------|
 | `rock/sdk/agent/` | **不动**，保持向后兼容 |
 | `rock/sdk/job/` (新) | Job(Facade), JobExecutor, Operator, Task |
-| `rock/sdk/job/task/harbor.py` | 从 `rock/sdk/agent/job.py` 提取 setup/build/collect |
-| `rock/sdk/job/task/harbor.py` | 复用 `rock/sdk/agent/models/` 的 Harbor schema |
+| `rock/sdk/job/trial/harbor.py` | 从 `rock/sdk/agent/job.py` 提取 setup/build/collect |
+| `rock/sdk/job/trial/harbor.py` | 复用 `rock/sdk/agent/models/` 的 Harbor schema |
 | `rock/cli/command/job.py` | 使用新 `rock.sdk.job.Job`，支持 `--type` |
 | 现有测试/示例 | **不改**，新模块新增独立测试 |
 
@@ -780,8 +780,8 @@ result.trial_results                   result.trial_results  ← 兼容属性
 | 维度 | A: Job 层继承 | B: 策略模式 | **当前方案: Config 驱动** |
 |------|-------------|-----------|------------------------|
 | **核心思路** | `AbstractJob` → `BashJob` / `HarborJob` 子类 | 单一 `Job` + `TaskStrategy` / `Operator` / `DataSource` 组合 | `Job(config)` Config 子类决定类型，Task 内部 factory |
-| **用户 API** | `BashJob(BashJobConfig(...))` | `Job(config, task_strategy=BashTaskStrategy())` | `Job(BashJobConfig(...))` |
-| **Task 类型扩展** | 新增 Job 子类 + Config 子类 | 新增 Strategy 类 | 新增 Config 子类 + Task 子类 + register |
+| **用户 API** | `BashJob(BashJobConfig(...))` | `Job(config, task_strategy=BashTrialStrategy())` | `Job(BashJobConfig(...))` |
+| **Trial 类型扩展** | 新增 Job 子类 + Config 子类 | 新增 Strategy 类 | 新增 Config 子类 + Trial 子类 + register |
 | **调度策略** | Scheduler 挂在 Job 上，继承限制组合 | Strategy 可替换 | Operator 可替换 |
 | **类型安全** | 强 | 弱 (Config 混合所有字段) | 强 |
 | **使用门槛** | 中 (需记 BashJob/HarborJob 类名) | 高 (需组合三个 Strategy) | **低** (只需记 Config 子类) |
@@ -801,18 +801,18 @@ rock/sdk/job/                           # 新模块 (核心只有 6 个文件)
 ├── executor.py                         # JobExecutor 执行引擎
 ├── operator.py                         # Operator ABC + ScatterOperator (scatter 算子)
 ├── config.py                           # JobConfig, BashJobConfig, HarborJobConfig
-├── result.py                           # JobResult, TaskResult, TaskStatus
-└── task/
+├── result.py                           # JobResult, TrialResult, TrialStatus
+└── trial/
     ├── __init__.py
-    ├── abstract.py                     # AbstractTask (setup/build/collect)
-    ├── registry.py                     # _TASK_REGISTRY + register_task()
-    ├── bash.py                         # BashTask
-    └── harbor.py                       # HarborTask (复用 agent/models)
+    ├── abstract.py                     # AbstractTrial (setup/build/collect)
+    ├── registry.py                     # _TRIAL_REGISTRY + register_trial()
+    ├── bash.py                         # BashTrial
+    └── harbor.py                       # HarborTrial (复用 agent/models)
 
 rock/sdk/agent/                         # 保留不动，完全向后兼容
 ├── __init__.py
 ├── job.py
-├── models/                             # Harbor schema (HarborTask 复用)
+├── models/                             # Harbor schema (HarborTrial 复用)
 └── constants.py
 ```
 
@@ -824,15 +824,15 @@ rock/sdk/agent/                         # 保留不动，完全向后兼容
 Phase 1: Config + Task + JobExecutor
   - 创建 rock/sdk/job/ 模块
   - JobConfig → BashJobConfig / HarborJobConfig 继承体系
-  - AbstractTask (setup/build/collect), BashTask, HarborTask + _TASK_REGISTRY
-  - JobExecutor: sandbox 生命周期 + 调用 Task 三阶段
-  - HarborTask 从 rock/sdk/agent/job.py 提取逻辑，复用 agent/models
+  - AbstractTrial (setup/build/collect), BashTrial, HarborTrial + _TRIAL_REGISTRY
+  - JobExecutor: sandbox 生命周期 + 调用 Trial 三阶段
+  - HarborTrial 从 rock/sdk/agent/job.py 提取逻辑，复用 agent/models
 
 Phase 2: Job Facade + Operator + Result
   - Job(config, operator?) 极薄 Facade
   - ScatterOperator(size) 默认 scatter 算子
   - Job.run_batch() 批量并行
-  - TaskResult / JobResult 结果模型
+  - TrialResult / JobResult 结果模型
 
 Phase 3: 更新 CLI
   - rock job run --type bash/harbor
@@ -855,7 +855,7 @@ Phase 4: 标记旧接口 deprecated
 | **核心抽象** | Operator → Task → SubTask (DAG) | Dataset → Transform chain (lazy pipeline) | Job(Facade) → JobExecutor(执行) → Task(逻辑) |
 | **执行模型** | 流式 DAG，operator chaining 自动融合 | 惰性 pipeline，`.show()` 触发流式执行 | JobExecutor 管理 sandbox 生命周期，nohup 模式 |
 | **调度与执行** | Scheduler 分配 slot，TaskManager 执行 | Scheduler 放置 task，Worker 执行 | JobExecutor 驱动 Operator，Operator 回调执行 |
-| **并行度** | 每个 operator 独立 parallelism | 每个 operation 独立 `concurrency` + `num_cpus/gpus` | ScatterOperator `size` 控制 Task 数量 |
+| **并行度** | 每个 operator 独立 parallelism | 每个 operation 独立 `concurrency` + `num_cpus/gpus` | ScatterOperator `size` 控制 Trial 数量 |
 | **数据输入** | Source (SourceReader + SplitEnumerator) | Datasource ABC (`read_csv`, `read_parquet`, custom) | Task.setup() 自行控制 |
 | **数据输出** | Sink (SinkWriter) | Datasink ABC (`write_parquet`, `write_json`, custom) | Task.collect() 自行控制 |
 | **容错** | Checkpoint + Savepoint + 自动重启策略 | Ray Core task retry + lineage reconstruction | Job.run_batch(max_retries=N) |
@@ -870,7 +870,7 @@ Phase 4: 标记旧接口 deprecated
 |---|---|---|---|
 | **数据输入** | Source 是 DAG 中的 operator | `read_csv()` / `Datasource` ABC | **Task.setup() 自行控制** |
 | **数据输出** | Sink 是 DAG 中的 operator | `write_parquet()` / `Datasink` ABC | **Task.collect() 自行控制** |
-| **为什么不同** | Flink/Ray 是数据处理引擎，数据流是核心 | 同左 | Rock 是 sandbox 执行引擎，数据 IO 是 Task 逻辑的一部分 |
+| **为什么不同** | Flink/Ray 是数据处理引擎，数据流是核心 | 同左 | Rock 是 sandbox 执行引擎，数据 IO 是 Trial 逻辑的一部分 |
 
 Rock 不需要 DataSource/DataSink 抽象的原因:
 - Flink/Ray 的 operator 是轻量级函数，需要框架管理数据流

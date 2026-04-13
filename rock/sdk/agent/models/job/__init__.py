@@ -1,3 +1,5 @@
+from rock.sdk.job.result import JobResult, JobStatus
+
 from .config import (
     JobConfig,
     LocalDatasetConfig,
@@ -8,7 +10,6 @@ from .config import (
     RetryConfig,
     RockEnvironmentConfig,
 )
-from .result import JobResult, JobStatus
 
 __all__ = [
     "JobConfig",
