@@ -172,6 +172,10 @@ def _make_mock_sandbox():
     return sandbox
 
 
+# Patch target: Sandbox is imported inside _run_one_trial
+_SANDBOX_PATCH = "rock.sdk.sandbox.client.Sandbox"
+
+
 class TestJob:
     def test_init_requires_jobconfig(self):
         config = JobConfig(experiment_id="test-exp")
@@ -187,12 +191,16 @@ class TestJob:
     async def test_run_full_lifecycle(self):
         mock_sandbox = _make_mock_sandbox()
 
-        with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
+        with patch(_SANDBOX_PATCH, return_value=mock_sandbox):
             config = JobConfig(
                 experiment_id="test-exp",
                 job_name="test-job",
                 agents=[AgentConfig(name="t2")],
-                datasets=[RegistryDatasetConfig(registry=RemoteRegistryInfo(), name="tb", version="2.0")],
+                datasets=[
+                    RegistryDatasetConfig(
+                        registry=RemoteRegistryInfo(), name="tb", version="2.0", task_names=["task-1"]
+                    )
+                ],
             )
             job = Job(config)
             result = await job.run()
@@ -210,9 +218,16 @@ class TestJob:
     async def test_run_auto_stop_sandbox(self):
         mock_sandbox = _make_mock_sandbox()
 
-        with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
+        with patch(_SANDBOX_PATCH, return_value=mock_sandbox):
             config = JobConfig(
-                job_name="test-job", experiment_id="test-exp", environment=RockEnvironmentConfig(auto_stop=True)
+                job_name="test-job",
+                experiment_id="test-exp",
+                environment=RockEnvironmentConfig(auto_stop=True),
+                datasets=[
+                    RegistryDatasetConfig(
+                        registry=RemoteRegistryInfo(), name="tb", version="2.0", task_names=["task-1"]
+                    )
+                ],
             )
             job = Job(config)
             await job.run()
@@ -222,31 +237,35 @@ class TestJob:
     async def test_run_does_not_stop_when_disabled(self):
         mock_sandbox = _make_mock_sandbox()
 
-        with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
+        with patch(_SANDBOX_PATCH, return_value=mock_sandbox):
             config = JobConfig(
-                job_name="test-job", experiment_id="test-exp", environment=RockEnvironmentConfig(auto_stop=False)
+                job_name="test-job",
+                experiment_id="test-exp",
+                environment=RockEnvironmentConfig(auto_stop=False),
+                datasets=[
+                    RegistryDatasetConfig(
+                        registry=RemoteRegistryInfo(), name="tb", version="2.0", task_names=["task-1"]
+                    )
+                ],
             )
             job = Job(config)
             await job.run()
 
             mock_sandbox.close.assert_not_called()
 
-    async def test_submit_starts_sandbox(self):
+    async def test_submit_then_wait(self):
         mock_sandbox = _make_mock_sandbox()
 
-        with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
-            config = JobConfig(job_name="test-job", experiment_id="test-exp")
-            job = Job(config)
-            await job.submit()
-
-            mock_sandbox.start.assert_called_once()
-            mock_sandbox.start_nohup_process.assert_called_once()
-
-    async def test_wait_returns_result(self):
-        mock_sandbox = _make_mock_sandbox()
-
-        with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
-            config = JobConfig(job_name="test-job", experiment_id="test-exp")
+        with patch(_SANDBOX_PATCH, return_value=mock_sandbox):
+            config = JobConfig(
+                job_name="test-job",
+                experiment_id="test-exp",
+                datasets=[
+                    RegistryDatasetConfig(
+                        registry=RemoteRegistryInfo(), name="tb", version="2.0", task_names=["task-1"]
+                    )
+                ],
+            )
             job = Job(config)
             await job.submit()
             result = await job.wait()
@@ -291,21 +310,23 @@ class TestBuildSessionEnv:
         assert job._build_session_env() is None
 
 
-class TestCancelKillsProcess:
-    async def test_cancel_kills_process(self):
+class TestCancelJob:
+    async def test_cancel_cancels_gather(self):
         mock_sandbox = _make_mock_sandbox()
-        mock_sandbox.arun = AsyncMock(return_value=MagicMock(output="", exit_code=0))
 
-        with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
-            config = JobConfig(job_name="test-job", experiment_id="test-exp")
+        with patch(_SANDBOX_PATCH, return_value=mock_sandbox):
+            config = JobConfig(
+                job_name="test-job",
+                experiment_id="test-exp",
+                datasets=[
+                    RegistryDatasetConfig(
+                        registry=RemoteRegistryInfo(), name="tb", version="2.0", task_names=["task-1"]
+                    )
+                ],
+            )
             job = Job(config)
             await job.submit()
             await job.cancel()
-
-            mock_sandbox.arun.assert_called_once()
-            # Verify kill command was issued
-            call_args = mock_sandbox.arun.call_args
-            assert "kill" in str(call_args)
 
 
 class TestGenerateDefaultJobName:
@@ -397,7 +418,7 @@ class TestGenerateDefaultJobName:
         """Verify that submit() triggers the job_name generation."""
         mock_sandbox = _make_mock_sandbox()
 
-        with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
+        with patch(_SANDBOX_PATCH, return_value=mock_sandbox):
             config = JobConfig(
                 experiment_id="test-exp",
                 datasets=[

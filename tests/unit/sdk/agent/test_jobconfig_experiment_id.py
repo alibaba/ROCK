@@ -60,9 +60,7 @@ class TestAutofillNamespaceConsistency:
         sandbox = AsyncMock()
         sandbox._namespace = "sandbox-ns"
         sandbox._experiment_id = "exp-1"
-        job._sandbox = sandbox
-
-        await job._autofill_sandbox_info()
+        await job._autofill_sandbox_info(sandbox)
         assert config.namespace == "sandbox-ns"
 
     async def test_namespace_user_matches_sandbox(self):
@@ -72,9 +70,7 @@ class TestAutofillNamespaceConsistency:
         sandbox = AsyncMock()
         sandbox._namespace = "same-ns"
         sandbox._experiment_id = "exp-1"
-        job._sandbox = sandbox
-
-        await job._autofill_sandbox_info()
+        await job._autofill_sandbox_info(sandbox)
         assert config.namespace == "same-ns"
 
     async def test_namespace_mismatch_raises(self):
@@ -84,10 +80,9 @@ class TestAutofillNamespaceConsistency:
         sandbox = AsyncMock()
         sandbox._namespace = "different-ns"
         sandbox._experiment_id = "exp-1"
-        job._sandbox = sandbox
 
         with pytest.raises(ValueError, match="namespace mismatch"):
-            await job._autofill_sandbox_info()
+            await job._autofill_sandbox_info(sandbox)
 
     async def test_namespace_user_set_sandbox_none(self):
         """When user sets namespace but sandbox returns None, keep user value."""
@@ -96,7 +91,5 @@ class TestAutofillNamespaceConsistency:
         sandbox = AsyncMock()
         sandbox._namespace = None
         sandbox._experiment_id = "exp-1"
-        job._sandbox = sandbox
-
-        await job._autofill_sandbox_info()
+        await job._autofill_sandbox_info(sandbox)
         assert config.namespace == "user-ns"

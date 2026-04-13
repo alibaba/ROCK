@@ -73,6 +73,9 @@ class RockAgentConfig(AgentConfig):
     post_init_cmds: list[AgentBashCommand] = Field(default_factory=list)
     """Commands to execute after agent initialization."""
 
+    post_run_cmds: list[AgentBashCommand] = Field(default_factory=list)
+    """Commands to execute after agent run completes (e.g. scoring scripts)."""
+
     agent_install_timeout: int = Field(default=600, gt=0)
     """Maximum time in seconds for agent installation."""
 
@@ -239,10 +242,13 @@ class RockAgent(Agent):
           (including `cd ... && ...` if needed).
         """
         cmd = await self._create_agent_run_cmd(prompt)
-        return await self._agent_run(
+        result = await self._agent_run(
             cmd=cmd,
             session=self.agent_session,
         )
+        if self.config.post_run_cmds:
+            await self._execute_post_run()
+        return result
 
     async def _do_init(self):
         """Initialize the runtime environment.
@@ -303,6 +309,14 @@ class RockAgent(Agent):
             step_name="post-init",
         )
 
+    @with_time_logging("Agent post-run cmds")
+    async def _execute_post_run(self):
+        """Execute post-run commands (e.g. scoring scripts) with ${working_dir} substitution."""
+        await self._execute_init_commands(
+            cmd_list=self.config.post_run_cmds,
+            step_name="post-run",
+        )
+
     async def _execute_init_commands(self, cmd_list: list[AgentBashCommand], step_name: str):
         """Execute init-stage commands using nohup.
 
@@ -332,7 +346,7 @@ class RockAgent(Agent):
 
                 result = await self._sandbox.arun(
                     cmd=f"bash -c {shlex.quote(command)}",
-                    session=None,
+                    session=self.agent_session,
                     wait_timeout=timeout,
                     mode=RunMode.NOHUP,
                 )

@@ -39,7 +39,7 @@ class TestRockEnvironmentConfigInheritance:
         env = RockEnvironmentConfig()
         assert env.env == {}
         assert env.setup_commands == []
-        assert env.file_uploads == []
+        assert env.uploads == []
         assert env.auto_stop is False
 
     def test_env_field(self):
@@ -73,12 +73,12 @@ class TestToHarborEnvironment:
     def test_excludes_job_level_fields(self):
         env = RockEnvironmentConfig(
             setup_commands=["pip install x"],
-            file_uploads=[("a", "b")],
+            uploads=[("a", "b")],
             auto_stop=True,
         )
         result = env.to_harbor_environment()
         assert "setup_commands" not in result
-        assert "file_uploads" not in result
+        assert "uploads" not in result
         assert "auto_stop" not in result
 
     def test_env_passes_through_to_harbor(self):
@@ -120,7 +120,7 @@ class TestJobConfigToHarborYaml:
             experiment_id="test-exp",
             environment=RockEnvironmentConfig(
                 setup_commands=["pip install harbor"],
-                file_uploads=[("local.txt", "/sandbox/remote.txt")],
+                uploads=[("local.txt", "/sandbox/remote.txt")],
                 env={"API_KEY": "sk-xxx"},
                 auto_stop=True,
                 image="my-image:latest",
@@ -133,7 +133,7 @@ class TestJobConfigToHarborYaml:
         # Rock fields must not appear at top level
         assert "sandbox_config" not in data
         assert "setup_commands" not in data
-        assert "file_uploads" not in data
+        assert "uploads" not in data
         assert "sandbox_env" not in data
         assert "auto_stop_sandbox" not in data
         assert "auto_stop" not in data

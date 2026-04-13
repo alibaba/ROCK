@@ -5,7 +5,6 @@ Harbor-native fields are serialized to YAML and passed to ``harbor jobs start -c
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -124,7 +123,7 @@ class RegistryDatasetConfig(BaseDatasetConfig):
 
 
 # Convenience alias
-DatasetConfig = LocalDatasetConfig | RegistryDatasetConfig
+DatasetConfig = BaseDatasetConfig | LocalDatasetConfig | RegistryDatasetConfig
 
 
 class JobConfig(BaseModel):
@@ -137,6 +136,13 @@ class JobConfig(BaseModel):
 
     # ── Rock environment (Rock sandbox config + Harbor EnvironmentConfig, not serialized to Harbor YAML) ──
     environment: RockEnvironmentConfig = Field(default_factory=RockEnvironmentConfig)
+
+    # ── Rock SDK orchestration ──
+    concurrency: int = Field(
+        default=1,
+        ge=1,
+        description="Number of sandboxes to run in parallel. Each sandbox runs one trial/prompt.",
+    )
 
     # ── Harbor native fields ──
     namespace: str | None = Field(
@@ -162,8 +168,8 @@ class JobConfig(BaseModel):
     orchestrator: OrchestratorConfig = Field(default_factory=OrchestratorConfig)
     verifier: VerifierConfig = Field(default_factory=VerifierConfig)
     metrics: list[MetricConfig] = Field(default_factory=list)
-    agents: list[AgentConfig] = Field(default_factory=lambda: [AgentConfig()])
-    datasets: list[LocalDatasetConfig | RegistryDatasetConfig] = Field(default_factory=list)
+    agents: list[Any] = Field(default_factory=lambda: [AgentConfig()])
+    datasets: list[DatasetConfig] = Field(default_factory=list)
     tasks: list[TaskConfig] = Field(default_factory=list)
     artifacts: list[str | ArtifactConfig] = Field(default_factory=list)
     labels: dict[str, str] = Field(
@@ -173,6 +179,31 @@ class JobConfig(BaseModel):
         "Keys: [prefix/]name, lowercase, max 63 chars. "
         "Values: max 255 chars. Reserved prefix: 'harbor.io/'.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _parse_agents(cls, data: Any) -> Any:
+        """Route agents by 'type': rock-native -> RockAgentConfig, else AgentConfig.
+
+        The 'type' key is consumed (popped) and does not enter any Config object.
+        """
+        if not isinstance(data, dict) or "agents" not in data:
+            return data
+
+        from rock.sdk.sandbox.agent.rock_agent import RockAgentConfig
+
+        parsed = []
+        for agent in data["agents"]:
+            if isinstance(agent, dict):
+                agent_type = agent.pop("type", "harbor")
+                if agent_type == "rock-native":
+                    parsed.append(RockAgentConfig(**agent))
+                else:
+                    parsed.append(AgentConfig(**agent))
+            else:
+                parsed.append(agent)
+        data["agents"] = parsed
+        return data
 
     @model_validator(mode="after")
     def _sync_experiment_id(self):
@@ -201,7 +232,7 @@ class JobConfig(BaseModel):
         """
         import yaml
 
-        data = self.model_dump(mode="json", exclude={"environment"}, exclude_none=True)
+        data = self.model_dump(mode="json", exclude={"environment", "concurrency"}, exclude_none=True)
         harbor_env = self.environment.to_harbor_environment()
         if harbor_env:
             data["environment"] = harbor_env

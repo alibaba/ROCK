@@ -62,7 +62,7 @@ class RockEnvironmentConfig(SandboxConfig, EnvironmentConfig):
     """
 
     setup_commands: list[str] = Field(default_factory=list)
-    file_uploads: list[tuple[str, str]] = Field(
+    uploads: list[tuple[str, str]] = Field(
         default_factory=list,
         description="Files/dirs to upload before running: [(local_path, sandbox_path), ...]",
     )
