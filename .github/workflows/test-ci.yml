@@ -1,14 +1,10 @@
-name: Test CI (Unit + Integration)
+name: Test CI
 
 on:
   push:
-    branches:
-      - master
-      - release/**
+    branches: [master, release/**]
   pull_request:
-    branches:
-      - master
-      - release/**
+    branches: [master, release/**]
   workflow_dispatch:
     inputs:
       skip_integration:
@@ -16,378 +12,132 @@ on:
         required: false
         default: "false"
         type: choice
-        options:
-          - "false"
-          - "true"
+        options: ["false", "true"]
 
-env:
-  PYTHON_VERSION: "3.11"
-  ROCK_LOGGING_LEVEL: "INFO"
-  ROCK_ADMIN_ENV: "dev"
-
-# Cancel in-progress runs for the same branch/PR
 concurrency:
   group: test-ci-${{ github.ref }}
   cancel-in-progress: true
 
-jobs:
-  # ============================================================
-  # Phase 1: Unit Tests
-  # ============================================================
+# ==============================================================================
+# Single-job workflow — shows as one line in PR checks.
+#
+# Steps run in order:
+#   1. Setup (install dependencies)
+#   2. Unit / Fast
+#   3. Unit / Ray
+#   4. Unit / Admin
+#   5. Unit / Admin + Network
+#   6. Integration / Ray
+#   7. Integration / Admin
+#   8. Integration / Admin + Network
+# ==============================================================================
 
-  setup:
-    name: "Setup & Lint"
+jobs:
+  test:
     runs-on: self-hosted
+    env:
+      PYTHON_VERSION: "3.11"
+      ROCK_LOGGING_LEVEL: "INFO"
+      ROCK_ADMIN_ENV: "dev"
     steps:
       - uses: actions/checkout@v4
+
+      # --- Setup ---------------------------------------------------------------
 
       - name: Cleanup old Ray sessions
         run: |
           target="$(readlink -f /tmp/ray 2>/dev/null || echo /tmp/ray)"
           [ -d "$target" ] || exit 0
-          echo "Cleaning Ray sessions older than 60min..."
           find "$target" -mindepth 1 -maxdepth 1 -type d -name 'session_*' -mmin +60 -exec rm -rf -- {} + || true
 
       - name: Install dependencies
         run: uv sync --all-extras --group test --python ${{ env.PYTHON_VERSION }}
 
-      - name: Lint check
-        continue-on-error: true
-        run: uv run ruff check .
 
-      - name: Format check
-        continue-on-error: true
-        run: uv run ruff format --check .
+      # --- Phase 1: Unit Tests ------------------------------------------------
 
-  unit-fast:
-    name: "Unit / Fast Tests"
-    needs: setup
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: uv sync --all-extras --group test --python ${{ env.PYTHON_VERSION }}
-
-      - name: Run fast unit tests
+      - name: Unit / Fast
         run: |
-          mkdir -p data/logs
-          echo "========================================"
-          echo "  Unit / Fast Tests"
-          echo "  Started at: $(date '+%Y-%m-%d %H:%M:%S')"
-          echo "========================================"
-          uv run pytest tests/unit \
-            -n auto \
+          mkdir -p data/logs reports
+          echo "========================================"; echo "  Unit / Fast"; echo "  $(date '+%Y-%m-%d %H:%M:%S')"; echo "========================================"
+          uv run pytest tests/unit -n auto \
             -m "not need_ray and not need_admin and not need_admin_and_network and not need_docker and not need_database" \
-            --reruns 1 \
-            --junitxml=reports/unit-fast.xml
+            --reruns 1 --junitxml=reports/unit-fast.xml
         env:
           ROCK_WORKER_ENV_TYPE: local
 
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: unit-fast-report
-          path: reports/unit-fast.xml
-          retention-days: 7
-
-  unit-ray:
-    name: "Unit / Ray Tests"
-    needs: unit-fast
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: uv sync --all-extras --group test --python ${{ env.PYTHON_VERSION }}
-
-      - name: Run Ray-dependent tests
+      - name: Unit / Ray
         run: |
-          mkdir -p data/logs
-          echo "========================================"
-          echo "  Unit / Ray Tests"
-          echo "  Started at: $(date '+%Y-%m-%d %H:%M:%S')"
-          echo "========================================"
-          uv run pytest tests/unit \
-            -n auto \
-            -m "need_ray" \
-            --reruns 1 \
-            --junitxml=reports/unit-ray.xml
+          echo "========================================"; echo "  Unit / Ray"; echo "  $(date '+%Y-%m-%d %H:%M:%S')"; echo "========================================"
+          uv run pytest tests/unit -n auto -m "need_ray" --reruns 1 --junitxml=reports/unit-ray.xml
 
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: unit-ray-report
-          path: reports/unit-ray.xml
-          retention-days: 7
-
-  unit-admin:
-    name: "Unit / Admin Tests"
-    needs: unit-ray
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: uv sync --all-extras --group test --python ${{ env.PYTHON_VERSION }}
-
-      - name: Run Admin-dependent tests
+      - name: Unit / Admin
         run: |
-          mkdir -p data/logs
-          echo "========================================"
-          echo "  Unit / Admin Tests"
-          echo "  Started at: $(date '+%Y-%m-%d %H:%M:%S')"
-          echo "========================================"
+          echo "========================================"; echo "  Unit / Admin"; echo "  $(date '+%Y-%m-%d %H:%M:%S')"; echo "========================================"
           set +e
-          uv run pytest tests/unit \
-            -n auto \
-            -m "need_admin" \
-            --reruns 1 \
-            --junitxml=reports/unit-admin.xml
-          exit_code=$?
-          set -e
-          if [ $exit_code -eq 5 ]; then
-            echo ""
-            echo "[SKIP] No tests with marker 'need_admin' found in tests/unit/."
-            echo "       These tests may exist in tests/integration/ and will run in the Integration phase."
-            echo ""
-            exit 0
-          fi
-          exit $exit_code
+          uv run pytest tests/unit -n auto -m "need_admin" --reruns 1 --junitxml=reports/unit-admin.xml
+          rc=$?; set -e
+          if [ $rc -eq 5 ]; then echo "[SKIP] No 'need_admin' tests in tests/unit/. Will run in Integration phase."; exit 0; fi
+          exit $rc
 
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: unit-admin-report
-          path: reports/unit-admin.xml
-          if-no-files-found: ignore
-          retention-days: 7
-
-  unit-admin-network:
-    name: "Unit / Admin + Network Tests"
-    needs: unit-admin
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: uv sync --all-extras --group test --python ${{ env.PYTHON_VERSION }}
-
-      - name: Run Admin + Network tests
+      - name: Unit / Admin + Network
         run: |
-          mkdir -p data/logs
-          echo "========================================"
-          echo "  Unit / Admin + Network Tests"
-          echo "  Started at: $(date '+%Y-%m-%d %H:%M:%S')"
-          echo "========================================"
+          echo "========================================"; echo "  Unit / Admin + Network"; echo "  $(date '+%Y-%m-%d %H:%M:%S')"; echo "========================================"
           set +e
-          uv run pytest tests/unit \
-            -n auto \
-            -m "need_admin_and_network" \
-            --reruns 1 \
-            --junitxml=reports/unit-admin-network.xml
-          exit_code=$?
-          set -e
-          if [ $exit_code -eq 5 ]; then
-            echo ""
-            echo "[SKIP] No tests with marker 'need_admin_and_network' found in tests/unit/."
-            echo "       These tests may exist in tests/integration/ and will run in the Integration phase."
-            echo ""
-            exit 0
-          fi
-          exit $exit_code
+          uv run pytest tests/unit -n auto -m "need_admin_and_network" --reruns 1 --junitxml=reports/unit-admin-network.xml
+          rc=$?; set -e
+          if [ $rc -eq 5 ]; then echo "[SKIP] No 'need_admin_and_network' tests in tests/unit/. Will run in Integration phase."; exit 0; fi
+          exit $rc
 
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: unit-admin-network-report
-          path: reports/unit-admin-network.xml
-          if-no-files-found: ignore
-          retention-days: 7
+      # --- Phase 2: Integration Tests -----------------------------------------
 
-  # ============================================================
-  # Phase 2: Integration Tests
-  # Runs only after ALL unit tests pass
-  # ============================================================
+      - name: Check Docker
+        if: ${{ github.event.inputs.skip_integration != 'true' }}
+        run: docker info > /dev/null 2>&1 || { echo "Docker is not available"; exit 1; }
 
-  integration-ray:
-    name: "Integration / Ray Tests"
-    needs: [unit-fast, unit-ray, unit-admin, unit-admin-network]
-    if: ${{ github.event.inputs.skip_integration != 'true' }}
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: uv sync --all-extras --group test --python ${{ env.PYTHON_VERSION }}
-
-      - name: Verify Docker availability
+      - name: Integration / Ray
+        if: ${{ github.event.inputs.skip_integration != 'true' }}
         run: |
-          docker info > /dev/null 2>&1 || { echo "Docker is not available"; exit 1; }
-          echo "Docker is available"
-
-      - name: Run integration ray tests
-        run: |
-          mkdir -p data/logs
-          echo "========================================"
-          echo "  Integration / Ray Tests"
-          echo "  Started at: $(date '+%Y-%m-%d %H:%M:%S')"
-          echo "========================================"
+          echo "========================================"; echo "  Integration / Ray"; echo "  $(date '+%Y-%m-%d %H:%M:%S')"; echo "========================================"
           set +e
-          uv run pytest tests/integration \
-            -n auto \
-            -m "need_ray" \
-            --reruns 1 \
-            --junitxml=reports/integration-ray.xml
-          exit_code=$?
-          set -e
-          if [ $exit_code -eq 5 ]; then
-            echo ""
-            echo "[SKIP] No tests with marker 'need_ray' found in tests/integration/."
-            echo ""
-            exit 0
-          fi
-          exit $exit_code
+          uv run pytest tests/integration -n auto -m "need_ray" --reruns 1 --junitxml=reports/integration-ray.xml
+          rc=$?; set -e
+          if [ $rc -eq 5 ]; then echo "[SKIP] No 'need_ray' tests in tests/integration/."; exit 0; fi
+          exit $rc
         env:
           ROCK_WORKER_ENV_TYPE: local
 
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: integration-ray-report
-          path: reports/integration-ray.xml
-          if-no-files-found: ignore
-          retention-days: 7
-
-  integration-admin:
-    name: "Integration / Admin Tests"
-    needs: integration-ray
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: uv sync --all-extras --group test --python ${{ env.PYTHON_VERSION }}
-
-      - name: Run integration admin tests
+      - name: Integration / Admin
+        if: ${{ github.event.inputs.skip_integration != 'true' }}
         run: |
-          mkdir -p data/logs
-          echo "========================================"
-          echo "  Integration / Admin Tests"
-          echo "  Started at: $(date '+%Y-%m-%d %H:%M:%S')"
-          echo "========================================"
+          echo "========================================"; echo "  Integration / Admin"; echo "  $(date '+%Y-%m-%d %H:%M:%S')"; echo "========================================"
           set +e
-          uv run pytest tests/integration \
-            -n auto \
-            -m "need_admin" \
-            --reruns 1 \
-            --junitxml=reports/integration-admin.xml
-          exit_code=$?
-          set -e
-          if [ $exit_code -eq 5 ]; then
-            echo ""
-            echo "[SKIP] No tests with marker 'need_admin' found in tests/integration/."
-            echo ""
-            exit 0
-          fi
-          exit $exit_code
+          uv run pytest tests/integration -n auto -m "need_admin" --reruns 1 --junitxml=reports/integration-admin.xml
+          rc=$?; set -e
+          if [ $rc -eq 5 ]; then echo "[SKIP] No 'need_admin' tests in tests/integration/."; exit 0; fi
+          exit $rc
         env:
           ROCK_WORKER_ENV_TYPE: local
 
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: integration-admin-report
-          path: reports/integration-admin.xml
-          if-no-files-found: ignore
-          retention-days: 7
-
-  integration-admin-network:
-    name: "Integration / Admin + Network Tests"
-    needs: integration-admin
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: uv sync --all-extras --group test --python ${{ env.PYTHON_VERSION }}
-
-      - name: Run integration admin + network tests
+      - name: Integration / Admin + Network
+        if: ${{ github.event.inputs.skip_integration != 'true' }}
         run: |
-          mkdir -p data/logs
-          echo "========================================"
-          echo "  Integration / Admin + Network Tests"
-          echo "  Started at: $(date '+%Y-%m-%d %H:%M:%S')"
-          echo "========================================"
+          echo "========================================"; echo "  Integration / Admin + Network"; echo "  $(date '+%Y-%m-%d %H:%M:%S')"; echo "========================================"
           set +e
-          uv run pytest tests/integration \
-            -n auto \
-            -m "need_admin_and_network" \
-            --reruns 1 \
-            --junitxml=reports/integration-admin-network.xml
-          exit_code=$?
-          set -e
-          if [ $exit_code -eq 5 ]; then
-            echo ""
-            echo "[SKIP] No tests with marker 'need_admin_and_network' found in tests/integration/."
-            echo ""
-            exit 0
-          fi
-          exit $exit_code
+          uv run pytest tests/integration -n auto -m "need_admin_and_network" --reruns 1 --junitxml=reports/integration-admin-network.xml
+          rc=$?; set -e
+          if [ $rc -eq 5 ]; then echo "[SKIP] No 'need_admin_and_network' tests in tests/integration/."; exit 0; fi
+          exit $rc
         env:
           ROCK_WORKER_ENV_TYPE: local
 
-      - name: Upload test report
+      # --- Upload Reports -----------------------------------------------------
+
+      - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: integration-admin-network-report
-          path: reports/integration-admin-network.xml
+          name: test-reports
+          path: reports/
           if-no-files-found: ignore
           retention-days: 7
-
-  # ============================================================
-  # Summary Gate
-  # ============================================================
-
-  test-summary:
-    name: "Test Summary"
-    needs: [unit-fast, unit-ray, unit-admin, unit-admin-network, integration-ray, integration-admin, integration-admin-network]
-    if: always()
-    runs-on: self-hosted
-    steps:
-      - name: Check results
-        run: |
-          echo "=========================================="
-          echo "          Test Results Summary"
-          echo "=========================================="
-          echo ""
-          echo "Unit / Fast:                    ${{ needs.unit-fast.result }}"
-          echo "Unit / Ray:                     ${{ needs.unit-ray.result }}"
-          echo "Unit / Admin:                   ${{ needs.unit-admin.result }}"
-          echo "Unit / Admin + Network:         ${{ needs.unit-admin-network.result }}"
-          echo "Integration / Ray:              ${{ needs.integration-ray.result }}"
-          echo "Integration / Admin:            ${{ needs.integration-admin.result }}"
-          echo "Integration / Admin + Network:  ${{ needs.integration-admin-network.result }}"
-          echo ""
-          echo "=========================================="
-
-          # Fail if any required job failed
-          if [[ "${{ needs.unit-fast.result }}" == "failure" ]] || \
-             [[ "${{ needs.unit-ray.result }}" == "failure" ]] || \
-             [[ "${{ needs.unit-admin.result }}" == "failure" ]] || \
-             [[ "${{ needs.unit-admin-network.result }}" == "failure" ]] || \
-             [[ "${{ needs.integration-ray.result }}" == "failure" ]] || \
-             [[ "${{ needs.integration-admin.result }}" == "failure" ]] || \
-             [[ "${{ needs.integration-admin-network.result }}" == "failure" ]]; then
-            echo "Some tests failed!"
-            exit 1
-          fi
-
-          echo "All tests passed!"
