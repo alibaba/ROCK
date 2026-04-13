@@ -161,27 +161,12 @@ class TestJobResult:
         assert jr.n_completed == 0
         assert jr.n_failed == 0
 
-    def test_trial_results_property_with_single_task(self):
-        """trial_results returns task_results[0].trial_results for Harbor backward compat."""
-        trial = TrialResult(task_name="bench", trial_name="trial-0")
-        tr = TaskResult(task_id="t1", status=TaskStatus.COMPLETED, trial_results=[trial])
-        jr = JobResult(job_id="j1", status=JobStatus.COMPLETED, task_results=[tr])
-        assert jr.trial_results == [trial]
-
-    def test_trial_results_property_empty(self):
-        jr = JobResult(job_id="j1", status=JobStatus.COMPLETED)
-        assert jr.trial_results == []
-
-    def test_trial_results_property_first_task_only(self):
-        """Even with multiple tasks, only returns first task's trial_results."""
-        trial_a = TrialResult(task_name="a")
-        trial_b = TrialResult(task_name="b")
-        tasks = [
-            TaskResult(task_id="t1", status=TaskStatus.COMPLETED, trial_results=[trial_a]),
-            TaskResult(task_id="t2", status=TaskStatus.COMPLETED, trial_results=[trial_b]),
-        ]
-        jr = JobResult(job_id="j1", status=JobStatus.COMPLETED, task_results=tasks)
-        assert jr.trial_results == [trial_a]
+    def test_generic_with_task_result(self):
+        """JobResult[TaskResult] works with task_results field."""
+        tr = TaskResult(task_id="t1", status=TaskStatus.COMPLETED)
+        jr = JobResult[TaskResult](job_id="j1", status=JobStatus.COMPLETED, task_results=[tr])
+        assert len(jr.task_results) == 1
+        assert jr.task_results[0].task_id == "t1"
 
     def test_labels(self):
         jr = JobResult(job_id="j1", status=JobStatus.COMPLETED, labels={"env": "test", "team": "ml"})

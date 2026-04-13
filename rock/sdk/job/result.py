@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -41,21 +42,21 @@ class TaskResult(BaseModel):
         return sum(t.score for t in self.trial_results) / len(self.trial_results)
 
 
-# JobStatus 直接复用 rock.sdk.agent.models.job.result.JobStatus
-# 包含: PENDING, RUNNING, COMPLETED, FAILED, CANCELLED
+T = TypeVar("T", bound=BaseModel)
 
 
-class JobResult(BaseModel):
+class JobResult(BaseModel, Generic[T]):
     """Aggregated result of a complete job run.
 
-    Aligned with rock.sdk.agent.models.job.result.JobResult,
-    but uses task_results instead of trial_results.
+    Generic over task result type T:
+      - JobResult[TaskResult]  — new Job system (task_results)
+      - agent's JobResult uses TrialResult directly (trial_results field)
     """
 
     job_id: str = ""
     status: JobStatus = JobStatus.COMPLETED
     labels: dict[str, str] = Field(default_factory=dict)
-    task_results: list[TaskResult] = Field(default_factory=list)
+    task_results: list[T] = Field(default_factory=list)
     raw_output: str = ""
     exit_code: int = 0
 
@@ -68,17 +69,10 @@ class JobResult(BaseModel):
 
     @property
     def n_completed(self) -> int:
-        """Number of tasks with COMPLETED status."""
-        return sum(1 for t in self.task_results if t.status == TaskStatus.COMPLETED)
+        """Number of completed items (items with .status == 'completed')."""
+        return sum(1 for t in self.task_results if getattr(t, "status", None) == "completed")
 
     @property
     def n_failed(self) -> int:
-        """Number of tasks with FAILED status."""
-        return sum(1 for t in self.task_results if t.status == TaskStatus.FAILED)
-
-    @property
-    def trial_results(self) -> list[TrialResult]:
-        """Return first task's trial_results for Harbor backward compatibility."""
-        if self.task_results:
-            return self.task_results[0].trial_results
-        return []
+        """Number of failed items (items with .status == 'failed')."""
+        return sum(1 for t in self.task_results if getattr(t, "status", None) == "failed")
