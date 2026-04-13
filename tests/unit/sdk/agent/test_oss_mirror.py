@@ -284,10 +284,9 @@ class TestEnableOssMirror:
             oss_endpoint="oss-ap-southeast-1.aliyuncs.com",
         )
         data = yaml.safe_load(cfg.to_harbor_yaml())
-        assert data["namespace"] == "rt-ns"
-        assert data["experiment_id"] == "rt-exp"
+        # namespace/experiment_id are base fields, excluded from harbor YAML
+        assert "namespace" not in data
+        assert "experiment_id" not in data
         oss = data["environment"]["oss_mirror"]
         assert oss["enabled"] is True
         assert oss["oss_bucket"] == "rt-bucket"
-        assert "namespace" not in oss
-        assert "experiment_id" not in oss
