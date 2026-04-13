@@ -1,4 +1,4 @@
-from rock.sdk.agent.models.trial.config import RockEnvironmentConfig
+from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
 from rock.sdk.job.result import JobResult, JobStatus
 
 from .config import (

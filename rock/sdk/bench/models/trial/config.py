@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from rock.sdk.agent.models.environment_type import EnvironmentType
+from rock.sdk.bench.models.environment_type import EnvironmentType
 from rock.sdk.sandbox.config import SandboxConfig
 
 

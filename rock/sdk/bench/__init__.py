@@ -1,5 +1,5 @@
-from rock.sdk.agent.job import Job
-from rock.sdk.agent.models.job.config import (
+from rock.sdk.bench.job import Job
+from rock.sdk.bench.models.job.config import (
     JobConfig,
     LocalDatasetConfig,
     OrchestratorConfig,
@@ -8,8 +8,8 @@ from rock.sdk.agent.models.job.config import (
     RemoteRegistryInfo,
     RetryConfig,
 )
-from rock.sdk.agent.models.metric.config import MetricConfig
-from rock.sdk.agent.models.trial.config import (
+from rock.sdk.bench.models.metric.config import MetricConfig
+from rock.sdk.bench.models.trial.config import (
     AgentConfig,
     ArtifactConfig,
     EnvironmentConfig,
@@ -18,7 +18,7 @@ from rock.sdk.agent.models.trial.config import (
     TaskConfig,
     VerifierConfig,
 )
-from rock.sdk.agent.models.trial.result import (
+from rock.sdk.bench.models.trial.result import (
     AgentInfo,
     AgentResult,
     ExceptionInfo,

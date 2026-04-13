@@ -11,10 +11,10 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field, model_validator
 
-from rock.sdk.agent.constants import USER_DEFINED_LOGS
-from rock.sdk.agent.models.metric.config import MetricConfig
-from rock.sdk.agent.models.orchestrator_type import OrchestratorType
-from rock.sdk.agent.models.trial.config import (
+from rock.sdk.bench.constants import USER_DEFINED_LOGS
+from rock.sdk.bench.models.metric.config import MetricConfig
+from rock.sdk.bench.models.orchestrator_type import OrchestratorType
+from rock.sdk.bench.models.trial.config import (
     AgentConfig,
     ArtifactConfig,
     OssMirrorConfig,

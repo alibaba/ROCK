@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from rock.sdk.agent.models.metric.type import MetricType
+from rock.sdk.bench.models.metric.type import MetricType
 
 
 class MetricConfig(BaseModel):
