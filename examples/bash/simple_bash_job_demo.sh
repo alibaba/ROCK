@@ -15,6 +15,9 @@ YOUR_EXPERIMENT_ID="${YOUR_EXPERIMENT_ID:-simple_bash}"
 ROCK_IMAGE="${ROCK_IMAGE:-rl-rock-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11}"
 ROCK_CLUSTER="${ROCK_CLUSTER:-vpc-sg-sl-a}"
 
+LOCAL_WORKSPACE_DIR="${LOCAL_WORKSPACE_DIR:-}"
+ROCK_WORKSPACE_DIR="${ROCK_WORKSPACE_DIR:-/root/workspace}"
+
 EXTERNAL_VARIABLE_1="external_value"
 TO_RENDERED_KEYS=(
     "EXTERNAL_VARIABLE_1"
@@ -74,10 +77,18 @@ else
 fi
 
 # Run the job via ROCK CLI
-rock --base-url "$ROCK_BASE_URL" \
-    --extra-header "XRL-Authorization=Bearer ${YOUR_API_KEY}" \
-    --cluster "$ROCK_CLUSTER" \
-    job run \
-    --image "$ROCK_IMAGE" \
-    --timeout 3600 \
+run_args=(
+    --base-url "$ROCK_BASE_URL"
+    --extra-header "XRL-Authorization=Bearer ${YOUR_API_KEY}"
+    --cluster "$ROCK_CLUSTER"
+    job run
+    --image "$ROCK_IMAGE"
+    --timeout 3600
     --script-content "$BASH_SCRIPT"
+)
+
+if [ -n "$LOCAL_WORKSPACE_DIR" ]; then
+    run_args+=(--local-path "$LOCAL_WORKSPACE_DIR" --target-path "$ROCK_WORKSPACE_DIR")
+fi
+
+rock "${run_args[@]}"
