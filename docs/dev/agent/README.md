@@ -136,8 +136,11 @@ JobConfig (Pydantic, rock/sdk/agent/models/job/config.py)
 │   ├── (from EnvironmentConfig) type, force_build, override_cpus, override_memory_mb, ...
 │   ├── env: dict[str, str]            # reuses EnvironmentConfig.env — injected into sandbox session and passed to harbor
 │   ├── setup_commands: list[str]       # commands to run before harbor
-│   ├── file_uploads: list[tuple]       # files to upload: (local_path, sandbox_path)
+│   ├── uploads: list[tuple]            # files/dirs to upload: (local_path, sandbox_path)
 │   └── auto_stop: bool                 # close sandbox after completion
+│
+│  ── Rock SDK orchestration ──
+├── concurrency: int                        # 并行沙箱数（每个 task 独立沙箱）
 │
 │  ── Harbor native fields (serialized to YAML, passed to harbor CLI) ──
 ├── job_name: str                           # default: timestamp %Y-%m-%d__%H-%M-%S
@@ -163,11 +166,14 @@ JobConfig (Pydantic, rock/sdk/agent/models/job/config.py)
 ├── verifier: VerifierConfig
 │   ├── override_timeout_sec / max_timeout_sec
 │   └── disable: bool
-├── agents: list[AgentConfig]
-│   ├── name / import_path / model_name
-│   ├── override_timeout_sec / override_setup_timeout_sec / max_timeout_sec
-│   ├── kwargs / env: dict
-├── datasets: list[LocalDatasetConfig | RegistryDatasetConfig]
+├── agents: list[AgentConfig | RockAgentConfig]
+│   ├── (harbor) name / import_path / model_name
+│   ├── (harbor) override_timeout_sec / override_setup_timeout_sec / max_timeout_sec
+│   ├── (harbor) kwargs / env: dict
+│   ├── (rock-native) run_cmd / skip_wrap_run_cmd / agent_run_timeout
+│   ├── (rock-native) pre_init_cmds / post_init_cmds / post_run_cmds
+│   └── (rock-native) runtime_env_config / model_service_config
+├── datasets: list[BaseDatasetConfig | LocalDatasetConfig | RegistryDatasetConfig]
 │   ├── (Local) path: Path
 │   ├── (Registry) registry: OssRegistryInfo | RemoteRegistryInfo | LocalRegistryInfo
 │   ├── name / version / download_dir / overwrite
@@ -188,20 +194,24 @@ Job (rock/sdk/agent/job.py)
 │
 ├── __init__(config: JobConfig)             # 仅接受 JobConfig
 ├── async run() -> JobResult                # submit + wait 组合
-├── async submit() -> None                  # 启动 sandbox，执行脚本
-├── async wait() -> JobResult               # 等待完成，收集结果
-├── async cancel()                          # 取消运行中的 job
+├── async submit() -> None                  # 启动所有 trial 的 asyncio tasks
+├── async wait() -> JobResult               # 等待所有 trials 完成，收集结果
+├── async cancel()                          # 取消所有运行中的 trials
 │
 ├── Private:
-│   ├── _sandbox: Sandbox                   # 内部创建的 Sandbox 实例
-│   ├── _session: str                       # bash session 名称
-│   ├── _pid: int                           # nohup 进程 PID
-│   ├── _prepare_and_start()                # 上传文件 + 启动脚本
-│   ├── _render_run_script()                # 渲染 bash 脚本模板
-│   ├── _create_session()                   # 创建 bash session
-│   ├── _collect_results()                  # 读取 trial result.json
+│   ├── _is_rock_agent_mode: bool           # 是否包含 rock-native agent
+│   ├── _gather_task: asyncio.Task          # submit() 后存 gather 的 task
+│   ├── _trial_results: list[TrialResult]   # 收集的结果
+│   ├── _run_one_trial(task, sem)           # 单个 task：独立沙箱完整生命周期
+│   ├── _exec_rock_native(sandbox, task)    # rock-native: agent.install + agent.run
+│   ├── _exec_harbor(sandbox, task)         # harbor: 生成单 task YAML + harbor CLI
+│   ├── _make_single_task_harbor_yaml(task) # 克隆 config，只含 1 个 task
+│   ├── _upload_all(sandbox)                # 上传文件到沙箱
+│   ├── _upload_content(sandbox, content, path) # 上传文本内容
+│   ├── _render_run_script()                # 渲染 harbor bash 脚本模板
+│   ├── _collect_trial_result(sandbox, task) # 从沙箱读取 harbor result.json
 │   ├── _get_wait_timeout()                 # 推断超时时间
-│   └── _upload_content()                   # 上传文本内容
+│   └── _autofill_sandbox_info(sandbox)     # 从沙箱回填 namespace/experiment_id
 
 
 JobResult (rock/sdk/agent/models/job/result.py)
@@ -329,54 +339,71 @@ harbor jobs start -c /tmp/rock_job_xxx.yaml
        │  验证 config 类型，初始化内部状态
        ▼
 2. submit()
-       │  ├─ Sandbox(environment).start()
-       │  ├─ create_session(session_name, env=environment.env)
-       │  ├─ upload environment.file_uploads (fs.upload_dir)
-       │  ├─ upload Harbor YAML config (to_harbor_yaml())
-       │  ├─ render bash script (dockerd + setup + harbor)
-       │  └─ start_nohup_process(bash script) → pid, tmp_file
+       │  ├─ _generate_default_job_name()
+       │  ├─ _collect_tasks() → 从 datasets 收集所有 task_names
+       │  ├─ Semaphore(config.concurrency)
+       │  └─ asyncio.gather([_run_one_trial(task, sem) for task in tasks])
        │  返回 None
        ▼
+   _run_one_trial(task, sem):  ← 每个 task 独立沙箱
+       │  async with sem:
+       │  ├─ Sandbox(environment).start()
+       │  ├─ _autofill_sandbox_info(sandbox)
+       │  ├─ _upload_all(sandbox)           # uploads 中的文件/目录
+       │  ├─ if rock-native:
+       │  │     _exec_rock_native(sandbox, task)
+       │  │     ├─ sandbox.agent.install(rock_config)
+       │  │     └─ sandbox.agent.run(task)
+       │  ├─ elif harbor:
+       │  │     _exec_harbor(sandbox, task)
+       │  │     ├─ _make_single_task_harbor_yaml(task)
+       │  │     ├─ upload config + render script
+       │  │     ├─ start_nohup_process(harbor jobs start)
+       │  │     ├─ wait_for_process_completion()
+       │  │     └─ _collect_trial_result()
+       │  └─ if auto_stop: sandbox.close()
+       ▼
 3. wait()
-       │  ├─ wait_for_process_completion(pid, timeout)
-       │  ├─ handle_nohup_output(tmp_file) → raw_output
-       │  └─ _collect_results()
-       │      ├─ find {jobs_dir}/{job_name} -name result.json (depth 2)
-       │      ├─ read each trial's result.json
-       │      ├─ TrialResult.from_harbor_json(data)
-       │      └─ assemble JobResult
-       │  ├─ if environment.auto_stop: sandbox.close()
+       │  await gather task → 收集 TrialResult 列表
        │  返回 JobResult
        ▼
 4. Return JobResult
 ```
 
-### 3.3 异步提交模式 (`Job.submit()` + `Job.wait()`)
+### 3.3 并发模式与 Agent 类型
 
-对于 RL 训练场景，训练框架需要并发提交多个 rollout 任务：
+Job 支持两种 agent 模式，通过 YAML 中 `agents[].type` 字段区分（默认 harbor）：
+
+```yaml
+# harbor 模式（默认）
+agents:
+  - name: "terminus-2"
+    model_name: "hosted_vllm/my-model"
+
+# rock-native 模式
+agents:
+  - type: "rock-native"
+    name: "claw-eval"
+    run_cmd: "claw-eval run --task ${prompt} --config /workspace/config.yaml"
+    post_init_cmds:
+      - command: "sudo service docker start"
+        timeout_seconds: 60
+    post_run_cmds:
+      - command: "bash /workspace/score.sh"
+        timeout_seconds: 30
+```
+
+**并发策略统一：** 每个 task 独立沙箱，`concurrency` 控制同时运行的沙箱数。
 
 ```python
-# 批量提交（非阻塞）
-jobs = []
-for task in task_batch:
-    config = JobConfig(
-        environment=base_env,
-        tasks=[task],
-        agents=[agent_cfg],
-    )
-    job = Job(config)
-    await job.submit()  # 启动后立即返回，不返回 job_id
-    jobs.append(job)
-
-# 并发等待
-results = await asyncio.gather(*[job.wait() for job in jobs])
-rewards = [r.score for r in results]
+config = JobConfig.from_yaml("config.yaml")
+result = await Job(config).run()  # 4 tasks, concurrency=2 → 同时最多 2 个沙箱
 ```
 
 **注意：**
-- `submit()` 返回 `None`，不再返回 `job_id` 字符串
-- Job 实例内部持有 `_sandbox`、`_session`、`_pid`，用于后续 `wait()` 和 `cancel()`
-- 每个 Job 对应一个独立的 Sandbox，不支持复用外部 Sandbox
+- `type` 字段只存在于 YAML 层面，`_parse_agents` validator 消费后不进入 Config 对象
+- Job 内部用 `isinstance(agent, RockAgentConfig)` 判断模式
+- rock-native 的 `RockAgentConfig` 来自 `rock/sdk/sandbox/agent/rock_agent.py`
 
 ### 3.4 结果收集方式
 
@@ -437,9 +464,15 @@ JobConfig 分为两部分：Harbor 原生字段直接透传给 `harbor jobs star
 | `environment.cluster` | `str` | `"zb"` | 集群名 |
 | `environment.base_url` | `str` | env var | Rock admin URL |
 | `environment.setup_commands` | `list[str]` | `[]` | harbor 运行前的准备命令 |
-| `environment.file_uploads` | `list[tuple[str, str]]` | `[]` | 上传文件/目录：(local_path, sandbox_path) |
+| `environment.uploads` | `list[tuple[str, str]]` | `[]` | 上传文件/目录：(local_path, sandbox_path) |
 | `environment.env` | `dict[str, str]` | `{}` | 复用 EnvironmentConfig.env — 注入 sandbox session，同时传给 harbor |
 | `environment.auto_stop` | `bool` | `False` | 完成后自动关闭 sandbox |
+
+#### Rock SDK 编排字段
+
+| 字段 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `concurrency` | `int` | `1` | 并行沙箱数，每个 task 独立沙箱 |
 
 #### Harbor 原生字段（核心）
 
@@ -517,7 +550,7 @@ config = JobConfig(
         memory="16g",
         cpus=4,
         setup_commands=["pip install harbor --quiet"],
-        file_uploads=[
+        uploads=[
             ("/local/tasks", "/workspace/tasks"),
             ("/local/config.yaml", "/workspace/config.yaml"),
         ],
