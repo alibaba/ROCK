@@ -133,6 +133,12 @@ class DockerDeploymentConfig(DeploymentConfig):
     extended_params: dict[str, str] = Field(default_factory=dict)
     """Generic extension field for storing custom string key-value pairs."""
 
+    monitor_enabled: bool = False
+    """Enable rocklet metrics monitor in container."""
+
+    monitor_via_rocklet: bool = False
+    """Route metrics monitoring through rocklet instead of Ray actor."""
+
     @model_validator(mode="before")
     def validate_platform_args(cls, data: dict) -> dict:
         """Validate and extract platform arguments from docker_args.

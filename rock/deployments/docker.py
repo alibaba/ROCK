@@ -395,6 +395,10 @@ class DockerDeployment(AbstractDeployment):
 
         env_arg.extend(["-e", f"ROCK_TIME_ZONE={env_vars.ROCK_TIME_ZONE}"])
 
+        # Rocklet metrics monitor
+        if self._config.monitor_enabled and self._config.monitor_via_rocklet:
+            env_arg.extend(["-e", "ROCK_MONITOR_ENABLE=true", "-e", "ROCK_MONITOR_VIA_ROCKLET=true"])
+
         # Kata DinD: prepare disk image and add volume mount + env var
         if self._config.use_kata_runtime:
             self._prepare_kata_disk()

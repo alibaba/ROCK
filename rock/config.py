@@ -77,6 +77,12 @@ class ProxyServiceConfig:
 
 
 @dataclass
+class MonitorConfig:
+    enabled: bool = False
+    via_rocklet: bool = False
+
+
+@dataclass
 class DatabaseConfig:
     # Supported URL formats:
     #   SQLite:     sqlite:///relative/path.db  or  sqlite:////absolute/path.db
@@ -204,6 +210,7 @@ class RockConfig:
     proxy_service: ProxyServiceConfig = field(default_factory=ProxyServiceConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    monitor: MonitorConfig = field(default_factory=MonitorConfig)
     nacos_provider: NacosConfigProvider | None = None
 
     @classmethod
@@ -247,6 +254,8 @@ class RockConfig:
             kwargs["scheduler"] = SchedulerConfig(**config["scheduler"])
         if "database" in config:
             kwargs["database"] = DatabaseConfig(**config["database"])
+        if "monitor" in config:
+            kwargs["monitor"] = MonitorConfig(**config["monitor"])
 
         return cls(**kwargs)
 

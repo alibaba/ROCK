@@ -37,6 +37,9 @@ class DeploymentManager:
         docker_deployment_config.enable_auto_clear = self._enable_runtime_auto_clear
         docker_deployment_config.runtime_config = self.rock_config.runtime
 
+        docker_deployment_config.monitor_enabled = self.rock_config.monitor.enabled
+        docker_deployment_config.monitor_via_rocklet = self.rock_config.monitor.via_rocklet
+
         await self.rock_config.update()
         docker_deployment_config.actor_resource = self.rock_config.sandbox_config.actor_resource
         docker_deployment_config.actor_resource_num = self.rock_config.sandbox_config.actor_resource_num
