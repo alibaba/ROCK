@@ -1,0 +1,39 @@
+experiment_id: "claw-eval-<MODEL_NAME>"
+
+environment:
+  image: "<YOUR_IMAGE>"
+  base_url: "<YOUR_BASE_URL>"
+  cluster: "<YOUR_CLUSTER>"
+  memory: "64g"
+  cpus: 16
+  auto_clear_seconds: 3600
+  startup_timeout: 600
+  xrl_authorization: "<YOUR_XRL_TOKEN>"
+  auto_stop: false
+  uploads:
+    - ["claw_eval_config.yaml", "/workspace/config.yaml"]
+    - ["score.sh", "/workspace/score.sh"]
+
+agents:
+  - type: "rock-native"
+    name: "claw-eval"
+    run_cmd: "cd /workspace/tasks && claw-eval run --task ${prompt} --config /workspace/config.yaml 2>&1 | tee /data/logs/user-defined/run.log"
+    env:
+      SERP_DEV_KEY: "<YOUR_SERP_KEY>"
+    post_init_cmds:
+      - command: "mkdir -p /data/logs/user-defined"
+        timeout_seconds: 10
+      - command: "sudo service docker start"
+        timeout_seconds: 60
+      - command: "docker pull <YOUR_SANDBOX_AGENT_IMAGE>"
+        timeout_seconds: 600
+    post_run_cmds:
+      - command: "bash /workspace/score.sh"
+        timeout_seconds: 30
+
+concurrency: 2
+
+datasets:
+  - task_names:
+    - "T01zh_email_triage"
+    - "T02_email_triage"

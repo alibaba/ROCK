@@ -1,0 +1,15 @@
+model:
+  api_key: <YOUR_API_KEY>
+  base_url: <YOUR_BASE_URL>
+  model_id: <YOUR_MODEL_ID>
+judge:
+  api_key: <YOUR_API_KEY>
+  base_url: <YOUR_BASE_URL>
+  model_id: <YOUR_MODEL_ID>
+  enabled: true
+defaults:
+  trace_dir: /data/logs/user-defined/traces
+  tasks_dir: tasks
+sandbox:
+  enabled: true
+  image: "<YOUR_SANDBOX_AGENT_IMAGE>"
