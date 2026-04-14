@@ -3,8 +3,9 @@
 #
 # 通过 `rock job run --env` 传入的环境变量：
 #   RUN_CMD      — 要执行的 claw-eval 命令（必填）
-#                  例: "claw-eval batch --parallel 4 --sandbox --config /workspace/claw_eval_config.yaml"
+#                  例: "claw-eval batch --parallel 4 --sandbox --config /tmp/claw-eval-config/config.yaml"
 #   AGENT_IMAGE  — 运行前需要 pull 的 Docker 镜像（可选）
+#   WORK_DIR     — 执行 RUN_CMD 前 cd 的目录（可选，默认 /workspace）
 #   SERP_DEV_KEY — 透传给 claw-eval 的 API key（可选）
 #
 # 用法：
@@ -16,8 +17,8 @@
 #     --memory 64g --cpus 16 --timeout 7200 \
 #     --env "SERP_DEV_KEY=your_key" \
 #     --env "AGENT_IMAGE=rock-registry-vpc.../claw-eval-agent:891fb50" \
-#     --env "RUN_CMD=claw-eval batch --parallel 4 --sandbox --config /workspace/claw_eval_config.yaml --trace-dir /data/logs/user-defined/traces" \
-#     --local-path . --target-path /workspace
+#     --env "RUN_CMD=claw-eval batch --parallel 4 --sandbox --config /tmp/claw-eval-config/config.yaml --trace-dir /data/logs/user-defined/traces" \
+#     --local-path . --target-path /tmp/claw-eval-config
 
 set -eo pipefail
 
@@ -44,7 +45,7 @@ fi
 
 # ── 4. 执行 RUN_CMD ───────────────────────────────────────
 [ -z "$RUN_CMD" ] && { echo "ERROR: RUN_CMD environment variable is not set"; exit 1; }
-cd /workspace
+cd "${WORK_DIR:-/workspace}"
 eval "$RUN_CMD" 2>&1 | tee "$LOG_DIR/run.log"
 
 # ── 5. Score 汇总（解析 run.log）──────────────────────────
