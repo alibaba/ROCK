@@ -47,7 +47,7 @@ class JobClient:
 class JobExecutor:
     """Execution engine: drives Operator to generate trials, runs in parallel, collects results."""
 
-    async def run(self, operator: Operator, config: JobConfig) -> list[TrialResult]:
+    async def run(self, operator: Operator, config: JobConfig) -> list[TrialResult | list[TrialResult]]:
         """Full lifecycle: submit + wait."""
         job_client = await self.submit(operator, config)
         return await self.wait(job_client)
@@ -60,8 +60,13 @@ class JobExecutor:
         trial_clients = await asyncio.gather(*[self._do_submit(t) for t in trial_list])
         return JobClient(trials=list(trial_clients))
 
-    async def wait(self, job_client: JobClient) -> list[TrialResult]:
-        """Wait for all trials, collect results in parallel."""
+    async def wait(self, job_client: JobClient) -> list[TrialResult | list[TrialResult]]:
+        """Wait for all trials, collect results in parallel.
+
+        Each entry mirrors whatever the Trial's ``collect()`` returned
+        (single ``TrialResult`` or ``list[TrialResult]``). The Job layer
+        flattens lists into the final ``JobResult.trial_results``.
+        """
         if not job_client.trials:
             return []
         return list(await asyncio.gather(*[self._do_wait(tc) for tc in job_client.trials]))
@@ -103,7 +108,7 @@ class JobExecutor:
         logger.info(f"Trial started: pid={pid}, job_name={config.job_name}")
         return TrialClient(sandbox=sandbox, session=session, pid=pid, trial=trial)
 
-    async def _do_wait(self, client: TrialClient) -> TrialResult:
+    async def _do_wait(self, client: TrialClient) -> TrialResult | list[TrialResult]:
         """Wait for a single trial to finish, call trial.collect()."""
         from rock.sdk.job.result import ExceptionInfo
 
@@ -125,11 +130,15 @@ class JobExecutor:
             )
             exit_code = obs.exit_code if obs.exit_code is not None else 1
             result = await client.trial.collect(client.sandbox, obs.output or "", exit_code)
-            if not success and result.exception_info is None:
-                result.exception_info = ExceptionInfo(
+            if not success:
+                fail_info = ExceptionInfo(
                     exception_type="ProcessTimeout",
                     exception_message=message or "process did not complete successfully",
                 )
+                iter_results = result if isinstance(result, list) else [result]
+                for r in iter_results:
+                    if r.exception_info is None:
+                        r.exception_info = fail_info
             return result
         finally:
             if config.auto_stop:

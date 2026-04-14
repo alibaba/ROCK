@@ -167,3 +167,49 @@ class TestJobBuildResult:
             ).run()
 
         assert result.status == JobStatus.FAILED
+
+
+# ---------------------------------------------------------------------------
+# Multi-sub-trial flattening (G1 regression)
+# ---------------------------------------------------------------------------
+
+
+class TestJobFlattenMultiSubTrials:
+    """G1: when HarborTrial.collect returns list[N], JobResult.trial_results must have N entries."""
+
+    async def test_run_flattens_list_returning_collect_into_job_result(self):
+        from rock.sdk.job.config import JobConfig
+        from rock.sdk.job.result import TrialResult
+        from rock.sdk.job.trial.abstract import AbstractTrial
+        from rock.sdk.job.trial.registry import register_trial
+
+        class MultiCfg(JobConfig):
+            pass
+
+        class MultiTrial(AbstractTrial):
+            async def setup(self, sandbox):
+                pass
+
+            def build(self) -> str:
+                return "echo hi"
+
+            async def collect(self, sandbox, output, exit_code):
+                return [TrialResult(task_name=f"sub-{i}") for i in range(3)]
+
+        register_trial(MultiCfg, MultiTrial)
+
+        mock_sandbox = _make_mock_sandbox()
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            result = await Job(MultiCfg(job_name="multi")).run()
+
+        assert len(result.trial_results) == 3, f"expected 3 flattened sub-trials, got {len(result.trial_results)}"
+        assert {t.task_name for t in result.trial_results} == {"sub-0", "sub-1", "sub-2"}
+        assert result.status == JobStatus.COMPLETED
+
+    async def test_run_still_accepts_single_trial_result(self):
+        mock_sandbox = _make_mock_sandbox()
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            result = await Job(BashJobConfig(script="echo hi", job_name="single")).run()
+
+        assert len(result.trial_results) == 1
+        assert result.status == JobStatus.COMPLETED
