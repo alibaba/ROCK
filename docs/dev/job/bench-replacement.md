@@ -12,7 +12,7 @@
 | **Harbor 多子 trial 结果聚合** | ✅ (G1) `AbstractTrial.collect` 返回 `TrialResult \| list[TrialResult]`；`Job._build_result` 按 `isinstance` 拍平 |
 | **Agent-aware wait timeout** | ✅ (G2) `HarborJobConfig._compute_effective_timeout` 写回 `self.timeout` |
 | **`job_name` 自动生成** | ✅ (G3) `HarborJobConfig._auto_job_name` validator |
-| **`namespace` / `experiment_id` 从 sandbox 回填** | ✅ (G4) `AbstractTrial.on_sandbox_ready` hook + `HarborTrial` override |
+| **`namespace` / `experiment_id` 从 sandbox 回填** | ✅ (G4) `AbstractTrial.on_sandbox_ready` 默认实现（所有 Trial 继承） |
 | **`JobResult.raw_output` / `exit_code` 填充** | ✅ (G5) `TrialResult.raw_output/exit_code` + `JobExecutor._do_wait` 写回 + `Job._build_result` 聚合 |
 | **脚本 / 输出文件路径** | ✅ (G6) `JobExecutor._job_tmp_prefix` 回到 `USER_DEFINED_LOGS` |
 | **`auto_stop` 两处字段同步** | ✅ (G7) `HarborJobConfig._sync_auto_stop` OR 语义 validator |
@@ -220,7 +220,7 @@ Phase 1 — 补齐回归 (必做)
            Job._build_result 按 isinstance 判断 extend/append 到 JobResult.trial_results
   2. 修 G2: HarborJobConfig.model_post_init 计算有效 timeout，或 Trial 层 override
   3. 修 G3: _generate_default_job_name 挪到 HarborJobConfig validator
-  4. 修 G4: JobExecutor 提供 on_sandbox_ready 钩子 + HarborTrial 回填
+  4. 修 G4: JobExecutor 调用 on_sandbox_ready 钩子 + AbstractTrial 提供回填默认实现
   5. 修 G5: TrialResult 加 raw_output/exit_code；_build_result 聚合
   6. 修 G6: _job_tmp_prefix 改用 USER_DEFINED_LOGS
   7. 修 G7: HarborJobConfig 同步 auto_stop 两处字段
@@ -274,7 +274,7 @@ Phase 1 完成后，`tests/unit/sdk/agent/test_job.py` 中基于私有方法 (`_
 | G1 — 多子 trial 结果聚合 | `AbstractTrial.collect` 返回 union；`Job._build_result` 按 `isinstance` 拍平 | `fix(job/G1a)` `fix(job/G1b)` |
 | G2 — effective wait timeout | `HarborJobConfig._compute_effective_timeout` validator | `fix(job/G2)` |
 | G3 — 自动 job_name | `HarborJobConfig._auto_job_name` validator | `fix(job/G3)` |
-| G4 — sandbox 回填 ns/exp_id | `AbstractTrial.on_sandbox_ready` hook + `HarborTrial` override | `fix(job/G4)` |
+| G4 — sandbox 回填 ns/exp_id | `AbstractTrial.on_sandbox_ready` 默认实现回填 + 校验（HarborTrial / BashTrial 共享） | `fix(job/G4)` `refactor(job): hoist to AbstractTrial` |
 | G5 — `JobResult.raw_output/exit_code` | `TrialResult` 加字段；`JobExecutor._do_wait` 写回；`Job._build_result` 聚合 | `fix(job/G5)` |
 | G6 — 脚本/输出持久化 | `_job_tmp_prefix` 使用 `USER_DEFINED_LOGS` | `fix(job/G6)` |
 | G7 — `auto_stop` OR 同步 | `HarborJobConfig._sync_auto_stop` validator | `fix(job/G7)` |
