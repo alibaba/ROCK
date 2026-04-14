@@ -23,6 +23,13 @@ class AbstractTrial(ABC):
     def __init__(self, config: JobConfig):
         self._config = config
 
+    async def on_sandbox_ready(self, sandbox: Sandbox) -> None:
+        """G4 hook: called by JobExecutor once sandbox.start() succeeds, before setup().
+
+        Default is a no-op. Override to backfill config from sandbox state
+        (e.g. HarborTrial reads back namespace / experiment_id).
+        """
+
     @abstractmethod
     async def setup(self, sandbox: Sandbox) -> None:
         """Pre-execution: prepare sandbox environment (upload files, write configs)."""

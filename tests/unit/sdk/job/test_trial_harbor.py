@@ -152,3 +152,47 @@ class TestHarborTrialRegistration:
         cfg = HarborJobConfig(experiment_id="exp-1")
         trial = _create_trial(cfg)
         assert isinstance(trial, HarborTrial)
+
+
+# ---------------------------------------------------------------------------
+# G4: on_sandbox_ready hook — backfill namespace / experiment_id
+# ---------------------------------------------------------------------------
+
+
+class TestHarborTrialOnSandboxReady:
+    """G4: HarborTrial must backfill namespace / experiment_id from sandbox into config."""
+
+    async def test_namespace_backfilled_when_config_unset(self):
+        cfg = HarborJobConfig(experiment_id="exp-1")
+        trial = HarborTrial(cfg)
+        sandbox = MagicMock()
+        sandbox._namespace = "sb-ns"
+        sandbox._experiment_id = "exp-1"
+
+        await trial.on_sandbox_ready(sandbox)
+
+        assert cfg.namespace == "sb-ns"
+
+    async def test_experiment_id_mismatch_raises(self):
+        import pytest
+
+        cfg = HarborJobConfig(experiment_id="exp-1")
+        trial = HarborTrial(cfg)
+        sandbox = MagicMock()
+        sandbox._namespace = None
+        sandbox._experiment_id = "exp-DIFFERENT"
+
+        with pytest.raises(ValueError, match="experiment_id mismatch"):
+            await trial.on_sandbox_ready(sandbox)
+
+    async def test_namespace_mismatch_raises(self):
+        import pytest
+
+        cfg = HarborJobConfig(experiment_id="exp-1", namespace="cfg-ns")
+        trial = HarborTrial(cfg)
+        sandbox = MagicMock()
+        sandbox._namespace = "sb-ns"
+        sandbox._experiment_id = None
+
+        with pytest.raises(ValueError, match="namespace mismatch"):
+            await trial.on_sandbox_ready(sandbox)

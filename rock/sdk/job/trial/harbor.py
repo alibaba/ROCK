@@ -53,6 +53,26 @@ class HarborTrial(AbstractTrial):
 
     _config: HarborJobConfig
 
+    async def on_sandbox_ready(self, sandbox) -> None:
+        """G4: backfill namespace / experiment_id from sandbox, matching legacy _autofill_sandbox_info."""
+        sb_ns = getattr(sandbox, "_namespace", None)
+        if sb_ns is not None:
+            if self._config.namespace is not None and self._config.namespace != sb_ns:
+                raise ValueError(
+                    f"namespace mismatch: HarborJobConfig has '{self._config.namespace}', "
+                    f"but sandbox returned '{sb_ns}'"
+                )
+            self._config.namespace = sb_ns
+
+        sb_exp = getattr(sandbox, "_experiment_id", None)
+        if sb_exp is not None:
+            if self._config.experiment_id is not None and self._config.experiment_id != sb_exp:
+                raise ValueError(
+                    f"experiment_id mismatch: HarborJobConfig has '{self._config.experiment_id}', "
+                    f"but sandbox returned '{sb_exp}'"
+                )
+            self._config.experiment_id = sb_exp
+
     async def setup(self, sandbox) -> None:
         await self._upload_files(sandbox)
         # Write Harbor YAML config to sandbox

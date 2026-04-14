@@ -252,3 +252,27 @@ class TestExecutorPaths:
         nohup_call = mock_sandbox.start_nohup_process.call_args
         tmp_file = nohup_call.kwargs["tmp_file"]
         assert tmp_file.startswith(USER_DEFINED_LOGS)
+
+
+# ---------------------------------------------------------------------------
+# G4: on_sandbox_ready hook called after start()
+# ---------------------------------------------------------------------------
+
+
+class TestExecutorOnSandboxReady:
+    async def test_do_submit_calls_on_sandbox_ready_after_start(self):
+        from rock.sdk.job.trial.bash import BashTrial
+
+        mock_sandbox = _make_mock_sandbox()
+        mock_sandbox._namespace = "ns"
+        mock_sandbox._experiment_id = "exp"
+
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            executor = JobExecutor()
+            trial = BashTrial(BashJobConfig(script="echo hi", job_name="t"))
+            trial.on_sandbox_ready = AsyncMock()
+            await executor._do_submit(trial)
+
+        trial.on_sandbox_ready.assert_awaited_once_with(mock_sandbox)
+        # Must be called AFTER sandbox.start()
+        assert mock_sandbox.start.call_count == 1
