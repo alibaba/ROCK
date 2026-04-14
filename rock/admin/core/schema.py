@@ -32,7 +32,7 @@ class SandboxRecord(Base):
 
     sandbox_id = Column(String(128), primary_key=True)
     user_id = Column(String(128), nullable=False, default="default")
-    image = Column(String(128), nullable=False, default="default")
+    image = Column(String(512), nullable=False, default="default")
     experiment_id = Column(String(128), nullable=False, default="default")
     namespace = Column(String(128), nullable=False, default="default")
     cluster_name = Column(String(128), nullable=False, default="default")
