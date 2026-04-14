@@ -210,6 +210,39 @@ class HarborJobConfig(_BaseJobConfig):
         self.job_name = "_".join(parts)
         return self
 
+    @model_validator(mode="after")
+    def _compute_effective_timeout(self):
+        """G2: derive wait timeout from agent config × multiplier + buffer.
+
+        Rule (aligned with legacy bench/job.py::_get_wait_timeout):
+          agent_timeout = agents[0].max_timeout_sec or agents[0].override_timeout_sec
+          effective = int(agent_timeout * multiplier) + 600  (env + verifier buffer)
+          fallback  = int(DEFAULT_WAIT_TIMEOUT * multiplier)    (7200 * multiplier)
+
+        Applied only when the base-class default (3600) has not been overridden by
+        the user. If the user explicitly set ``timeout`` to a non-default value,
+        that wins — we do not second-guess an explicit knob. NOTE: this heuristic
+        misfires if a user explicitly picks 3600, but that's considered extremely
+        rare; documented limitation.
+        """
+        from rock.sdk.bench.constants import DEFAULT_WAIT_TIMEOUT
+
+        # 3600 is the base JobConfig default; treat as "user didn't touch it".
+        if self.timeout != 3600:
+            return self
+
+        multiplier = self.timeout_multiplier or 1.0
+        agent_timeout: float | None = None
+        if self.agents:
+            a = self.agents[0]
+            agent_timeout = a.max_timeout_sec or a.override_timeout_sec
+
+        if agent_timeout:
+            self.timeout = int(agent_timeout * multiplier) + 600
+        else:
+            self.timeout = int(DEFAULT_WAIT_TIMEOUT * multiplier)
+        return self
+
     # Base JobConfig fields to exclude when serializing to Harbor YAML
     _BASE_FIELDS: ClassVar[set[str]] = set(_BaseJobConfig.model_fields.keys())
 

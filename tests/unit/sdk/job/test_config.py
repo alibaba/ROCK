@@ -122,8 +122,11 @@ class TestHarborJobConfig:
 
     def test_defaults(self):
         cfg = HarborJobConfig(experiment_id="test-exp")
-        # Inherited
-        assert cfg.timeout == 3600
+        # Inherited — G2: effective timeout derived from agent config + multiplier.
+        # No agent timeout configured → DEFAULT_WAIT_TIMEOUT fallback (7200).
+        from rock.sdk.bench.constants import DEFAULT_WAIT_TIMEOUT
+
+        assert cfg.timeout == DEFAULT_WAIT_TIMEOUT
         assert cfg.labels == {}
         # G3: job_name is auto-generated (8-char uuid when no datasets)
         assert cfg.job_name is not None
@@ -399,3 +402,49 @@ class TestHarborJobConfigAutoJobName:
         assert parts[0] == "tb"
         assert len(parts) == 2
         assert len(parts[1]) == 8
+
+
+# ---------------------------------------------------------------------------
+# G2: HarborJobConfig effective timeout derivation
+# ---------------------------------------------------------------------------
+
+
+class TestHarborJobConfigEffectiveTimeout:
+    """G2: HarborJobConfig timeout derives from agent.max_timeout_sec + multiplier + 600 buffer."""
+
+    def test_default_timeout_uses_7200s_fallback(self):
+        """No agent timeout configured → fallback DEFAULT_WAIT_TIMEOUT=7200."""
+        from rock.sdk.bench.constants import DEFAULT_WAIT_TIMEOUT
+
+        cfg = HarborJobConfig(experiment_id="exp")
+        assert cfg.timeout == DEFAULT_WAIT_TIMEOUT  # 7200
+
+    def test_agent_max_timeout_drives_effective_timeout(self):
+        cfg = HarborJobConfig(
+            experiment_id="exp",
+            agents=[AgentConfig(name="a", max_timeout_sec=1800)],
+        )
+        assert cfg.timeout == 1800 + 600  # +600s env setup + verifier buffer
+
+    def test_agent_override_timeout_used_when_no_max(self):
+        cfg = HarborJobConfig(
+            experiment_id="exp",
+            agents=[AgentConfig(name="a", override_timeout_sec=900)],
+        )
+        assert cfg.timeout == 900 + 600
+
+    def test_timeout_multiplier_applied(self):
+        cfg = HarborJobConfig(
+            experiment_id="exp",
+            agents=[AgentConfig(name="a", max_timeout_sec=1000)],
+            timeout_multiplier=2.0,
+        )
+        # (1000 * 2.0) + 600
+        assert cfg.timeout == 2600
+
+    def test_multiplier_only_applied_to_fallback(self):
+        cfg = HarborJobConfig(experiment_id="exp", timeout_multiplier=2.0)
+        # DEFAULT_WAIT_TIMEOUT * 2.0
+        from rock.sdk.bench.constants import DEFAULT_WAIT_TIMEOUT
+
+        assert cfg.timeout == int(DEFAULT_WAIT_TIMEOUT * 2.0)
