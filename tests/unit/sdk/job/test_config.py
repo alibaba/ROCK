@@ -125,7 +125,9 @@ class TestHarborJobConfig:
         # Inherited
         assert cfg.timeout == 3600
         assert cfg.labels == {}
-        assert cfg.job_name is None
+        # G3: job_name is auto-generated (8-char uuid when no datasets)
+        assert cfg.job_name is not None
+        assert len(cfg.job_name) == 8
         # Own defaults
         assert len(cfg.agents) == 1
         assert isinstance(cfg.agents[0], AgentConfig)
@@ -341,3 +343,59 @@ class TestHarborJobConfigAutoStopSync:
         cfg = HarborJobConfig(experiment_id="exp-1")
         assert cfg.auto_stop is False
         assert cfg.environment.auto_stop is False
+
+
+# ---------------------------------------------------------------------------
+# G3: HarborJobConfig auto-generates job_name when user omits it
+# ---------------------------------------------------------------------------
+
+
+class TestHarborJobConfigAutoJobName:
+    """G3: HarborJobConfig auto-generates job_name when omitted."""
+
+    def test_explicit_job_name_preserved(self):
+        cfg = HarborJobConfig(experiment_id="exp", job_name="my-custom")
+        assert cfg.job_name == "my-custom"
+
+    def test_no_dataset_yields_uuid_only(self):
+        cfg = HarborJobConfig(experiment_id="exp")
+        assert cfg.job_name is not None
+        assert len(cfg.job_name) == 8  # 8-char uuid
+
+    def test_single_dataset_single_task_yields_dataset_task_uuid(self):
+        from rock.sdk.bench.models.job.config import RegistryDatasetConfig, RemoteRegistryInfo
+
+        cfg = HarborJobConfig(
+            experiment_id="exp",
+            datasets=[
+                RegistryDatasetConfig(
+                    registry=RemoteRegistryInfo(),
+                    name="terminal-bench",
+                    version="2.0",
+                    task_names=["fix-bug"],
+                )
+            ],
+        )
+        parts = cfg.job_name.split("_")
+        assert parts[0] == "terminal-bench"
+        assert parts[1] == "fix-bug"
+        assert len(parts[2]) == 8
+
+    def test_single_dataset_multi_tasks_yields_dataset_uuid(self):
+        from rock.sdk.bench.models.job.config import RegistryDatasetConfig, RemoteRegistryInfo
+
+        cfg = HarborJobConfig(
+            experiment_id="exp",
+            datasets=[
+                RegistryDatasetConfig(
+                    registry=RemoteRegistryInfo(),
+                    name="tb",
+                    version="2.0",
+                    task_names=["a", "b"],
+                )
+            ],
+        )
+        parts = cfg.job_name.split("_")
+        assert parts[0] == "tb"
+        assert len(parts) == 2
+        assert len(parts[1]) == 8

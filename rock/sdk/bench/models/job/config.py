@@ -185,6 +185,31 @@ class HarborJobConfig(_BaseJobConfig):
         self.environment.auto_stop = effective
         return self
 
+    @model_validator(mode="after")
+    def _auto_job_name(self):
+        """G3: auto-generate job_name when user omitted it.
+
+        Format: {dataset_name}_{task_name if single task}_{uuid[:8]}
+        Matches legacy bench/job.py::_generate_default_job_name.
+        """
+        import uuid as _uuid
+
+        if self.job_name is not None:
+            return self
+
+        parts: list[str] = []
+        if self.datasets:
+            ds = self.datasets[0]
+            if getattr(ds, "name", None):
+                parts.append(ds.name)
+            task_names = getattr(ds, "task_names", None) or []
+            if len(task_names) == 1:
+                parts.append(task_names[0])
+
+        parts.append(_uuid.uuid4().hex[:8])
+        self.job_name = "_".join(parts)
+        return self
+
     # Base JobConfig fields to exclude when serializing to Harbor YAML
     _BASE_FIELDS: ClassVar[set[str]] = set(_BaseJobConfig.model_fields.keys())
 
