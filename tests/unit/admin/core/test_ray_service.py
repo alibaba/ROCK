@@ -83,13 +83,31 @@ async def test_reconnect_ray_skip_when_reader_exists_and_write_lock_timeout(ray_
 @pytest.mark.need_ray
 @pytest.mark.asyncio
 async def test_ray_get(ray_service):
+    import uuid
+
+    import ray
+
     service = ray_service
+    # Unique name to avoid colliding with leaked detached actors from prior runs/reruns
+    actor_name = f"test-ray-get-{uuid.uuid4().hex[:8]}"
+    namespace = "rock-sandbox-test"
     config = RayDeploymentConfig(image="python:3.11")
     deployment: RayDeployment = RayDeployment.from_config(config)
-    actor = SandboxActor.options(**{"name": "test", "lifetime": "detached"}).remote(config, deployment)
-    await service.async_ray_get(actor.start.remote())
-    result = await service.async_ray_get(actor.host_name.remote())
-    assert result is not None
-    actor = await service.async_ray_get_actor("test", "rock-sandbox-test")
-    assert actor is not None
-    await service.async_ray_get(actor.stop.remote())
+
+    actor = SandboxActor.options(name=actor_name, namespace=namespace, lifetime="detached").remote(config, deployment)
+    try:
+        await service.async_ray_get(actor.start.remote())
+        result = await service.async_ray_get(actor.host_name.remote())
+        assert result is not None
+
+        fetched_actor = await service.async_ray_get_actor(actor_name, namespace)
+        assert fetched_actor is not None
+
+        await service.async_ray_get(fetched_actor.stop.remote())
+    finally:
+        # Ensure detached actor is always killed, even if assertions/RPCs above fail
+        try:
+            leaked = ray.get_actor(actor_name, namespace=namespace)
+            ray.kill(leaked)
+        except Exception:
+            pass
