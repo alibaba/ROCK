@@ -1,0 +1,116 @@
+"""Tests for rock.sdk.job.trial — AbstractTrial and registry."""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock
+
+import pytest
+
+# Import bench first to avoid circular-import pitfall in rock.sdk.job.config
+import rock.sdk.bench  # noqa: F401
+from rock.sdk.job.config import JobConfig
+from rock.sdk.job.result import TrialResult
+from rock.sdk.job.trial.abstract import AbstractTrial
+from rock.sdk.job.trial.registry import _TRIAL_REGISTRY, _create_trial, register_trial
+
+# ---------------------------------------------------------------------------
+# Stubs used across tests
+# ---------------------------------------------------------------------------
+
+
+class _StubConfig(JobConfig):
+    stub_field: str = "test"
+
+
+class _StubTrial(AbstractTrial):
+    async def setup(self, sandbox) -> None:
+        pass
+
+    def build(self) -> str:
+        return "echo stub"
+
+    async def collect(self, sandbox, output, exit_code) -> TrialResult:
+        return TrialResult(task_name="stub")
+
+
+@pytest.fixture(autouse=True)
+def _reset_registry():
+    """Preserve and restore the registry between tests to avoid cross-test pollution."""
+    saved = dict(_TRIAL_REGISTRY)
+    _TRIAL_REGISTRY.clear()
+    yield
+    _TRIAL_REGISTRY.clear()
+    _TRIAL_REGISTRY.update(saved)
+
+
+# ---------------------------------------------------------------------------
+# AbstractTrial
+# ---------------------------------------------------------------------------
+
+
+class TestAbstractTrial:
+    def test_cannot_instantiate_directly(self):
+        """AbstractTrial is abstract and cannot be instantiated."""
+        with pytest.raises(TypeError):
+            AbstractTrial(JobConfig())  # type: ignore[abstract]
+
+    def test_subclass_can_be_instantiated(self):
+        cfg = _StubConfig()
+        trial = _StubTrial(cfg)
+        assert isinstance(trial, AbstractTrial)
+
+    def test_config_reference_held(self):
+        cfg = _StubConfig(stub_field="hello")
+        trial = _StubTrial(cfg)
+        assert trial._config is cfg
+
+    async def test_upload_files_iterates_all_entries(self):
+        mock_sandbox = AsyncMock()
+        mock_sandbox.fs.upload_dir = AsyncMock()
+        cfg = _StubConfig(file_uploads=[("/a", "/b"), ("/c", "/d")])
+        trial = _StubTrial(cfg)
+
+        await trial._upload_files(mock_sandbox)
+
+        assert mock_sandbox.fs.upload_dir.call_count == 2
+        mock_sandbox.fs.upload_dir.assert_any_call("/a", "/b")
+        mock_sandbox.fs.upload_dir.assert_any_call("/c", "/d")
+
+    async def test_upload_files_noop_when_empty(self):
+        mock_sandbox = AsyncMock()
+        mock_sandbox.fs.upload_dir = AsyncMock()
+        cfg = _StubConfig(file_uploads=[])
+        trial = _StubTrial(cfg)
+
+        await trial._upload_files(mock_sandbox)
+
+        mock_sandbox.fs.upload_dir.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Registry
+# ---------------------------------------------------------------------------
+
+
+class TestTrialRegistry:
+    def test_create_trial_unregistered_raises_type_error(self):
+        cfg = _StubConfig()
+        with pytest.raises(TypeError, match="No trial registered"):
+            _create_trial(cfg)
+
+    def test_register_and_create_trial(self):
+        register_trial(_StubConfig, _StubTrial)
+        cfg = _StubConfig()
+        trial = _create_trial(cfg)
+        assert isinstance(trial, _StubTrial)
+        assert trial._config is cfg
+
+    def test_error_lists_supported_configs(self):
+        register_trial(_StubConfig, _StubTrial)
+
+        class _OtherConfig(JobConfig):
+            pass
+
+        with pytest.raises(TypeError) as exc_info:
+            _create_trial(_OtherConfig())
+        assert "_StubConfig" in str(exc_info.value)
