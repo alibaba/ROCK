@@ -110,6 +110,7 @@ def _bash_args(**overrides):
         base_url=None,
         cluster=None,
         extra_headers=None,
+        env=None,
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -272,6 +273,118 @@ experiment_id: exp-abc
             assert config_arg.environment.image == "custom:tag"
     finally:
         Path(yaml_path).unlink(missing_ok=True)
+
+
+async def test_parser_accepts_base_url_and_cluster():
+    p = await _build_parser()
+    args = p.parse_args(
+        [
+            "job",
+            "run",
+            "--script-content",
+            "echo hi",
+            "--base-url",
+            "http://xrl.alibaba-inc.com",
+            "--cluster",
+            "vpc-sg-sl-a",
+        ]
+    )
+    assert args.base_url == "http://xrl.alibaba-inc.com"
+    assert args.cluster == "vpc-sg-sl-a"
+
+
+async def test_bash_passes_base_url_and_cluster_to_environment():
+    args = _bash_args(
+        script_content="echo hello",
+        base_url="http://xrl.alibaba-inc.com",
+        cluster="vpc-sg-sl-a",
+    )
+
+    with patch("rock.sdk.job.Job") as MockJob:
+        mock_instance = MagicMock()
+        mock_instance.run = AsyncMock(return_value=_make_mock_job_result())
+        MockJob.return_value = mock_instance
+
+        cmd = JobCommand()
+        await cmd.arun(args)
+
+        config_arg = MockJob.call_args[0][0]
+        assert config_arg.environment.base_url == "http://xrl.alibaba-inc.com"
+        assert config_arg.environment.cluster == "vpc-sg-sl-a"
+
+
+async def test_parser_accepts_env_args():
+    p = await _build_parser()
+    args = p.parse_args(
+        [
+            "job",
+            "run",
+            "--script-content",
+            "echo hi",
+            "--env",
+            "FOO=bar",
+            "--env",
+            "BAZ=qux=123",
+        ]
+    )
+    assert args.env == ["FOO=bar", "BAZ=qux=123"]
+
+
+async def test_parser_env_default_is_none():
+    p = await _build_parser()
+    args = p.parse_args(["job", "run", "--script-content", "echo hi"])
+    assert args.env is None
+
+
+async def test_bash_passes_env_to_config():
+    args = _bash_args(script_content="echo hello")
+    args.env = ["SERP_DEV_KEY=abc123", "RUN_CMD=claw-eval batch --parallel 4"]
+
+    with patch("rock.sdk.job.Job") as MockJob:
+        mock_instance = MagicMock()
+        mock_instance.run = AsyncMock(return_value=_make_mock_job_result())
+        MockJob.return_value = mock_instance
+
+        cmd = JobCommand()
+        await cmd.arun(args)
+
+        config_arg = MockJob.call_args[0][0]
+        assert config_arg.env == {
+            "SERP_DEV_KEY": "abc123",
+            "RUN_CMD": "claw-eval batch --parallel 4",
+        }
+
+
+async def test_bash_env_with_equals_in_value():
+    """值中包含 '=' 不应被拆分。"""
+    args = _bash_args(script_content="echo hello")
+    args.env = ["API_KEY=sk-abc=def=="]
+
+    with patch("rock.sdk.job.Job") as MockJob:
+        mock_instance = MagicMock()
+        mock_instance.run = AsyncMock(return_value=_make_mock_job_result())
+        MockJob.return_value = mock_instance
+
+        cmd = JobCommand()
+        await cmd.arun(args)
+
+        config_arg = MockJob.call_args[0][0]
+        assert config_arg.env == {"API_KEY": "sk-abc=def=="}
+
+
+async def test_bash_no_env_defaults_to_empty():
+    args = _bash_args(script_content="echo hello")
+
+    with patch("rock.sdk.job.Job") as MockJob:
+        mock_instance = MagicMock()
+        mock_instance.run = AsyncMock(return_value=_make_mock_job_result())
+        MockJob.return_value = mock_instance
+
+        cmd = JobCommand()
+        await cmd.arun(args)
+
+        config_arg = MockJob.call_args[0][0]
+        assert config_arg.env == {}
 
 
 async def test_unknown_job_command_logs_error():

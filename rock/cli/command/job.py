@@ -49,6 +49,12 @@ class JobCommand(Command):
             if args.local_path:
                 file_uploads.append((args.local_path, args.target_path))
 
+            env = {}
+            if getattr(args, "env", None):
+                for item in args.env:
+                    key, _, value = item.partition("=")
+                    env[key] = value
+
             config = BashJobConfig(
                 script=args.script_content,
                 script_path=args.script,
@@ -56,6 +62,7 @@ class JobCommand(Command):
                 file_uploads=file_uploads,
                 timeout=args.timeout,
                 auto_stop=True,
+                env=env,
             )
 
         elif job_type == "harbor":
@@ -103,3 +110,12 @@ class JobCommand(Command):
         run_parser.add_argument("--timeout", type=int, default=3600, help="Timeout in seconds")
         run_parser.add_argument("--local-path", default=None, help="Local dir to upload")
         run_parser.add_argument("--target-path", default="/root/job", help="Target dir in sandbox")
+        run_parser.add_argument("--base-url", default=None, help="Admin service base URL")
+        run_parser.add_argument("--cluster", default=None, help="Cluster name (e.g. vpc-sg-sl-a)")
+        run_parser.add_argument(
+            "--env",
+            action="append",
+            default=None,
+            metavar="KEY=VALUE",
+            help="Environment variable, repeatable (e.g. --env FOO=bar --env BAZ=qux)",
+        )
