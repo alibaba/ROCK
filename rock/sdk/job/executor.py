@@ -27,11 +27,6 @@ if TYPE_CHECKING:
 logger = init_logger(__name__)
 
 
-def _job_tmp_prefix(config: JobConfig) -> str:
-    """Prefix for per-job temp files on sandbox, e.g. /tmp/rock_job_my-job."""
-    return f"/tmp/rock_job_{config.job_name or 'default'}"
-
-
 @dataclass
 class TrialClient:
     """Handle for a single running trial."""
@@ -73,6 +68,11 @@ class JobExecutor:
 
     # ── Internal: per-trial submit/wait ──
 
+    @staticmethod
+    def _job_tmp_prefix(config: JobConfig) -> str:
+        """Prefix for per-job temp files on sandbox, e.g. /tmp/rock_job_my-job."""
+        return f"/tmp/rock_job_{config.job_name or 'default'}"
+
     async def _do_submit(self, trial: AbstractTrial) -> TrialClient:
         """Start sandbox + execute script for a single trial."""
         config = trial._config
@@ -87,7 +87,7 @@ class JobExecutor:
         await trial.setup(sandbox)
         script_content = trial.build()
 
-        prefix = _job_tmp_prefix(config)
+        prefix = self._job_tmp_prefix(config)
         script_path = f"{prefix}.sh"
         await sandbox.write_file_by_path(script_content, script_path)
 
@@ -116,7 +116,7 @@ class JobExecutor:
                 wait_interval=30,
             )
             obs = await client.sandbox.handle_nohup_output(
-                tmp_file=f"{_job_tmp_prefix(config)}.out",
+                tmp_file=f"{self._job_tmp_prefix(config)}.out",
                 session=client.session,
                 success=success,
                 message=message,
