@@ -38,4 +38,6 @@ class AbstractTrial(ABC):
     async def _upload_files(self, sandbox: Sandbox) -> None:
         """Shared helper: upload all entries in ``config.file_uploads``."""
         for local_path, sandbox_path in self._config.file_uploads:
-            await sandbox.fs.upload_dir(local_path, sandbox_path)
+            obs = await sandbox.fs.upload_dir(source_dir=local_path, target_dir=sandbox_path)
+            if obs.exit_code != 0:
+                raise RuntimeError(f"Failed to upload {local_path} -> {sandbox_path}: {obs.failure_reason}")

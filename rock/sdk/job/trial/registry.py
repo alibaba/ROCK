@@ -8,10 +8,10 @@ if TYPE_CHECKING:
     from rock.sdk.job.config import JobConfig
     from rock.sdk.job.trial.abstract import AbstractTrial
 
-_TRIAL_REGISTRY: dict[type, type] = {}
+_TRIAL_REGISTRY: dict[type[JobConfig], type[AbstractTrial]] = {}
 
 
-def register_trial(config_type: type, trial_type: type) -> None:
+def register_trial(config_type: type[JobConfig], trial_type: type[AbstractTrial]) -> None:
     """Register a Config → Trial mapping."""
     _TRIAL_REGISTRY[config_type] = trial_type
 

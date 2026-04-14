@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -66,25 +66,41 @@ class TestAbstractTrial:
 
     async def test_upload_files_iterates_all_entries(self):
         mock_sandbox = AsyncMock()
-        mock_sandbox.fs.upload_dir = AsyncMock()
+        success_obs = MagicMock()
+        success_obs.exit_code = 0
+        mock_sandbox.fs.upload_dir = AsyncMock(return_value=success_obs)
         cfg = _StubConfig(file_uploads=[("/a", "/b"), ("/c", "/d")])
         trial = _StubTrial(cfg)
 
         await trial._upload_files(mock_sandbox)
 
         assert mock_sandbox.fs.upload_dir.call_count == 2
-        mock_sandbox.fs.upload_dir.assert_any_call("/a", "/b")
-        mock_sandbox.fs.upload_dir.assert_any_call("/c", "/d")
+        mock_sandbox.fs.upload_dir.assert_any_call(source_dir="/a", target_dir="/b")
+        mock_sandbox.fs.upload_dir.assert_any_call(source_dir="/c", target_dir="/d")
 
     async def test_upload_files_noop_when_empty(self):
         mock_sandbox = AsyncMock()
-        mock_sandbox.fs.upload_dir = AsyncMock()
+        success_obs = MagicMock()
+        success_obs.exit_code = 0
+        mock_sandbox.fs.upload_dir = AsyncMock(return_value=success_obs)
         cfg = _StubConfig(file_uploads=[])
         trial = _StubTrial(cfg)
 
         await trial._upload_files(mock_sandbox)
 
         mock_sandbox.fs.upload_dir.assert_not_called()
+
+    async def test_upload_files_raises_on_failure(self):
+        cfg = _StubConfig(file_uploads=[("/a", "/b")])
+        trial = _StubTrial(cfg)
+        mock_sandbox = AsyncMock()
+        failure_obs = MagicMock()
+        failure_obs.exit_code = 1
+        failure_obs.failure_reason = "disk full"
+        mock_sandbox.fs.upload_dir = AsyncMock(return_value=failure_obs)
+
+        with pytest.raises(RuntimeError, match="disk full"):
+            await trial._upload_files(mock_sandbox)
 
 
 # ---------------------------------------------------------------------------
