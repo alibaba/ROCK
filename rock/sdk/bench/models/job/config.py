@@ -249,13 +249,17 @@ class HarborJobConfig(_BaseJobConfig):
     def to_harbor_yaml(self) -> str:
         """Serialize Harbor-native fields to YAML for ``harbor jobs start -c``.
 
-        Base JobConfig fields (environment, job_name, setup_commands, etc.)
-        are excluded. Harbor environment fields (force_build, override_cpus, etc.)
+        Base JobConfig fields (environment, setup_commands, etc.) are excluded.
+        ``job_name`` is re-injected so harbor uses it as the job directory name
+        instead of its default timestamp-based naming.
+        Harbor environment fields (force_build, override_cpus, etc.)
         are re-injected under ``environment``.
         """
         import yaml
 
         data = self.model_dump(mode="json", exclude=self._BASE_FIELDS, exclude_none=True)
+        if self.job_name:
+            data["job_name"] = self.job_name
         harbor_env = self.environment.to_harbor_environment()
         if harbor_env:
             data["environment"] = harbor_env
