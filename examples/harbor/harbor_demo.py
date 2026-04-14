@@ -1,15 +1,12 @@
-"""Harbor benchmark demo using ROCK Job SDK.
+"""Harbor benchmark demo using ROCK Job SDK (new path).
 
-Run Harbor benchmark tasks inside a ROCK sandbox via the Job SDK.
-Configuration is loaded from a YAML file and passed to ``harbor jobs start``
-inside the sandbox.
+Uses ``rock.sdk.job.Job`` with ``HarborJobConfig`` — the recommended path
+with full feature parity (G1-G7 fixed) and scatter / multiple trial types.
 
-Example config templates:
-    - ``examples/harbor/swe_job_config.yaml.template`` — SWE-bench-verified
-    - ``examples/harbor/tb_job_config.yaml.template`` — Terminal Bench 2
+For the legacy path (``rock.sdk.bench.Job``), see ``harbor_demo_legacy.py``.
 
 Usage:
-    python examples/harbor/harbor_demo.py -c examples/harbor/job_config.yaml
+    python examples/harbor/harbor_demo.py -c examples/harbor/swe.intern.yaml
     python examples/harbor/harbor_demo.py -c examples/harbor/tb_job_config.yaml -t mailman
 
 Required environment variables (OSS_* are auto-forwarded into the sandbox):
@@ -32,7 +29,8 @@ import logging
 import os
 import sys
 
-from rock.sdk.bench import HarborJobConfig, Job
+from rock.sdk.bench import HarborJobConfig
+from rock.sdk.job import Job
 
 _REQUIRED_ENV_VARS = [
     "OSS_ACCESS_KEY_ID",

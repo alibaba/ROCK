@@ -199,8 +199,9 @@ class TestHarborJobConfigToHarborYaml:
         yaml_str = cfg.to_harbor_yaml()
         data = yaml.safe_load(yaml_str)
         # Rock-only fields must be absent from Harbor YAML
+        # job_name is re-injected so harbor uses it as the directory name
+        assert data["job_name"] == "should-not-appear"
         rock_only = {
-            "job_name",
             "namespace",
             "experiment_id",
             "labels",

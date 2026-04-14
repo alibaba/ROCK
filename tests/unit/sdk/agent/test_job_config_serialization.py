@@ -111,8 +111,9 @@ class TestHarborJobConfigToHarborYaml:
         yaml_str = cfg.to_harbor_yaml()
         data = yaml.safe_load(yaml_str)
 
-        # Base fields (job_name, experiment_id, etc.) are excluded from harbor YAML
-        assert "job_name" not in data
+        # job_name is re-injected so harbor uses it as the directory name
+        assert data["job_name"] == "test-job"
+        # Other base fields (experiment_id, etc.) are excluded from harbor YAML
         assert "experiment_id" not in data
         assert data["n_attempts"] == 2
         assert data["agents"][0]["name"] == "terminus-2"
@@ -165,7 +166,7 @@ class TestHarborJobConfigToHarborYaml:
         data = yaml.safe_load(yaml_str)
 
         assert "labels" not in data
-        assert "job_name" not in data
+        assert data["job_name"] == "labeled-job"
 
     def test_path_fields_serialized_as_strings(self):
         cfg = HarborJobConfig(
@@ -206,7 +207,7 @@ class TestHarborJobConfigToHarborYaml:
         yaml_str = cfg.to_harbor_yaml()
         data = yaml.safe_load(yaml_str)
 
-        assert "job_name" not in data  # base field excluded
+        assert data["job_name"] == "full-test"
         assert data["environment"]["type"] == "docker"
         assert data["environment"]["force_build"] is True
         assert data["environment"]["override_cpus"] == 4
