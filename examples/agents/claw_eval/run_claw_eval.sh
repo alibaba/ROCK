@@ -1,14 +1,14 @@
 #!/bin/bash
-# Claw-eval BashJob infra 脚本
+# Claw-eval BashJob infra script.
 #
-# 通过 `rock job run --env` 传入的环境变量：
-#   RUN_CMD      — 要执行的 claw-eval 命令（必填）
-#                  例: "claw-eval batch --parallel 4 --sandbox --config /tmp/claw-eval-config/config.yaml"
-#   AGENT_IMAGE  — 运行前需要 pull 的 Docker 镜像（可选）
-#   WORK_DIR     — 执行 RUN_CMD 前 cd 的目录（可选，默认 /workspace）
-#   SERP_DEV_KEY — 透传给 claw-eval 的 API key（可选）
+# Environment variables (passed via `rock job run --env`):
+#   RUN_CMD      — claw-eval command to execute (required)
+#                  e.g. "claw-eval batch --parallel 4 --sandbox --config /tmp/claw-eval-config/config.yaml"
+#   AGENT_IMAGE  — Docker image to pull before running (optional)
+#   WORK_DIR     — working directory before eval RUN_CMD (optional, default /workspace)
+#   SERP_DEV_KEY — API key forwarded to claw-eval (optional)
 #
-# 用法：
+# Usage:
 #   rock job run --type bash \
 #     --script examples/agents/claw_eval/run_claw_eval.sh \
 #     --image "<YOUR_IMAGE>" \
@@ -24,10 +24,10 @@ set -eo pipefail
 
 LOG_DIR="/data/logs/user-defined"
 
-# ── 1. 准备日志目录 ────────────────────────────────────────
+# ── 1. Prepare log directory ───────────────────────────────
 mkdir -p "$LOG_DIR"
 
-# ── 2. 启动 dockerd (DinD) ────────────────────────────────
+# ── 2. Start dockerd (DinD) ───────────────────────────────
 if command -v docker &>/dev/null; then
     if ! pgrep -x dockerd &>/dev/null; then
         echo "Starting dockerd..."
@@ -40,15 +40,15 @@ if command -v docker &>/dev/null; then
     done
 fi
 
-# ── 3. Pull agent 镜像（可选）──────────────────────────────
+# ── 3. Pull agent image (optional) ────────────────────────
 [ -n "$AGENT_IMAGE" ] && docker pull "$AGENT_IMAGE"
 
-# ── 4. 执行 RUN_CMD ───────────────────────────────────────
+# ── 4. Execute RUN_CMD ────────────────────────────────────
 [ -z "$RUN_CMD" ] && { echo "ERROR: RUN_CMD environment variable is not set"; exit 1; }
 cd "${WORK_DIR:-/workspace}"
 eval "$RUN_CMD" 2>&1 | tee "$LOG_DIR/run.log"
 
-# ── 5. Score 汇总（解析 run.log）──────────────────────────
+# ── 5. Score summary (parse run.log) ──────────────────────
 echo "=== Score Summary ==="
 LOG_FILE="$LOG_DIR/run.log"
 TEXT=$(cat "$LOG_FILE")

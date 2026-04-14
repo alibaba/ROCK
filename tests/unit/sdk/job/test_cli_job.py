@@ -356,7 +356,7 @@ async def test_bash_passes_env_to_config():
 
 
 async def test_bash_env_with_equals_in_value():
-    """值中包含 '=' 不应被拆分。"""
+    """Values containing '=' should not be split."""
     args = _bash_args(script_content="echo hello")
     args.env = ["API_KEY=sk-abc=def=="]
 
