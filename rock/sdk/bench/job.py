@@ -63,6 +63,16 @@ class Job:
     """
 
     def __init__(self, config):
+        import warnings
+
+        warnings.warn(
+            "rock.sdk.bench.Job is deprecated and will be removed in 1.7.x. "
+            "Use rock.sdk.job.Job with HarborJobConfig — the new path has full "
+            "feature parity (G1-G7 fixed) and supports scatter / multiple trial types.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         from rock.sdk.bench.models.job.config import HarborJobConfig
 
         if not isinstance(config, HarborJobConfig):
