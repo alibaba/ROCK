@@ -1,0 +1,19 @@
+script_path: run_claw_eval.sh
+timeout: 7200
+auto_stop: true
+
+environment:
+  image: "<YOUR_IMAGE>"
+  base_url: "<YOUR_BASE_URL>"
+  cluster: "<YOUR_CLUSTER>"
+  xrl_authorization: "<YOUR_XRL_TOKEN>"
+  memory: "64g"
+  cpus: 16
+
+file_uploads:
+  - [".", "/tmp/claw-eval-config"]
+
+env:
+  SERP_DEV_KEY: "<YOUR_SERP_KEY>"
+  AGENT_IMAGE: "<YOUR_SANDBOX_AGENT_IMAGE>"
+  RUN_CMD: "claw-eval run --task tasks/T01zh_email_triage --sandbox --config /tmp/claw-eval-config/claw_eval_config.yaml --trace-dir /data/logs/user-defined/traces"
