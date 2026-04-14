@@ -213,3 +213,51 @@ class TestJobFlattenMultiSubTrials:
 
         assert len(result.trial_results) == 1
         assert result.status == JobStatus.COMPLETED
+
+    async def test_timeout_tags_every_sub_trial_in_list(self):
+        """G1: on timeout, every sub-trial in a list result gets a synthetic ProcessTimeout —
+        except those that already carry their own exception_info (preserved as-is)."""
+        from rock.sdk.job.config import JobConfig
+        from rock.sdk.job.result import ExceptionInfo, TrialResult
+        from rock.sdk.job.trial.abstract import AbstractTrial
+        from rock.sdk.job.trial.registry import register_trial
+
+        class PreExistingCfg(JobConfig):
+            pass
+
+        class PreExistingTrial(AbstractTrial):
+            async def setup(self, sandbox):
+                pass
+
+            def build(self) -> str:
+                return "echo hi"
+
+            async def collect(self, sandbox, output, exit_code):
+                return [
+                    TrialResult(task_name="sub-0"),
+                    TrialResult(
+                        task_name="sub-1",
+                        exception_info=ExceptionInfo(
+                            exception_type="OwnError",
+                            exception_message="from trial",
+                        ),
+                    ),
+                    TrialResult(task_name="sub-2"),
+                ]
+
+        register_trial(PreExistingCfg, PreExistingTrial)
+
+        mock_sandbox = _make_mock_sandbox()
+        mock_sandbox.wait_for_process_completion = AsyncMock(return_value=(False, "timed out"))
+
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            result = await Job(PreExistingCfg(job_name="multi-timeout")).run()
+
+        assert result.status == JobStatus.FAILED
+        assert len(result.trial_results) == 3
+        by_name = {t.task_name: t for t in result.trial_results}
+        assert by_name["sub-0"].exception_info.exception_type == "ProcessTimeout"
+        assert by_name["sub-2"].exception_info.exception_type == "ProcessTimeout"
+        # Pre-existing exception_info on sub-1 must NOT be overwritten
+        assert by_name["sub-1"].exception_info.exception_type == "OwnError"
+        assert by_name["sub-1"].exception_info.exception_message == "from trial"
