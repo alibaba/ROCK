@@ -14,8 +14,7 @@ from rock.logger import init_logger
 from rock.sdk.bench.constants import USER_DEFINED_LOGS
 from rock.sdk.bench.models.job.config import HarborJobConfig
 from rock.sdk.bench.models.trial.result import HarborTrialResult
-from rock.sdk.job.result import ExceptionInfo
-from rock.sdk.job.result import TrialResult as BaseTrialResult
+from rock.sdk.job.result import ExceptionInfo, TrialResult
 from rock.sdk.job.trial.abstract import AbstractTrial
 from rock.sdk.job.trial.registry import register_trial
 
@@ -75,7 +74,7 @@ class HarborTrial(AbstractTrial):
             user_defined_dir=USER_DEFINED_LOGS,
         )
 
-    async def collect(self, sandbox, output: str, exit_code: int) -> list[BaseTrialResult]:
+    async def collect(self, sandbox, output: str, exit_code: int) -> list[TrialResult]:
         """Return all Harbor sub-trial results (one entry per ``result.json``).
 
         Harbor writes N trial-level ``result.json`` files per sandbox run
@@ -89,7 +88,7 @@ class HarborTrial(AbstractTrial):
             return list(trial_results)
 
         return [
-            BaseTrialResult(
+            TrialResult(
                 task_name=self._config.job_name or "",
                 exception_info=ExceptionInfo(
                     exception_type="HarborNoTrials",
