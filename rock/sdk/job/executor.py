@@ -124,6 +124,8 @@ class JobExecutor:
                 response_limited_bytes_in_nohup=None,
             )
             exit_code = obs.exit_code if obs.exit_code is not None else 1
+            if obs.output:
+                logger.info(f"Trial output (job={config.job_name}):\n{obs.output}")
             result = await client.trial.collect(client.sandbox, obs.output or "", exit_code)
             if not success and result.exception_info is None:
                 result.exception_info = ExceptionInfo(
