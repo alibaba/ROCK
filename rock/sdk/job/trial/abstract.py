@@ -26,9 +26,29 @@ class AbstractTrial(ABC):
     async def on_sandbox_ready(self, sandbox: Sandbox) -> None:
         """G4 hook: called by JobExecutor once sandbox.start() succeeds, before setup().
 
-        Default is a no-op. Override to backfill config from sandbox state
-        (e.g. HarborTrial reads back namespace / experiment_id).
+        Default behavior backfills ``namespace`` and ``experiment_id`` from the
+        sandbox into ``self._config`` (both are fields on ``JobConfig``), and
+        raises ``ValueError`` if the sandbox reports a value that conflicts
+        with one already set on the config. Matches legacy
+        ``_autofill_sandbox_info``. Subclasses can override to extend.
         """
+        sb_ns = getattr(sandbox, "_namespace", None)
+        if sb_ns is not None:
+            if self._config.namespace is not None and self._config.namespace != sb_ns:
+                raise ValueError(
+                    f"namespace mismatch: {type(self._config).__name__} has "
+                    f"'{self._config.namespace}', but sandbox returned '{sb_ns}'"
+                )
+            self._config.namespace = sb_ns
+
+        sb_exp = getattr(sandbox, "_experiment_id", None)
+        if sb_exp is not None:
+            if self._config.experiment_id is not None and self._config.experiment_id != sb_exp:
+                raise ValueError(
+                    f"experiment_id mismatch: {type(self._config).__name__} has "
+                    f"'{self._config.experiment_id}', but sandbox returned '{sb_exp}'"
+                )
+            self._config.experiment_id = sb_exp
 
     @abstractmethod
     async def setup(self, sandbox: Sandbox) -> None:

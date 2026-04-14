@@ -133,3 +133,49 @@ class TestBashTrialRegistration:
         cfg = BashJobConfig(script="echo hi")
         trial = _create_trial(cfg)
         assert isinstance(trial, BashTrial)
+
+
+# ---------------------------------------------------------------------------
+# G4: on_sandbox_ready hook — backfill namespace / experiment_id
+# Behavior is inherited from AbstractTrial: BashTrial must also backfill.
+# ---------------------------------------------------------------------------
+
+
+class TestBashTrialOnSandboxReady:
+    """G4: BashTrial inherits on_sandbox_ready from AbstractTrial and must backfill namespace/experiment_id."""
+
+    async def test_namespace_backfilled_when_config_unset(self):
+        cfg = BashJobConfig(script="echo hi")
+        trial = BashTrial(cfg)
+        sandbox = MagicMock()
+        sandbox._namespace = "sb-ns"
+        sandbox._experiment_id = "exp-1"
+
+        await trial.on_sandbox_ready(sandbox)
+
+        assert cfg.namespace == "sb-ns"
+        assert cfg.experiment_id == "exp-1"
+
+    async def test_experiment_id_mismatch_raises(self):
+        import pytest
+
+        cfg = BashJobConfig(script="echo hi", experiment_id="exp-1")
+        trial = BashTrial(cfg)
+        sandbox = MagicMock()
+        sandbox._namespace = None
+        sandbox._experiment_id = "exp-DIFFERENT"
+
+        with pytest.raises(ValueError, match="experiment_id mismatch"):
+            await trial.on_sandbox_ready(sandbox)
+
+    async def test_namespace_mismatch_raises(self):
+        import pytest
+
+        cfg = BashJobConfig(script="echo hi", namespace="cfg-ns")
+        trial = BashTrial(cfg)
+        sandbox = MagicMock()
+        sandbox._namespace = "sb-ns"
+        sandbox._experiment_id = None
+
+        with pytest.raises(ValueError, match="namespace mismatch"):
+            await trial.on_sandbox_ready(sandbox)

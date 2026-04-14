@@ -17,6 +17,11 @@ from rock.sdk.job.result import JobStatus
 def _make_mock_sandbox():
     sandbox = AsyncMock()
     sandbox.sandbox_id = "sb-facade"
+    # AsyncMock auto-creates child mocks for any attr access; force these
+    # two back to None so AbstractTrial.on_sandbox_ready's default backfill
+    # is a no-op (matching a real sandbox that reports no ns / exp_id).
+    sandbox._namespace = None
+    sandbox._experiment_id = None
     sandbox.start = AsyncMock()
     sandbox.close = AsyncMock()
     sandbox.create_session = AsyncMock()
