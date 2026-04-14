@@ -1,10 +1,7 @@
 import argparse
-from pathlib import Path
 
 from rock.cli.command.command import Command
 from rock.logger import init_logger
-from rock.sdk.sandbox.client import Sandbox
-from rock.sdk.sandbox.config import SandboxConfig
 
 logger = init_logger(__name__)
 
@@ -19,103 +16,90 @@ class JobCommand(Command):
             logger.error(f"Unknown job subcommand: {args.job_command}")
 
     async def _job_run(self, args: argparse.Namespace):
-        # 1. Validate script source
-        if args.script and args.script_content:
-            logger.error("--script and --script-content cannot be used together")
-            return
-        if not args.script and not args.script_content:
-            logger.error("Either --script or --script-content is required")
-            return
+        # Import lazily to avoid pulling in bench/Harbor modules for bash-only uses
+        from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
+        from rock.sdk.job.config import BashJobConfig
+        from rock.sdk.job.job import Job
 
-        if args.script:
-            script_path = Path(args.script).resolve()
-            if not script_path.exists():
-                logger.error(f"Script not found: {script_path}")
+        job_type = args.type or "bash"
+
+        if job_type == "bash":
+            if not args.script and not args.script_content:
+                logger.error("Either --script or --script-content is required for bash type")
                 return
-            if not script_path.is_file():
-                logger.error(f"Not a file: {script_path}")
+            if args.script and args.script_content:
+                logger.error("--script and --script-content cannot be used together")
                 return
-            script_content = script_path.read_text()
-        else:
-            script_content = args.script_content
 
-        # 2. Validate local path (optional)
-        src_dir = None
-        target_path = args.target_path
-        if args.local_path:
-            local_path = Path(args.local_path).resolve()
-            if not local_path.exists():
-                logger.error(f"Local path not found: {local_path}")
-                return
-            src_dir = str(local_path)
+            env_kwargs = {}
+            if args.image:
+                env_kwargs["image"] = args.image
+            if args.memory:
+                env_kwargs["memory"] = args.memory
+            if args.cpus:
+                env_kwargs["cpus"] = args.cpus
+            if getattr(args, "base_url", None):
+                env_kwargs["base_url"] = args.base_url
+            if getattr(args, "cluster", None):
+                env_kwargs["cluster"] = args.cluster
+            if getattr(args, "extra_headers", None):
+                env_kwargs["extra_headers"] = args.extra_headers
 
-        # 3. Build sandbox config
-        sandbox_config = SandboxConfig()
-        if args.image:
-            sandbox_config.image = args.image
-        if args.memory:
-            sandbox_config.memory = args.memory
-        if args.cpus:
-            sandbox_config.cpus = args.cpus
-        if args.base_url:
-            sandbox_config.base_url = args.base_url
-        if args.cluster:
-            sandbox_config.cluster = args.cluster
-        if args.extra_headers:
-            sandbox_config.extra_headers.update(args.extra_headers)
+            file_uploads = []
+            if args.local_path:
+                file_uploads.append((args.local_path, args.target_path))
 
-        sandbox = Sandbox(sandbox_config)
-
-        try:
-            # 4. Start sandbox
-            logger.info(f"Starting sandbox with image={sandbox_config.image} ...")
-            await sandbox.start()
-            logger.info(f"Sandbox started: id={sandbox.sandbox_id}, ip={sandbox.host_ip}")
-
-            # 5. Copy source directory to sandbox (optional)
-            if src_dir is not None:
-                assert sandbox.fs is not None
-                logger.info(f"Uploading {src_dir} -> {target_path}")
-                result = await sandbox.fs.upload_dir(source_dir=src_dir, target_dir=target_path)
-                if result.exit_code != 0:
-                    logger.error(f"Upload failed: {result.failure_reason}")
-                    return
-
-            # 6. Execute the script
-            assert sandbox.process is not None
-            logger.info(f"Executing script: {script_content}")
-            result = await sandbox.process.execute_script(
-                script_content=script_content,
-                wait_timeout=args.timeout,
+            config = BashJobConfig(
+                script=args.script_content,
+                script_path=args.script,
+                environment=RockEnvironmentConfig(**env_kwargs),
+                file_uploads=file_uploads,
+                timeout=args.timeout,
+                auto_stop=True,
             )
 
-            # 7. Print output
-            if result.output:
-                print(result.output)
-            logger.info(f"Script exited with code: {result.exit_code}")
+        elif job_type == "harbor":
+            if not args.config:
+                logger.error("--config is required for harbor type")
+                return
+            from rock.sdk.bench.models.job.config import JobConfig as HarborJobConfig
 
-        finally:
-            logger.info("Stopping sandbox ...")
-            await sandbox.stop()
+            config = HarborJobConfig.from_yaml(args.config)
+            if args.image:
+                config.environment.image = args.image
+            config.auto_stop = True
+
+        else:
+            logger.error(f"Unknown job type: {job_type}")
+            return
+
+        try:
+            result = await Job(config).run()
+            if result.trial_results:
+                for tr in result.trial_results:
+                    output = getattr(tr, "raw_output", None) or ""
+                    if output:
+                        print(output)
+            logger.info(f"Job completed: status={result.status}")
+        except Exception as e:
+            logger.error(f"Job failed: {e}")
 
     @staticmethod
     async def add_parser_to(subparsers: argparse._SubParsersAction):
         job_parser = subparsers.add_parser("job", help="Manage sandbox jobs")
         job_subparsers = job_parser.add_subparsers(dest="job_command")
 
-        # run subcommand
         run_parser = job_subparsers.add_parser("run", help="Run a job in a sandbox")
-        run_parser.add_argument("--image", default=None, help="Sandbox image (overrides default)")
-        run_parser.add_argument("--memory", default=None, help="Memory allocation (e.g., 8g)")
-        run_parser.add_argument("--cpus", default=None, type=float, help="CPU allocation (e.g., 2)")
-
-        run_parser.add_argument("--local-path", default=None, help="Local directory to upload to the sandbox")
-        run_parser.add_argument(
-            "--target-path", default="/root/job", help="Target directory in sandbox (default: /root/job)"
-        )
-        run_parser.add_argument("--script", default=None, help="Path to the script to execute in the sandbox")
-        run_parser.add_argument("--script-content", default=None, help="Script content to execute directly")
-
-        run_parser.add_argument(
-            "--timeout", type=int, default=3600, help="Script execution timeout in seconds (default: 3600)"
-        )
+        run_parser.add_argument("--type", choices=["bash", "harbor"], default="bash", help="Job type (default: bash)")
+        # bash args
+        run_parser.add_argument("--script", default=None, help="Path to script file")
+        run_parser.add_argument("--script-content", default=None, help="Inline script content")
+        # harbor args
+        run_parser.add_argument("--config", default=None, help="Harbor YAML config path")
+        # shared args
+        run_parser.add_argument("--image", default=None, help="Sandbox image")
+        run_parser.add_argument("--memory", default=None, help="Memory (e.g. 8g)")
+        run_parser.add_argument("--cpus", default=None, type=float, help="CPU count")
+        run_parser.add_argument("--timeout", type=int, default=3600, help="Timeout in seconds")
+        run_parser.add_argument("--local-path", default=None, help="Local dir to upload")
+        run_parser.add_argument("--target-path", default="/root/job", help="Target dir in sandbox")
