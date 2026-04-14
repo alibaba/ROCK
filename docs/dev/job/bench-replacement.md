@@ -9,7 +9,7 @@
 | **核心执行流程** | ✅ 1:1 对应，可替换 |
 | **Harbor YAML / 脚本模板** | ✅ 完全一致 |
 | **Sandbox 生命周期 / session / OSS 转发** | ✅ 已迁移到 `JobExecutor` |
-| **Harbor 多子 trial 结果聚合** | ❌ **严重回归**，`HarborTrial.collect` 只返回 `trial_results[0]` |
+| **Harbor 多子 trial 结果聚合** | ❌ **严重回归**，`HarborTrial.collect` 只返回 `trial_results[0]`；修复方向：`collect` 签名改为 `TrialResult \| list[TrialResult]`，`Job._build_result` 按 `isinstance` 决定 extend/append |
 | **Agent-aware wait timeout** | ❌ **回归**，丢失 `timeout_multiplier` + `agent.max_timeout_sec` 推导 |
 | **`job_name` 自动生成** | ❌ 缺失 |
 | **`namespace` / `experiment_id` 从 sandbox 回填** | ❌ 缺失 |
@@ -123,10 +123,10 @@ return JobResult(trial_results=trial_results)   # 完整列表
 
 **修复选项**：
 - **A** 改 `HarborTrial.collect` 返回一个 "wrapper" `TrialResult`，把所有 sub-trial 放进自定义字段（类型系统不干净）。
-- **B** 改 `AbstractTrial.collect` 签名为 `→ list[TrialResult]`，让 `JobExecutor.wait` flatten（需要改动基础接口）。
+- **B** 改 `AbstractTrial.collect` 签名为 `→ TrialResult | list[TrialResult]`（union）：单结果 Trial（如 `BashTrial`）保持返回 `TrialResult`，多结果 Trial（如 `HarborTrial`）返回 `list[TrialResult]`；`Job._build_result` 在 `JobResult.trial_results` 聚合时根据实际返回类型 `isinstance(r, list)` 决定 `extend` 还是 `append`。
 - **C** 在 `HarborTrial` 中把"读 N 个 result.json"提前到 `ScatterOperator` 层：Operator 先 probe sandbox 预览 task 数，再 scatter N 份 Trial——但 Harbor 本身是一次性启动 orchestrator，没法这样拆。
 
-**推荐 B**：改基础接口，`collect` 返回 `list[TrialResult]`，Bash 实现返回长度 1 的列表。这是语义最干净的修复。
+**推荐 B（union + 拍平）**：接口上明确允许单/多两种返回形态，`BashTrial` 继续返回单个 `TrialResult` 无需改造，`HarborTrial` 返回完整 `list[TrialResult]`；`Job` Facade 在 `_build_result` 统一 flatten 到 `JobResult.trial_results`。这样既最小扰动下游 Trial 实现，又保留干净的类型签名。
 
 ### G2 — Agent-aware wait timeout 丢失
 
@@ -216,7 +216,8 @@ def _get_wait_timeout(self) -> int:
 
 ```
 Phase 1 — 补齐回归 (必做)
-  1. 修 G1: 改 AbstractTrial.collect → list[TrialResult]，flatten 到 JobResult
+  1. 修 G1: 改 AbstractTrial.collect → TrialResult | list[TrialResult]（union），
+           Job._build_result 按 isinstance 判断 extend/append 到 JobResult.trial_results
   2. 修 G2: HarborJobConfig.model_post_init 计算有效 timeout，或 Trial 层 override
   3. 修 G3: _generate_default_job_name 挪到 HarborJobConfig validator
   4. 修 G4: JobExecutor 提供 on_sandbox_ready 钩子 + HarborTrial 回填
