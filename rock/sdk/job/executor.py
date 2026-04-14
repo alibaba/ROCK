@@ -130,12 +130,18 @@ class JobExecutor:
             )
             exit_code = obs.exit_code if obs.exit_code is not None else 1
             result = await client.trial.collect(client.sandbox, obs.output or "", exit_code)
+            # G5: populate raw_output / exit_code on every TrialResult so they surface in JobResult
+            iter_results = result if isinstance(result, list) else [result]
+            for r in iter_results:
+                if not r.raw_output:
+                    r.raw_output = obs.output or ""
+                if r.exit_code == 0 and exit_code != 0:
+                    r.exit_code = exit_code
             if not success:
                 fail_info = ExceptionInfo(
                     exception_type="ProcessTimeout",
                     exception_message=message or "process did not complete successfully",
                 )
-                iter_results = result if isinstance(result, list) else [result]
                 for r in iter_results:
                     if r.exception_info is None:
                         r.exception_info = fail_info

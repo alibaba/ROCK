@@ -78,9 +78,14 @@ class Job:
             else:
                 flat.append(r)
         all_success = all(t.exception_info is None for t in flat)
+        # G5: surface first non-empty output / non-zero exit code from sub-trials
+        raw_output = next((t.raw_output for t in flat if t.raw_output), "")
+        exit_code = next((t.exit_code for t in flat if t.exit_code != 0), 0)
         return JobResult(
             job_id=self._config.job_name or "",
             status=JobStatus.COMPLETED if all_success else JobStatus.FAILED,
             labels=self._config.labels,
             trial_results=flat,
+            raw_output=raw_output,
+            exit_code=exit_code,
         )

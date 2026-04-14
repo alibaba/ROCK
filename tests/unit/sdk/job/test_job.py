@@ -261,3 +261,38 @@ class TestJobFlattenMultiSubTrials:
         # Pre-existing exception_info on sub-1 must NOT be overwritten
         assert by_name["sub-1"].exception_info.exception_type == "OwnError"
         assert by_name["sub-1"].exception_info.exception_message == "from trial"
+
+
+# ---------------------------------------------------------------------------
+# G5: raw_output / exit_code surfaced on JobResult
+# ---------------------------------------------------------------------------
+
+
+class TestJobResultRawOutputAndExitCode:
+    """G5: JobResult must surface raw_output and exit_code from the sandbox process."""
+
+    async def test_run_populates_raw_output_from_obs(self):
+        mock_sandbox = _make_mock_sandbox()
+        obs = MagicMock()
+        obs.output = "hello from sandbox"
+        obs.exit_code = 0
+        mock_sandbox.handle_nohup_output = AsyncMock(return_value=obs)
+
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            result = await Job(BashJobConfig(script="echo hi", job_name="test")).run()
+
+        assert result.raw_output == "hello from sandbox"
+        assert result.exit_code == 0
+
+    async def test_run_propagates_nonzero_exit_code(self):
+        mock_sandbox = _make_mock_sandbox()
+        obs = MagicMock()
+        obs.output = "err"
+        obs.exit_code = 7
+        mock_sandbox.handle_nohup_output = AsyncMock(return_value=obs)
+
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            result = await Job(BashJobConfig(script="false", job_name="test")).run()
+
+        assert result.exit_code == 7
+        assert result.raw_output == "err"

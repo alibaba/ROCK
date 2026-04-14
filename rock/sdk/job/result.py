@@ -37,6 +37,9 @@ class TrialResult(BaseModel):
     exception_info: ExceptionInfo | None = None
     started_at: str | None = None
     finished_at: str | None = None
+    # G5: process-level outputs captured by JobExecutor
+    raw_output: str = ""
+    exit_code: int = 0
 
     @property
     def score(self) -> float:
