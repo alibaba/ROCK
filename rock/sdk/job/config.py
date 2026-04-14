@@ -8,6 +8,7 @@ Harbor's JobConfig lives in rock.sdk.agent.models.job.config and inherits JobCon
 
 from __future__ import annotations
 
+import yaml
 from pydantic import BaseModel, Field
 
 from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
@@ -26,6 +27,12 @@ class JobConfig(BaseModel):
     file_uploads: list[tuple[str, str]] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
     timeout: int = 3600
+
+    @classmethod
+    def from_yaml(cls, path: str) -> JobConfig:
+        with open(path) as f:
+            data = yaml.safe_load(f)
+        return cls(**data)
 
 
 class BashJobConfig(JobConfig):
