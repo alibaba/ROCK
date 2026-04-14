@@ -44,6 +44,8 @@ class JobCommand(Command):
                 env_kwargs["cluster"] = args.cluster
             if getattr(args, "extra_headers", None):
                 env_kwargs["extra_headers"] = args.extra_headers
+            if getattr(args, "xrl_authorization", None):
+                env_kwargs["xrl_authorization"] = args.xrl_authorization
 
             file_uploads = []
             if args.local_path:
@@ -118,4 +120,9 @@ class JobCommand(Command):
             default=None,
             metavar="KEY=VALUE",
             help="Environment variable, repeatable (e.g. --env FOO=bar --env BAZ=qux)",
+        )
+        run_parser.add_argument(
+            "--xrl-authorization",
+            default=None,
+            help="XRL authorization token",
         )
