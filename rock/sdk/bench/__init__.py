@@ -52,3 +52,8 @@ __all__ = [
     "ArtifactConfig",
     "MetricConfig",
 ]
+
+# Register HarborTrial with the job trial registry at the end of bench init.
+# Must run AFTER bench.models.trial.result is fully loaded, so it lives here
+# (not in rock.sdk.job.__init__, which may be triggered mid-bench-load).
+import rock.sdk.job.trial.harbor  # noqa: F401, E402  # isort: skip

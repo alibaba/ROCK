@@ -24,6 +24,6 @@ def _create_trial(config: JobConfig) -> AbstractTrial:
     trial_cls = _TRIAL_REGISTRY.get(type(config))
     if trial_cls is None:
         raise TypeError(
-            f"No trial registered for {type(config).__name__}. " f"Supported: {[c.__name__ for c in _TRIAL_REGISTRY]}"
+            f"No trial registered for {type(config).__name__}. Supported: {[c.__name__ for c in _TRIAL_REGISTRY]}"
         )
     return trial_cls(config)
