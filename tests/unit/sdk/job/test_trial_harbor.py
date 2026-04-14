@@ -88,36 +88,44 @@ class TestHarborTrialSetup:
 
 
 class TestHarborTrialCollect:
-    async def test_collect_with_trial_results_found(self):
+    async def test_collect_returns_list_of_all_sub_trials(self):
+        """Harbor 一个 sandbox 常产出 N 个子 trial；collect 必须返回全部，不能只取第一条。"""
         cfg = HarborJobConfig(job_name="test", experiment_id="exp-1")
         trial = HarborTrial(cfg)
 
-        trial_json = {
-            "task_name": "fix-dockerfile",
-            "trial_name": "trial-001",
-            "started_at": "2026-01-01T00:00:00Z",
-            "finished_at": "2026-01-01T00:01:00Z",
-            "verifier_result": {"rewards": {"reward": 1.0}},
-            "agent_result": {},
-            "exception_info": None,
-        }
+        trial_jsons = [
+            {
+                "task_name": f"task-{i}",
+                "trial_name": f"trial-{i:03d}",
+                "verifier_result": {"rewards": {"reward": float(i) / 3}},
+                "agent_result": {},
+                "exception_info": None,
+            }
+            for i in range(3)
+        ]
 
         mock_sandbox = AsyncMock()
         list_result = MagicMock()
-        list_result.stdout = f"{cfg.jobs_dir}/test/trial-001/result.json\n"
+        list_result.stdout = "\n".join(f"{cfg.jobs_dir}/test/trial-{i:03d}/result.json" for i in range(3))
         mock_sandbox.execute = AsyncMock(return_value=list_result)
 
-        read_response = MagicMock()
-        read_response.content = json.dumps(trial_json)
-        mock_sandbox.read_file = AsyncMock(return_value=read_response)
+        async def _read(req):
+            path = str(req.path)
+            idx = int(path.split("trial-")[1].split("/")[0])
+            resp = MagicMock()
+            resp.content = json.dumps(trial_jsons[idx])
+            return resp
+
+        mock_sandbox.read_file = AsyncMock(side_effect=_read)
 
         result = await trial.collect(mock_sandbox, output="", exit_code=0)
 
-        assert result.task_name == "fix-dockerfile"
-        assert result.exception_info is None
-        assert result.score == 1.0
+        assert isinstance(result, list), f"collect must return list, got {type(result)}"
+        assert len(result) == 3, f"expected 3 sub-trials, got {len(result)}"
+        assert {r.task_name for r in result} == {"task-0", "task-1", "task-2"}
 
-    async def test_collect_with_no_trials(self):
+    async def test_collect_returns_list_with_synthetic_failure_when_no_trials(self):
+        """Harbor 没写出任何 result.json 时，返回长度为 1 的 list，携带 HarborNoTrials 异常。"""
         cfg = HarborJobConfig(job_name="test", experiment_id="exp-1")
         trial = HarborTrial(cfg)
 
@@ -128,8 +136,10 @@ class TestHarborTrialCollect:
 
         result = await trial.collect(mock_sandbox, output="", exit_code=0)
 
-        assert result.exception_info is not None
-        assert result.exception_info.exception_type == "HarborNoTrials"
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0].exception_info is not None
+        assert result[0].exception_info.exception_type == "HarborNoTrials"
 
 
 # ---------------------------------------------------------------------------

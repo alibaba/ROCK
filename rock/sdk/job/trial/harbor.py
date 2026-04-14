@@ -75,19 +75,28 @@ class HarborTrial(AbstractTrial):
             user_defined_dir=USER_DEFINED_LOGS,
         )
 
-    async def collect(self, sandbox, output: str, exit_code: int) -> BaseTrialResult:
+    async def collect(self, sandbox, output: str, exit_code: int) -> list[BaseTrialResult]:
+        """Return all Harbor sub-trial results (one entry per ``result.json``).
+
+        Harbor writes N trial-level ``result.json`` files per sandbox run
+        (one per dataset × task). We return them all so the Job layer can
+        surface every sub-trial in ``JobResult.trial_results``. If Harbor
+        crashed before any trial finished, return a single synthetic failure
+        entry so that the caller can tell something ran.
+        """
         trial_results = await self._collect_trial_results(sandbox)
         if trial_results:
-            return trial_results[0]
+            return list(trial_results)
 
-        exception_info = ExceptionInfo(
-            exception_type="HarborNoTrials",
-            exception_message="No trial results found",
-        )
-        return BaseTrialResult(
-            task_name=self._config.job_name or "",
-            exception_info=exception_info,
-        )
+        return [
+            BaseTrialResult(
+                task_name=self._config.job_name or "",
+                exception_info=ExceptionInfo(
+                    exception_type="HarborNoTrials",
+                    exception_message="No trial results found",
+                ),
+            )
+        ]
 
     async def _collect_trial_results(self, sandbox) -> list[HarborTrialResult]:
         """Read trial-level result.json files from sandbox."""
