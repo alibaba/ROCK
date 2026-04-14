@@ -172,6 +172,19 @@ class HarborJobConfig(_BaseJobConfig):
         self.environment.experiment_id = self.experiment_id
         return self
 
+    @model_validator(mode="after")
+    def _sync_auto_stop(self):
+        """G7: keep top-level auto_stop and environment.auto_stop in sync (OR semantics).
+
+        Users may set either. Legacy ``environment.auto_stop=True`` (pre-job-refactor)
+        must still work; new ``config.auto_stop=True`` must also propagate down to
+        the environment so the RockEnvironmentConfig path reads the same value.
+        """
+        effective = bool(self.auto_stop) or bool(self.environment.auto_stop)
+        self.auto_stop = effective
+        self.environment.auto_stop = effective
+        return self
+
     # Base JobConfig fields to exclude when serializing to Harbor YAML
     _BASE_FIELDS: ClassVar[set[str]] = set(_BaseJobConfig.model_fields.keys())
 

@@ -307,3 +307,37 @@ class TestHarborInheritsBase:
         base_fields = set(JobConfig.model_fields.keys())
         harbor_fields = set(HarborJobConfig.model_fields.keys())
         assert base_fields.issubset(harbor_fields)
+
+
+# ---------------------------------------------------------------------------
+# G7: HarborJobConfig.auto_stop and environment.auto_stop sync (OR semantics)
+# ---------------------------------------------------------------------------
+
+
+class TestHarborJobConfigAutoStopSync:
+    """G7: HarborJobConfig.auto_stop and environment.auto_stop must be kept in sync (OR semantics)."""
+
+    def test_environment_auto_stop_propagates_to_top_level(self):
+        cfg = HarborJobConfig(
+            experiment_id="exp-1",
+            environment=RockEnvironmentConfig(auto_stop=True),
+        )
+        assert cfg.auto_stop is True, "top-level auto_stop must pick up environment.auto_stop"
+
+    def test_top_level_auto_stop_propagates_to_environment(self):
+        cfg = HarborJobConfig(experiment_id="exp-1", auto_stop=True)
+        assert cfg.environment.auto_stop is True
+
+    def test_both_true_stays_true(self):
+        cfg = HarborJobConfig(
+            experiment_id="exp-1",
+            auto_stop=True,
+            environment=RockEnvironmentConfig(auto_stop=True),
+        )
+        assert cfg.auto_stop is True
+        assert cfg.environment.auto_stop is True
+
+    def test_both_false_stays_false(self):
+        cfg = HarborJobConfig(experiment_id="exp-1")
+        assert cfg.auto_stop is False
+        assert cfg.environment.auto_stop is False
