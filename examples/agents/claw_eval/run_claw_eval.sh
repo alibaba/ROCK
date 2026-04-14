@@ -11,12 +11,12 @@
 # 用法：
 #   rock job run --type bash \
 #     --script examples/agents/claw_eval/run_claw_eval.sh \
-#     --image "rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python311-claw-eval2" \
-#     --base-url "http://xrl.alibaba-inc.com" \
-#     --cluster "vpc-sg-sl-a" \
+#     --image "<YOUR_IMAGE>" \
+#     --base-url "<YOUR_BASE_URL>" \
+#     --cluster "<YOUR_CLUSTER>" \
 #     --memory 64g --cpus 16 --timeout 7200 \
-#     --env "SERP_DEV_KEY=your_key" \
-#     --env "AGENT_IMAGE=rock-registry-vpc.../claw-eval-agent:891fb50" \
+#     --env "SERP_DEV_KEY=<YOUR_SERP_KEY>" \
+#     --env "AGENT_IMAGE=<YOUR_SANDBOX_AGENT_IMAGE>" \
 #     --env "RUN_CMD=claw-eval batch --parallel 4 --sandbox --config /tmp/claw-eval-config/config.yaml --trace-dir /data/logs/user-defined/traces" \
 #     --local-path . --target-path /tmp/claw-eval-config
 
