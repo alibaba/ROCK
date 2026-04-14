@@ -139,6 +139,8 @@ class JobExecutor:
                 response_limited_bytes_in_nohup=None,
             )
             exit_code = obs.exit_code if obs.exit_code is not None else 1
+            if obs.output:
+                logger.info(f"Trial output (job={config.job_name}):\n{obs.output}")
             result = await client.trial.collect(client.sandbox, obs.output or "", exit_code)
             # G5: populate raw_output / exit_code on every TrialResult so they surface in JobResult
             iter_results = result if isinstance(result, list) else [result]
