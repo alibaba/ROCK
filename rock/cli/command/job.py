@@ -19,7 +19,7 @@ class JobCommand(Command):
         # Import lazily to avoid pulling in bench/Harbor modules for bash-only uses
         from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
         from rock.sdk.job.config import BashJobConfig
-        from rock.sdk.job.job import Job
+        from rock.sdk.job.facade import Job
 
         job_type = args.type or "bash"
 

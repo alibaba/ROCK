@@ -9,7 +9,7 @@ import pytest
 import rock.sdk.bench  # pre-import to avoid circular  # noqa: F401
 import rock.sdk.job.trial.bash  # trigger BashTrial registration  # noqa: F401
 from rock.sdk.job.config import BashJobConfig
-from rock.sdk.job.job import Job
+from rock.sdk.job.facade import Job
 from rock.sdk.job.operator import ScatterOperator
 from rock.sdk.job.result import JobStatus
 

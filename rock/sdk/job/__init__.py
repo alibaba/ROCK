@@ -6,7 +6,7 @@ import rock.sdk.bench  # noqa: F401, I001
 
 from rock.sdk.job.config import BashJobConfig, JobConfig
 from rock.sdk.job.executor import JobClient, JobExecutor, TrialClient
-from rock.sdk.job.job import Job
+from rock.sdk.job.facade import Job
 from rock.sdk.job.operator import Operator, ScatterOperator
 from rock.sdk.job.result import ExceptionInfo, JobResult, JobStatus, TrialResult
 from rock.sdk.job.trial import AbstractTrial, register_trial
