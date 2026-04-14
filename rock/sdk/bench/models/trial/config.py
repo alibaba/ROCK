@@ -77,6 +77,13 @@ class RockEnvironmentConfig(SandboxConfig, EnvironmentConfig):
         return harbor.model_dump(mode="json", exclude_none=True)
 
 
+class TemplateConfig(BaseModel):
+    """Agent-Bench template reference used by native verifier."""
+
+    name: str | None = None
+    revision: str | None = None
+
+
 class NativeConfig(BaseModel):
     """Config specific to native verifier mode.
     When image and script are both provided, a ContainerVerifier is used to
@@ -87,6 +94,7 @@ class NativeConfig(BaseModel):
     image: str | None = None
     script: str | None = None
     oss_deps: dict[str, str] = Field(default_factory=dict)
+    template: TemplateConfig | None = None
 
 
 class VerifierConfig(BaseModel):

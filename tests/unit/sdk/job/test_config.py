@@ -13,8 +13,10 @@ from rock.sdk.bench.models.job.config import JobConfig as HarborJobConfig
 from rock.sdk.bench.models.trial.config import (
     AgentConfig,
     ArtifactConfig,
+    NativeConfig,
     RockEnvironmentConfig,
     TaskConfig,
+    TemplateConfig,
     VerifierConfig,
 )
 from rock.sdk.job.config import BashJobConfig, JobConfig
@@ -299,6 +301,106 @@ class TestHarborJobConfigFromYaml:
     def test_from_yaml_file_not_found(self):
         with pytest.raises(FileNotFoundError):
             HarborJobConfig.from_yaml("/nonexistent/path.yaml")
+
+
+# ---------------------------------------------------------------------------
+# TemplateConfig
+# ---------------------------------------------------------------------------
+
+
+class TestTemplateConfig:
+    def test_defaults(self):
+        cfg = TemplateConfig()
+        assert cfg.name is None
+        assert cfg.revision is None
+
+    def test_with_values(self):
+        cfg = TemplateConfig(
+            name="swe-agent-internal/SWE-Gym/SWE-Gym",
+            revision="53634366f454e6dc5fc3ceb85896c706b9ad1078",
+        )
+        assert cfg.name == "swe-agent-internal/SWE-Gym/SWE-Gym"
+        assert cfg.revision == "53634366f454e6dc5fc3ceb85896c706b9ad1078"
+
+    def test_partial_values(self):
+        cfg = TemplateConfig(name="my-agent/my-org/my-dataset")
+        assert cfg.name == "my-agent/my-org/my-dataset"
+        assert cfg.revision is None
+
+    def test_json_round_trip(self):
+        cfg = TemplateConfig(
+            name="swe-agent-internal/SWE-Gym/SWE-Gym",
+            revision="53634366f454e6dc5fc3ceb85896c706b9ad1078",
+        )
+        data = cfg.model_dump(mode="json")
+        restored = TemplateConfig(**data)
+        assert restored == cfg
+
+    def test_exclude_none_omits_unset_fields(self):
+        cfg = TemplateConfig(name="my-agent/my-org/my-dataset")
+        data = cfg.model_dump(mode="json", exclude_none=True)
+        assert "name" in data
+        assert "revision" not in data
+
+
+# ---------------------------------------------------------------------------
+# NativeConfig
+# ---------------------------------------------------------------------------
+
+
+class TestNativeConfig:
+    def test_defaults(self):
+        cfg = NativeConfig()
+        assert cfg.image is None
+        assert cfg.script is None
+        assert cfg.oss_deps == {}
+        assert cfg.template is None
+
+    def test_template_none_by_default(self):
+        cfg = NativeConfig(image="ubuntu:22.04")
+        assert cfg.template is None
+
+    def test_template_from_dict(self):
+        cfg = NativeConfig(
+            template={
+                "name": "swe-agent-internal/SWE-Gym/SWE-Gym",
+                "revision": "53634366f454e6dc5fc3ceb85896c706b9ad1078",
+            }
+        )
+        assert isinstance(cfg.template, TemplateConfig)
+        assert cfg.template.name == "swe-agent-internal/SWE-Gym/SWE-Gym"
+        assert cfg.template.revision == "53634366f454e6dc5fc3ceb85896c706b9ad1078"
+
+    def test_template_from_model(self):
+        tmpl = TemplateConfig(name="my-agent/my-org/my-dataset", revision="abc123")
+        cfg = NativeConfig(template=tmpl)
+        assert cfg.template is tmpl
+
+    def test_json_round_trip_with_template(self):
+        cfg = NativeConfig(
+            image="eval:latest",
+            template=TemplateConfig(
+                name="swe-agent-internal/SWE-Gym/SWE-Gym",
+                revision="53634366f454e6dc5fc3ceb85896c706b9ad1078",
+            ),
+        )
+        data = cfg.model_dump(mode="json")
+        restored = NativeConfig(**data)
+        assert restored.template.name == cfg.template.name
+        assert restored.template.revision == cfg.template.revision
+
+    def test_exclude_none_omits_template_when_not_set(self):
+        cfg = NativeConfig(image="eval:latest")
+        data = cfg.model_dump(mode="json", exclude_none=True)
+        assert "template" not in data
+
+    def test_exclude_none_includes_template_when_set(self):
+        cfg = NativeConfig(
+            template=TemplateConfig(name="my-agent/my-org/my-dataset", revision="rev1")
+        )
+        data = cfg.model_dump(mode="json", exclude_none=True)
+        assert "template" in data
+        assert data["template"]["name"] == "my-agent/my-org/my-dataset"
 
 
 class TestHarborInheritsBase:
