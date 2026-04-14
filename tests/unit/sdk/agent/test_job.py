@@ -5,14 +5,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from rock.sdk.bench.job import Job, JobResult, JobStatus
 from rock.sdk.bench.models.job.config import (
-    JobConfig,
+    HarborJobConfig,
     LocalDatasetConfig,
     RegistryDatasetConfig,
     RemoteRegistryInfo,
     RockEnvironmentConfig,
 )
 from rock.sdk.bench.models.trial.config import AgentConfig
-from rock.sdk.bench.models.trial.result import ExceptionInfo, TrialResult, VerifierResult
+from rock.sdk.bench.models.trial.result import ExceptionInfo, HarborTrialResult, VerifierResult
 
 
 class TestJobStatus:
@@ -24,9 +24,9 @@ class TestJobStatus:
         assert JobStatus.CANCELLED == "cancelled"
 
 
-class TestTrialResult:
+class TestHarborTrialResult:
     def test_defaults(self):
-        t = TrialResult(task_name="fix-bug")
+        t = HarborTrialResult(task_name="fix-bug")
         assert t.task_name == "fix-bug"
         assert t.score == 0.0  # computed property from verifier_result
         assert t.status == "completed"  # computed property, no exception_info
@@ -34,14 +34,14 @@ class TestTrialResult:
         assert t.duration_sec == 0.0  # computed property
 
     def test_with_verifier_result(self):
-        t = TrialResult(
+        t = HarborTrialResult(
             task_name="fix-bug",
             verifier_result=VerifierResult(rewards={"reward": 1.0}),
         )
         assert t.score == 1.0
 
     def test_failed_trial(self):
-        t = TrialResult(
+        t = HarborTrialResult(
             task_name="fix-bug",
             exception_info=ExceptionInfo(
                 exception_type="TimeoutError",
@@ -60,7 +60,7 @@ class TestTrialResult:
             "agent_result": {"n_input_tokens": 15000, "n_output_tokens": 3000},
             "exception_info": None,
         }
-        t = TrialResult.from_harbor_json(data)
+        t = HarborTrialResult.from_harbor_json(data)
         assert t.task_name == "fix-dockerfile"
         assert t.trial_name == "trial-001"
         assert t.score == 1.0
@@ -73,8 +73,8 @@ class TestJobResult:
             job_id="job-123",
             status=JobStatus.COMPLETED,
             trial_results=[
-                TrialResult(task_name="t1", verifier_result=VerifierResult(rewards={"reward": 1.0})),
-                TrialResult(task_name="t2", verifier_result=VerifierResult(rewards={"reward": 0.5})),
+                HarborTrialResult(task_name="t1", verifier_result=VerifierResult(rewards={"reward": 1.0})),
+                HarborTrialResult(task_name="t2", verifier_result=VerifierResult(rewards={"reward": 0.5})),
             ],
             raw_output="",
             exit_code=0,
@@ -89,8 +89,8 @@ class TestJobResult:
             job_id="job-456",
             status=JobStatus.COMPLETED,
             trial_results=[
-                TrialResult(task_name="t1", verifier_result=VerifierResult(rewards={"reward": 1.0})),
-                TrialResult(
+                HarborTrialResult(task_name="t1", verifier_result=VerifierResult(rewards={"reward": 1.0})),
+                HarborTrialResult(
                     task_name="t2",
                     exception_info=ExceptionInfo(exception_type="Error", exception_message="err"),
                 ),
@@ -117,7 +117,7 @@ class TestJobResult:
             job_id="job-labeled",
             labels={"step": "42", "env": "prod"},
             trial_results=[
-                TrialResult(task_name="t1", verifier_result=VerifierResult(rewards={"reward": 1.0})),
+                HarborTrialResult(task_name="t1", verifier_result=VerifierResult(rewards={"reward": 1.0})),
             ],
         )
         assert r.labels == {"step": "42", "env": "prod"}
@@ -174,7 +174,7 @@ def _make_mock_sandbox():
 
 class TestJob:
     def test_init_requires_jobconfig(self):
-        config = JobConfig(experiment_id="test-exp")
+        config = HarborJobConfig(experiment_id="test-exp")
         job = Job(config)
         assert job._config == config
 
@@ -188,7 +188,7 @@ class TestJob:
         mock_sandbox = _make_mock_sandbox()
 
         with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
-            config = JobConfig(
+            config = HarborJobConfig(
                 experiment_id="test-exp",
                 job_name="test-job",
                 agents=[AgentConfig(name="t2")],
@@ -211,7 +211,7 @@ class TestJob:
         mock_sandbox = _make_mock_sandbox()
 
         with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
-            config = JobConfig(
+            config = HarborJobConfig(
                 job_name="test-job", experiment_id="test-exp", environment=RockEnvironmentConfig(auto_stop=True)
             )
             job = Job(config)
@@ -223,7 +223,7 @@ class TestJob:
         mock_sandbox = _make_mock_sandbox()
 
         with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
-            config = JobConfig(
+            config = HarborJobConfig(
                 job_name="test-job", experiment_id="test-exp", environment=RockEnvironmentConfig(auto_stop=False)
             )
             job = Job(config)
@@ -235,7 +235,7 @@ class TestJob:
         mock_sandbox = _make_mock_sandbox()
 
         with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
-            config = JobConfig(job_name="test-job", experiment_id="test-exp")
+            config = HarborJobConfig(job_name="test-job", experiment_id="test-exp")
             job = Job(config)
             await job.submit()
 
@@ -246,7 +246,7 @@ class TestJob:
         mock_sandbox = _make_mock_sandbox()
 
         with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
-            config = JobConfig(job_name="test-job", experiment_id="test-exp")
+            config = HarborJobConfig(job_name="test-job", experiment_id="test-exp")
             job = Job(config)
             await job.submit()
             result = await job.wait()
@@ -261,7 +261,7 @@ class TestBuildSessionEnv:
         monkeypatch.setenv("OSS_ACCESS_KEY_ID", "test-key")
         monkeypatch.setenv("HOME", "/root")
 
-        job = Job(JobConfig(job_name="test-job", experiment_id="test-exp"))
+        job = Job(HarborJobConfig(job_name="test-job", experiment_id="test-exp"))
         env = job._build_session_env()
 
         assert env["OSS_ENDPOINT"] == "https://oss.example.com"
@@ -272,7 +272,7 @@ class TestBuildSessionEnv:
         monkeypatch.setenv("OSS_ENDPOINT", "https://oss.from.process.com")
 
         job = Job(
-            JobConfig(
+            HarborJobConfig(
                 job_name="test-job",
                 experiment_id="test-exp",
                 environment=RockEnvironmentConfig(env={"OSS_ENDPOINT": "https://oss.from.config.com"}),
@@ -287,7 +287,7 @@ class TestBuildSessionEnv:
             if key.startswith("OSS"):
                 monkeypatch.delenv(key)
 
-        job = Job(JobConfig(job_name="test-job", experiment_id="test-exp"))
+        job = Job(HarborJobConfig(job_name="test-job", experiment_id="test-exp"))
         assert job._build_session_env() is None
 
 
@@ -297,7 +297,7 @@ class TestCancelKillsProcess:
         mock_sandbox.arun = AsyncMock(return_value=MagicMock(output="", exit_code=0))
 
         with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
-            config = JobConfig(job_name="test-job", experiment_id="test-exp")
+            config = HarborJobConfig(job_name="test-job", experiment_id="test-exp")
             job = Job(config)
             await job.submit()
             await job.cancel()
@@ -313,7 +313,7 @@ class TestGenerateDefaultJobName:
 
     def test_custom_job_name_not_overwritten(self):
         """User-set job_name should not be overwritten."""
-        config = JobConfig(
+        config = HarborJobConfig(
             job_name="my-custom-job",
             experiment_id="test-exp",
             datasets=[RegistryDatasetConfig(registry=RemoteRegistryInfo(), name="tb", version="2.0")],
@@ -325,7 +325,7 @@ class TestGenerateDefaultJobName:
 
     def test_job_name_generated_with_dataset_and_single_task(self):
         """Default job_name should be generated with dataset name and single task."""
-        config = JobConfig(
+        config = HarborJobConfig(
             experiment_id="test-exp",
             datasets=[
                 RegistryDatasetConfig(
@@ -349,7 +349,7 @@ class TestGenerateDefaultJobName:
 
     def test_job_name_generated_with_dataset_multiple_tasks(self):
         """With multiple tasks, only dataset name and UUID should be used."""
-        config = JobConfig(
+        config = HarborJobConfig(
             experiment_id="test-exp",
             datasets=[
                 RegistryDatasetConfig(
@@ -372,7 +372,7 @@ class TestGenerateDefaultJobName:
 
     def test_job_name_generated_without_dataset(self):
         """Without dataset, only UUID should be used."""
-        config = JobConfig(experiment_id="test-exp")
+        config = HarborJobConfig(experiment_id="test-exp")
         job = Job(config)
         job._generate_default_job_name()
 
@@ -382,7 +382,7 @@ class TestGenerateDefaultJobName:
 
     def test_job_name_generated_with_dataset_no_name(self):
         """Dataset without name field should still work."""
-        config = JobConfig(
+        config = HarborJobConfig(
             experiment_id="test-exp",
             datasets=[LocalDatasetConfig(path=Path("/data/tasks"))],
         )
@@ -398,7 +398,7 @@ class TestGenerateDefaultJobName:
         mock_sandbox = _make_mock_sandbox()
 
         with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
-            config = JobConfig(
+            config = HarborJobConfig(
                 experiment_id="test-exp",
                 datasets=[
                     RegistryDatasetConfig(

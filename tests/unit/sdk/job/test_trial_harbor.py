@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 # Pre-import bench to avoid circular-import pitfalls in rock.sdk.job.config
 import rock.sdk.bench  # noqa: F401
-from rock.sdk.bench.models.job.config import JobConfig as HarborJobConfig
+from rock.sdk.bench.models.job.config import HarborJobConfig
 from rock.sdk.job.trial.harbor import HarborTrial
 from rock.sdk.job.trial.registry import _create_trial
 

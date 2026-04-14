@@ -62,7 +62,7 @@ class JobCommand(Command):
             if not args.config:
                 logger.error("--config is required for harbor type")
                 return
-            from rock.sdk.bench.models.job.config import JobConfig as HarborJobConfig
+            from rock.sdk.bench.models.job.config import HarborJobConfig
 
             config = HarborJobConfig.from_yaml(args.config)
             if args.image:

@@ -128,7 +128,7 @@ class RegistryDatasetConfig(BaseDatasetConfig):
 DatasetConfig = LocalDatasetConfig | RegistryDatasetConfig
 
 
-class JobConfig(_BaseJobConfig):
+class HarborJobConfig(_BaseJobConfig):
     """Harbor Job configuration: extends base JobConfig with Harbor-native fields.
 
     All Rock sandbox/lifecycle configuration lives in ``environment`` (inherited).
@@ -191,8 +191,8 @@ class JobConfig(_BaseJobConfig):
         return yaml.dump(data, default_flow_style=False, allow_unicode=True)
 
     @classmethod
-    def from_yaml(cls, path: str) -> JobConfig:
-        """Load JobConfig from a Harbor YAML config file."""
+    def from_yaml(cls, path: str) -> HarborJobConfig:
+        """Load HarborJobConfig from a Harbor YAML config file."""
         import yaml
 
         with open(path) as f:

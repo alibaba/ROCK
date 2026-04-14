@@ -2,7 +2,7 @@ from pathlib import Path
 
 from rock.sdk.bench.models.environment_type import EnvironmentType
 from rock.sdk.bench.models.job.config import (
-    JobConfig,
+    HarborJobConfig,
     LocalDatasetConfig,
     OrchestratorConfig,
     RegistryDatasetConfig,
@@ -218,9 +218,9 @@ class TestRegistryDatasetConfig:
         assert d.n_tasks == 50
 
 
-class TestJobConfig:
+class TestHarborJobConfig:
     def test_defaults(self):
-        cfg = JobConfig(experiment_id="test-exp")
+        cfg = HarborJobConfig(experiment_id="test-exp")
         assert cfg.n_attempts == 1
         assert cfg.timeout_multiplier == 1.0
         assert cfg.debug is False
@@ -233,14 +233,14 @@ class TestJobConfig:
         assert cfg.artifacts == []
 
     def test_environment_defaults(self):
-        cfg = JobConfig(experiment_id="test-exp")
+        cfg = HarborJobConfig(experiment_id="test-exp")
         assert cfg.environment.setup_commands == []
         assert cfg.environment.file_uploads == []
         assert cfg.environment.env == {}
         assert cfg.environment.auto_stop is False
 
     def test_with_full_config(self):
-        cfg = JobConfig(
+        cfg = HarborJobConfig(
             job_name="test-job",
             experiment_id="test-exp",
             n_attempts=2,
@@ -257,20 +257,20 @@ class TestJobConfig:
 
 class TestPublicAPI:
     def test_import_from_agent_package(self):
-        from rock.sdk.bench import Job, JobResult, JobStatus, TrialResult
+        from rock.sdk.bench import HarborTrialResult, Job, JobResult, JobStatus
 
         assert Job is not None
         assert JobResult is not None
         assert JobStatus is not None
-        assert TrialResult is not None
+        assert HarborTrialResult is not None
 
     def test_import_from_models_package(self):
         from rock.sdk.bench.models import (
             AgentConfig,
             EnvironmentType,
-            JobConfig,
+            HarborJobConfig,
         )
 
-        assert JobConfig is not None
+        assert HarborJobConfig is not None
         assert AgentConfig is not None
         assert EnvironmentType is not None

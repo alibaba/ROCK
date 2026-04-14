@@ -12,8 +12,8 @@ import json
 from rock.actions import Command, ReadFileRequest
 from rock.logger import init_logger
 from rock.sdk.bench.constants import USER_DEFINED_LOGS
-from rock.sdk.bench.models.job.config import JobConfig as HarborJobConfig
-from rock.sdk.bench.models.trial.result import TrialResult
+from rock.sdk.bench.models.job.config import HarborJobConfig
+from rock.sdk.bench.models.trial.result import HarborTrialResult
 from rock.sdk.job.result import ExceptionInfo
 from rock.sdk.job.result import TrialResult as BaseTrialResult
 from rock.sdk.job.trial.abstract import AbstractTrial
@@ -89,7 +89,7 @@ class HarborTrial(AbstractTrial):
             exception_info=exception_info,
         )
 
-    async def _collect_trial_results(self, sandbox) -> list[TrialResult]:
+    async def _collect_trial_results(self, sandbox) -> list[HarborTrialResult]:
         """Read trial-level result.json files from sandbox."""
         job_dir = f"{self._config.jobs_dir}/{self._config.job_name}"
         try:
@@ -100,12 +100,12 @@ class HarborTrial(AbstractTrial):
         except Exception:
             trial_files = []
 
-        results: list[TrialResult] = []
+        results: list[HarborTrialResult] = []
         for trial_file in trial_files:
             try:
                 response = await sandbox.read_file(ReadFileRequest(path=trial_file))
                 data = json.loads(response.content)
-                results.append(TrialResult.from_harbor_json(data))
+                results.append(HarborTrialResult.from_harbor_json(data))
             except Exception as e:
                 logger.warning(f"Failed to parse trial result {trial_file}: {e}")
 

@@ -1,6 +1,6 @@
 from rock.sdk.bench.job import Job
 from rock.sdk.bench.models.job.config import (
-    JobConfig,
+    HarborJobConfig,
     LocalDatasetConfig,
     OrchestratorConfig,
     OssRegistryInfo,
@@ -22,7 +22,7 @@ from rock.sdk.bench.models.trial.result import (
     AgentInfo,
     AgentResult,
     ExceptionInfo,
-    TrialResult,
+    HarborTrialResult,
     VerifierResult,
 )
 from rock.sdk.job.result import JobResult, JobStatus
@@ -31,12 +31,12 @@ __all__ = [
     "Job",
     "JobResult",
     "JobStatus",
-    "TrialResult",
+    "HarborTrialResult",
     "VerifierResult",
     "AgentInfo",
     "AgentResult",
     "ExceptionInfo",
-    "JobConfig",
+    "HarborJobConfig",
     "RockEnvironmentConfig",
     "RegistryDatasetConfig",
     "LocalDatasetConfig",

@@ -49,7 +49,7 @@ class TestTrialRegistryAutoRegistration:
     def test_harbor_registered(self):
         # Importing rock.sdk.job triggers auto-registration
         import rock.sdk.job  # noqa: F401
-        from rock.sdk.bench.models.job.config import JobConfig as HarborJobConfig
+        from rock.sdk.bench.models.job.config import HarborJobConfig
         from rock.sdk.job.trial.registry import _TRIAL_REGISTRY
 
         assert HarborJobConfig in _TRIAL_REGISTRY
@@ -57,10 +57,10 @@ class TestTrialRegistryAutoRegistration:
 
 class TestBackwardCompat:
     def test_old_agent_imports_still_work(self):
-        """rock.sdk.bench (formerly rock.sdk.agent) must still export Job, JobConfig, JobResult, JobStatus."""
-        from rock.sdk.bench import Job, JobConfig, JobResult, JobStatus
+        """rock.sdk.bench (formerly rock.sdk.agent) must still export Job, HarborJobConfig, JobResult, JobStatus."""
+        from rock.sdk.bench import HarborJobConfig, Job, JobResult, JobStatus
 
         assert Job is not None
-        assert JobConfig is not None
+        assert HarborJobConfig is not None
         assert JobResult is not None
         assert JobStatus is not None

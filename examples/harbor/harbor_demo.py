@@ -32,7 +32,7 @@ import logging
 import os
 import sys
 
-from rock.sdk.bench import Job, JobConfig
+from rock.sdk.bench import HarborJobConfig, Job
 
 _REQUIRED_ENV_VARS = [
     "OSS_ACCESS_KEY_ID",
@@ -62,13 +62,13 @@ def check_oss_env() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Harbor tasks inside a ROCK sandbox")
-    parser.add_argument("-c", "--config", required=True, help="Path to JobConfig YAML file")
+    parser.add_argument("-c", "--config", required=True, help="Path to HarborJobConfig YAML file")
     parser.add_argument("-t", "--task", default=None, help="Task name to run (overrides config)")
     return parser.parse_args()
 
 
 async def async_main(args: argparse.Namespace) -> None:
-    config = JobConfig.from_yaml(args.config)
+    config = HarborJobConfig.from_yaml(args.config)
 
     # Override task_names if specified via CLI
     if args.task and config.datasets:

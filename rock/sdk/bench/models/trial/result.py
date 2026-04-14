@@ -1,7 +1,7 @@
 """Harbor trial result models.
 
-TrialResult base class is in rock.sdk.job.result.
-This module extends it with Harbor-specific fields.
+The base TrialResult lives in rock.sdk.job.result.
+This module extends it with Harbor-specific fields as HarborTrialResult.
 """
 
 from __future__ import annotations
@@ -42,8 +42,8 @@ class TimingInfo(BaseModel):
     finished_at: str | None = None
 
 
-class TrialResult(_BaseTrialResult):
-    """Harbor TrialResult: extends base with agent/verifier/timing fields."""
+class HarborTrialResult(_BaseTrialResult):
+    """Harbor-specific TrialResult: extends the base with agent/verifier/timing fields."""
 
     trial_name: str = ""
     source: str | None = None
@@ -75,8 +75,8 @@ class TrialResult(_BaseTrialResult):
         return []
 
     @classmethod
-    def from_harbor_json(cls, data: dict[str, Any]) -> TrialResult:
-        """Parse a harbor trial-level result.json dict into TrialResult."""
+    def from_harbor_json(cls, data: dict[str, Any]) -> HarborTrialResult:
+        """Parse a harbor trial-level result.json dict into HarborTrialResult."""
         exception_info = None
         if data.get("exception_info"):
             ei = data["exception_info"]

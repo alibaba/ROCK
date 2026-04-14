@@ -219,7 +219,7 @@ async def test_harbor_requires_config():
 
 
 async def test_harbor_loads_from_yaml():
-    from rock.sdk.bench.models.job.config import JobConfig as HarborJobConfig
+    from rock.sdk.bench.models.job.config import HarborJobConfig
 
     yaml_content = """
 experiment_id: exp-123

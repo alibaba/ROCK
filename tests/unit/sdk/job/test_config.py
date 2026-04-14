@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 from rock.sdk.bench.constants import USER_DEFINED_LOGS
-from rock.sdk.bench.models.job.config import JobConfig as HarborJobConfig
+from rock.sdk.bench.models.job.config import HarborJobConfig
 from rock.sdk.bench.models.trial.config import (
     AgentConfig,
     ArtifactConfig,

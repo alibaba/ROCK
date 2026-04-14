@@ -2,7 +2,7 @@ from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
 from rock.sdk.job.result import JobResult, JobStatus
 
 from .config import (
-    JobConfig,
+    HarborJobConfig,
     LocalDatasetConfig,
     OrchestratorConfig,
     OssRegistryInfo,
@@ -12,7 +12,7 @@ from .config import (
 )
 
 __all__ = [
-    "JobConfig",
+    "HarborJobConfig",
     "OrchestratorConfig",
     "RetryConfig",
     "RegistryDatasetConfig",

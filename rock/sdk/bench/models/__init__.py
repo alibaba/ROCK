@@ -1,7 +1,7 @@
 from rock.sdk.bench.models.environment_type import EnvironmentType
 from rock.sdk.bench.models.job.config import (
     DatasetConfig,
-    JobConfig,
+    HarborJobConfig,
     OrchestratorConfig,
     RetryConfig,
 )
@@ -19,7 +19,7 @@ from rock.sdk.bench.models.trial.config import (
 )
 
 __all__ = [
-    "JobConfig",
+    "HarborJobConfig",
     "OrchestratorConfig",
     "RetryConfig",
     "DatasetConfig",

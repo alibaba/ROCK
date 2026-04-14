@@ -1,5 +1,5 @@
 from .config import AgentConfig, ArtifactConfig, EnvironmentConfig, OssMirrorConfig, TaskConfig, VerifierConfig
-from .result import AgentInfo, AgentResult, ExceptionInfo, ModelInfo, TimingInfo, TrialResult, VerifierResult
+from .result import AgentInfo, AgentResult, ExceptionInfo, HarborTrialResult, ModelInfo, TimingInfo, VerifierResult
 
 __all__ = [
     "AgentConfig",
@@ -8,7 +8,7 @@ __all__ = [
     "VerifierConfig",
     "TaskConfig",
     "ArtifactConfig",
-    "TrialResult",
+    "HarborTrialResult",
     "AgentInfo",
     "ModelInfo",
     "AgentResult",
