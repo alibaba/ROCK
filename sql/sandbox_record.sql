@@ -1,7 +1,7 @@
 CREATE TABLE sandbox_record (
 	sandbox_id VARCHAR(128) NOT NULL, 
 	user_id VARCHAR(128) NOT NULL, 
-	image VARCHAR(128) NOT NULL, 
+	image VARCHAR(512) NOT NULL, 
 	experiment_id VARCHAR(128) NOT NULL, 
 	namespace VARCHAR(128) NOT NULL, 
 	cluster_name VARCHAR(128) NOT NULL, 
