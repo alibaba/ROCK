@@ -284,20 +284,20 @@ async def test_parser_accepts_base_url_and_cluster():
             "--script-content",
             "echo hi",
             "--base-url",
-            "http://xrl.alibaba-inc.com",
+            "http://example.com",
             "--cluster",
-            "vpc-sg-sl-a",
+            "test-cluster-a",
         ]
     )
-    assert args.base_url == "http://xrl.alibaba-inc.com"
-    assert args.cluster == "vpc-sg-sl-a"
+    assert args.base_url == "http://example.com"
+    assert args.cluster == "test-cluster-a"
 
 
 async def test_bash_passes_base_url_and_cluster_to_environment():
     args = _bash_args(
         script_content="echo hello",
-        base_url="http://xrl.alibaba-inc.com",
-        cluster="vpc-sg-sl-a",
+        base_url="http://example.com",
+        cluster="test-cluster-a",
     )
 
     with patch("rock.sdk.job.Job") as MockJob:
@@ -309,8 +309,8 @@ async def test_bash_passes_base_url_and_cluster_to_environment():
         await cmd.arun(args)
 
         config_arg = MockJob.call_args[0][0]
-        assert config_arg.environment.base_url == "http://xrl.alibaba-inc.com"
-        assert config_arg.environment.cluster == "vpc-sg-sl-a"
+        assert config_arg.environment.base_url == "http://example.com"
+        assert config_arg.environment.cluster == "test-cluster-a"
 
 
 async def test_parser_accepts_env_args():
