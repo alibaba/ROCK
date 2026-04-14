@@ -75,8 +75,15 @@ class JobExecutor:
 
     @staticmethod
     def _job_tmp_prefix(config: JobConfig) -> str:
-        """Prefix for per-job temp files on sandbox, e.g. /tmp/rock_job_my-job."""
-        return f"/tmp/rock_job_{config.job_name or 'default'}"
+        """Prefix for per-job script/output files on sandbox.
+
+        Uses USER_DEFINED_LOGS (persistent under /data/logs/user-defined/...)
+        so that logs survive sandbox-internal /tmp sweeps and are inspectable
+        after a failure, matching the legacy bench/job.py behavior.
+        """
+        from rock.sdk.bench.constants import USER_DEFINED_LOGS
+
+        return f"{USER_DEFINED_LOGS}/rock_job_{config.job_name or 'default'}"
 
     async def _do_submit(self, trial: AbstractTrial) -> TrialClient:
         """Start sandbox + execute script for a single trial."""
