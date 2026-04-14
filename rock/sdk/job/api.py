@@ -55,8 +55,8 @@ class Job:
         """Wait for completion, build JobResult."""
         if not self._job_client:
             raise RuntimeError("No submitted job. Call submit() first.")
-        trial_results = await self._executor.wait(self._job_client)
-        return self._build_result(trial_results)
+        raw = await self._executor.wait(self._job_client)
+        return self._build_result(raw)
 
     async def cancel(self) -> None:
         """Kill all running trials."""
@@ -64,11 +64,28 @@ class Job:
             for tc in self._job_client.trials:
                 await tc.sandbox.arun(cmd=f"kill {tc.pid}", session=tc.session)
 
-    def _build_result(self, trial_results: list[TrialResult]) -> JobResult:
-        all_success = all(r.exception_info is None for r in trial_results)
+    def _build_result(self, raw_results: list[TrialResult | list[TrialResult]]) -> JobResult:
+        """Flatten list-returning collect() outputs into JobResult.trial_results.
+
+        Each element of ``raw_results`` is whatever one Trial's ``collect()``
+        returned — either a single TrialResult or a list. HarborTrial returns
+        a list (one entry per sub-trial); BashTrial returns a single result.
+        """
+        flat: list[TrialResult] = []
+        for r in raw_results:
+            if isinstance(r, list):
+                flat.extend(r)
+            else:
+                flat.append(r)
+        all_success = all(t.exception_info is None for t in flat)
+        # G5: surface first non-empty output / non-zero exit code from sub-trials
+        raw_output = next((t.raw_output for t in flat if t.raw_output), "")
+        exit_code = next((t.exit_code for t in flat if t.exit_code != 0), 0)
         return JobResult(
             job_id=self._config.job_name or "",
             status=JobStatus.COMPLETED if all_success else JobStatus.FAILED,
             labels=self._config.labels,
-            trial_results=trial_results,
+            trial_results=flat,
+            raw_output=raw_output,
+            exit_code=exit_code,
         )

@@ -172,6 +172,77 @@ class HarborJobConfig(_BaseJobConfig):
         self.environment.experiment_id = self.experiment_id
         return self
 
+    @model_validator(mode="after")
+    def _sync_auto_stop(self):
+        """G7: keep top-level auto_stop and environment.auto_stop in sync (OR semantics).
+
+        Users may set either. Legacy ``environment.auto_stop=True`` (pre-job-refactor)
+        must still work; new ``config.auto_stop=True`` must also propagate down to
+        the environment so the RockEnvironmentConfig path reads the same value.
+        """
+        effective = bool(self.auto_stop) or bool(self.environment.auto_stop)
+        self.auto_stop = effective
+        self.environment.auto_stop = effective
+        return self
+
+    @model_validator(mode="after")
+    def _auto_job_name(self):
+        """G3: auto-generate job_name when user omitted it.
+
+        Format: {dataset_name}_{task_name if single task}_{uuid[:8]}
+        Matches legacy bench/job.py::_generate_default_job_name.
+        """
+        import uuid as _uuid
+
+        if self.job_name is not None:
+            return self
+
+        parts: list[str] = []
+        if self.datasets:
+            ds = self.datasets[0]
+            if getattr(ds, "name", None):
+                parts.append(ds.name)
+            task_names = getattr(ds, "task_names", None) or []
+            if len(task_names) == 1:
+                parts.append(task_names[0])
+
+        parts.append(_uuid.uuid4().hex[:8])
+        self.job_name = "_".join(parts)
+        return self
+
+    @model_validator(mode="after")
+    def _compute_effective_timeout(self):
+        """G2: derive wait timeout from agent config × multiplier + buffer.
+
+        Rule (aligned with legacy bench/job.py::_get_wait_timeout):
+          agent_timeout = agents[0].max_timeout_sec or agents[0].override_timeout_sec
+          effective = int(agent_timeout * multiplier) + 600  (env + verifier buffer)
+          fallback  = int(DEFAULT_WAIT_TIMEOUT * multiplier)    (7200 * multiplier)
+
+        Applied only when the base-class default (3600) has not been overridden by
+        the user. If the user explicitly set ``timeout`` to a non-default value,
+        that wins — we do not second-guess an explicit knob. NOTE: this heuristic
+        misfires if a user explicitly picks 3600, but that's considered extremely
+        rare; documented limitation.
+        """
+        from rock.sdk.bench.constants import DEFAULT_WAIT_TIMEOUT
+
+        # 3600 is the base JobConfig default; treat as "user didn't touch it".
+        if self.timeout != 3600:
+            return self
+
+        multiplier = self.timeout_multiplier or 1.0
+        agent_timeout: float | None = None
+        if self.agents:
+            a = self.agents[0]
+            agent_timeout = a.max_timeout_sec or a.override_timeout_sec
+
+        if agent_timeout:
+            self.timeout = int(agent_timeout * multiplier) + 600
+        else:
+            self.timeout = int(DEFAULT_WAIT_TIMEOUT * multiplier)
+        return self
+
     # Base JobConfig fields to exclude when serializing to Harbor YAML
     _BASE_FIELDS: ClassVar[set[str]] = set(_BaseJobConfig.model_fields.keys())
 

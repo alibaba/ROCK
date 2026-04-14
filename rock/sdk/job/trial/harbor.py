@@ -14,8 +14,7 @@ from rock.logger import init_logger
 from rock.sdk.bench.constants import USER_DEFINED_LOGS
 from rock.sdk.bench.models.job.config import HarborJobConfig
 from rock.sdk.bench.models.trial.result import HarborTrialResult
-from rock.sdk.job.result import ExceptionInfo
-from rock.sdk.job.result import TrialResult as BaseTrialResult
+from rock.sdk.job.result import ExceptionInfo, TrialResult
 from rock.sdk.job.trial.abstract import AbstractTrial
 from rock.sdk.job.trial.registry import register_trial
 
@@ -54,6 +53,26 @@ class HarborTrial(AbstractTrial):
 
     _config: HarborJobConfig
 
+    async def on_sandbox_ready(self, sandbox) -> None:
+        """G4: backfill namespace / experiment_id from sandbox, matching legacy _autofill_sandbox_info."""
+        sb_ns = getattr(sandbox, "_namespace", None)
+        if sb_ns is not None:
+            if self._config.namespace is not None and self._config.namespace != sb_ns:
+                raise ValueError(
+                    f"namespace mismatch: HarborJobConfig has '{self._config.namespace}', "
+                    f"but sandbox returned '{sb_ns}'"
+                )
+            self._config.namespace = sb_ns
+
+        sb_exp = getattr(sandbox, "_experiment_id", None)
+        if sb_exp is not None:
+            if self._config.experiment_id is not None and self._config.experiment_id != sb_exp:
+                raise ValueError(
+                    f"experiment_id mismatch: HarborJobConfig has '{self._config.experiment_id}', "
+                    f"but sandbox returned '{sb_exp}'"
+                )
+            self._config.experiment_id = sb_exp
+
     async def setup(self, sandbox) -> None:
         await self._upload_files(sandbox)
         # Write Harbor YAML config to sandbox
@@ -75,19 +94,28 @@ class HarborTrial(AbstractTrial):
             user_defined_dir=USER_DEFINED_LOGS,
         )
 
-    async def collect(self, sandbox, output: str, exit_code: int) -> BaseTrialResult:
+    async def collect(self, sandbox, output: str, exit_code: int) -> list[TrialResult]:
+        """Return all Harbor sub-trial results (one entry per ``result.json``).
+
+        Harbor writes N trial-level ``result.json`` files per sandbox run
+        (one per dataset × task). We return them all so the Job layer can
+        surface every sub-trial in ``JobResult.trial_results``. If Harbor
+        crashed before any trial finished, return a single synthetic failure
+        entry so that the caller can tell something ran.
+        """
         trial_results = await self._collect_trial_results(sandbox)
         if trial_results:
-            return trial_results[0]
+            return list(trial_results)
 
-        exception_info = ExceptionInfo(
-            exception_type="HarborNoTrials",
-            exception_message="No trial results found",
-        )
-        return BaseTrialResult(
-            task_name=self._config.job_name or "",
-            exception_info=exception_info,
-        )
+        return [
+            TrialResult(
+                task_name=self._config.job_name or "",
+                exception_info=ExceptionInfo(
+                    exception_type="HarborNoTrials",
+                    exception_message="No trial results found",
+                ),
+            )
+        ]
 
     async def _collect_trial_results(self, sandbox) -> list[HarborTrialResult]:
         """Read trial-level result.json files from sandbox."""

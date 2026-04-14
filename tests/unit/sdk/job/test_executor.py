@@ -8,6 +8,7 @@ import pytest
 
 import rock.sdk.bench  # pre-import to avoid circular  # noqa: F401
 import rock.sdk.job.trial.bash  # register BashJobConfig -> BashTrial  # noqa: F401
+from rock.sdk.bench.constants import USER_DEFINED_LOGS
 from rock.sdk.job.config import BashJobConfig
 from rock.sdk.job.executor import JobClient, JobExecutor, TrialClient
 from rock.sdk.job.operator import ScatterOperator
@@ -219,3 +220,59 @@ class TestBuildSessionEnv:
         merged = JobExecutor._build_session_env(config)
 
         assert merged is None
+
+
+# ---------------------------------------------------------------------------
+# G6: USER_DEFINED_LOGS paths
+# ---------------------------------------------------------------------------
+
+
+class TestExecutorPaths:
+    """G6: scripts and nohup outputs must live under USER_DEFINED_LOGS, not /tmp."""
+
+    async def test_do_submit_writes_script_under_user_defined_logs(self):
+        mock_sandbox = _make_mock_sandbox()
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            executor = JobExecutor()
+            await executor.submit(ScatterOperator(size=1), BashJobConfig(script="echo hi", job_name="p1"))
+
+        # Inspect the path passed to write_file_by_path — must start with USER_DEFINED_LOGS
+        write_call = mock_sandbox.write_file_by_path.call_args
+        script_path = write_call.args[1] if len(write_call.args) >= 2 else write_call.kwargs["path"]
+        assert script_path.startswith(
+            USER_DEFINED_LOGS
+        ), f"script path {script_path!r} must live under {USER_DEFINED_LOGS!r}, not /tmp"
+
+    async def test_do_submit_passes_nohup_tmp_file_under_user_defined_logs(self):
+        mock_sandbox = _make_mock_sandbox()
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            executor = JobExecutor()
+            await executor.submit(ScatterOperator(size=1), BashJobConfig(script="echo hi", job_name="p2"))
+
+        nohup_call = mock_sandbox.start_nohup_process.call_args
+        tmp_file = nohup_call.kwargs["tmp_file"]
+        assert tmp_file.startswith(USER_DEFINED_LOGS)
+
+
+# ---------------------------------------------------------------------------
+# G4: on_sandbox_ready hook called after start()
+# ---------------------------------------------------------------------------
+
+
+class TestExecutorOnSandboxReady:
+    async def test_do_submit_calls_on_sandbox_ready_after_start(self):
+        from rock.sdk.job.trial.bash import BashTrial
+
+        mock_sandbox = _make_mock_sandbox()
+        mock_sandbox._namespace = "ns"
+        mock_sandbox._experiment_id = "exp"
+
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            executor = JobExecutor()
+            trial = BashTrial(BashJobConfig(script="echo hi", job_name="t"))
+            trial.on_sandbox_ready = AsyncMock()
+            await executor._do_submit(trial)
+
+        trial.on_sandbox_ready.assert_awaited_once_with(mock_sandbox)
+        # Must be called AFTER sandbox.start()
+        assert mock_sandbox.start.call_count == 1

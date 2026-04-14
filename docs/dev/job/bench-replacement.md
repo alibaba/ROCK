@@ -9,15 +9,15 @@
 | **核心执行流程** | ✅ 1:1 对应，可替换 |
 | **Harbor YAML / 脚本模板** | ✅ 完全一致 |
 | **Sandbox 生命周期 / session / OSS 转发** | ✅ 已迁移到 `JobExecutor` |
-| **Harbor 多子 trial 结果聚合** | ❌ **严重回归**，`HarborTrial.collect` 只返回 `trial_results[0]` |
-| **Agent-aware wait timeout** | ❌ **回归**，丢失 `timeout_multiplier` + `agent.max_timeout_sec` 推导 |
-| **`job_name` 自动生成** | ❌ 缺失 |
-| **`namespace` / `experiment_id` 从 sandbox 回填** | ❌ 缺失 |
-| **`JobResult.raw_output` / `exit_code` 填充** | ❌ 缺失 |
-| **脚本 / 输出文件路径** | ⚠️ 从 `/data/logs/user-defined/` 变为 `/tmp/`，影响调试持久化 |
-| **默认 wait 超时兜底** | ⚠️ 从 `DEFAULT_WAIT_TIMEOUT=7200` 变为 `config.timeout=3600` |
+| **Harbor 多子 trial 结果聚合** | ✅ (G1) `AbstractTrial.collect` 返回 `TrialResult \| list[TrialResult]`；`Job._build_result` 按 `isinstance` 拍平 |
+| **Agent-aware wait timeout** | ✅ (G2) `HarborJobConfig._compute_effective_timeout` 写回 `self.timeout` |
+| **`job_name` 自动生成** | ✅ (G3) `HarborJobConfig._auto_job_name` validator |
+| **`namespace` / `experiment_id` 从 sandbox 回填** | ✅ (G4) `AbstractTrial.on_sandbox_ready` hook + `HarborTrial` override |
+| **`JobResult.raw_output` / `exit_code` 填充** | ✅ (G5) `TrialResult.raw_output/exit_code` + `JobExecutor._do_wait` 写回 + `Job._build_result` 聚合 |
+| **脚本 / 输出文件路径** | ✅ (G6) `JobExecutor._job_tmp_prefix` 回到 `USER_DEFINED_LOGS` |
+| **`auto_stop` 两处字段同步** | ✅ (G7) `HarborJobConfig._sync_auto_stop` OR 语义 validator |
 
-**结论：架构方向正确，但未完成迁移。当前直接替换会丢失 Harbor 的多 trial 结果和长时间 agent 支持。需补齐 7 项后方可下线 `bench/job.py`。**
+**结论：G1-G7 已于 #783 全部修复，blue-green 等价测试锁死契约；`rock/sdk/bench/Job` 已加 `DeprecationWarning`，计划 1.7.x 下线。**
 
 ---
 
@@ -123,10 +123,10 @@ return JobResult(trial_results=trial_results)   # 完整列表
 
 **修复选项**：
 - **A** 改 `HarborTrial.collect` 返回一个 "wrapper" `TrialResult`，把所有 sub-trial 放进自定义字段（类型系统不干净）。
-- **B** 改 `AbstractTrial.collect` 签名为 `→ list[TrialResult]`，让 `JobExecutor.wait` flatten（需要改动基础接口）。
+- **B** 改 `AbstractTrial.collect` 签名为 `→ TrialResult | list[TrialResult]`（union）：单结果 Trial（如 `BashTrial`）保持返回 `TrialResult`，多结果 Trial（如 `HarborTrial`）返回 `list[TrialResult]`；`Job._build_result` 在 `JobResult.trial_results` 聚合时根据实际返回类型 `isinstance(r, list)` 决定 `extend` 还是 `append`。
 - **C** 在 `HarborTrial` 中把"读 N 个 result.json"提前到 `ScatterOperator` 层：Operator 先 probe sandbox 预览 task 数，再 scatter N 份 Trial——但 Harbor 本身是一次性启动 orchestrator，没法这样拆。
 
-**推荐 B**：改基础接口，`collect` 返回 `list[TrialResult]`，Bash 实现返回长度 1 的列表。这是语义最干净的修复。
+**推荐 B（union + 拍平）**：接口上明确允许单/多两种返回形态，`BashTrial` 继续返回单个 `TrialResult` 无需改造，`HarborTrial` 返回完整 `list[TrialResult]`；`Job` Facade 在 `_build_result` 统一 flatten 到 `JobResult.trial_results`。这样既最小扰动下游 Trial 实现，又保留干净的类型签名。
 
 ### G2 — Agent-aware wait timeout 丢失
 
@@ -216,7 +216,8 @@ def _get_wait_timeout(self) -> int:
 
 ```
 Phase 1 — 补齐回归 (必做)
-  1. 修 G1: 改 AbstractTrial.collect → list[TrialResult]，flatten 到 JobResult
+  1. 修 G1: 改 AbstractTrial.collect → TrialResult | list[TrialResult]（union），
+           Job._build_result 按 isinstance 判断 extend/append 到 JobResult.trial_results
   2. 修 G2: HarborJobConfig.model_post_init 计算有效 timeout，或 Trial 层 override
   3. 修 G3: _generate_default_job_name 挪到 HarborJobConfig validator
   4. 修 G4: JobExecutor 提供 on_sandbox_ready 钩子 + HarborTrial 回填
@@ -260,6 +261,23 @@ Phase 1 完成后，`tests/unit/sdk/agent/test_job.py` 中基于私有方法 (`_
 
 ## 7. 结论
 
-新架构从**工程质量、可扩展性、职责划分**角度都优于老实现；但目前 `HarborTrial` 只是"把核心脚本搬过去"，`bench/job.py` 的 **Harbor 特有补齐逻辑**（多子 trial 聚合、agent-aware 超时、job_name 生成、ns/exp_id 回填）**尚未迁移**。
+新架构从**工程质量、可扩展性、职责划分**角度都优于老实现；G1-G7 7 项回归/缺口均已在 #783 补齐，blue-green 等价测试锁死两路径契约。
 
-**当前阶段不建议直接删除 `bench/job.py`**。先按 §5 Phase 1 补齐 G1–G7 七项，跑通现有 Harbor 测试，再切换入口、标 deprecated、最终移除。
+**现阶段：** `rock/sdk/bench/Job` 已加 `DeprecationWarning`，仍保留作为兼容层；新代码应统一用 `rock.sdk.job.Job` + `HarborJobConfig`。计划 1.7.x 版本移除 blue 路径。
+
+---
+
+## 8. 修复状态（2026-04-14，PR #783）
+
+| Gap | Fix | 相关 commit |
+|-----|-----|------------|
+| G1 — 多子 trial 结果聚合 | `AbstractTrial.collect` 返回 union；`Job._build_result` 按 `isinstance` 拍平 | `fix(job/G1a)` `fix(job/G1b)` |
+| G2 — effective wait timeout | `HarborJobConfig._compute_effective_timeout` validator | `fix(job/G2)` |
+| G3 — 自动 job_name | `HarborJobConfig._auto_job_name` validator | `fix(job/G3)` |
+| G4 — sandbox 回填 ns/exp_id | `AbstractTrial.on_sandbox_ready` hook + `HarborTrial` override | `fix(job/G4)` |
+| G5 — `JobResult.raw_output/exit_code` | `TrialResult` 加字段；`JobExecutor._do_wait` 写回；`Job._build_result` 聚合 | `fix(job/G5)` |
+| G6 — 脚本/输出持久化 | `_job_tmp_prefix` 使用 `USER_DEFINED_LOGS` | `fix(job/G6)` |
+| G7 — `auto_stop` OR 同步 | `HarborJobConfig._sync_auto_stop` validator | `fix(job/G7)` |
+| blue-green 等价锁 | 4 tests 交叉验证同一 config 两路径产出一致 `JobResult` | `test(job): blue-green equivalence` |
+
+测试：222 → 250 passing（+28，零回归）。

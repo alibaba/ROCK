@@ -23,6 +23,13 @@ class AbstractTrial(ABC):
     def __init__(self, config: JobConfig):
         self._config = config
 
+    async def on_sandbox_ready(self, sandbox: Sandbox) -> None:
+        """G4 hook: called by JobExecutor once sandbox.start() succeeds, before setup().
+
+        Default is a no-op. Override to backfill config from sandbox state
+        (e.g. HarborTrial reads back namespace / experiment_id).
+        """
+
     @abstractmethod
     async def setup(self, sandbox: Sandbox) -> None:
         """Pre-execution: prepare sandbox environment (upload files, write configs)."""
@@ -32,8 +39,15 @@ class AbstractTrial(ABC):
         """Build: generate bash script to execute."""
 
     @abstractmethod
-    async def collect(self, sandbox: Sandbox, output: str, exit_code: int) -> TrialResult:
-        """Post-execution: collect and parse results."""
+    async def collect(self, sandbox: Sandbox, output: str, exit_code: int) -> TrialResult | list[TrialResult]:
+        """Post-execution: collect and parse results.
+
+        Return a single ``TrialResult`` for one-shot tasks (e.g. BashTrial),
+        or a ``list[TrialResult]`` when the underlying tool produces multiple
+        sub-results per sandbox invocation (e.g. HarborTrial running a dataset
+        over N tasks). The Job / JobExecutor layer flattens lists into the
+        final ``JobResult.trial_results``.
+        """
 
     async def _upload_files(self, sandbox: Sandbox) -> None:
         """Shared helper: upload all entries in ``config.file_uploads``."""

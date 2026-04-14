@@ -167,3 +167,132 @@ class TestJobBuildResult:
             ).run()
 
         assert result.status == JobStatus.FAILED
+
+
+# ---------------------------------------------------------------------------
+# Multi-sub-trial flattening (G1 regression)
+# ---------------------------------------------------------------------------
+
+
+class TestJobFlattenMultiSubTrials:
+    """G1: when HarborTrial.collect returns list[N], JobResult.trial_results must have N entries."""
+
+    async def test_run_flattens_list_returning_collect_into_job_result(self):
+        from rock.sdk.job.config import JobConfig
+        from rock.sdk.job.result import TrialResult
+        from rock.sdk.job.trial.abstract import AbstractTrial
+        from rock.sdk.job.trial.registry import register_trial
+
+        class MultiCfg(JobConfig):
+            pass
+
+        class MultiTrial(AbstractTrial):
+            async def setup(self, sandbox):
+                pass
+
+            def build(self) -> str:
+                return "echo hi"
+
+            async def collect(self, sandbox, output, exit_code):
+                return [TrialResult(task_name=f"sub-{i}") for i in range(3)]
+
+        register_trial(MultiCfg, MultiTrial)
+
+        mock_sandbox = _make_mock_sandbox()
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            result = await Job(MultiCfg(job_name="multi")).run()
+
+        assert len(result.trial_results) == 3, f"expected 3 flattened sub-trials, got {len(result.trial_results)}"
+        assert {t.task_name for t in result.trial_results} == {"sub-0", "sub-1", "sub-2"}
+        assert result.status == JobStatus.COMPLETED
+
+    async def test_run_still_accepts_single_trial_result(self):
+        mock_sandbox = _make_mock_sandbox()
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            result = await Job(BashJobConfig(script="echo hi", job_name="single")).run()
+
+        assert len(result.trial_results) == 1
+        assert result.status == JobStatus.COMPLETED
+
+    async def test_timeout_tags_every_sub_trial_in_list(self):
+        """G1: on timeout, every sub-trial in a list result gets a synthetic ProcessTimeout —
+        except those that already carry their own exception_info (preserved as-is)."""
+        from rock.sdk.job.config import JobConfig
+        from rock.sdk.job.result import ExceptionInfo, TrialResult
+        from rock.sdk.job.trial.abstract import AbstractTrial
+        from rock.sdk.job.trial.registry import register_trial
+
+        class PreExistingCfg(JobConfig):
+            pass
+
+        class PreExistingTrial(AbstractTrial):
+            async def setup(self, sandbox):
+                pass
+
+            def build(self) -> str:
+                return "echo hi"
+
+            async def collect(self, sandbox, output, exit_code):
+                return [
+                    TrialResult(task_name="sub-0"),
+                    TrialResult(
+                        task_name="sub-1",
+                        exception_info=ExceptionInfo(
+                            exception_type="OwnError",
+                            exception_message="from trial",
+                        ),
+                    ),
+                    TrialResult(task_name="sub-2"),
+                ]
+
+        register_trial(PreExistingCfg, PreExistingTrial)
+
+        mock_sandbox = _make_mock_sandbox()
+        mock_sandbox.wait_for_process_completion = AsyncMock(return_value=(False, "timed out"))
+
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            result = await Job(PreExistingCfg(job_name="multi-timeout")).run()
+
+        assert result.status == JobStatus.FAILED
+        assert len(result.trial_results) == 3
+        by_name = {t.task_name: t for t in result.trial_results}
+        assert by_name["sub-0"].exception_info.exception_type == "ProcessTimeout"
+        assert by_name["sub-2"].exception_info.exception_type == "ProcessTimeout"
+        # Pre-existing exception_info on sub-1 must NOT be overwritten
+        assert by_name["sub-1"].exception_info.exception_type == "OwnError"
+        assert by_name["sub-1"].exception_info.exception_message == "from trial"
+
+
+# ---------------------------------------------------------------------------
+# G5: raw_output / exit_code surfaced on JobResult
+# ---------------------------------------------------------------------------
+
+
+class TestJobResultRawOutputAndExitCode:
+    """G5: JobResult must surface raw_output and exit_code from the sandbox process."""
+
+    async def test_run_populates_raw_output_from_obs(self):
+        mock_sandbox = _make_mock_sandbox()
+        obs = MagicMock()
+        obs.output = "hello from sandbox"
+        obs.exit_code = 0
+        mock_sandbox.handle_nohup_output = AsyncMock(return_value=obs)
+
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            result = await Job(BashJobConfig(script="echo hi", job_name="test")).run()
+
+        assert result.raw_output == "hello from sandbox"
+        assert result.exit_code == 0
+
+    async def test_run_propagates_nonzero_exit_code(self):
+        mock_sandbox = _make_mock_sandbox()
+        obs = MagicMock()
+        obs.output = "err"
+        obs.exit_code = 7
+        mock_sandbox.handle_nohup_output = AsyncMock(return_value=obs)
+
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            result = await Job(BashJobConfig(script="false", job_name="test")).run()
+
+        assert result.exit_code == 7
+        assert result.raw_output == "err"
