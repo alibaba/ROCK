@@ -126,7 +126,7 @@ async def test_bash_creates_bash_job_config_and_runs():
         timeout=600,
     )
 
-    with patch("rock.sdk.job.facade.Job") as MockJob:
+    with patch("rock.sdk.job.Job") as MockJob:
         mock_instance = MagicMock()
         mock_instance.run = AsyncMock(return_value=_make_mock_job_result())
         MockJob.return_value = mock_instance
@@ -152,7 +152,7 @@ async def test_bash_with_script_path():
 
     args = _bash_args(script="/tmp/my_script.sh")
 
-    with patch("rock.sdk.job.facade.Job") as MockJob:
+    with patch("rock.sdk.job.Job") as MockJob:
         mock_instance = MagicMock()
         mock_instance.run = AsyncMock(return_value=_make_mock_job_result())
         MockJob.return_value = mock_instance
@@ -173,7 +173,7 @@ async def test_bash_with_file_upload():
         target_path="/root/target",
     )
 
-    with patch("rock.sdk.job.facade.Job") as MockJob:
+    with patch("rock.sdk.job.Job") as MockJob:
         mock_instance = MagicMock()
         mock_instance.run = AsyncMock(return_value=_make_mock_job_result())
         MockJob.return_value = mock_instance
@@ -188,7 +188,7 @@ async def test_bash_with_file_upload():
 async def test_bash_requires_script_or_script_content():
     args = _bash_args()  # neither set
 
-    with patch("rock.sdk.job.facade.Job") as MockJob, patch("rock.cli.command.job.logger") as mock_logger:
+    with patch("rock.sdk.job.Job") as MockJob, patch("rock.cli.command.job.logger") as mock_logger:
         cmd = JobCommand()
         await cmd.arun(args)
 
@@ -199,7 +199,7 @@ async def test_bash_requires_script_or_script_content():
 async def test_bash_rejects_both_script_and_script_content():
     args = _bash_args(script="/tmp/s.sh", script_content="echo hi")
 
-    with patch("rock.sdk.job.facade.Job") as MockJob, patch("rock.cli.command.job.logger") as mock_logger:
+    with patch("rock.sdk.job.Job") as MockJob, patch("rock.cli.command.job.logger") as mock_logger:
         cmd = JobCommand()
         await cmd.arun(args)
 
@@ -210,7 +210,7 @@ async def test_bash_rejects_both_script_and_script_content():
 async def test_harbor_requires_config():
     args = _bash_args(type="harbor", config=None)
 
-    with patch("rock.sdk.job.facade.Job") as MockJob, patch("rock.cli.command.job.logger") as mock_logger:
+    with patch("rock.sdk.job.Job") as MockJob, patch("rock.cli.command.job.logger") as mock_logger:
         cmd = JobCommand()
         await cmd.arun(args)
 
@@ -232,7 +232,7 @@ job_name: my-harbor-job
     try:
         args = _bash_args(type="harbor", config=yaml_path)
 
-        with patch("rock.sdk.job.facade.Job") as MockJob:
+        with patch("rock.sdk.job.Job") as MockJob:
             mock_instance = MagicMock()
             mock_instance.run = AsyncMock(return_value=_make_mock_job_result())
             MockJob.return_value = mock_instance
@@ -260,7 +260,7 @@ experiment_id: exp-abc
     try:
         args = _bash_args(type="harbor", config=yaml_path, image="custom:tag")
 
-        with patch("rock.sdk.job.facade.Job") as MockJob:
+        with patch("rock.sdk.job.Job") as MockJob:
             mock_instance = MagicMock()
             mock_instance.run = AsyncMock(return_value=_make_mock_job_result())
             MockJob.return_value = mock_instance
