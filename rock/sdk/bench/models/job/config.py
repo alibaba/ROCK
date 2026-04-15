@@ -294,15 +294,6 @@ class HarborJobConfig(_BaseJobConfig):
             data["environment"] = harbor_env
         return yaml.dump(data, default_flow_style=False, allow_unicode=True)
 
-    @classmethod
-    def from_yaml(cls, path: str) -> HarborJobConfig:
-        """Load HarborJobConfig from a Harbor YAML config file."""
-        import yaml
-
-        with open(path) as f:
-            data = yaml.safe_load(f)
-        return cls(**data)
-
     def enable_oss_mirror(
         self,
         *,
