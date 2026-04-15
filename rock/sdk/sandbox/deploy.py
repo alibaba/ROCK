@@ -81,7 +81,7 @@ class Deploy:
             >>> deploy.format("cat <<working_dir>>/file")
             "cat /tmp/rock_workdir_abc123/file"
 
-            >>> deploy.format("echo $((3 << 2 >> 1))")  # 不受影响
+            >>> deploy.format("echo $((3 << 2 >> 1))")  # unaffected
             "echo $((3 << 2 >> 1))"
         """
         subs = {

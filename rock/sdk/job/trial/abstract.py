@@ -1,6 +1,6 @@
 """Trial abstract base class — three-phase interface (setup / build / collect).
 
-Trial 对象不管理 sandbox 生命周期；生命周期由 JobExecutor 负责。
+Trial objects do not manage sandbox lifecycle; lifecycle is managed by JobExecutor.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 class AbstractTrial(ABC):
     """Trial base: three-phase interface (setup/build/collect).
 
-    Trial 不管理 sandbox 生命周期 (由 JobExecutor 负责)。
+    Trial does not manage sandbox lifecycle (managed by JobExecutor).
     """
 
     def __init__(self, config: JobConfig):

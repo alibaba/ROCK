@@ -118,7 +118,7 @@ class BatchSandboxStatusRequest(BaseModel):
 
 
 class SandboxQueryParams(TypedDict, total=False):
-    """Sandbox列表查询参数"""
+    """Query parameters for sandbox list."""
 
     page: str
     page_size: str

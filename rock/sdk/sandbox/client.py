@@ -944,7 +944,7 @@ class Sandbox(AbstractSandbox):
         await self.stop()
 
     def __str__(self):
-        """返回用户友好的字符串表示，包含主要成员变量"""
+        """Return user-friendly string representation with key attributes."""
         return (
             f"Sandbox(sandbox_id={self._sandbox_id}, "
             f"host_name={self._host_name!r}, "
@@ -954,7 +954,7 @@ class Sandbox(AbstractSandbox):
         )
 
     def __repr__(self):
-        """返回开发者友好的字符串表示，包含所有成员变量"""
+        """Return developer-friendly string representation with all attributes."""
         return (
             f"Sandbox("
             f"config={self.config!r}, "

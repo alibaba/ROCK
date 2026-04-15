@@ -13,12 +13,12 @@ from typing import Generic, TypeVar
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
-# TrialResult base — 通用字段
+# TrialResult base — common fields
 # ---------------------------------------------------------------------------
 
 
 class ExceptionInfo(BaseModel):
-    """通用异常信息"""
+    """General exception info."""
 
     exception_type: str = ""
     exception_message: str = ""
@@ -27,10 +27,10 @@ class ExceptionInfo(BaseModel):
 
 
 class TrialResult(BaseModel):
-    """单次执行结果的基类 — 通用字段
+    """Base class for a single execution result — common fields.
 
-    Harbor 的 TrialResult 继承此类，添加 agent_info, verifier_result 等字段。
-    子类可 override score 和 status properties。
+    Harbor's TrialResult inherits this class and adds agent_info, verifier_result, etc.
+    Subclasses can override the score and status properties.
     """
 
     task_name: str = ""
