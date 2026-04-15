@@ -353,6 +353,15 @@ def pg_container():
         else:
             raise TimeoutError("PostgreSQL container did not become ready within 30s")
 
+        # Confirm with a real SQL query to close the startup race window.
+        while _t.time() < deadline:
+            code, _ = container.exec_run(f'psql -U {_PG_USER} -d {_PG_DB} -c "SELECT 1"')
+            if code == 0:
+                break
+            _t.sleep(0.5)
+        else:
+            raise TimeoutError("PostgreSQL: pg_isready OK but SELECT 1 still failing")
+
         host, port = _docker_resolve_host_port(container, network_name, _PG_PORT)
         yield {
             "host": host, "port": port,
