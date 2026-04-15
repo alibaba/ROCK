@@ -27,13 +27,18 @@ def load_config_from_file(args):
     manager = ConfigManager(config_path)
     cli_config = manager.get_config()
 
-    # If command line arguments are not set, use configuration file
-    if not args.base_url:
-        args.base_url = cli_config.base_url
-    if not args.auth_token and (authorization := cli_config.extra_headers.get("xrl-authorization")):
-        args.auth_token = authorization
-    if not args.cluster and (cluster := cli_config.extra_headers.get("cluster")):
-        args.cluster = cluster
+    # For the `job` command, the job YAML (--job_config) is the source of truth
+    # for base_url / cluster / auth_token. Backfilling from the CLI INI here would
+    # clobber YAML-specified values inside JobCommand._apply_overrides, which
+    # cannot distinguish user-supplied --base-url from an INI backfill.
+    # (Users who want INI defaults for a job can pass --base-url explicitly.)
+    if args.command != "job":
+        if not args.base_url:
+            args.base_url = cli_config.base_url
+        if not args.auth_token and (authorization := cli_config.extra_headers.get("xrl-authorization")):
+            args.auth_token = authorization
+        if not args.cluster and (cluster := cli_config.extra_headers.get("cluster")):
+            args.cluster = cluster
 
     # Process extra_headers, first get from configuration file
     extra_headers = cli_config.extra_headers.copy()

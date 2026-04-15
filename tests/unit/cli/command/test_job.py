@@ -537,6 +537,114 @@ class TestJobRunEndToEnd:
         assert cfg.environment.image == "python:3.12"  # override applied
 
 
+class TestYamlSourceOfTruth:
+    """Regression: YAML-loaded fields (base_url, cluster) must survive when the
+    user doesn't pass the corresponding CLI flag, even though main.py would
+    otherwise backfill args.base_url from the ~/.rock/config.ini default.
+    """
+
+    def _setup(self):
+        JobCommand._run_parser = None
+        top = argparse.ArgumentParser(prog="rock")
+        # Mirror the top-level flags declared in rock/cli/main.py so we can
+        # drive load_config_from_file() as main.py does.
+        top.add_argument("--config")
+        top.add_argument("--base-url")
+        top.add_argument("--auth-token")
+        top.add_argument("--cluster")
+        top.add_argument("--extra-header", action="append", dest="extra_headers_list")
+        subparsers = top.add_subparsers(dest="command")
+        asyncio.run(JobCommand.add_parser_to(subparsers))
+        return top
+
+    def test_load_config_from_file_skips_backfill_for_job(self, tmp_path, monkeypatch):
+        """load_config_from_file must NOT backfill base_url/cluster/auth_token
+        when the command is `job` — the YAML is the source of truth.
+        """
+        from rock.cli import main as main_mod
+
+        top = self._setup()
+        ns = top.parse_args(["job", "run", "--job_config", "unused.yaml"])
+        # Pretend the INI file would return http://ini.example.com as base_url
+        fake_cli_config = type(
+            "CLI", (), {"base_url": "http://ini.example.com", "extra_headers": {"cluster": "ini-cluster"}}
+        )()
+        monkeypatch.setattr(
+            main_mod, "ConfigManager", lambda _path: type("M", (), {"get_config": lambda self: fake_cli_config})()
+        )
+
+        main_mod.load_config_from_file(ns)
+
+        # Backfill should have been skipped for `job`
+        assert ns.base_url is None
+        assert ns.cluster is None
+        assert ns.auth_token is None
+
+    def test_load_config_from_file_backfills_for_non_job(self, tmp_path, monkeypatch):
+        """Non-job commands still get the backfill behavior."""
+        from rock.cli import main as main_mod
+
+        # Build a parser with a non-job subcommand
+        top = argparse.ArgumentParser(prog="rock")
+        top.add_argument("--config")
+        top.add_argument("--base-url")
+        top.add_argument("--auth-token")
+        top.add_argument("--cluster")
+        top.add_argument("--extra-header", action="append", dest="extra_headers_list")
+        subparsers = top.add_subparsers(dest="command")
+        subparsers.add_parser("sandbox")
+        ns = top.parse_args(["sandbox"])
+
+        fake_cli_config = type(
+            "CLI", (), {"base_url": "http://ini.example.com", "extra_headers": {"cluster": "ini-cluster"}}
+        )()
+        monkeypatch.setattr(
+            main_mod, "ConfigManager", lambda _path: type("M", (), {"get_config": lambda self: fake_cli_config})()
+        )
+
+        main_mod.load_config_from_file(ns)
+
+        assert ns.base_url == "http://ini.example.com"
+        assert ns.cluster == "ini-cluster"
+
+    def test_yaml_base_url_overridden_when_user_passes_flag(self, tmp_path, monkeypatch):
+        """When user explicitly passes --base-url, it should override YAML."""
+        from unittest.mock import MagicMock
+
+        yaml_path = tmp_path / "bash.yaml"
+        yaml_path.write_text("script_path: ./run.sh\nenvironment:\n  base_url: http://xrl.alibaba-inc.com\n")
+
+        captured = {}
+
+        class FakeJob:
+            def __init__(self, cfg):
+                captured["cfg"] = cfg
+
+            async def run(self):
+                r = MagicMock()
+                r.status = "COMPLETED"
+                r.trial_results = []
+                return r
+
+        monkeypatch.setattr("rock.sdk.job.Job", FakeJob)
+
+        top = self._setup()
+        ns = top.parse_args(
+            [
+                "job",
+                "run",
+                "--job_config",
+                str(yaml_path),
+                "--base-url",
+                "http://explicit.example.com",
+            ]
+        )
+        asyncio.run(JobCommand().arun(ns))
+
+        cfg = captured["cfg"]
+        assert cfg.environment.base_url == "http://explicit.example.com"
+
+
 class TestArun:
     """Tests for JobCommand.arun dispatch (not _job_run)."""
 
