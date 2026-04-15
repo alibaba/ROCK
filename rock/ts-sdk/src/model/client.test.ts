@@ -122,9 +122,10 @@ describe('ModelClient timeout and cancellation', () => {
       const controller = new AbortController();
 
       // Abort after a short delay
-      setTimeout(() => controller.abort(), 100);
+      const timer = setTimeout(() => controller.abort(), 100);
 
       await expect(client.popRequest(1, { timeout: 10, signal: controller.signal })).rejects.toThrow();
+      clearTimeout(timer);
     });
 
     it('should return request when found before abort', async () => {
@@ -144,9 +145,10 @@ describe('ModelClient timeout and cancellation', () => {
       const controller = new AbortController();
 
       // Abort after a short delay
-      setTimeout(() => controller.abort(), 100);
+      const timer = setTimeout(() => controller.abort(), 100);
 
       await expect(client.waitForFirstRequest({ timeout: 10, signal: controller.signal })).rejects.toThrow();
+      clearTimeout(timer);
     });
 
     it('should return when log file has content before abort', async () => {
