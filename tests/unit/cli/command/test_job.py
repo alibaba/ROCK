@@ -121,3 +121,28 @@ class TestJobRunValidation:
         assert "--config job.yaml" in err  # example in hint
         assert "--script" in err
         assert "rock job run --help" in err
+
+    def test_config_and_script_mutually_exclusive(self, capsys, tmp_path):
+        """--config together with --script must error with mutex hint."""
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text("script_path: ./run.sh\n")
+
+        with pytest.raises(SystemExit) as excinfo:
+            self._run(["job", "run", "--config", str(yaml_path), "--script", "run.sh"])
+
+        assert excinfo.value.code == 2
+        err = capsys.readouterr().err
+        assert "mutually exclusive" in err
+        assert "YAML mode" in err
+        assert "flags mode" in err
+
+    def test_config_and_script_content_mutually_exclusive(self, capsys, tmp_path):
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text("script_path: ./run.sh\n")
+
+        with pytest.raises(SystemExit) as excinfo:
+            self._run(["job", "run", "--config", str(yaml_path), "--script-content", "echo hi"])
+
+        assert excinfo.value.code == 2
+        err = capsys.readouterr().err
+        assert "mutually exclusive" in err

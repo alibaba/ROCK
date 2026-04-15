@@ -55,6 +55,17 @@ class JobCommand(Command):
                 ),
             )
 
+        if has_config and has_script:
+            _fail(
+                parser,
+                "--config is mutually exclusive with --script / --script-content.",
+                hint=(
+                    "Pick one mode:\n"
+                    "  - YAML mode:  rock job run --config job.yaml\n"
+                    "  - flags mode: rock job run --script run.sh"
+                ),
+            )
+
         job_type = args.type or "bash"
 
         if job_type == "bash":
