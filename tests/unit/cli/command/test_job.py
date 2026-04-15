@@ -537,6 +537,18 @@ class TestJobRunEndToEnd:
         assert cfg.environment.image == "python:3.12"  # override applied
 
 
+class TestArun:
+    """Tests for JobCommand.arun dispatch (not _job_run)."""
+
+    def test_unknown_job_command_logs_error(self):
+        from unittest.mock import patch
+
+        ns = argparse.Namespace(job_command="weird")
+        with patch("rock.cli.command.job.logger") as mock_logger:
+            asyncio.run(JobCommand().arun(ns))
+            mock_logger.error.assert_called()
+
+
 class TestHelpOutput:
     def test_help_output_mentions_both_modes(self, capsys):
         top = argparse.ArgumentParser(prog="rock")
