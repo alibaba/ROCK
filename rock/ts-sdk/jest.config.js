@@ -30,9 +30,6 @@ module.exports = {
       displayName: 'unit',
       roots: ['<rootDir>/src'],
       testMatch: ['**/*.test.ts'],
-      // Force exit after all tests complete to prevent hanging from
-      // keepAlive connections (sharedHttpsAgent) or active timers.
-      forceExit: true,
       collectCoverageFrom: [
         'src/**/*.ts',
         '!src/**/*.d.ts',
