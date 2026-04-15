@@ -423,3 +423,97 @@ class TestApplyOverrides:
         assert config.environment.env == {"X": "1"}
         assert config.timeout == 1234
         assert config.environment.auto_stop is True  # always set
+
+
+class TestJobRunEndToEnd:
+    """End-to-end-ish tests for _job_run, mocking only Job.run."""
+
+    def _setup(self):
+        JobCommand._run_parser = None
+        top = argparse.ArgumentParser(prog="rock")
+        subparsers = top.add_subparsers(dest="command")
+        asyncio.run(JobCommand.add_parser_to(subparsers))
+        return top
+
+    def test_flags_mode_builds_bash_config_and_runs_job(self, monkeypatch):
+        """A --script invocation should produce a BashJobConfig and call Job(config).run()."""
+        from unittest.mock import MagicMock
+
+        from rock.sdk.job.config import BashJobConfig
+
+        captured = {}
+
+        class FakeJob:
+            def __init__(self, cfg):
+                captured["cfg"] = cfg
+
+            async def run(self):
+                result = MagicMock()
+                result.status = "COMPLETED"
+                result.trial_results = []
+                return result
+
+        monkeypatch.setattr("rock.sdk.job.Job", FakeJob)
+
+        top = self._setup()
+        ns = top.parse_args(
+            [
+                "job",
+                "run",
+                "--script",
+                "run.sh",
+                "--image",
+                "python:3.11",
+                "--env",
+                "A=1",
+            ]
+        )
+        asyncio.run(JobCommand().arun(ns))
+
+        cfg = captured["cfg"]
+        assert isinstance(cfg, BashJobConfig)
+        assert cfg.script_path == "run.sh"
+        assert cfg.environment.image == "python:3.11"
+        assert cfg.environment.env == {"A": "1"}
+
+    def test_yaml_mode_with_override_image(self, monkeypatch, tmp_path):
+        from unittest.mock import MagicMock
+
+        from rock.sdk.job.config import BashJobConfig
+
+        yaml_path = tmp_path / "bash.yaml"
+        yaml_path.write_text(
+            "script_path: ./run.sh\nenvironment:\n  image: python:3.10\n"
+        )
+
+        captured = {}
+
+        class FakeJob:
+            def __init__(self, cfg):
+                captured["cfg"] = cfg
+
+            async def run(self):
+                r = MagicMock()
+                r.status = "COMPLETED"
+                r.trial_results = []
+                return r
+
+        monkeypatch.setattr("rock.sdk.job.Job", FakeJob)
+
+        top = self._setup()
+        ns = top.parse_args(
+            [
+                "job",
+                "run",
+                "--config",
+                str(yaml_path),
+                "--image",
+                "python:3.12",
+            ]
+        )
+        asyncio.run(JobCommand().arun(ns))
+
+        cfg = captured["cfg"]
+        assert isinstance(cfg, BashJobConfig)
+        assert cfg.script_path == "./run.sh"
+        assert cfg.environment.image == "python:3.12"  # override applied

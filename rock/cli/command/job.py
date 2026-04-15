@@ -34,12 +34,11 @@ class JobCommand(Command):
 
     async def _job_run(self, args: argparse.Namespace):
         # Import lazily to avoid pulling in bench/Harbor modules for bash-only uses
-        from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
         from rock.sdk.job import Job
-        from rock.sdk.job.config import BashJobConfig
 
         parser = self._run_parser
 
+        # ── 1. Mode validation ────────────────────────────────────────
         has_config = bool(args.config)
         has_script = bool(args.script or args.script_content)
 
@@ -84,69 +83,16 @@ class JobCommand(Command):
                 ),
             )
 
-        job_type = args.type or "bash"
-
-        if job_type == "bash":
-            if not args.script and not args.script_content:
-                logger.error("Either --script or --script-content is required for bash type")
-                return
-            if args.script and args.script_content:
-                logger.error("--script and --script-content cannot be used together")
-                return
-
-            env_kwargs = {}
-            if args.image:
-                env_kwargs["image"] = args.image
-            if args.memory:
-                env_kwargs["memory"] = args.memory
-            if args.cpus:
-                env_kwargs["cpus"] = args.cpus
-            if getattr(args, "base_url", None):
-                env_kwargs["base_url"] = args.base_url
-            if getattr(args, "cluster", None):
-                env_kwargs["cluster"] = args.cluster
-            if getattr(args, "extra_headers", None):
-                env_kwargs["extra_headers"] = args.extra_headers
-            if getattr(args, "xrl_authorization", None):
-                env_kwargs["xrl_authorization"] = args.xrl_authorization
-
-            uploads = []
-            if args.local_path:
-                uploads.append((args.local_path, args.target_path))
-
-            env = {}
-            if getattr(args, "env", None):
-                for item in args.env:
-                    key, _, value = item.partition("=")
-                    env[key] = value
-
-            config = BashJobConfig(
-                script=args.script_content,
-                script_path=args.script,
-                environment=RockEnvironmentConfig(
-                    **env_kwargs,
-                    uploads=uploads,
-                    auto_stop=True,
-                    env=env,
-                ),
-                timeout=args.timeout,
-            )
-
-        elif job_type == "harbor":
-            if not args.config:
-                logger.error("--config is required for harbor type")
-                return
-            from rock.sdk.bench.models.job.config import HarborJobConfig
-
-            config = HarborJobConfig.from_yaml(args.config)
-            if args.image:
-                config.environment.image = args.image
-            config.environment.auto_stop = True
-
+        # ── 2. Build config ───────────────────────────────────────────
+        if has_config:
+            config = self._config_from_yaml(parser, args)
         else:
-            logger.error(f"Unknown job type: {job_type}")
-            return
+            config = self._config_from_flags(args)
 
+        # ── 3. Apply overrides (shared across both modes) ─────────────
+        self._apply_overrides(config, args)
+
+        # ── 4. Run ────────────────────────────────────────────────────
         try:
             result = await Job(config).run()
             if result.trial_results:
