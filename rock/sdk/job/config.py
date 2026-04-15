@@ -22,7 +22,7 @@ class JobConfig(BaseModel):
     namespace: str | None = None
     experiment_id: str | None = None
     labels: dict[str, str] = Field(default_factory=dict)
-    timeout: int = 3600
+    timeout: int = 7200
 
 
 class BashJobConfig(JobConfig):
