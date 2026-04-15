@@ -113,8 +113,7 @@ class TestHarborJobConfigToHarborYaml:
 
         # job_name is re-injected so harbor uses it as the directory name
         assert data["job_name"] == "test-job"
-        # Other base fields (experiment_id, etc.) are excluded from harbor YAML
-        assert "experiment_id" not in data
+        assert data["experiment_id"] == "test-exp"
         assert data["n_attempts"] == 2
         assert data["agents"][0]["name"] == "terminus-2"
 
@@ -155,8 +154,8 @@ class TestHarborJobConfigToHarborYaml:
 
         assert "agent_timeout_multiplier" not in data
 
-    def test_labels_excluded_as_base_field(self):
-        """labels is a base HarborJobConfig field, so it's excluded from harbor YAML."""
+    def test_labels_included_in_harbor_yaml(self):
+        """labels is a base HarborJobConfig field, included in harbor YAML."""
         cfg = HarborJobConfig(
             job_name="labeled-job",
             experiment_id="test-exp",
@@ -165,7 +164,7 @@ class TestHarborJobConfigToHarborYaml:
         yaml_str = cfg.to_harbor_yaml()
         data = yaml.safe_load(yaml_str)
 
-        assert "labels" not in data
+        assert data["labels"] == {"step": "42", "env": "prod"}
         assert data["job_name"] == "labeled-job"
 
     def test_path_fields_serialized_as_strings(self):

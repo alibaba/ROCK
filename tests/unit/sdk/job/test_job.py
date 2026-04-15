@@ -6,8 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import rock.sdk.bench  # pre-import to avoid circular  # noqa: F401
-import rock.sdk.job.trial.bash  # trigger BashTrial registration  # noqa: F401
 from rock.sdk.job import Job
 from rock.sdk.job.config import BashJobConfig
 from rock.sdk.job.operator import ScatterOperator

@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import rock.sdk.bench  # noqa: F401
 from rock.sdk.bench.models.job.config import (
     HarborJobConfig,
     RegistryDatasetConfig,

@@ -157,12 +157,12 @@ class JobExecutor:
                         r.exception_info = fail_info
             return result
         finally:
-            if config.auto_stop:
+            if config.environment.auto_stop:
                 await client.sandbox.close()
 
     @staticmethod
     def _build_session_env(config: JobConfig) -> dict[str, str] | None:
         """Merge OSS_* env vars from the process with config.env (config wins)."""
         oss_env = {k: v for k, v in os.environ.items() if k.startswith("OSS")}
-        merged = {**oss_env, **config.env}
+        merged = {**oss_env, **config.environment.env}
         return merged or None

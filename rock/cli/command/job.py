@@ -52,10 +52,12 @@ class JobCommand(Command):
             config = BashJobConfig(
                 script=args.script_content,
                 script_path=args.script,
-                environment=RockEnvironmentConfig(**env_kwargs),
-                file_uploads=file_uploads,
+                environment=RockEnvironmentConfig(
+                    **env_kwargs,
+                    file_uploads=file_uploads,
+                    auto_stop=True,
+                ),
                 timeout=args.timeout,
-                auto_stop=True,
             )
 
         elif job_type == "harbor":
@@ -67,7 +69,7 @@ class JobCommand(Command):
             config = HarborJobConfig.from_yaml(args.config)
             if args.image:
                 config.environment.image = args.image
-            config.auto_stop = True
+            config.environment.auto_stop = True
 
         else:
             logger.error(f"Unknown job type: {job_type}")

@@ -136,14 +136,13 @@ class TestToHarborYamlOssMirror:
         )
         data = yaml.safe_load(cfg.to_harbor_yaml())
 
-        # namespace/experiment_id are base HarborJobConfig fields, excluded from harbor YAML
-        assert "namespace" not in data
-        assert "experiment_id" not in data
+        assert data["namespace"] == "my-ns"
+        assert data["experiment_id"] == "exp-1"
         oss = data["environment"]["oss_mirror"]
         assert oss["enabled"] is True
         assert oss["oss_bucket"] == "test-bucket"
-        assert "namespace" not in oss
-        assert "experiment_id" not in oss
+        assert oss["namespace"] == "my-ns"
+        assert oss["experiment_id"] == "exp-1"
 
     def test_disabled_oss_mirror_excluded_from_yaml(self):
         """When oss_mirror is default (disabled), it should not clutter the YAML."""
@@ -188,8 +187,8 @@ agents:
         assert cfg.environment.oss_mirror.enabled is True
         assert cfg.environment.oss_mirror.oss_bucket == "yaml-bucket"
 
-    def test_from_yaml_extra_keys_under_oss_mirror_ignored(self, tmp_path):
-        """YAML 中 oss_mirror 内多余的 namespace 等字段由 Pydantic 忽略。"""
+    def test_from_yaml_oss_mirror_with_namespace_and_experiment_id(self, tmp_path):
+        """YAML 中 oss_mirror 内的 namespace/experiment_id 是合法字段。"""
         from rock.sdk.bench.models.job.config import HarborJobConfig
 
         yaml_content = """\
@@ -212,9 +211,9 @@ agents:
         cfg = HarborJobConfig.from_yaml(str(yaml_file))
         assert cfg.environment.oss_mirror.enabled is True
         assert cfg.environment.oss_mirror.oss_bucket == "yaml-bucket"
-        dump = cfg.environment.oss_mirror.model_dump(exclude_none=True)
-        assert "namespace" not in dump
-        assert "experiment_id" not in dump
+        assert cfg.environment.oss_mirror.namespace is not None
+        # experiment_id 被 _sync_experiment_id validator 同步为顶层值 "test-exp"
+        assert cfg.environment.oss_mirror.experiment_id == "test-exp"
 
     def test_from_yaml_without_oss_mirror(self, tmp_path):
         from rock.sdk.bench.models.job.config import HarborJobConfig
@@ -284,9 +283,8 @@ class TestEnableOssMirror:
             oss_endpoint="oss-ap-southeast-1.aliyuncs.com",
         )
         data = yaml.safe_load(cfg.to_harbor_yaml())
-        # namespace/experiment_id are base fields, excluded from harbor YAML
-        assert "namespace" not in data
-        assert "experiment_id" not in data
+        assert data["namespace"] == "rt-ns"
+        assert data["experiment_id"] == "rt-exp"
         oss = data["environment"]["oss_mirror"]
         assert oss["enabled"] is True
         assert oss["oss_bucket"] == "rt-bucket"

@@ -7,7 +7,7 @@ JobConfig inherits from rock.sdk.job.config.JobConfig (base).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -17,6 +17,7 @@ from rock.sdk.bench.models.orchestrator_type import OrchestratorType
 from rock.sdk.bench.models.trial.config import (
     AgentConfig,
     ArtifactConfig,
+    EnvironmentConfig,
     OssMirrorConfig,
     RockEnvironmentConfig,  # noqa: F401 — re-exported for backward compat
     TaskConfig,
@@ -86,6 +87,13 @@ class LocalRegistryInfo(BaseModel):
     path: Path
 
 
+class HFRegistryInfo(BaseModel):
+    """HuggingFace registry, corresponds to CLI ``--registry-type hf``."""
+
+    split: str | None = None
+    revision: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # DatasetConfig (aligned with harbor's LocalDatasetConfig / RegistryDatasetConfig)
 # ---------------------------------------------------------------------------
@@ -108,7 +116,7 @@ class LocalDatasetConfig(BaseDatasetConfig):
 class RegistryDatasetConfig(BaseDatasetConfig):
     """Registry dataset, corresponds to CLI ``-d/--dataset`` + ``--registry-type``."""
 
-    registry: OssRegistryInfo | RemoteRegistryInfo | LocalRegistryInfo
+    registry: OssRegistryInfo | RemoteRegistryInfo | LocalRegistryInfo | HFRegistryInfo
     name: str
     version: str | None = None
     overwrite: bool = False
@@ -128,6 +136,36 @@ class RegistryDatasetConfig(BaseDatasetConfig):
 DatasetConfig = LocalDatasetConfig | RegistryDatasetConfig
 
 
+class _HarborJobFields(BaseModel):
+    """Harbor JobConfig field mirror — used by to_harbor_yaml() for serialization filtering.
+
+    Fields align with harbor.models.job.config.JobConfig.
+    ROCK-only fields (SandboxConfig, setup_commands, etc.) are automatically
+    discarded by model_validate.
+    """
+
+    namespace: str | None = None
+    experiment_id: str | None = None
+    job_name: str | None = None
+    jobs_dir: Path = Path("jobs")
+    n_attempts: int = 1
+    timeout_multiplier: float = 1.0
+    agent_timeout_multiplier: float | None = None
+    verifier_timeout_multiplier: float | None = None
+    agent_setup_timeout_multiplier: float | None = None
+    environment_build_timeout_multiplier: float | None = None
+    debug: bool = False
+    orchestrator: OrchestratorConfig = Field(default_factory=OrchestratorConfig)
+    environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
+    verifier: VerifierConfig = Field(default_factory=VerifierConfig)
+    metrics: list[MetricConfig] = Field(default_factory=list)
+    agents: list[AgentConfig] = Field(default_factory=lambda: [AgentConfig()])
+    datasets: list[LocalDatasetConfig | RegistryDatasetConfig] = Field(default_factory=list)
+    tasks: list[TaskConfig] = Field(default_factory=list)
+    artifacts: list[str | ArtifactConfig] = Field(default_factory=list)
+    labels: dict[str, str] = Field(default_factory=dict)
+
+
 class HarborJobConfig(_BaseJobConfig):
     """Harbor Job configuration: extends base JobConfig with Harbor-native fields.
 
@@ -136,7 +174,10 @@ class HarborJobConfig(_BaseJobConfig):
     and passed to ``harbor jobs start -c``.
     """
 
-    # ── Harbor native fields (base fields: environment, job_name, namespace, etc. are inherited) ──
+    # ── Override environment to use RockEnvironmentConfig (adds harbor env fields) ──
+    environment: RockEnvironmentConfig = Field(default_factory=RockEnvironmentConfig)
+
+    # ── Harbor native fields (base fields: job_name, namespace, etc. are inherited) ──
     jobs_dir: Path = Path(USER_DEFINED_LOGS) / "jobs"
     n_attempts: int = 1
     timeout_multiplier: float = 1.0
@@ -155,12 +196,7 @@ class HarborJobConfig(_BaseJobConfig):
 
     @model_validator(mode="after")
     def _sync_experiment_id(self):
-        """Validate and sync experiment_id between JobConfig and SandboxConfig.
-
-        1. experiment_id must not be empty.
-        2. If environment.experiment_id is already set, it must match.
-        3. Propagate experiment_id down to environment (SandboxConfig).
-        """
+        """Sync experiment_id: JobConfig -> environment -> oss_mirror."""
         if not self.experiment_id:
             raise ValueError("experiment_id must not be empty")
         env_exp = self.environment.experiment_id
@@ -170,19 +206,15 @@ class HarborJobConfig(_BaseJobConfig):
                 f"but environment (SandboxConfig) has '{env_exp}'"
             )
         self.environment.experiment_id = self.experiment_id
+        if self.environment.oss_mirror is not None:
+            self.environment.oss_mirror.experiment_id = self.experiment_id
         return self
 
     @model_validator(mode="after")
-    def _sync_auto_stop(self):
-        """G7: keep top-level auto_stop and environment.auto_stop in sync (OR semantics).
-
-        Users may set either. Legacy ``environment.auto_stop=True`` (pre-job-refactor)
-        must still work; new ``config.auto_stop=True`` must also propagate down to
-        the environment so the RockEnvironmentConfig path reads the same value.
-        """
-        effective = bool(self.auto_stop) or bool(self.environment.auto_stop)
-        self.auto_stop = effective
-        self.environment.auto_stop = effective
+    def _sync_namespace_to_oss_mirror(self):
+        """Sync namespace: JobConfig -> oss_mirror."""
+        if self.namespace is not None and self.environment.oss_mirror is not None:
+            self.environment.oss_mirror.namespace = self.namespace
         return self
 
     @model_validator(mode="after")
@@ -243,23 +275,17 @@ class HarborJobConfig(_BaseJobConfig):
             self.timeout = int(DEFAULT_WAIT_TIMEOUT * multiplier)
         return self
 
-    # Base JobConfig fields to exclude when serializing to Harbor YAML
-    _BASE_FIELDS: ClassVar[set[str]] = set(_BaseJobConfig.model_fields.keys())
-
     def to_harbor_yaml(self) -> str:
-        """Serialize Harbor-native fields to YAML for ``harbor jobs start -c``.
+        """Serialize to Harbor YAML for ``harbor jobs start -c``.
 
-        Base JobConfig fields (environment, setup_commands, etc.) are excluded.
-        ``job_name`` is re-injected so harbor uses it as the job directory name
-        instead of its default timestamp-based naming.
-        Harbor environment fields (force_build, override_cpus, etc.)
-        are re-injected under ``environment``.
+        Uses _HarborJobFields mirror model to filter — only harbor-recognized
+        fields pass through. Environment is handled specially via
+        to_harbor_environment() to strip Rock-only sandbox fields.
         """
         import yaml
 
-        data = self.model_dump(mode="json", exclude=self._BASE_FIELDS, exclude_none=True)
-        if self.job_name:
-            data["job_name"] = self.job_name
+        harbor = _HarborJobFields.model_validate(self.model_dump(mode="json"))
+        data = harbor.model_dump(mode="json", exclude_none=True)
         harbor_env = self.environment.to_harbor_environment()
         if harbor_env:
             data["environment"] = harbor_env

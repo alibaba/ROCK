@@ -1,6 +1,7 @@
 from rock.sdk.bench.job import Job
 from rock.sdk.bench.models.job.config import (
     HarborJobConfig,
+    HFRegistryInfo,
     LocalDatasetConfig,
     OrchestratorConfig,
     OssRegistryInfo,
@@ -37,6 +38,7 @@ __all__ = [
     "AgentResult",
     "ExceptionInfo",
     "HarborJobConfig",
+    "HFRegistryInfo",
     "RockEnvironmentConfig",
     "RegistryDatasetConfig",
     "LocalDatasetConfig",
