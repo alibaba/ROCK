@@ -259,8 +259,8 @@ class HarborJobConfig(_BaseJobConfig):
         """
         from rock.sdk.bench.constants import DEFAULT_WAIT_TIMEOUT
 
-        # 3600 is the base JobConfig default; treat as "user didn't touch it".
-        if self.timeout != 3600:
+        # 7200 is the base JobConfig default; treat as "user didn't touch it".
+        if self.timeout != 7200:
             return self
 
         multiplier = self.timeout_multiplier or 1.0

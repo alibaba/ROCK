@@ -35,7 +35,7 @@ class TestJobConfig:
         assert cfg.namespace is None
         assert cfg.experiment_id is None
         assert cfg.labels == {}
-        assert cfg.timeout == 3600
+        assert cfg.timeout == 7200
         assert cfg.environment.auto_stop is False
         assert cfg.environment.uploads == []
         assert cfg.environment.env == {}
@@ -84,7 +84,7 @@ class TestBashJobConfig:
     def test_defaults(self):
         cfg = BashJobConfig()
         # Inherited defaults
-        assert cfg.timeout == 3600
+        assert cfg.timeout == 7200
         assert cfg.labels == {}
         # Own defaults
         assert cfg.script is None
