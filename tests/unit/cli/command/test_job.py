@@ -154,3 +154,17 @@ class TestJobRunValidation:
         assert excinfo.value.code == 2
         err = capsys.readouterr().err
         assert "--script and --script-content are mutually exclusive" in err
+
+    def test_type_harbor_requires_config(self, capsys):
+        with pytest.raises(SystemExit) as excinfo:
+            self._run(["job", "run", "--type", "harbor", "--script", "run.sh"])
+
+        assert excinfo.value.code == 2
+        err = capsys.readouterr().err
+        assert "--type harbor requires --config" in err
+        assert "cannot be expressed purely via CLI flags" in err
+
+    def test_type_default_is_none(self):
+        """--type should default to None; 'bash' is implied only when mode is flags."""
+        ns = self.top.parse_args(["job", "run", "--script", "run.sh"])
+        assert ns.type is None

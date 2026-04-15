@@ -73,6 +73,17 @@ class JobCommand(Command):
                 "(pick a file path OR an inline snippet).",
             )
 
+        if args.type == "harbor" and not has_config:
+            _fail(
+                parser,
+                "--type harbor requires --config <yaml>.",
+                hint=(
+                    "Harbor jobs cannot be expressed purely via CLI flags.\n"
+                    "Example:\n"
+                    "  rock job run --config harbor.yaml"
+                ),
+            )
+
         job_type = args.type or "bash"
 
         if job_type == "bash":
@@ -153,7 +164,12 @@ class JobCommand(Command):
         job_subparsers = job_parser.add_subparsers(dest="job_command")
 
         run_parser = job_subparsers.add_parser("run", help="Run a job in a sandbox")
-        run_parser.add_argument("--type", choices=["bash", "harbor"], default="bash", help="Job type (default: bash)")
+        run_parser.add_argument(
+            "--type",
+            choices=["bash", "harbor"],
+            default=None,
+            help="Explicit job type (flags mode only; YAML mode auto-detects).",
+        )
         # bash args
         run_parser.add_argument("--script", default=None, help="Path to script file")
         run_parser.add_argument("--script-content", default=None, help="Inline script content")
