@@ -62,7 +62,7 @@ class HarborTrial(AbstractTrial):
 
     def build(self) -> str:
         setup_lines: list[str] = []
-        for cmd in self._config.setup_commands:
+        for cmd in self._config.environment.setup_commands:
             setup_lines.append(f"echo '>>> {cmd[:60]}...'")
             setup_lines.append(cmd)
         setup_block = "\n".join(setup_lines) if setup_lines else "echo 'No setup commands'"

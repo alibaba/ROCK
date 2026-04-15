@@ -1,30 +1,39 @@
 """Config hierarchy for the Job system.
 
-JobConfig      — base config with shared fields for all job types
-BashJobConfig  — simple script execution
+JobEnvironmentConfig — sandbox config + job-level environment fields
+JobConfig            — base config with shared job-scheduling fields
+BashJobConfig        — simple script execution
 
-Harbor's JobConfig lives in rock.sdk.agent.models.job.config and inherits JobConfig.
+Harbor's HarborJobConfig lives in rock.sdk.bench.models.job.config.
 """
 
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
+from rock.sdk.sandbox.config import SandboxConfig
+
+
+class JobEnvironmentConfig(SandboxConfig):
+    """Job environment config — sandbox base fields + job-level environment fields."""
+
+    setup_commands: list[str] = Field(default_factory=list)
+    file_uploads: list[tuple[str, str]] = Field(
+        default_factory=list,
+        description="Files/dirs to upload before running: [(local_path, sandbox_path), ...]",
+    )
+    auto_stop: bool = False
+    env: dict[str, str] = Field(default_factory=dict)
 
 
 class JobConfig(BaseModel):
     """Base config — shared fields for all job types."""
 
-    environment: RockEnvironmentConfig = Field(default_factory=RockEnvironmentConfig)
+    environment: JobEnvironmentConfig = Field(default_factory=JobEnvironmentConfig)
     job_name: str | None = None
     namespace: str | None = None
     experiment_id: str | None = None
     labels: dict[str, str] = Field(default_factory=dict)
-    auto_stop: bool = False
-    setup_commands: list[str] = Field(default_factory=list)
-    file_uploads: list[tuple[str, str]] = Field(default_factory=list)
-    env: dict[str, str] = Field(default_factory=dict)
     timeout: int = 3600
 
 

@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock
 
-# Pre-import bench to avoid circular-import pitfalls in rock.sdk.job.config
-import rock.sdk.bench  # noqa: F401
 from rock.sdk.bench.models.job.config import HarborJobConfig
 from rock.sdk.job.trial.harbor import HarborTrial
 from rock.sdk.job.trial.registry import _create_trial
@@ -44,10 +42,12 @@ class TestHarborTrialBuild:
         assert "set -e" in script
 
     def test_build_with_setup_commands_includes_them(self):
+        from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
+
         cfg = HarborJobConfig(
             job_name="test",
             experiment_id="exp-1",
-            setup_commands=["pip install harbor"],
+            environment=RockEnvironmentConfig(setup_commands=["pip install harbor"]),
         )
         trial = HarborTrial(cfg)
         script = trial.build()

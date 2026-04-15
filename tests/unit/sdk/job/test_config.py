@@ -19,7 +19,7 @@ from rock.sdk.bench.models.trial.config import (
     TemplateConfig,
     VerifierConfig,
 )
-from rock.sdk.job.config import BashJobConfig, JobConfig
+from rock.sdk.job.config import BashJobConfig, JobConfig, JobEnvironmentConfig
 
 # ---------------------------------------------------------------------------
 # JobConfig (base)
@@ -29,29 +29,31 @@ from rock.sdk.job.config import BashJobConfig, JobConfig
 class TestJobConfig:
     def test_defaults(self):
         cfg = JobConfig()
-        assert isinstance(cfg.environment, RockEnvironmentConfig)
+        assert isinstance(cfg.environment, JobEnvironmentConfig)
         assert cfg.job_name is None
         assert cfg.namespace is None
         assert cfg.experiment_id is None
         assert cfg.labels == {}
-        assert cfg.auto_stop is False
-        assert cfg.setup_commands == []
-        assert cfg.file_uploads == []
-        assert cfg.env == {}
         assert cfg.timeout == 3600
+        assert cfg.environment.auto_stop is False
+        assert cfg.environment.setup_commands == []
+        assert cfg.environment.file_uploads == []
+        assert cfg.environment.env == {}
 
     def test_custom_values(self):
-        env = RockEnvironmentConfig(image="ubuntu:22.04")
+        env = JobEnvironmentConfig(
+            image="ubuntu:22.04",
+            setup_commands=["pip install foo"],
+            file_uploads=[("/local/file.py", "/sandbox/file.py")],
+            env={"MY_VAR": "hello"},
+            auto_stop=True,
+        )
         cfg = JobConfig(
             environment=env,
             job_name="my-job",
             namespace="team-a",
             experiment_id="exp-001",
             labels={"step": "42"},
-            auto_stop=True,
-            setup_commands=["pip install foo"],
-            file_uploads=[("/local/file.py", "/sandbox/file.py")],
-            env={"MY_VAR": "hello"},
             timeout=7200,
         )
         assert cfg.environment.image == "ubuntu:22.04"
@@ -59,10 +61,10 @@ class TestJobConfig:
         assert cfg.namespace == "team-a"
         assert cfg.experiment_id == "exp-001"
         assert cfg.labels == {"step": "42"}
-        assert cfg.auto_stop is True
-        assert cfg.setup_commands == ["pip install foo"]
-        assert cfg.file_uploads == [("/local/file.py", "/sandbox/file.py")]
-        assert cfg.env == {"MY_VAR": "hello"}
+        assert cfg.environment.auto_stop is True
+        assert cfg.environment.setup_commands == ["pip install foo"]
+        assert cfg.environment.file_uploads == [("/local/file.py", "/sandbox/file.py")]
+        assert cfg.environment.env == {"MY_VAR": "hello"}
         assert cfg.timeout == 7200
 
     def test_is_base_model(self):
@@ -178,43 +180,34 @@ class TestHarborJobConfig:
 
 
 class TestHarborJobConfigToHarborYaml:
-    def test_excludes_rock_fields(self):
-        """Rock-level fields (job_name, namespace, etc.) must NOT appear in Harbor YAML.
-
-        Note: 'environment' is excluded from _ROCK_FIELDS dump, but harbor
-        environment fields are re-injected via to_harbor_environment(), so
-        the 'environment' key *may* appear with harbor-native fields only.
-        """
+    def test_excludes_rock_fields_keeps_harbor_shared_fields(self):
+        """Rock-only fields must not appear, but Harbor-shared fields must be present."""
         cfg = HarborJobConfig(
-            job_name="should-not-appear",
-            namespace="should-not-appear",
-            experiment_id="should-not-appear",
+            job_name="test-job",
+            namespace="my-ns",
+            experiment_id="my-exp",
             labels={"step": "1"},
-            auto_stop=True,
-            setup_commands=["pip install foo"],
-            file_uploads=[("/a", "/b")],
-            env={"KEY": "VAL"},
+            environment=RockEnvironmentConfig(
+                auto_stop=True,
+                setup_commands=["pip install foo"],
+                file_uploads=[("/a", "/b")],
+                env={"KEY": "VAL"},
+            ),
             timeout=999,
             n_attempts=2,
             debug=True,
         )
         yaml_str = cfg.to_harbor_yaml()
         data = yaml.safe_load(yaml_str)
-        # Rock-only fields must be absent from Harbor YAML
-        # job_name is re-injected so harbor uses it as the directory name
-        assert data["job_name"] == "should-not-appear"
-        rock_only = {
-            "namespace",
-            "experiment_id",
-            "labels",
-            "auto_stop",
-            "setup_commands",
-            "file_uploads",
-            "env",
-            "timeout",
-        }
-        for rock_field in rock_only:
-            assert rock_field not in data, f"Rock field '{rock_field}' should be excluded from Harbor YAML"
+        # Shared with Harbor — must be present
+        assert data["job_name"] == "test-job"
+        assert data["namespace"] == "my-ns"
+        assert data["experiment_id"] == "my-exp"
+        assert data["labels"] == {"step": "1"}
+        # Rock-only — must be absent
+        rock_only = {"auto_stop", "setup_commands", "file_uploads", "timeout"}
+        for field in rock_only:
+            assert field not in data, f"Rock field '{field}' should be excluded"
 
     def test_includes_harbor_fields(self):
         cfg = HarborJobConfig(experiment_id="test-exp", n_attempts=5, debug=True)
@@ -401,9 +394,7 @@ class TestNativeConfig:
         assert "template" not in data
 
     def test_exclude_none_includes_template_when_set(self):
-        cfg = NativeConfig(
-            template=TemplateConfig(name="my-agent/my-org/my-dataset", revision="rev1")
-        )
+        cfg = NativeConfig(template=TemplateConfig(name="my-agent/my-org/my-dataset", revision="rev1"))
         data = cfg.model_dump(mode="json", exclude_none=True)
         assert "template" in data
         assert data["template"]["name"] == "my-agent/my-org/my-dataset"
@@ -423,31 +414,17 @@ class TestHarborInheritsBase:
 
 
 class TestHarborJobConfigAutoStopSync:
-    """G7: HarborJobConfig.auto_stop and environment.auto_stop must be kept in sync (OR semantics)."""
+    """auto_stop lives on environment only."""
 
-    def test_environment_auto_stop_propagates_to_top_level(self):
+    def test_environment_auto_stop_preserved(self):
         cfg = HarborJobConfig(
             experiment_id="exp-1",
             environment=RockEnvironmentConfig(auto_stop=True),
         )
-        assert cfg.auto_stop is True, "top-level auto_stop must pick up environment.auto_stop"
-
-    def test_top_level_auto_stop_propagates_to_environment(self):
-        cfg = HarborJobConfig(experiment_id="exp-1", auto_stop=True)
         assert cfg.environment.auto_stop is True
 
-    def test_both_true_stays_true(self):
-        cfg = HarborJobConfig(
-            experiment_id="exp-1",
-            auto_stop=True,
-            environment=RockEnvironmentConfig(auto_stop=True),
-        )
-        assert cfg.auto_stop is True
-        assert cfg.environment.auto_stop is True
-
-    def test_both_false_stays_false(self):
+    def test_default_auto_stop_is_false(self):
         cfg = HarborJobConfig(experiment_id="exp-1")
-        assert cfg.auto_stop is False
         assert cfg.environment.auto_stop is False
 
 

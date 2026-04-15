@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import rock.sdk.bench  # pre-import to avoid circular  # noqa: F401
 from rock.cli.command.job import JobCommand
 
 
@@ -143,7 +142,7 @@ async def test_bash_creates_bash_job_config_and_runs():
         assert config_arg.environment.memory == "4g"
         assert config_arg.environment.cpus == 2.0
         assert config_arg.timeout == 600
-        assert config_arg.auto_stop is True
+        assert config_arg.environment.auto_stop is True
         mock_instance.run.assert_awaited_once()
 
 
@@ -182,7 +181,7 @@ async def test_bash_with_file_upload():
         await cmd.arun(args)
 
         config_arg = MockJob.call_args[0][0]
-        assert config_arg.file_uploads == [("/tmp/src", "/root/target")]
+        assert config_arg.environment.file_uploads == [("/tmp/src", "/root/target")]
 
 
 async def test_bash_requires_script_or_script_content():
@@ -244,7 +243,7 @@ job_name: my-harbor-job
             config_arg = MockJob.call_args[0][0]
             assert isinstance(config_arg, HarborJobConfig)
             assert config_arg.experiment_id == "exp-123"
-            assert config_arg.auto_stop is True
+            assert config_arg.environment.auto_stop is True
     finally:
         Path(yaml_path).unlink(missing_ok=True)
 

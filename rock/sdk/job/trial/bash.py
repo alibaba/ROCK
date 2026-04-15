@@ -23,8 +23,8 @@ class BashTrial(AbstractTrial):
 
     def build(self) -> str:
         lines = ["#!/bin/bash", "set -e", ""]
-        if self._config.setup_commands:
-            for cmd in self._config.setup_commands:
+        if self._config.environment.setup_commands:
+            for cmd in self._config.environment.setup_commands:
                 lines.append(f"echo '>>> {cmd[:60]}...'")
                 lines.append(cmd)
             lines.append("")
