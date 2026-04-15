@@ -14,8 +14,7 @@ import os
 import sys
 from pathlib import Path
 
-from rock.sdk.job import Job
-from rock.sdk.job.config import JobConfig
+from rock.sdk.job import Job, JobConfig
 
 
 async def main() -> None:
