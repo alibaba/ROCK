@@ -66,6 +66,13 @@ class JobCommand(Command):
                 ),
             )
 
+        if args.script and args.script_content:
+            _fail(
+                parser,
+                "--script and --script-content are mutually exclusive "
+                "(pick a file path OR an inline snippet).",
+            )
+
         job_type = args.type or "bash"
 
         if job_type == "bash":

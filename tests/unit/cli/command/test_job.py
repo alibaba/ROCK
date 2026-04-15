@@ -146,3 +146,11 @@ class TestJobRunValidation:
         assert excinfo.value.code == 2
         err = capsys.readouterr().err
         assert "mutually exclusive" in err
+
+    def test_script_and_script_content_mutually_exclusive(self, capsys):
+        with pytest.raises(SystemExit) as excinfo:
+            self._run(["job", "run", "--script", "run.sh", "--script-content", "echo hi"])
+
+        assert excinfo.value.code == 2
+        err = capsys.readouterr().err
+        assert "--script and --script-content are mutually exclusive" in err
