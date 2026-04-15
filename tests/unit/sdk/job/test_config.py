@@ -525,3 +525,99 @@ class TestHarborJobConfigEffectiveTimeout:
         from rock.sdk.bench.constants import DEFAULT_WAIT_TIMEOUT
 
         assert cfg.timeout == int(DEFAULT_WAIT_TIMEOUT * 2.0)
+
+
+# ---------------------------------------------------------------------------
+# JobConfig.from_yaml — auto-detection
+# ---------------------------------------------------------------------------
+
+
+class TestJobConfigFromYamlAutoDetect:
+    """JobConfig.from_yaml dispatches to the correct subclass based on YAML content."""
+
+    def test_auto_detect_bash_by_script(self, tmp_path):
+        yaml_content = "script: echo hello\ntimeout: 60\n"
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml_content)
+        cfg = JobConfig.from_yaml(str(p))
+        assert isinstance(cfg, BashJobConfig)
+        assert cfg.script == "echo hello"
+
+    def test_auto_detect_bash_by_script_path(self, tmp_path):
+        yaml_content = "script_path: run.sh\n"
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml_content)
+        cfg = JobConfig.from_yaml(str(p))
+        assert isinstance(cfg, BashJobConfig)
+        assert cfg.script_path == "run.sh"
+
+    def test_auto_detect_harbor_by_agents(self, tmp_path):
+        yaml_content = "experiment_id: exp-1\nagents:\n  - name: my-agent\n"
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml_content)
+        cfg = JobConfig.from_yaml(str(p))
+        assert isinstance(cfg, HarborJobConfig)
+        assert cfg.experiment_id == "exp-1"
+
+    def test_auto_detect_harbor_by_datasets(self, tmp_path):
+        yaml_content = "experiment_id: exp-2\n" "datasets:\n" "  - name: my-ds\n" "    path: /tmp/ds\n"
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml_content)
+        cfg = JobConfig.from_yaml(str(p))
+        assert isinstance(cfg, HarborJobConfig)
+
+    def test_auto_detect_harbor_by_n_attempts(self, tmp_path):
+        yaml_content = "experiment_id: exp-3\nn_attempts: 5\n"
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml_content)
+        cfg = JobConfig.from_yaml(str(p))
+        assert isinstance(cfg, HarborJobConfig)
+        assert cfg.n_attempts == 5
+
+    def test_auto_detect_harbor_by_debug_flag(self, tmp_path):
+        yaml_content = "experiment_id: exp-4\ndebug: true\n"
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml_content)
+        cfg = JobConfig.from_yaml(str(p))
+        assert isinstance(cfg, HarborJobConfig)
+        assert cfg.debug is True
+
+    def test_raises_on_mixed_fields(self, tmp_path):
+        """YAML with fields from both job types fails validation against either model."""
+        yaml_content = "script: echo hi\nagents:\n  - name: a\nexperiment_id: exp\n"
+        p = tmp_path / "mixed.yaml"
+        p.write_text(yaml_content)
+        with pytest.raises(ValueError, match="does not match any known job type"):
+            JobConfig.from_yaml(str(p))
+
+    def test_base_only_yaml_falls_through_to_bash(self, tmp_path):
+        """YAML with only base fields (no harbor exclusive) falls through to BashJobConfig.
+
+        HarborJobConfig requires experiment_id, so it fails; BashJobConfig has all
+        optional fields and succeeds.
+        """
+        yaml_content = "job_name: my-job\ntimeout: 300\n"
+        p = tmp_path / "base_only.yaml"
+        p.write_text(yaml_content)
+        cfg = JobConfig.from_yaml(str(p))
+        assert isinstance(cfg, BashJobConfig)
+        assert cfg.job_name == "my-job"
+        assert cfg.timeout == 300
+
+    def test_bash_from_yaml_direct_still_works(self, tmp_path):
+        """BashJobConfig.from_yaml() continues to work regardless of auto-detect."""
+        yaml_content = "script: ls -la\ntimeout: 120\n"
+        p = tmp_path / "bash.yaml"
+        p.write_text(yaml_content)
+        cfg = BashJobConfig.from_yaml(str(p))
+        assert isinstance(cfg, BashJobConfig)
+        assert cfg.script == "ls -la"
+
+    def test_harbor_from_yaml_direct_still_works(self, tmp_path):
+        """HarborJobConfig.from_yaml() continues to work regardless of auto-detect."""
+        yaml_content = "experiment_id: exp-5\nn_attempts: 2\n"
+        p = tmp_path / "harbor.yaml"
+        p.write_text(yaml_content)
+        cfg = HarborJobConfig.from_yaml(str(p))
+        assert isinstance(cfg, HarborJobConfig)
+        assert cfg.n_attempts == 2

@@ -10,7 +10,7 @@ Harbor's HarborJobConfig lives in rock.sdk.bench.models.job.config.
 from __future__ import annotations
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from rock.sdk.envhub import EnvironmentConfig
 
@@ -27,13 +27,57 @@ class JobConfig(BaseModel):
 
     @classmethod
     def from_yaml(cls, path: str) -> JobConfig:
+        """Load a job config from YAML.
+
+        When called on the base class (``JobConfig.from_yaml``), the job type is
+        auto-detected by trying each concrete subclass in order:
+
+        1. ``HarborJobConfig`` — tried first (requires ``experiment_id``)
+        2. ``BashJobConfig``   — tried second (all fields optional)
+
+        Both models use ``extra="forbid"``, so any field that belongs to the
+        other type causes a ``ValidationError`` and the attempt is skipped.
+        If both fail the combined ``ValidationError`` details are surfaced.
+
+        When called directly on a subclass (e.g. ``BashJobConfig.from_yaml``),
+        no auto-detection is performed.
+        """
         with open(path) as f:
             data = yaml.safe_load(f)
-        return cls(**data)
+
+        if cls is not JobConfig:
+            # Called as BashJobConfig.from_yaml() or HarborJobConfig.from_yaml() —
+            # respect the explicit class, skip auto-detection.
+            return cls(**data)
+
+        # Lazy import to avoid circular dependency:
+        # rock.sdk.bench.models.job.config → rock.sdk.job.config
+        from rock.sdk.bench.models.job.config import HarborJobConfig
+
+        harbor_error: ValidationError | None = None
+        bash_error: ValidationError | None = None
+
+        try:
+            return HarborJobConfig.model_validate(data)
+        except (ValidationError, ValueError) as exc:
+            harbor_error = exc
+
+        try:
+            return BashJobConfig.model_validate(data)
+        except (ValidationError, ValueError) as exc:
+            bash_error = exc
+
+        raise ValueError(
+            "YAML does not match any known job type.\n"
+            f"  As HarborJobConfig: {harbor_error}\n"
+            f"  As BashJobConfig:   {bash_error}"
+        )
 
 
 class BashJobConfig(JobConfig):
     """Config for a simple bash script job."""
+
+    model_config = ConfigDict(extra="forbid")
 
     script: str | None = None
     script_path: str | None = None

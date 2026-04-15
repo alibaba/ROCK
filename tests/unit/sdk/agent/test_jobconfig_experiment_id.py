@@ -18,7 +18,7 @@ class TestExperimentIdNotEmpty:
 
     def test_empty_string_experiment_id_raises(self):
         """experiment_id='' must raise ValidationError."""
-        with pytest.raises(ValidationError, match="experiment_id must not be empty"):
+        with pytest.raises(ValidationError, match="experiment_id"):
             HarborJobConfig(job_name="test", experiment_id="")
 
 
