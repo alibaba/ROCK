@@ -1,8 +1,8 @@
 """HarborTrial — execute a Harbor benchmark job inside a sandbox.
 
-Extracted from rock.sdk.bench.job.Job. Combines dockerd startup, setup
-commands, and ``harbor jobs start -c`` into a single bash script executed
-by the JobExecutor via the sandbox nohup protocol.
+Extracted from rock.sdk.bench.job.Job. Combines dockerd startup and
+``harbor jobs start -c`` into a single bash script executed by the
+JobExecutor via the sandbox nohup protocol.
 """
 
 from __future__ import annotations
@@ -40,9 +40,6 @@ fi
 # ── Ensure output directory exists ──────────────────────────────────
 mkdir -p {user_defined_dir}
 
-# ── Setup commands ───────────────────────────────────────────────────
-{setup_commands}
-
 # ── Harbor run ───────────────────────────────────────────────────────
 harbor jobs start -c {config_path}
 """
@@ -61,15 +58,8 @@ class HarborTrial(AbstractTrial):
         await sandbox.write_file_by_path(yaml_content, config_path)
 
     def build(self) -> str:
-        setup_lines: list[str] = []
-        for cmd in self._config.environment.setup_commands:
-            setup_lines.append(f"echo '>>> {cmd[:60]}...'")
-            setup_lines.append(cmd)
-        setup_block = "\n".join(setup_lines) if setup_lines else "echo 'No setup commands'"
-
         config_path = f"{USER_DEFINED_LOGS}/rock_job_{self._config.job_name}.yaml"
         return _HARBOR_SCRIPT_TEMPLATE.format(
-            setup_commands=setup_block,
             config_path=config_path,
             user_defined_dir=USER_DEFINED_LOGS,
         )

@@ -140,7 +140,7 @@ class _HarborJobFields(BaseModel):
     """Harbor JobConfig field mirror — used by to_harbor_yaml() for serialization filtering.
 
     Fields align with harbor.models.job.config.JobConfig.
-    ROCK-only fields (SandboxConfig, setup_commands, etc.) are automatically
+    ROCK-only fields (SandboxConfig, uploads, etc.) are automatically
     discarded by model_validate.
     """
 

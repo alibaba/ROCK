@@ -41,24 +41,6 @@ class TestHarborTrialBuild:
         assert "#!/bin/bash" in script
         assert "set -e" in script
 
-    def test_build_with_setup_commands_includes_them(self):
-        from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
-
-        cfg = HarborJobConfig(
-            job_name="test",
-            experiment_id="exp-1",
-            environment=RockEnvironmentConfig(setup_commands=["pip install harbor"]),
-        )
-        trial = HarborTrial(cfg)
-        script = trial.build()
-        assert "pip install harbor" in script
-
-    def test_build_without_setup_commands_uses_placeholder(self):
-        cfg = HarborJobConfig(job_name="test", experiment_id="exp-1")
-        trial = HarborTrial(cfg)
-        script = trial.build()
-        assert "No setup commands" in script
-
 
 # ---------------------------------------------------------------------------
 # HarborTrial.setup()

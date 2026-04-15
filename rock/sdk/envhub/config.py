@@ -1,7 +1,7 @@
 """General-purpose environment configuration.
 
 EnvironmentConfig extends SandboxConfig with common environment-level fields
-(setup commands, file uploads, environment variables, auto-stop).
+(uploads, environment variables, auto-stop).
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from rock.sdk.sandbox.config import SandboxConfig
 class EnvironmentConfig(SandboxConfig):
     """General environment config — sandbox base fields + environment-level fields."""
 
-    setup_commands: list[str] = Field(default_factory=list)
     uploads: list[tuple[str, str]] = Field(
         default_factory=list,
         description="Files/dirs to upload before running: [(local_path, sandbox_path), ...]. "

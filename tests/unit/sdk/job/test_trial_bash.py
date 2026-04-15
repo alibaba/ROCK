@@ -32,27 +32,6 @@ class TestBashTrialBuild:
         assert "set -e" in out
         assert "echo hello" in out
 
-    def test_build_with_setup_commands(self):
-        cfg = BashJobConfig(
-            environment=EnvironmentConfig(setup_commands=["pip install -r requirements.txt"]),
-            script="python main.py",
-        )
-        trial = BashTrial(cfg)
-        out = trial.build()
-
-        assert "pip install -r requirements.txt" in out
-        assert "python main.py" in out
-        # Setup comes before main script
-        assert out.index("pip install -r requirements.txt") < out.index("python main.py")
-
-    def test_build_no_script_only_setup(self):
-        cfg = BashJobConfig(environment=EnvironmentConfig(setup_commands=["echo setup"]))
-        trial = BashTrial(cfg)
-        out = trial.build()
-        assert "#!/bin/bash" in out
-        assert "set -e" in out
-        assert "echo setup" in out
-
 
 # ---------------------------------------------------------------------------
 # BashTrial.setup()

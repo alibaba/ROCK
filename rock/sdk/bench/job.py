@@ -45,9 +45,6 @@ fi
 # ── Ensure output directory exists ──────────────────────────────────
 mkdir -p {user_defined_dir}
 
-# ── Setup commands ───────────────────────────────────────────────────
-{setup_commands}
-
 # ── Harbor run ───────────────────────────────────────────────────────
 harbor jobs start -c {config_path}
 """
@@ -56,7 +53,7 @@ harbor jobs start -c {config_path}
 class Job:
     """Execute Harbor benchmark tasks inside ROCK sandboxes.
 
-    Unifies setup_commands + harbor run into a single bash script, executed
+    Unifies harbor run into a single bash script, executed
     via the sandbox nohup protocol:
     - ``run()``: Full lifecycle (blocking wait)
     - ``submit()``: Start and return job_id immediately
@@ -201,16 +198,8 @@ class Job:
         )
 
     def _render_run_script(self, config_path: str) -> str:
-        """Render the run script (dockerd + setup_commands + harbor run)."""
-        # Setup commands
-        setup_lines = []
-        for cmd in self._config.environment.setup_commands:
-            setup_lines.append(f"echo '>>> {cmd[:60]}...'")
-            setup_lines.append(cmd)
-        setup_block = "\n".join(setup_lines) if setup_lines else "echo 'No setup commands'"
-
+        """Render the run script (dockerd + harbor run)."""
         return _RUN_SCRIPT_TEMPLATE.format(
-            setup_commands=setup_block,
             config_path=config_path,
             user_defined_dir=USER_DEFINED_LOGS,
         )
