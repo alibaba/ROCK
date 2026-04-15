@@ -73,3 +73,21 @@ class TestFailHelper:
 
         err = capsys.readouterr().err
         assert "rock job run --help" in err
+
+
+class TestRunParserStash:
+    def test_run_parser_stashed_on_class_after_add_parser_to(self):
+        """After add_parser_to runs, JobCommand._run_parser must point to the 'run' sub-parser."""
+        # Reset to isolate from other tests
+        JobCommand._run_parser = None
+
+        top = argparse.ArgumentParser(prog="rock")
+        subparsers = top.add_subparsers(dest="command")
+        asyncio.run(JobCommand.add_parser_to(subparsers))
+
+        assert JobCommand._run_parser is not None
+        assert isinstance(JobCommand._run_parser, argparse.ArgumentParser)
+        # Sanity: it is the parser that knows about --config
+        actions = {a.dest for a in JobCommand._run_parser._actions}
+        assert "config" in actions
+        assert "script" in actions

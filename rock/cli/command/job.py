@@ -22,6 +22,10 @@ def _fail(parser: argparse.ArgumentParser, msg: str, *, hint: str | None = None)
 class JobCommand(Command):
     name = "job"
 
+    # Cached reference to the `run` sub-parser; populated by add_parser_to,
+    # used by _job_run to call parser.error() consistently.
+    _run_parser: argparse.ArgumentParser | None = None
+
     async def arun(self, args: argparse.Namespace):
         if args.job_command == "run":
             await self._job_run(args)
@@ -141,3 +145,6 @@ class JobCommand(Command):
             default=None,
             help="XRL authorization token",
         )
+
+        # Stash on the class so _job_run can call parser.error() with the right parser.
+        JobCommand._run_parser = run_parser
