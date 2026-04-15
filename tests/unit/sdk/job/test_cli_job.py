@@ -348,7 +348,7 @@ async def test_bash_passes_env_to_config():
         await cmd.arun(args)
 
         config_arg = MockJob.call_args[0][0]
-        assert config_arg.env == {
+        assert config_arg.environment.env == {
             "SERP_DEV_KEY": "abc123",
             "RUN_CMD": "claw-eval batch --parallel 4",
         }
@@ -368,7 +368,7 @@ async def test_bash_env_with_equals_in_value():
         await cmd.arun(args)
 
         config_arg = MockJob.call_args[0][0]
-        assert config_arg.env == {"API_KEY": "sk-abc=def=="}
+        assert config_arg.environment.env == {"API_KEY": "sk-abc=def=="}
 
 
 async def test_bash_no_env_defaults_to_empty():
@@ -383,7 +383,7 @@ async def test_bash_no_env_defaults_to_empty():
         await cmd.arun(args)
 
         config_arg = MockJob.call_args[0][0]
-        assert config_arg.env == {}
+        assert config_arg.environment.env == {}
 
 
 async def test_unknown_job_command_logs_error():
