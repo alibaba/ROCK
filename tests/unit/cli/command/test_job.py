@@ -32,3 +32,44 @@ def test_parser_builds():
     assert ns.config == "foo.yaml"
     assert ns.script is None
     assert ns.script_content is None
+
+
+class TestFailHelper:
+    def test_fail_exits_with_code_2_and_usage(self, capsys):
+        """_fail() must print usage + msg and exit code 2 (argparse convention)."""
+        from rock.cli.command.job import _fail
+
+        parser = argparse.ArgumentParser(prog="rock job run")
+        parser.add_argument("--config")
+
+        with pytest.raises(SystemExit) as excinfo:
+            _fail(parser, "boom")
+
+        assert excinfo.value.code == 2
+        err = capsys.readouterr().err
+        assert "usage:" in err
+        assert "boom" in err
+        assert "rock job run --help" in err  # always appended
+
+    def test_fail_includes_hint_when_given(self, capsys):
+        from rock.cli.command.job import _fail
+
+        parser = argparse.ArgumentParser(prog="rock job run")
+
+        with pytest.raises(SystemExit):
+            _fail(parser, "boom", hint="try this: X")
+
+        err = capsys.readouterr().err
+        assert "boom" in err
+        assert "try this: X" in err
+
+    def test_fail_no_hint_still_appends_help_pointer(self, capsys):
+        from rock.cli.command.job import _fail
+
+        parser = argparse.ArgumentParser(prog="rock job run")
+
+        with pytest.raises(SystemExit):
+            _fail(parser, "boom")
+
+        err = capsys.readouterr().err
+        assert "rock job run --help" in err

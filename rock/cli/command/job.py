@@ -6,6 +6,19 @@ from rock.logger import init_logger
 logger = init_logger(__name__)
 
 
+def _fail(parser: argparse.ArgumentParser, msg: str, *, hint: str | None = None) -> None:
+    """Emit a consistent CLI error: message + optional hint + help pointer, then exit 2.
+
+    Uses ``parser.error()`` which prints the parser's usage line to stderr, writes
+    the message, and calls ``sys.exit(2)``. Never returns.
+    """
+    parts = [msg]
+    if hint:
+        parts.extend(["", hint])
+    parts.extend(["", "Run `rock job run --help` for full usage."])
+    parser.error("\n".join(parts))
+
+
 class JobCommand(Command):
     name = "job"
 
