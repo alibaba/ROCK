@@ -248,6 +248,10 @@ class JobCommand(Command):
         if getattr(args, "xrl_authorization", None):
             env_kwargs["xrl_authorization"] = args.xrl_authorization
 
+        cfg_kwargs: dict = {}
+        if args.timeout is not None:
+            cfg_kwargs["timeout"] = args.timeout
+
         return BashJobConfig(
             script=args.script_content,
             script_path=args.script,
@@ -257,7 +261,7 @@ class JobCommand(Command):
                 auto_stop=True,
                 env=env,
             ),
-            timeout=args.timeout,
+            **cfg_kwargs,
         )
 
     @staticmethod
@@ -265,7 +269,16 @@ class JobCommand(Command):
         job_parser = subparsers.add_parser("job", help="Manage sandbox jobs")
         job_subparsers = job_parser.add_subparsers(dest="job_command")
 
-        run_parser = job_subparsers.add_parser("run", help="Run a job in a sandbox")
+        run_parser = job_subparsers.add_parser(
+            "run",
+            help="Run a job in a sandbox",
+            description=(
+                "Run a sandbox job in one of two mutually-exclusive modes:\n"
+                "  (1) YAML mode  : --config <file>              (type auto-detected)\n"
+                "  (2) flags mode : --script / --script-content  (bash only)"
+            ),
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
         run_parser.add_argument(
             "--type",
             choices=["bash", "harbor"],
@@ -281,7 +294,12 @@ class JobCommand(Command):
         run_parser.add_argument("--image", default=None, help="Sandbox image")
         run_parser.add_argument("--memory", default=None, help="Memory (e.g. 8g)")
         run_parser.add_argument("--cpus", default=None, type=float, help="CPU count")
-        run_parser.add_argument("--timeout", type=int, default=3600, help="Timeout in seconds")
+        run_parser.add_argument(
+            "--timeout",
+            type=int,
+            default=None,
+            help="Timeout in seconds (overrides YAML when given).",
+        )
         run_parser.add_argument("--local-path", default=None, help="Local dir to upload")
         run_parser.add_argument("--target-path", default="/root/job", help="Target dir in sandbox")
         run_parser.add_argument("--base-url", default=None, help="Admin service base URL")

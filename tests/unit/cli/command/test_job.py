@@ -391,6 +391,18 @@ class TestApplyOverrides:
 
         assert config.environment.uploads == [("/a", "/b"), ("/src", "/dst")]
 
+    def test_parser_timeout_default_is_none(self):
+        """--timeout should default to None so YAML timeout is not unconditionally overridden."""
+        top = self._setup()
+        ns = top.parse_args(["job", "run", "--script", "run.sh"])
+        assert ns.timeout is None
+
+    def test_parser_description_mentions_two_modes(self):
+        top = self._setup()
+        desc = JobCommand._run_parser.description or ""
+        assert "YAML mode" in desc
+        assert "flags mode" in desc
+
     def test_no_overrides_leaves_config_untouched_except_auto_stop(self):
         from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
         from rock.sdk.job.config import BashJobConfig
