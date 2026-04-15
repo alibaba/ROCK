@@ -29,8 +29,8 @@ import logging
 import os
 import sys
 
-from rock.sdk.bench import HarborJobConfig
 from rock.sdk.job import Job
+from rock.sdk.job.config import JobConfig
 
 _REQUIRED_ENV_VARS = [
     "OSS_ACCESS_KEY_ID",
@@ -66,7 +66,7 @@ def parse_args() -> argparse.Namespace:
 
 
 async def async_main(args: argparse.Namespace) -> None:
-    config = HarborJobConfig.from_yaml(args.config)
+    config = JobConfig.from_yaml(args.config)
 
     # Override task_names if specified via CLI
     if args.task and config.datasets:
