@@ -161,9 +161,9 @@ class TestJobExecutorAutoStop:
     async def test_auto_stop_true_closes_sandbox(self):
         mock_sandbox = _make_mock_sandbox()
         with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
-            from rock.sdk.job.config import JobEnvironmentConfig
+            from rock.sdk.envhub import EnvironmentConfig
 
-            config = BashJobConfig(script="echo hi", job_name="test", environment=JobEnvironmentConfig(auto_stop=True))
+            config = BashJobConfig(script="echo hi", job_name="test", environment=EnvironmentConfig(auto_stop=True))
             executor = JobExecutor()
             await executor.run(ScatterOperator(size=1), config)
 
@@ -193,9 +193,9 @@ class TestBuildSessionEnv:
                 monkeypatch.delenv(k, raising=False)
         monkeypatch.setenv("OSS_KEY", "value")
 
-        from rock.sdk.job.config import JobEnvironmentConfig
+        from rock.sdk.envhub import EnvironmentConfig
 
-        config = BashJobConfig(script="echo hi", environment=JobEnvironmentConfig(env={"X": "1"}))
+        config = BashJobConfig(script="echo hi", environment=EnvironmentConfig(env={"X": "1"}))
         merged = JobExecutor._build_session_env(config)
 
         assert merged is not None
@@ -208,9 +208,9 @@ class TestBuildSessionEnv:
                 monkeypatch.delenv(k, raising=False)
         monkeypatch.setenv("OSS_KEY", "process_val")
 
-        from rock.sdk.job.config import JobEnvironmentConfig
+        from rock.sdk.envhub import EnvironmentConfig
 
-        config = BashJobConfig(script="echo hi", environment=JobEnvironmentConfig(env={"OSS_KEY": "config_val"}))
+        config = BashJobConfig(script="echo hi", environment=EnvironmentConfig(env={"OSS_KEY": "config_val"}))
         merged = JobExecutor._build_session_env(config)
 
         assert merged is not None

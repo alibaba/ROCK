@@ -8,7 +8,8 @@ import pytest
 
 # Import bench first to avoid circular-import pitfall in rock.sdk.job.config
 import rock.sdk.bench  # noqa: F401
-from rock.sdk.job.config import JobConfig, JobEnvironmentConfig
+from rock.sdk.envhub import EnvironmentConfig
+from rock.sdk.job.config import JobConfig
 from rock.sdk.job.result import TrialResult
 from rock.sdk.job.trial.abstract import AbstractTrial
 from rock.sdk.job.trial.registry import _TRIAL_REGISTRY, _create_trial, register_trial
@@ -69,7 +70,7 @@ class TestAbstractTrial:
         success_obs = MagicMock()
         success_obs.exit_code = 0
         mock_sandbox.fs.upload_dir = AsyncMock(return_value=success_obs)
-        cfg = _StubConfig(environment=JobEnvironmentConfig(file_uploads=[("/a", "/b"), ("/c", "/d")]))
+        cfg = _StubConfig(environment=EnvironmentConfig(file_uploads=[("/a", "/b"), ("/c", "/d")]))
         trial = _StubTrial(cfg)
 
         await trial._upload_files(mock_sandbox)
@@ -91,7 +92,7 @@ class TestAbstractTrial:
         mock_sandbox.fs.upload_dir.assert_not_called()
 
     async def test_upload_files_raises_on_failure(self):
-        cfg = _StubConfig(environment=JobEnvironmentConfig(file_uploads=[("/a", "/b")]))
+        cfg = _StubConfig(environment=EnvironmentConfig(file_uploads=[("/a", "/b")]))
         trial = _StubTrial(cfg)
         mock_sandbox = AsyncMock()
         failure_obs = MagicMock()

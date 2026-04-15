@@ -6,7 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from rock.sdk.bench.models.environment_type import EnvironmentType
-from rock.sdk.job.config import JobEnvironmentConfig
+from rock.sdk.envhub import EnvironmentConfig as _EnvConfig
 
 
 class AgentConfig(BaseModel):
@@ -54,7 +54,7 @@ class EnvironmentConfig(BaseModel):
     kwargs: dict[str, Any] = Field(default_factory=dict)
 
 
-class RockEnvironmentConfig(JobEnvironmentConfig, EnvironmentConfig):
+class RockEnvironmentConfig(_EnvConfig, EnvironmentConfig):
     """Unified Rock environment config.
 
     Combines job environment fields (setup_commands, file_uploads, auto_stop, env)

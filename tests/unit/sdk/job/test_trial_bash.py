@@ -6,7 +6,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-from rock.sdk.job.config import BashJobConfig, JobEnvironmentConfig
+from rock.sdk.envhub import EnvironmentConfig
+from rock.sdk.job.config import BashJobConfig
 from rock.sdk.job.trial.bash import BashTrial
 from rock.sdk.job.trial.registry import _create_trial
 
@@ -33,7 +34,7 @@ class TestBashTrialBuild:
 
     def test_build_with_setup_commands(self):
         cfg = BashJobConfig(
-            environment=JobEnvironmentConfig(setup_commands=["pip install -r requirements.txt"]),
+            environment=EnvironmentConfig(setup_commands=["pip install -r requirements.txt"]),
             script="python main.py",
         )
         trial = BashTrial(cfg)
@@ -45,7 +46,7 @@ class TestBashTrialBuild:
         assert out.index("pip install -r requirements.txt") < out.index("python main.py")
 
     def test_build_no_script_only_setup(self):
-        cfg = BashJobConfig(environment=JobEnvironmentConfig(setup_commands=["echo setup"]))
+        cfg = BashJobConfig(environment=EnvironmentConfig(setup_commands=["echo setup"]))
         trial = BashTrial(cfg)
         out = trial.build()
         assert "#!/bin/bash" in out
@@ -62,7 +63,7 @@ class TestBashTrialSetup:
     async def test_setup_uploads_files(self):
         cfg = BashJobConfig(
             script="echo hi",
-            environment=JobEnvironmentConfig(
+            environment=EnvironmentConfig(
                 file_uploads=[("/local/a", "/sandbox/a"), ("/local/b", "/sandbox/b")],
             ),
         )

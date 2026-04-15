@@ -19,7 +19,8 @@ from rock.sdk.bench.models.trial.config import (
     TemplateConfig,
     VerifierConfig,
 )
-from rock.sdk.job.config import BashJobConfig, JobConfig, JobEnvironmentConfig
+from rock.sdk.envhub import EnvironmentConfig
+from rock.sdk.job.config import BashJobConfig, JobConfig
 
 # ---------------------------------------------------------------------------
 # JobConfig (base)
@@ -29,7 +30,7 @@ from rock.sdk.job.config import BashJobConfig, JobConfig, JobEnvironmentConfig
 class TestJobConfig:
     def test_defaults(self):
         cfg = JobConfig()
-        assert isinstance(cfg.environment, JobEnvironmentConfig)
+        assert isinstance(cfg.environment, EnvironmentConfig)
         assert cfg.job_name is None
         assert cfg.namespace is None
         assert cfg.experiment_id is None
@@ -41,7 +42,7 @@ class TestJobConfig:
         assert cfg.environment.env == {}
 
     def test_custom_values(self):
-        env = JobEnvironmentConfig(
+        env = EnvironmentConfig(
             image="ubuntu:22.04",
             setup_commands=["pip install foo"],
             file_uploads=[("/local/file.py", "/sandbox/file.py")],
