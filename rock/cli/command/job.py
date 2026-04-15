@@ -39,7 +39,7 @@ class JobCommand(Command):
         parser = self._run_parser
 
         # ── 1. Mode validation ────────────────────────────────────────
-        has_config = bool(args.config)
+        has_config = bool(args.job_config)
         has_script = bool(args.script or args.script_content)
 
         if not has_config and not has_script:
@@ -48,7 +48,7 @@ class JobCommand(Command):
                 "Missing job definition. Provide either a YAML config or inline script.",
                 hint=(
                     "Examples:\n"
-                    "  rock job run --config job.yaml                     # any job type, auto-detected\n"
+                    "  rock job run --job_config job.yaml                 # any job type, auto-detected\n"
                     "  rock job run --script path/to/run.sh               # bash, script file\n"
                     '  rock job run --script-content "echo hi"            # bash, inline snippet'
                 ),
@@ -57,10 +57,10 @@ class JobCommand(Command):
         if has_config and has_script:
             _fail(
                 parser,
-                "--config is mutually exclusive with --script / --script-content.",
+                "--job_config is mutually exclusive with --script / --script-content.",
                 hint=(
                     "Pick one mode:\n"
-                    "  - YAML mode:  rock job run --config job.yaml\n"
+                    "  - YAML mode:  rock job run --job_config job.yaml\n"
                     "  - flags mode: rock job run --script run.sh"
                 ),
             )
@@ -68,18 +68,17 @@ class JobCommand(Command):
         if args.script and args.script_content:
             _fail(
                 parser,
-                "--script and --script-content are mutually exclusive "
-                "(pick a file path OR an inline snippet).",
+                "--script and --script-content are mutually exclusive (pick a file path OR an inline snippet).",
             )
 
         if args.type == "harbor" and not has_config:
             _fail(
                 parser,
-                "--type harbor requires --config <yaml>.",
+                "--type harbor requires --job_config <yaml>.",
                 hint=(
                     "Harbor jobs cannot be expressed purely via CLI flags.\n"
                     "Example:\n"
-                    "  rock job run --config harbor.yaml"
+                    "  rock job run --job_config harbor.yaml"
                 ),
             )
 
@@ -144,17 +143,17 @@ class JobCommand(Command):
 
         from rock.sdk.job.config import BashJobConfig, JobConfig
 
-        path = args.config
+        path = args.job_config
         if not Path(path).is_file():
-            _fail(parser, f"--config path does not exist: {path}")
+            _fail(parser, f"--job_config path does not exist: {path}")
 
         try:
             config = JobConfig.from_yaml(path)
         except ValueError as exc:
             # from_yaml raises ValueError with a combined Bash/Harbor error message
-            _fail(parser, f"Failed to load --config {path!r}:\n{exc}")
+            _fail(parser, f"Failed to load --job_config {path!r}:\n{exc}")
         except Exception as exc:  # YAML parse error, IO error, etc.
-            _fail(parser, f"Failed to load --config {path!r}:\n{exc}")
+            _fail(parser, f"Failed to load --job_config {path!r}:\n{exc}")
 
         if args.type is not None:
             actual_type = "bash" if isinstance(config, BashJobConfig) else "harbor"
@@ -220,7 +219,7 @@ class JobCommand(Command):
             help="Run a job in a sandbox",
             description=(
                 "Run a sandbox job in one of two mutually-exclusive modes:\n"
-                "  (1) YAML mode  : --config <file>              (type auto-detected)\n"
+                "  (1) YAML mode  : --job_config <file>          (type auto-detected)\n"
                 "  (2) flags mode : --script / --script-content  (bash only)"
             ),
             formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -234,8 +233,17 @@ class JobCommand(Command):
         # bash args
         run_parser.add_argument("--script", default=None, help="Path to script file")
         run_parser.add_argument("--script-content", default=None, help="Inline script content")
-        # harbor args
-        run_parser.add_argument("--config", default=None, help="Harbor YAML config path")
+        # YAML config (mode A) — flag name is --job_config (distinct from the
+        # top-level --config that points at the CLI INI config). Also accept
+        # --job-config as the hyphen-form alias.
+        run_parser.add_argument(
+            "--job_config",
+            "--job-config",
+            dest="job_config",
+            default=None,
+            metavar="YAML",
+            help="Job YAML config path (any job type; auto-detected).",
+        )
         # shared args
         run_parser.add_argument("--image", default=None, help="Sandbox image")
         run_parser.add_argument("--memory", default=None, help="Memory (e.g. 8g)")

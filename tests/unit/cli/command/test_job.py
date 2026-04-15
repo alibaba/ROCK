@@ -24,14 +24,36 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def test_parser_builds():
-    """Smoke: the parser builds without error and exposes --config / --script."""
+    """Smoke: the parser builds without error and exposes --job_config / --script."""
     parser = _build_parser()
-    ns = parser.parse_args(["job", "run", "--config", "foo.yaml"])
+    ns = parser.parse_args(["job", "run", "--job_config", "foo.yaml"])
     assert ns.command == "job"
     assert ns.job_command == "run"
-    assert ns.config == "foo.yaml"
+    assert ns.job_config == "foo.yaml"
     assert ns.script is None
     assert ns.script_content is None
+
+
+def test_top_level_config_does_not_collide_with_job_config():
+    """Regression: `rock --config cli.ini job run --job_config foo.yaml` keeps
+    both values separate — the top-level --config (INI loader) and the sub-parser's
+    --job_config (YAML) must not overwrite each other.
+    """
+    top = argparse.ArgumentParser(prog="rock")
+    top.add_argument("--config", help="top-level CLI config (INI)")
+    subparsers = top.add_subparsers(dest="command")
+    asyncio.run(JobCommand.add_parser_to(subparsers))
+
+    ns = top.parse_args(["--config", "cli.ini", "job", "run", "--job_config", "bash.yaml"])
+    assert ns.config == "cli.ini"
+    assert ns.job_config == "bash.yaml"
+
+
+def test_job_config_hyphen_alias():
+    """Both --job_config and --job-config should work (argparse accepts the alias)."""
+    parser = _build_parser()
+    ns = parser.parse_args(["job", "run", "--job-config", "foo.yaml"])
+    assert ns.job_config == "foo.yaml"
 
 
 class TestFailHelper:
@@ -87,9 +109,9 @@ class TestRunParserStash:
 
         assert JobCommand._run_parser is not None
         assert isinstance(JobCommand._run_parser, argparse.ArgumentParser)
-        # Sanity: it is the parser that knows about --config
+        # Sanity: it is the parser that knows about --config (stored as job_config)
         actions = {a.dest for a in JobCommand._run_parser._actions}
-        assert "config" in actions
+        assert "job_config" in actions
         assert "script" in actions
 
 
@@ -118,17 +140,17 @@ class TestJobRunValidation:
         assert excinfo.value.code == 2
         err = capsys.readouterr().err
         assert "Missing job definition" in err
-        assert "--config job.yaml" in err  # example in hint
+        assert "--job_config job.yaml" in err  # example in hint
         assert "--script" in err
         assert "rock job run --help" in err
 
     def test_config_and_script_mutually_exclusive(self, capsys, tmp_path):
-        """--config together with --script must error with mutex hint."""
+        """--job_config together with --script must error with mutex hint."""
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text("script_path: ./run.sh\n")
 
         with pytest.raises(SystemExit) as excinfo:
-            self._run(["job", "run", "--config", str(yaml_path), "--script", "run.sh"])
+            self._run(["job", "run", "--job_config", str(yaml_path), "--script", "run.sh"])
 
         assert excinfo.value.code == 2
         err = capsys.readouterr().err
@@ -141,7 +163,7 @@ class TestJobRunValidation:
         yaml_path.write_text("script_path: ./run.sh\n")
 
         with pytest.raises(SystemExit) as excinfo:
-            self._run(["job", "run", "--config", str(yaml_path), "--script-content", "echo hi"])
+            self._run(["job", "run", "--job_config", str(yaml_path), "--script-content", "echo hi"])
 
         assert excinfo.value.code == 2
         err = capsys.readouterr().err
@@ -161,7 +183,7 @@ class TestJobRunValidation:
 
         assert excinfo.value.code == 2
         err = capsys.readouterr().err
-        assert "--type harbor requires --config" in err
+        assert "--type harbor requires --job_config" in err
         assert "cannot be expressed purely via CLI flags" in err
 
     def test_type_default_is_none(self):
@@ -235,10 +257,8 @@ class TestConfigFromYaml:
     def test_loads_bash_yaml_autodetected(self, tmp_path):
         top = self._setup()
         yaml_path = tmp_path / "bash.yaml"
-        yaml_path.write_text(
-            "script_path: ./run.sh\ntimeout: 1800\nenvironment:\n  image: python:3.11\n"
-        )
-        ns = self._make_args(top, ["job", "run", "--config", str(yaml_path)])
+        yaml_path.write_text("script_path: ./run.sh\ntimeout: 1800\nenvironment:\n  image: python:3.11\n")
+        ns = self._make_args(top, ["job", "run", "--job_config", str(yaml_path)])
         config = JobCommand()._config_from_yaml(JobCommand._run_parser, ns)
 
         from rock.sdk.job.config import BashJobConfig
@@ -251,34 +271,34 @@ class TestConfigFromYaml:
     def test_missing_file_errors_via_parser(self, tmp_path, capsys):
         top = self._setup()
         missing = tmp_path / "nope.yaml"
-        ns = self._make_args(top, ["job", "run", "--config", str(missing)])
+        ns = self._make_args(top, ["job", "run", "--job_config", str(missing)])
 
         with pytest.raises(SystemExit) as excinfo:
             JobCommand()._config_from_yaml(JobCommand._run_parser, ns)
 
         assert excinfo.value.code == 2
         err = capsys.readouterr().err
-        assert "--config path does not exist" in err
+        assert "--job_config path does not exist" in err
 
     def test_invalid_yaml_surfaces_from_yaml_error(self, tmp_path, capsys):
         top = self._setup()
         yaml_path = tmp_path / "weird.yaml"
         yaml_path.write_text("totally_unknown_field: 1\n")
-        ns = self._make_args(top, ["job", "run", "--config", str(yaml_path)])
+        ns = self._make_args(top, ["job", "run", "--job_config", str(yaml_path)])
 
         with pytest.raises(SystemExit) as excinfo:
             JobCommand()._config_from_yaml(JobCommand._run_parser, ns)
 
         assert excinfo.value.code == 2
         err = capsys.readouterr().err
-        assert "Failed to load --config" in err
+        assert "Failed to load --job_config" in err
         assert "YAML does not match any known job type" in err
 
     def test_type_bash_matches_yaml(self, tmp_path):
         top = self._setup()
         yaml_path = tmp_path / "bash.yaml"
         yaml_path.write_text("script_path: ./run.sh\n")
-        ns = self._make_args(top, ["job", "run", "--type", "bash", "--config", str(yaml_path)])
+        ns = self._make_args(top, ["job", "run", "--type", "bash", "--job_config", str(yaml_path)])
         config = JobCommand()._config_from_yaml(JobCommand._run_parser, ns)
 
         from rock.sdk.job.config import BashJobConfig
@@ -289,7 +309,7 @@ class TestConfigFromYaml:
         top = self._setup()
         yaml_path = tmp_path / "bash.yaml"
         yaml_path.write_text("script_path: ./run.sh\n")
-        ns = self._make_args(top, ["job", "run", "--type", "harbor", "--config", str(yaml_path)])
+        ns = self._make_args(top, ["job", "run", "--type", "harbor", "--job_config", str(yaml_path)])
 
         with pytest.raises(SystemExit) as excinfo:
             JobCommand()._config_from_yaml(JobCommand._run_parser, ns)
@@ -321,7 +341,7 @@ class TestApplyOverrides:
             [
                 "job",
                 "run",
-                "--config",
+                "--job_config",
                 "unused.yaml",
                 "--image",
                 "python:3.12",
@@ -354,7 +374,7 @@ class TestApplyOverrides:
             [
                 "job",
                 "run",
-                "--config",
+                "--job_config",
                 "unused.yaml",
                 "--env",
                 "FOO=new",
@@ -379,7 +399,7 @@ class TestApplyOverrides:
             [
                 "job",
                 "run",
-                "--config",
+                "--job_config",
                 "unused.yaml",
                 "--local-path",
                 "/src",
@@ -398,7 +418,7 @@ class TestApplyOverrides:
         assert ns.timeout is None
 
     def test_parser_description_mentions_two_modes(self):
-        top = self._setup()
+        self._setup()  # populates JobCommand._run_parser
         desc = JobCommand._run_parser.description or ""
         assert "YAML mode" in desc
         assert "flags mode" in desc
@@ -413,7 +433,7 @@ class TestApplyOverrides:
             environment=RockEnvironmentConfig(image="python:3.10", env={"X": "1"}),
             timeout=1234,
         )
-        ns = top.parse_args(["job", "run", "--config", "unused.yaml"])
+        ns = top.parse_args(["job", "run", "--job_config", "unused.yaml"])
         # Force timeout to None so this test is robust regardless of the parser's
         # current default (Task 11 flips it to None permanently).
         ns.timeout = None
@@ -482,9 +502,7 @@ class TestJobRunEndToEnd:
         from rock.sdk.job.config import BashJobConfig
 
         yaml_path = tmp_path / "bash.yaml"
-        yaml_path.write_text(
-            "script_path: ./run.sh\nenvironment:\n  image: python:3.10\n"
-        )
+        yaml_path.write_text("script_path: ./run.sh\nenvironment:\n  image: python:3.10\n")
 
         captured = {}
 
@@ -505,7 +523,7 @@ class TestJobRunEndToEnd:
             [
                 "job",
                 "run",
-                "--config",
+                "--job_config",
                 str(yaml_path),
                 "--image",
                 "python:3.12",
@@ -532,5 +550,5 @@ class TestHelpOutput:
         out = capsys.readouterr().out
         assert "YAML mode" in out
         assert "flags mode" in out
-        assert "--config" in out
+        assert "--job_config" in out
         assert "--script" in out
