@@ -219,3 +219,81 @@ class TestConfigFromFlags:
         assert config.script is None
         assert config.environment.env == {}
         assert config.environment.uploads == []
+
+
+class TestConfigFromYaml:
+    def _setup(self):
+        JobCommand._run_parser = None
+        top = argparse.ArgumentParser(prog="rock")
+        subparsers = top.add_subparsers(dest="command")
+        asyncio.run(JobCommand.add_parser_to(subparsers))
+        return top
+
+    def _make_args(self, top, argv):
+        return top.parse_args(argv)
+
+    def test_loads_bash_yaml_autodetected(self, tmp_path):
+        top = self._setup()
+        yaml_path = tmp_path / "bash.yaml"
+        yaml_path.write_text(
+            "script_path: ./run.sh\ntimeout: 1800\nenvironment:\n  image: python:3.11\n"
+        )
+        ns = self._make_args(top, ["job", "run", "--config", str(yaml_path)])
+        config = JobCommand()._config_from_yaml(JobCommand._run_parser, ns)
+
+        from rock.sdk.job.config import BashJobConfig
+
+        assert isinstance(config, BashJobConfig)
+        assert config.script_path == "./run.sh"
+        assert config.timeout == 1800
+        assert config.environment.image == "python:3.11"
+
+    def test_missing_file_errors_via_parser(self, tmp_path, capsys):
+        top = self._setup()
+        missing = tmp_path / "nope.yaml"
+        ns = self._make_args(top, ["job", "run", "--config", str(missing)])
+
+        with pytest.raises(SystemExit) as excinfo:
+            JobCommand()._config_from_yaml(JobCommand._run_parser, ns)
+
+        assert excinfo.value.code == 2
+        err = capsys.readouterr().err
+        assert "--config path does not exist" in err
+
+    def test_invalid_yaml_surfaces_from_yaml_error(self, tmp_path, capsys):
+        top = self._setup()
+        yaml_path = tmp_path / "weird.yaml"
+        yaml_path.write_text("totally_unknown_field: 1\n")
+        ns = self._make_args(top, ["job", "run", "--config", str(yaml_path)])
+
+        with pytest.raises(SystemExit) as excinfo:
+            JobCommand()._config_from_yaml(JobCommand._run_parser, ns)
+
+        assert excinfo.value.code == 2
+        err = capsys.readouterr().err
+        assert "Failed to load --config" in err
+        assert "YAML does not match any known job type" in err
+
+    def test_type_bash_matches_yaml(self, tmp_path):
+        top = self._setup()
+        yaml_path = tmp_path / "bash.yaml"
+        yaml_path.write_text("script_path: ./run.sh\n")
+        ns = self._make_args(top, ["job", "run", "--type", "bash", "--config", str(yaml_path)])
+        config = JobCommand()._config_from_yaml(JobCommand._run_parser, ns)
+
+        from rock.sdk.job.config import BashJobConfig
+
+        assert isinstance(config, BashJobConfig)
+
+    def test_type_harbor_mismatch_against_bash_yaml(self, tmp_path, capsys):
+        top = self._setup()
+        yaml_path = tmp_path / "bash.yaml"
+        yaml_path.write_text("script_path: ./run.sh\n")
+        ns = self._make_args(top, ["job", "run", "--type", "harbor", "--config", str(yaml_path)])
+
+        with pytest.raises(SystemExit) as excinfo:
+            JobCommand()._config_from_yaml(JobCommand._run_parser, ns)
+
+        assert excinfo.value.code == 2
+        err = capsys.readouterr().err
+        assert "--type harbor does not match YAML (detected as bash)" in err

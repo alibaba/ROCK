@@ -158,6 +158,34 @@ class JobCommand(Command):
         except Exception as e:
             logger.error(f"Job failed: {e}")
 
+    def _config_from_yaml(self, parser: argparse.ArgumentParser, args: argparse.Namespace):
+        """Load config via JobConfig.from_yaml and enforce --type consistency."""
+        from pathlib import Path
+
+        from rock.sdk.job.config import BashJobConfig, JobConfig
+
+        path = args.config
+        if not Path(path).is_file():
+            _fail(parser, f"--config path does not exist: {path}")
+
+        try:
+            config = JobConfig.from_yaml(path)
+        except ValueError as exc:
+            # from_yaml raises ValueError with a combined Bash/Harbor error message
+            _fail(parser, f"Failed to load --config {path!r}:\n{exc}")
+        except Exception as exc:  # YAML parse error, IO error, etc.
+            _fail(parser, f"Failed to load --config {path!r}:\n{exc}")
+
+        if args.type is not None:
+            actual_type = "bash" if isinstance(config, BashJobConfig) else "harbor"
+            if args.type != actual_type:
+                _fail(
+                    parser,
+                    f"--type {args.type} does not match YAML (detected as {actual_type}).",
+                    hint="Remove --type and let the YAML decide, or pass a matching config file.",
+                )
+        return config
+
     def _config_from_flags(self, args: argparse.Namespace):
         """Build a BashJobConfig purely from CLI flags (mode B)."""
         from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
