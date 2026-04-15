@@ -38,14 +38,14 @@ class TestJobConfig:
         assert cfg.timeout == 3600
         assert cfg.environment.auto_stop is False
         assert cfg.environment.setup_commands == []
-        assert cfg.environment.file_uploads == []
+        assert cfg.environment.uploads == []
         assert cfg.environment.env == {}
 
     def test_custom_values(self):
         env = EnvironmentConfig(
             image="ubuntu:22.04",
             setup_commands=["pip install foo"],
-            file_uploads=[("/local/file.py", "/sandbox/file.py")],
+            uploads=[("/local/file.py", "/sandbox/file.py")],
             env={"MY_VAR": "hello"},
             auto_stop=True,
         )
@@ -64,7 +64,7 @@ class TestJobConfig:
         assert cfg.labels == {"step": "42"}
         assert cfg.environment.auto_stop is True
         assert cfg.environment.setup_commands == ["pip install foo"]
-        assert cfg.environment.file_uploads == [("/local/file.py", "/sandbox/file.py")]
+        assert cfg.environment.uploads == [("/local/file.py", "/sandbox/file.py")]
         assert cfg.environment.env == {"MY_VAR": "hello"}
         assert cfg.timeout == 7200
 
@@ -191,7 +191,7 @@ class TestHarborJobConfigToHarborYaml:
             environment=RockEnvironmentConfig(
                 auto_stop=True,
                 setup_commands=["pip install foo"],
-                file_uploads=[("/a", "/b")],
+                uploads=[("/a", "/b")],
                 env={"KEY": "VAL"},
             ),
             timeout=999,
@@ -206,7 +206,7 @@ class TestHarborJobConfigToHarborYaml:
         assert data["experiment_id"] == "my-exp"
         assert data["labels"] == {"step": "1"}
         # Rock-only — must be absent
-        rock_only = {"auto_stop", "setup_commands", "file_uploads", "timeout"}
+        rock_only = {"auto_stop", "setup_commands", "uploads", "timeout"}
         for field in rock_only:
             assert field not in data, f"Rock field '{field}' should be excluded"
 

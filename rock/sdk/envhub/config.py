@@ -15,9 +15,10 @@ class EnvironmentConfig(SandboxConfig):
     """General environment config — sandbox base fields + environment-level fields."""
 
     setup_commands: list[str] = Field(default_factory=list)
-    file_uploads: list[tuple[str, str]] = Field(
+    uploads: list[tuple[str, str]] = Field(
         default_factory=list,
-        description="Files/dirs to upload before running: [(local_path, sandbox_path), ...]",
+        description="Files/dirs to upload before running: [(local_path, sandbox_path), ...]. "
+        "Automatically detects file vs directory and uses the appropriate upload method.",
     )
     auto_stop: bool = False
     env: dict[str, str] = Field(default_factory=dict)

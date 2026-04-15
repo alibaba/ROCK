@@ -11,6 +11,7 @@ import json
 import os
 import tempfile
 import uuid
+from pathlib import Path
 
 from rock.actions import Command, CreateBashSessionRequest, ReadFileRequest
 from rock.logger import init_logger
@@ -170,9 +171,13 @@ class Job:
         await self._create_session()
 
         # 1. Upload user-specified files/dirs
-        for local_path, sandbox_path in self._config.environment.file_uploads:
+        for local_path, sandbox_path in self._config.environment.uploads:
             logger.info(f"Uploading {local_path} -> {sandbox_path}")
-            await self._sandbox.fs.upload_dir(local_path, sandbox_path)
+            src = Path(local_path)
+            if src.is_file():
+                await self._sandbox.upload_by_path(file_path=local_path, target_path=sandbox_path)
+            else:
+                await self._sandbox.fs.upload_dir(local_path, sandbox_path)
 
         # 2. Upload harbor config YAML + run script
         config_path = f"{USER_DEFINED_LOGS}/rock_job_{self._config.job_name}.yaml"
@@ -285,7 +290,7 @@ class Job:
 
         If job_name is None, generate one with the format:
         {dataset_name}_{task_name if single task}_{uuid}
-        
+
         For dataset_name and task_name, only the last segment after "/" is used.
         """
         if self._config.job_name is not None:

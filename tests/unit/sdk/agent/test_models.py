@@ -235,7 +235,7 @@ class TestHarborJobConfig:
     def test_environment_defaults(self):
         cfg = HarborJobConfig(experiment_id="test-exp")
         assert cfg.environment.setup_commands == []
-        assert cfg.environment.file_uploads == []
+        assert cfg.environment.uploads == []
         assert cfg.environment.env == {}
         assert cfg.environment.auto_stop is False
 

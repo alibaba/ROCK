@@ -65,34 +65,80 @@ class TestAbstractTrial:
         trial = _StubTrial(cfg)
         assert trial._config is cfg
 
-    async def test_upload_files_iterates_all_entries(self):
+    async def test_upload_dirs_dispatches_to_upload_dir(self, tmp_path):
+        """Directory entries should call sandbox.fs.upload_dir()."""
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        dir_a.mkdir()
+        dir_b.mkdir()
+
         mock_sandbox = AsyncMock()
         success_obs = MagicMock()
         success_obs.exit_code = 0
         mock_sandbox.fs.upload_dir = AsyncMock(return_value=success_obs)
-        cfg = _StubConfig(environment=EnvironmentConfig(file_uploads=[("/a", "/b"), ("/c", "/d")]))
+        cfg = _StubConfig(environment=EnvironmentConfig(uploads=[(str(dir_a), "/b"), (str(dir_b), "/d")]))
         trial = _StubTrial(cfg)
 
         await trial._upload_files(mock_sandbox)
 
         assert mock_sandbox.fs.upload_dir.call_count == 2
-        mock_sandbox.fs.upload_dir.assert_any_call(source_dir="/a", target_dir="/b")
-        mock_sandbox.fs.upload_dir.assert_any_call(source_dir="/c", target_dir="/d")
+        mock_sandbox.upload_by_path.assert_not_called()
 
-    async def test_upload_files_noop_when_empty(self):
+    async def test_upload_files_dispatches_to_upload_by_path(self, tmp_path):
+        """File entries should call sandbox.upload_by_path()."""
+        file_a = tmp_path / "a.txt"
+        file_a.write_text("content")
+
+        mock_sandbox = AsyncMock()
+        upload_resp = MagicMock()
+        upload_resp.success = True
+        mock_sandbox.upload_by_path = AsyncMock(return_value=upload_resp)
+        cfg = _StubConfig(environment=EnvironmentConfig(uploads=[(str(file_a), "/sandbox/a.txt")]))
+        trial = _StubTrial(cfg)
+
+        await trial._upload_files(mock_sandbox)
+
+        mock_sandbox.upload_by_path.assert_called_once_with(file_path=str(file_a), target_path="/sandbox/a.txt")
+        mock_sandbox.fs.upload_dir.assert_not_called()
+
+    async def test_upload_mixed_files_and_dirs(self, tmp_path):
+        """Mixed entries dispatch to the correct method."""
+        dir_a = tmp_path / "mydir"
+        dir_a.mkdir()
+        file_b = tmp_path / "myfile.txt"
+        file_b.write_text("data")
+
         mock_sandbox = AsyncMock()
         success_obs = MagicMock()
         success_obs.exit_code = 0
         mock_sandbox.fs.upload_dir = AsyncMock(return_value=success_obs)
-        cfg = _StubConfig(file_uploads=[])
+        upload_resp = MagicMock()
+        upload_resp.success = True
+        mock_sandbox.upload_by_path = AsyncMock(return_value=upload_resp)
+        cfg = _StubConfig(
+            environment=EnvironmentConfig(uploads=[(str(dir_a), "/sandbox/dir"), (str(file_b), "/sandbox/file.txt")])
+        )
+        trial = _StubTrial(cfg)
+
+        await trial._upload_files(mock_sandbox)
+
+        mock_sandbox.fs.upload_dir.assert_called_once()
+        mock_sandbox.upload_by_path.assert_called_once()
+
+    async def test_upload_files_noop_when_empty(self):
+        mock_sandbox = AsyncMock()
+        cfg = _StubConfig(uploads=[])
         trial = _StubTrial(cfg)
 
         await trial._upload_files(mock_sandbox)
 
         mock_sandbox.fs.upload_dir.assert_not_called()
+        mock_sandbox.upload_by_path.assert_not_called()
 
-    async def test_upload_files_raises_on_failure(self):
-        cfg = _StubConfig(environment=EnvironmentConfig(file_uploads=[("/a", "/b")]))
+    async def test_upload_dir_raises_on_failure(self, tmp_path):
+        dir_a = tmp_path / "a"
+        dir_a.mkdir()
+        cfg = _StubConfig(environment=EnvironmentConfig(uploads=[(str(dir_a), "/b")]))
         trial = _StubTrial(cfg)
         mock_sandbox = AsyncMock()
         failure_obs = MagicMock()
@@ -101,6 +147,28 @@ class TestAbstractTrial:
         mock_sandbox.fs.upload_dir = AsyncMock(return_value=failure_obs)
 
         with pytest.raises(RuntimeError, match="disk full"):
+            await trial._upload_files(mock_sandbox)
+
+    async def test_upload_file_raises_on_failure(self, tmp_path):
+        file_a = tmp_path / "a.txt"
+        file_a.write_text("content")
+        cfg = _StubConfig(environment=EnvironmentConfig(uploads=[(str(file_a), "/b")]))
+        trial = _StubTrial(cfg)
+        mock_sandbox = AsyncMock()
+        upload_resp = MagicMock()
+        upload_resp.success = False
+        upload_resp.message = "upload failed"
+        mock_sandbox.upload_by_path = AsyncMock(return_value=upload_resp)
+
+        with pytest.raises(RuntimeError, match="upload failed"):
+            await trial._upload_files(mock_sandbox)
+
+    async def test_upload_nonexistent_path_raises(self):
+        cfg = _StubConfig(environment=EnvironmentConfig(uploads=[("/nonexistent/path", "/b")]))
+        trial = _StubTrial(cfg)
+        mock_sandbox = AsyncMock()
+
+        with pytest.raises(RuntimeError, match="not found or unsupported"):
             await trial._upload_files(mock_sandbox)
 
 

@@ -181,7 +181,7 @@ async def test_bash_with_file_upload():
         await cmd.arun(args)
 
         config_arg = MockJob.call_args[0][0]
-        assert config_arg.environment.file_uploads == [("/tmp/src", "/root/target")]
+        assert config_arg.environment.uploads == [("/tmp/src", "/root/target")]
 
 
 async def test_bash_requires_script_or_script_content():

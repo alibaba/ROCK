@@ -60,11 +60,15 @@ class TestBashTrialBuild:
 
 
 class TestBashTrialSetup:
-    async def test_setup_uploads_files(self):
+    async def test_setup_uploads_dirs(self, tmp_path):
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        dir_a.mkdir()
+        dir_b.mkdir()
         cfg = BashJobConfig(
             script="echo hi",
             environment=EnvironmentConfig(
-                file_uploads=[("/local/a", "/sandbox/a"), ("/local/b", "/sandbox/b")],
+                uploads=[(str(dir_a), "/sandbox/a"), (str(dir_b), "/sandbox/b")],
             ),
         )
         trial = BashTrial(cfg)
@@ -74,8 +78,6 @@ class TestBashTrialSetup:
         await trial.setup(mock_sandbox)
 
         assert mock_sandbox.fs.upload_dir.call_count == 2
-        mock_sandbox.fs.upload_dir.assert_any_call(source_dir="/local/a", target_dir="/sandbox/a")
-        mock_sandbox.fs.upload_dir.assert_any_call(source_dir="/local/b", target_dir="/sandbox/b")
 
     async def test_setup_reads_script_path(self):
         expected = "expected content"

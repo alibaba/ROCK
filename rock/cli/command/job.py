@@ -45,16 +45,16 @@ class JobCommand(Command):
             if getattr(args, "extra_headers", None):
                 env_kwargs["extra_headers"] = args.extra_headers
 
-            file_uploads = []
+            uploads = []
             if args.local_path:
-                file_uploads.append((args.local_path, args.target_path))
+                uploads.append((args.local_path, args.target_path))
 
             config = BashJobConfig(
                 script=args.script_content,
                 script_path=args.script,
                 environment=RockEnvironmentConfig(
                     **env_kwargs,
-                    file_uploads=file_uploads,
+                    uploads=uploads,
                     auto_stop=True,
                 ),
                 timeout=args.timeout,
