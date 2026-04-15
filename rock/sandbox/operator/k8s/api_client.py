@@ -11,7 +11,8 @@ The Informer pattern reduces API Server load by maintaining a local cache.
 """
 
 import asyncio
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from aiolimiter import AsyncLimiter
 from kubernetes import client
@@ -24,6 +25,7 @@ logger = init_logger(__name__)
 
 # User-Agent for K8s API requests
 USER_AGENT = "rock-k8s-client/v1.0.0"
+
 
 def _make_list_func(
     custom_api: client.CustomObjectsApi,
@@ -120,9 +122,7 @@ class K8sApiClient:
         self._rate_limiter = AsyncLimiter(max_rate=qps, time_period=1.0)
 
         # Create SharedInformer with custom list function
-        list_func = _make_list_func(
-            self._custom_api, group, version, plural
-        )
+        list_func = _make_list_func(self._custom_api, group, version, plural)
         self._informer = SharedInformer(
             list_func=list_func,
             namespace=namespace,

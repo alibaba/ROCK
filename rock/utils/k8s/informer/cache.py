@@ -24,7 +24,7 @@ def _meta_namespace_key(obj):
             ns = meta.get("namespace") or ""
             name = meta.get("name") or ""
     if ns:
-        return "{}/{}".format(ns, name)
+        return f"{ns}/{name}"
     return name
 
 

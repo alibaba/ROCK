@@ -181,7 +181,7 @@ class TestK8sOperator:
     async def test_get_status_not_found_in_redis(self, k8s_operator, mock_provider, redis_provider):
         """Test get_status raises error when sandbox not found in Redis."""
         k8s_operator.set_redis_provider(redis_provider)
-        
+
         # Mock provider returns sandbox info
         mock_sandbox_info = {
             "sandbox_id": "test-sandbox",
@@ -191,7 +191,7 @@ class TestK8sOperator:
             "port_mapping": {},
         }
         mock_provider.get_status = AsyncMock(return_value=SandboxInfo(**mock_sandbox_info))
-        
+
         # Sandbox not in Redis (no data stored)
         with pytest.raises(Exception, match="Sandbox test-sandbox not found in Redis"):
             await k8s_operator.get_status("test-sandbox")

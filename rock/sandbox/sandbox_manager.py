@@ -35,12 +35,10 @@ from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
 from rock.utils.crypto_utils import AESEncryption
-from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 from rock.utils.format import convert_to_gb, parse_size_to_bytes
-from rock.utils.providers.redis_provider import RedisProvider
-from rock.utils.service import build_sandbox_from_redis
 from rock.utils.system import get_iso8601_timestamp
 
 logger = init_logger(__name__)

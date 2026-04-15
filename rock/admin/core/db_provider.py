@@ -57,5 +57,5 @@ class DatabaseProvider:
             return url.replace("sqlite:///", "sqlite+aiosqlite:///", 1)
         if url.startswith("postgresql://") or url.startswith("postgres://"):
             prefix = "postgresql://" if url.startswith("postgresql://") else "postgres://"
-            return "postgresql+asyncpg://" + url[len(prefix):]
+            return "postgresql+asyncpg://" + url[len(prefix) :]
         return url

@@ -16,19 +16,16 @@ from starlette.responses import JSONResponse
 from rock.actions.sandbox.response import State
 from rock.admin.core.db_provider import DatabaseProvider
 from rock.admin.core.sandbox_table import SandboxTable
-from rock.config import DatabaseConfig, RockConfig
-from rock.sandbox.sandbox_meta_store import SandboxMetaStore
-from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
-from rock.utils.providers.redis_provider import RedisProvider
-
-from rock.admin.proto.response import SandboxListResponse
 from rock.admin.entrypoints.sandbox_proxy_api import (
     sandbox_proxy_router,
     set_sandbox_proxy_service,
     vnc_websocket_proxy,
     websocket_proxy,
 )
+from rock.config import DatabaseConfig, RockConfig
+from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+from rock.utils.providers.redis_provider import RedisProvider
 
 
 def _make_mock_websocket(query_string: str = "", headers: dict | None = None) -> MagicMock:
@@ -1127,4 +1124,3 @@ class TestBatchGetLegacyStates:
         result = await svc.batch_get_sandbox_status(["sb-exists", "sb-ghost"])
         assert len(result) == 1
         assert result[0].sandbox_id == "sb-exists"
-

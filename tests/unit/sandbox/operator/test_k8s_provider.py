@@ -4,9 +4,9 @@ import pytest
 
 from rock.config import K8sConfig, PoolConfig
 from rock.deployments.config import DockerDeploymentConfig
+from rock.deployments.constants import Port
 from rock.sandbox.operator.k8s.constants import K8sConstants
 from rock.sandbox.operator.k8s.provider import BatchSandboxProvider, ResourceMatchingPoolSelector
-from rock.deployments.constants import Port
 
 BASIC_TEMPLATES = {
     "default": {
@@ -270,10 +270,10 @@ class MockNacosProvider:
 
 class MockK8sApiClient:
     """Mock K8s API client for testing."""
-    
+
     def __init__(self, custom_object: dict = None):
         self._custom_object = custom_object
-    
+
     async def get_custom_object(self, name: str) -> dict:
         if self._custom_object is None:
             raise Exception(f"Sandbox '{name}' not found")
@@ -339,16 +339,12 @@ class TestGetSandboxRuntimeInfo:
         """Raise exception when sandbox is being deleted."""
         provider = make_provider()
         provider._initialized = True
-        
+
         # Mock K8s API to return a resource with deletionTimestamp
-        provider._k8s_api = MockK8sApiClient({
-            "metadata": {
-                "name": "test-sandbox",
-                "deletionTimestamp": "2024-01-01T00:00:00Z",
-                "annotations": {}
-            }
-        })
-        
+        provider._k8s_api = MockK8sApiClient(
+            {"metadata": {"name": "test-sandbox", "deletionTimestamp": "2024-01-01T00:00:00Z", "annotations": {}}}
+        )
+
         with pytest.raises(Exception, match="is being deleted"):
             await provider._get_sandbox_runtime_info("test-sandbox")
 
@@ -356,18 +352,20 @@ class TestGetSandboxRuntimeInfo:
         """Return runtime info when sandbox is active."""
         provider = make_provider()
         provider._initialized = True
-        
+
         # Mock K8s API to return a normal resource
-        provider._k8s_api = MockK8sApiClient({
-            "metadata": {
-                "name": "test-sandbox",
-                "annotations": {
-                    K8sConstants.ANNOTATION_ENDPOINTS: '["10.0.0.1"]',
-                    K8sConstants.ANNOTATION_PORTS: '{"proxy": 8000, "server": 8080, "ssh": 22}'
+        provider._k8s_api = MockK8sApiClient(
+            {
+                "metadata": {
+                    "name": "test-sandbox",
+                    "annotations": {
+                        K8sConstants.ANNOTATION_ENDPOINTS: '["10.0.0.1"]',
+                        K8sConstants.ANNOTATION_PORTS: '{"proxy": 8000, "server": 8080, "ssh": 22}',
+                    },
                 }
             }
-        })
-        
+        )
+
         host_ip, port_mapping, resource_version = await provider._get_sandbox_runtime_info("test-sandbox")
         assert host_ip == "10.0.0.1"
         assert port_mapping[Port.PROXY] == 8000
@@ -381,16 +379,18 @@ class TestGetSandboxRuntimeInfo:
         provider._initialized = True
 
         # Mock K8s API to return a resource with resourceVersion
-        provider._k8s_api = MockK8sApiClient({
-            "metadata": {
-                "name": "test-sandbox",
-                "resourceVersion": "12345",
-                "annotations": {
-                    K8sConstants.ANNOTATION_ENDPOINTS: '["10.0.0.1"]',
-                    K8sConstants.ANNOTATION_PORTS: '{"proxy": 8000, "server": 8080, "ssh": 22}'
+        provider._k8s_api = MockK8sApiClient(
+            {
+                "metadata": {
+                    "name": "test-sandbox",
+                    "resourceVersion": "12345",
+                    "annotations": {
+                        K8sConstants.ANNOTATION_ENDPOINTS: '["10.0.0.1"]',
+                        K8sConstants.ANNOTATION_PORTS: '{"proxy": 8000, "server": 8080, "ssh": 22}',
+                    },
                 }
             }
-        })
+        )
 
         host_ip, port_mapping, resource_version = await provider._get_sandbox_runtime_info("test-sandbox")
         assert host_ip == "10.0.0.1"

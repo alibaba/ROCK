@@ -8,9 +8,7 @@ All DB operations are awaited for consistency.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any
-
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from rock.actions.sandbox.response import State
 from rock.actions.sandbox.sandbox_info import SandboxInfo

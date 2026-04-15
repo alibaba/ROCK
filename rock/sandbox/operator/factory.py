@@ -77,4 +77,4 @@ class OperatorFactory:
                 k8s_operator.set_nacos_provider(context.nacos_provider)
             return k8s_operator
         else:
-            raise ValueError(f"Unsupported operator type: {operator_type}. " f"Supported types: ray, kubernetes")
+            raise ValueError(f"Unsupported operator type: {operator_type}. Supported types: ray, kubernetes")

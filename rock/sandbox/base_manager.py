@@ -10,8 +10,8 @@ from rock.admin.metrics.monitor import MetricsMonitor, aggregate_metrics
 from rock.config import RockConfig
 from rock.deployments.manager import DeploymentManager
 from rock.logger import init_logger
-from rock.utils import get_executor
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
+from rock.utils import get_executor
 
 logger = init_logger(__name__)
 

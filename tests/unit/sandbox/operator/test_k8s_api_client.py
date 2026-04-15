@@ -6,7 +6,7 @@ Tests cover:
 - CRUD operations on K8s custom resources
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -118,9 +118,7 @@ class TestK8sApiClient:
         with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
             mock_thread.return_value = {"updated": True}
 
-            result = await k8s_api_client.update_custom_object(
-                name="test-sandbox", body={"spec": {"new": "value"}}
-            )
+            result = await k8s_api_client.update_custom_object(name="test-sandbox", body={"spec": {"new": "value"}})
 
             assert result == {"updated": True}
             mock_thread.assert_awaited_once()
@@ -128,7 +126,7 @@ class TestK8sApiClient:
     @pytest.mark.asyncio
     async def test_start_initializes_informer(self, k8s_api_client):
         """Test start() initializes the SharedInformer."""
-        with patch.object(k8s_api_client._informer, 'start') as mock_start:
+        with patch.object(k8s_api_client._informer, "start") as mock_start:
             await k8s_api_client.start()
 
             assert k8s_api_client._initialized is True
@@ -140,7 +138,7 @@ class TestK8sApiClient:
 
         Multiple start() calls should only initialize watch once.
         """
-        with patch.object(k8s_api_client._informer, 'start') as mock_start:
+        with patch.object(k8s_api_client._informer, "start") as mock_start:
             await k8s_api_client.start()
             await k8s_api_client.start()
 
@@ -150,8 +148,10 @@ class TestK8sApiClient:
     @pytest.mark.asyncio
     async def test_stop_informer(self, k8s_api_client):
         """Test stop() stops the SharedInformer."""
-        with patch.object(k8s_api_client._informer, 'start') as mock_start, \
-             patch.object(k8s_api_client._informer, 'stop') as mock_stop:
+        with (
+            patch.object(k8s_api_client._informer, "start") as _mock_start,
+            patch.object(k8s_api_client._informer, "stop") as mock_stop,
+        ):
             await k8s_api_client.start()
             await k8s_api_client.stop()
 

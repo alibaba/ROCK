@@ -2,6 +2,7 @@
 Solving software engineering(SWE) problem with [Openhands Benchmarks SDK](https://github.com/OpenHands/benchmarks.git).
 Implementation framework reference: `rock/sdk/sandbox/agent/swe_agent.py`
 """
+
 from __future__ import annotations
 
 import copy
@@ -466,8 +467,7 @@ class Openhands(DefaultAgent):
         except Exception as e:
             elapsed_total = time.time() - start_time
             logger.error(
-                f"[{sandbox_id}] Operation failed: Rollout execution failed - {str(e)} "
-                f"(elapsed: {elapsed_total:.2f}s)",
+                f"[{sandbox_id}] Operation failed: Rollout execution failed - {str(e)} (elapsed: {elapsed_total:.2f}s)",
                 exc_info=True,
             )
             raise

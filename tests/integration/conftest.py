@@ -107,8 +107,7 @@ def admin_remote_server():
         parsed = urlparse(normalized)
         if not parsed.hostname or not parsed.port:
             raise ValueError(
-                "Invalid ROCK_TEST_ADMIN_BASE_URL. Expected host:port or http://host:port, "
-                f"got: {external_base_url!r}"
+                f"Invalid ROCK_TEST_ADMIN_BASE_URL. Expected host:port or http://host:port, got: {external_base_url!r}"
             )
         logger.info("Using external admin server from ROCK_TEST_ADMIN_BASE_URL=%s", external_base_url)
         yield RemoteServer(port=parsed.port, endpoint=f"{parsed.scheme}://{parsed.hostname}")

@@ -15,9 +15,11 @@ from sqlalchemy.schema import CreateIndex, CreateTable
 def get_dialect(name: str):
     if name == "postgresql":
         from sqlalchemy.dialects import postgresql
+
         return postgresql.dialect()
     if name == "sqlite":
         from sqlalchemy.dialects import sqlite
+
         return sqlite.dialect()
     print(f"Unsupported dialect: {name}", file=sys.stderr)
     sys.exit(1)

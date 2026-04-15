@@ -152,10 +152,13 @@ class TestSandboxTableWithPostgres:
 
     async def test_update(self, db):
         sandbox_id = "test-sandbox-003"
-        await db.create(sandbox_id, {
-            "state": "PENDING",
-            "create_time": "2025-01-01T00:00:00Z",
-        })
+        await db.create(
+            sandbox_id,
+            {
+                "state": "PENDING",
+                "create_time": "2025-01-01T00:00:00Z",
+            },
+        )
 
         await db.update(sandbox_id, {"state": "RUNNING", "host_ip": "10.0.0.2"})
         record = await db.get(sandbox_id)

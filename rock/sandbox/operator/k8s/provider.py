@@ -11,7 +11,7 @@ from kubernetes import config as k8s_config
 from rock.actions.sandbox.config import RemoteSandboxRuntimeConfig
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.config import K8sConfig, PoolConfig
-from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
+from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Port
 from rock.logger import init_logger
 from rock.sandbox.operator.k8s.api_client import K8sApiClient

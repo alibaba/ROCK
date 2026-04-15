@@ -47,19 +47,20 @@ class TestBatchGetAfterDDL:
         # 1. populate and query — warms prepared statement cache
         ids = [f"cache-{i:03d}" for i in range(10)]
         for sid in ids:
-            await table.create(sid, {
-                "image": "python:3.11",
-                "create_time": "2026-04-14T00:00:00Z",
-            })
+            await table.create(
+                sid,
+                {
+                    "image": "python:3.11",
+                    "create_time": "2026-04-14T00:00:00Z",
+                },
+            )
         records = await table.list_by_in("sandbox_id", ids)
         assert len(records) == 10
 
         # 2. external DDL — simulates hotfix applied while app is running
         raw = await asyncpg.connect(pg_url)
         try:
-            await raw.execute(
-                "ALTER TABLE sandbox_record ALTER COLUMN image TYPE VARCHAR(1024)"
-            )
+            await raw.execute("ALTER TABLE sandbox_record ALTER COLUMN image TYPE VARCHAR(1024)")
         finally:
             await raw.close()
 

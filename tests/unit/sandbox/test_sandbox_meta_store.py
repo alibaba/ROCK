@@ -53,7 +53,6 @@ def repo(redis, db):
     return SandboxMetaStore(redis_provider=redis, sandbox_table=db)
 
 
-
 @pytest.fixture
 def repo_with_memory_db(redis, db_memory):
     return SandboxMetaStore(redis_provider=redis, sandbox_table=db_memory)
@@ -267,9 +266,15 @@ class TestIterAliveSandboxIds:
 
     async def test_iter_alive_sandbox_ids_works_with_sqlite_memory(self, repo_with_memory_db):
         """iter_alive_sandbox_ids() should work with sqlite in-memory DB + Redis fallback."""
-        await repo_with_memory_db.create("sbx-running", {**SANDBOX_INFO, "sandbox_id": "sbx-running", "state": State.RUNNING})
-        await repo_with_memory_db.create("sbx-pending", {**SANDBOX_INFO, "sandbox_id": "sbx-pending", "state": State.PENDING})
-        await repo_with_memory_db.create("sbx-stopped", {**SANDBOX_INFO, "sandbox_id": "sbx-stopped", "state": "stopped"})
+        await repo_with_memory_db.create(
+            "sbx-running", {**SANDBOX_INFO, "sandbox_id": "sbx-running", "state": State.RUNNING}
+        )
+        await repo_with_memory_db.create(
+            "sbx-pending", {**SANDBOX_INFO, "sandbox_id": "sbx-pending", "state": State.PENDING}
+        )
+        await repo_with_memory_db.create(
+            "sbx-stopped", {**SANDBOX_INFO, "sandbox_id": "sbx-stopped", "state": "stopped"}
+        )
         await asyncio.sleep(0.1)
 
         ids = {sid async for sid in repo_with_memory_db.iter_alive_sandbox_ids()}

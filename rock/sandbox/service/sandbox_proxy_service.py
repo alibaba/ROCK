@@ -161,9 +161,7 @@ class SandboxProxyService:
         return CommandResponse(**response)
 
     @monitor_sandbox_operation()
-    async def batch_get_sandbox_status(
-        self, sandbox_ids: list[str]
-    ) -> list[SandboxStatusResponse]:
+    async def batch_get_sandbox_status(self, sandbox_ids: list[str]) -> list[SandboxStatusResponse]:
         if sandbox_ids is None:
             raise BadRequestRockError(message="sandbox_ids is None")
         if len(sandbox_ids) > self._batch_get_status_max_count:
@@ -182,9 +180,7 @@ class SandboxProxyService:
         return results
 
     @monitor_sandbox_operation()
-    async def list_sandboxes(
-        self, query_params: SandboxQueryParams
-    ) -> SandboxListResponse:
+    async def list_sandboxes(self, query_params: SandboxQueryParams) -> SandboxListResponse:
         page = int(query_params.pop("page", "1"))
         page_size = int(query_params.pop("page_size", "500"))
         if page < 1 or page_size < 1:
@@ -720,9 +716,7 @@ class SandboxProxyService:
         if new_timeout is not None:
             await self._meta_store.update_timeout(sandbox_id, new_timeout)
 
-    async def list_all_sandboxes_by_query_params(
-        self, query_params: SandboxQueryParams
-    ):
+    async def list_all_sandboxes_by_query_params(self, query_params: SandboxQueryParams):
         all_ids = []
         async for sandbox_id in self._meta_store.iter_alive_sandbox_ids():
             all_ids.append(sandbox_id)

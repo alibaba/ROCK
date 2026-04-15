@@ -9,7 +9,6 @@ Uses pg_container fixture (real PostgreSQL) so VARCHAR constraints are enforced.
 from __future__ import annotations
 
 import pytest
-from sqlalchemy.exc import DataError
 
 from rock.admin.core.db_provider import DatabaseProvider
 from rock.admin.core.sandbox_table import SandboxTable
@@ -43,10 +42,13 @@ class TestImageVarcharLength:
     async def test_insert_long_image(self, db):
         """A 196-char image string must be accepted by the ORM schema."""
         sandbox_id = "varchar-img-001"
-        await db.create(sandbox_id, {
-            "image": _LONG_IMAGE,
-            "create_time": "2026-04-14T00:00:00Z",
-        })
+        await db.create(
+            sandbox_id,
+            {
+                "image": _LONG_IMAGE,
+                "create_time": "2026-04-14T00:00:00Z",
+            },
+        )
         record = await db.get(sandbox_id)
         assert record is not None
         assert record["image"] == _LONG_IMAGE

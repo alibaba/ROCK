@@ -85,7 +85,7 @@ class BaseActor:
         env = self._env
         role = self._role
         self.host = host
-        logger.info(f"Initializing MetricsCollector with host={host}, port={port}, " f"env={env}, role={role}")
+        logger.info(f"Initializing MetricsCollector with host={host}, port={port}, env={env}, role={role}")
         endpoint = self._metrics_endpoint or f"http://{host}:{port}/v1/metrics"
         self.otlp_exporter = OTLPMetricExporter(endpoint=endpoint)
         self.metric_reader = PeriodicExportingMetricReader(

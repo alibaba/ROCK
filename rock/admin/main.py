@@ -14,14 +14,14 @@ from starlette.responses import JSONResponse
 
 from rock import env_vars
 from rock.admin.core.db_provider import DatabaseProvider
-from rock.admin.core.sandbox_table import SandboxTable
 from rock.admin.core.ray_service import RayService
+from rock.admin.core.sandbox_table import SandboxTable
 from rock.admin.entrypoints.sandbox_api import sandbox_router, set_sandbox_manager
 from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_sandbox_proxy_service
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
 from rock.admin.gem.api import gem_router, set_env_service
 from rock.admin.scheduler.scheduler import SchedulerThread
-from rock.config import RockConfig, DatabaseConfig
+from rock.config import DatabaseConfig, RockConfig
 from rock.logger import init_logger
 from rock.sandbox.gem_manager import GemManager
 from rock.sandbox.operator.factory import OperatorContext, OperatorFactory

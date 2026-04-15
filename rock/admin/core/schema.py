@@ -13,7 +13,6 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.types import JSON
 
-
 _JSONB_VARIANT = JSON().with_variant(JSONB(), "postgresql")
 
 

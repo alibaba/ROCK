@@ -48,7 +48,7 @@ class MetricsMonitor:
         pod = get_instance_id()
         env = env_vars.ROCK_ADMIN_ENV
         role = env_vars.ROCK_ADMIN_ROLE
-        logger.info(f"Initializing MetricsCollector with host={host}, port={port}, " f"env={env}, role={role}")
+        logger.info(f"Initializing MetricsCollector with host={host}, port={port}, env={env}, role={role}")
         return cls(
             host=host,
             port=port,

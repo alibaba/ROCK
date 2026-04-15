@@ -93,7 +93,11 @@ async def _memory_sandbox_table():
 
 @pytest.fixture
 async def sandbox_manager(
-    rock_config: RockConfig, redis_provider: RedisProvider, ray_init_shutdown, ray_service, ray_operator,
+    rock_config: RockConfig,
+    redis_provider: RedisProvider,
+    ray_init_shutdown,
+    ray_service,
+    ray_operator,
     _memory_sandbox_table: SandboxTable,
 ):
     meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=_memory_sandbox_table)
@@ -283,12 +287,15 @@ _REDIS_PORT = 6379
 
 def _docker_keep_containers() -> bool:
     import os
+
     return os.getenv("ROCK_TEST_KEEP_DOCKER_CONTAINERS", "").lower() in {"1", "true", "yes", "on"}
 
 
 def _docker_detect_network(client) -> str | None:
     import socket
+
     import docker
+
     hostname = socket.gethostname()
     try:
         current = client.containers.get(hostname)
@@ -324,6 +331,7 @@ def _docker_start_container(client, image, name, network_name, internal_port, **
 def pg_container():
     """Start a PostgreSQL 16 Docker container for the test session."""
     import uuid
+
     import docker
 
     client = docker.from_env()
@@ -344,6 +352,7 @@ def pg_container():
     try:
         # wait for readiness
         import time as _t
+
         deadline = _t.time() + 30
         while _t.time() < deadline:
             code, _ = container.exec_run(f"pg_isready -U {_PG_USER}")
@@ -364,8 +373,11 @@ def pg_container():
 
         host, port = _docker_resolve_host_port(container, network_name, _PG_PORT)
         yield {
-            "host": host, "port": port,
-            "user": _PG_USER, "password": _PG_PASSWORD, "database": _PG_DB,
+            "host": host,
+            "port": port,
+            "user": _PG_USER,
+            "password": _PG_PASSWORD,
+            "database": _PG_DB,
             "url": f"postgresql://{_PG_USER}:{_PG_PASSWORD}@{host}:{port}/{_PG_DB}",
         }
     finally:
@@ -380,6 +392,7 @@ def pg_container():
 def redis_container():
     """Start a Redis Stack Docker container (with RedisJSON) for the test session."""
     import uuid
+
     import docker
 
     client = docker.from_env()
@@ -394,6 +407,7 @@ def redis_container():
     )
     try:
         import time as _t
+
         deadline = _t.time() + 30
         while _t.time() < deadline:
             code, output = container.exec_run("redis-cli ping")

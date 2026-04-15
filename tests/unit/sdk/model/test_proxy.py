@@ -110,8 +110,9 @@ async def test_perform_llm_request_retry_on_whitelist():
     client_post_path = "rock.sdk.model.server.api.proxy.http_client.post"
 
     # Patch asyncio.sleep inside the retry module to avoid actual waiting
-    with patch(client_post_path, new_callable=AsyncMock) as mock_post, patch(
-        "rock.utils.retry.asyncio.sleep", return_value=None
+    with (
+        patch(client_post_path, new_callable=AsyncMock) as mock_post,
+        patch("rock.utils.retry.asyncio.sleep", return_value=None),
     ):
         # 1. Setup Failed Response (429)
         resp_429 = MagicMock(spec=Response)
@@ -163,8 +164,9 @@ async def test_perform_llm_request_network_timeout_retry():
     """
     client_post_path = "rock.sdk.model.server.api.proxy.http_client.post"
 
-    with patch(client_post_path, new_callable=AsyncMock) as mock_post, patch(
-        "rock.utils.retry.asyncio.sleep", return_value=None
+    with (
+        patch(client_post_path, new_callable=AsyncMock) as mock_post,
+        patch("rock.utils.retry.asyncio.sleep", return_value=None),
     ):
         resp_200 = MagicMock(spec=Response)
         resp_200.status_code = 200
@@ -315,8 +317,9 @@ async def test_perform_llm_request_respects_custom_retryable_codes():
 
     client_post_path = "rock.sdk.model.server.api.proxy.http_client.post"
 
-    with patch(client_post_path, new_callable=AsyncMock) as mock_post, patch(
-        "rock.utils.retry.asyncio.sleep", return_value=None
+    with (
+        patch(client_post_path, new_callable=AsyncMock) as mock_post,
+        patch("rock.utils.retry.asyncio.sleep", return_value=None),
     ):
         # 502 should retry (in custom list)
         resp_502 = MagicMock(spec=Response)
@@ -460,8 +463,9 @@ def test_metrics_monitor_uses_env_endpoint():
 
     custom_endpoint = "http://my-otel-collector:4318/v1/metrics"
 
-    with patch("rock.sdk.model.server.utils.MetricsMonitor") as mock_cls, patch.dict(
-        "os.environ", {"ROCK_METRICS_ENDPOINT": custom_endpoint}
+    with (
+        patch("rock.sdk.model.server.utils.MetricsMonitor") as mock_cls,
+        patch.dict("os.environ", {"ROCK_METRICS_ENDPOINT": custom_endpoint}),
     ):
         mock_monitor = MagicMock()
         mock_cls.create.return_value = mock_monitor
@@ -508,8 +512,9 @@ async def test_record_traj_reports_rt_and_count():
 
     mock_monitor = MagicMock()
 
-    with patch("rock.sdk.model.server.utils.MetricsMonitor") as mock_cls, patch.dict(
-        "os.environ", {"ROCK_SANDBOX_ID": "sandbox-test-001"}
+    with (
+        patch("rock.sdk.model.server.utils.MetricsMonitor") as mock_cls,
+        patch.dict("os.environ", {"ROCK_SANDBOX_ID": "sandbox-test-001"}),
     ):
         mock_cls.create.return_value = mock_monitor
         utils_module._metrics_monitor = None

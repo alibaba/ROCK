@@ -12,7 +12,7 @@ import time
 from kubernetes.client.exceptions import ApiException
 from kubernetes.watch import Watch
 
-from .cache import ObjectCache, _meta_namespace_key
+from .cache import ObjectCache
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,8 @@ class SharedInformer:
         if event_type not in self._handlers:
             raise ValueError(
                 "Unknown event_type {!r}. Use one of: {}".format(
-                    event_type, ", ".join(sorted(self._handlers)),
+                    event_type,
+                    ", ".join(sorted(self._handlers)),
                 )
             )
         with self._handler_lock:
@@ -171,9 +172,7 @@ class SharedInformer:
             try:
                 fn(obj)
             except Exception:
-                logger.exception(
-                    "Exception in informer handler for %s", event_type
-                )
+                logger.exception("Exception in informer handler for %s", event_type)
 
     def _initial_list(self):
         """List all objects and populate the cache, firing ADDED/MODIFIED/DELETED events.
@@ -294,9 +293,7 @@ class SharedInformer:
             except ApiException as exc:
                 if exc.status == 410:
                     # The stored resource version is too old; force a full re-list.
-                    logger.warning(
-                        "Watch expired (410 Gone); will re-list from scratch"
-                    )
+                    logger.warning("Watch expired (410 Gone); will re-list from scratch")
                     self._resource_version = None
                 else:
                     logger.warning(
@@ -312,11 +309,7 @@ class SharedInformer:
                 # (updated on every ADDED/MODIFIED/DELETED/BOOKMARK event) so
                 # that the next watch connection can resume without re-listing.
                 # Do not overwrite a None that was set by a 410 handler above.
-                if (
-                    self._resource_version is not None
-                    and self._watch is not None
-                    and self._watch.resource_version
-                ):
+                if self._resource_version is not None and self._watch is not None and self._watch.resource_version:
                     self._resource_version = self._watch.resource_version
                 self._watch = None
 
