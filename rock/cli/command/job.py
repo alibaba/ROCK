@@ -158,6 +158,46 @@ class JobCommand(Command):
         except Exception as e:
             logger.error(f"Job failed: {e}")
 
+    def _config_from_flags(self, args: argparse.Namespace):
+        """Build a BashJobConfig purely from CLI flags (mode B)."""
+        from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
+        from rock.sdk.job.config import BashJobConfig
+
+        env: dict[str, str] = {}
+        for item in args.env or []:
+            key, _, value = item.partition("=")
+            env[key] = value
+
+        uploads = [(args.local_path, args.target_path)] if args.local_path else []
+
+        env_kwargs: dict = {}
+        if args.image:
+            env_kwargs["image"] = args.image
+        if args.memory:
+            env_kwargs["memory"] = args.memory
+        if args.cpus:
+            env_kwargs["cpus"] = args.cpus
+        if getattr(args, "base_url", None):
+            env_kwargs["base_url"] = args.base_url
+        if getattr(args, "cluster", None):
+            env_kwargs["cluster"] = args.cluster
+        if getattr(args, "extra_headers", None):
+            env_kwargs["extra_headers"] = args.extra_headers
+        if getattr(args, "xrl_authorization", None):
+            env_kwargs["xrl_authorization"] = args.xrl_authorization
+
+        return BashJobConfig(
+            script=args.script_content,
+            script_path=args.script,
+            environment=RockEnvironmentConfig(
+                **env_kwargs,
+                uploads=uploads,
+                auto_stop=True,
+                env=env,
+            ),
+            timeout=args.timeout,
+        )
+
     @staticmethod
     async def add_parser_to(subparsers: argparse._SubParsersAction):
         job_parser = subparsers.add_parser("job", help="Manage sandbox jobs")

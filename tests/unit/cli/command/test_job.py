@@ -168,3 +168,54 @@ class TestJobRunValidation:
         """--type should default to None; 'bash' is implied only when mode is flags."""
         ns = self.top.parse_args(["job", "run", "--script", "run.sh"])
         assert ns.type is None
+
+
+class TestConfigFromFlags:
+    def _args(self, **overrides):
+        """Build an argparse.Namespace matching the run sub-parser defaults, then overlay overrides."""
+        JobCommand._run_parser = None
+        top = argparse.ArgumentParser(prog="rock")
+        subparsers = top.add_subparsers(dest="command")
+        asyncio.run(JobCommand.add_parser_to(subparsers))
+        argv = ["job", "run", "--script", "dummy.sh"]
+        ns = top.parse_args(argv)
+        for k, v in overrides.items():
+            setattr(ns, k, v)
+        return ns
+
+    def test_inline_script_content_with_env_and_uploads(self):
+        ns = self._args(
+            script=None,
+            script_content="echo hi",
+            image="python:3.11",
+            memory="8g",
+            cpus=4.0,
+            env=["FOO=bar", "BAZ=qux"],
+            local_path="/tmp/workspace",
+            target_path="/root/job",
+            timeout=1800,
+        )
+        config = JobCommand()._config_from_flags(ns)
+
+        from rock.sdk.job.config import BashJobConfig
+
+        assert isinstance(config, BashJobConfig)
+        assert config.script == "echo hi"
+        assert config.script_path is None
+        assert config.timeout == 1800
+        env = config.environment
+        assert env.image == "python:3.11"
+        assert env.memory == "8g"
+        assert env.cpus == 4.0
+        assert env.env == {"FOO": "bar", "BAZ": "qux"}
+        assert env.uploads == [("/tmp/workspace", "/root/job")]
+        assert env.auto_stop is True
+
+    def test_script_path_mode_no_env_no_uploads(self):
+        ns = self._args(script="run.sh", script_content=None, env=None, local_path=None)
+        config = JobCommand()._config_from_flags(ns)
+
+        assert config.script_path == "run.sh"
+        assert config.script is None
+        assert config.environment.env == {}
+        assert config.environment.uploads == []
