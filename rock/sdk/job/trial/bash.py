@@ -37,6 +37,8 @@ class BashTrial(AbstractTrial):
         return TrialResult(
             task_name=self._config.job_name or "",
             exception_info=exception_info,
+            raw_output=output,
+            exit_code=exit_code,
         )
 
 
