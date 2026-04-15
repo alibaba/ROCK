@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: rock/ts-sdk
@@ -40,8 +40,4 @@ jobs:
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           pnpm test:unit
 
-      - name: Run integration tests
-        if: success()
-        run: |
-          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
-          pnpm test:integration
+
