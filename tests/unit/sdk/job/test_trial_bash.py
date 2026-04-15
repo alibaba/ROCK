@@ -27,10 +27,12 @@ class TestBashTrialBuild:
     def test_build_basic_script(self):
         cfg = BashJobConfig(script="echo hello")
         trial = BashTrial(cfg)
-        out = trial.build()
-        assert "#!/bin/bash" in out
-        assert "set -e" in out
-        assert "echo hello" in out
+        assert trial.build() == "echo hello"
+
+    def test_build_empty_script(self):
+        cfg = BashJobConfig(script=None)
+        trial = BashTrial(cfg)
+        assert trial.build() == ""
 
 
 # ---------------------------------------------------------------------------

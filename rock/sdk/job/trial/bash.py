@@ -22,10 +22,7 @@ class BashTrial(AbstractTrial):
             self._config.script = Path(self._config.script_path).read_text()
 
     def build(self) -> str:
-        lines = ["#!/bin/bash", "set -e", ""]
-        if self._config.script:
-            lines.append(self._config.script)
-        return "\n".join(lines)
+        return self._config.script or ""
 
     async def collect(self, sandbox, output: str, exit_code: int) -> TrialResult:
         exception_info = None
