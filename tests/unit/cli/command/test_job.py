@@ -517,3 +517,20 @@ class TestJobRunEndToEnd:
         assert isinstance(cfg, BashJobConfig)
         assert cfg.script_path == "./run.sh"
         assert cfg.environment.image == "python:3.12"  # override applied
+
+
+class TestHelpOutput:
+    def test_help_output_mentions_both_modes(self, capsys):
+        top = argparse.ArgumentParser(prog="rock")
+        subparsers = top.add_subparsers(dest="command")
+        asyncio.run(JobCommand.add_parser_to(subparsers))
+
+        with pytest.raises(SystemExit) as excinfo:
+            top.parse_args(["job", "run", "--help"])
+
+        assert excinfo.value.code == 0
+        out = capsys.readouterr().out
+        assert "YAML mode" in out
+        assert "flags mode" in out
+        assert "--config" in out
+        assert "--script" in out
