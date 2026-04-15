@@ -297,3 +297,117 @@ class TestConfigFromYaml:
         assert excinfo.value.code == 2
         err = capsys.readouterr().err
         assert "--type harbor does not match YAML (detected as bash)" in err
+
+
+class TestApplyOverrides:
+    def _setup(self):
+        JobCommand._run_parser = None
+        top = argparse.ArgumentParser(prog="rock")
+        subparsers = top.add_subparsers(dest="command")
+        asyncio.run(JobCommand.add_parser_to(subparsers))
+        return top
+
+    def test_override_image_memory_cpus_on_bash_config(self):
+        from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
+        from rock.sdk.job.config import BashJobConfig
+
+        top = self._setup()
+        config = BashJobConfig(
+            script="echo hi",
+            environment=RockEnvironmentConfig(image="python:3.10", memory="2g", cpus=1),
+            timeout=7200,
+        )
+        ns = top.parse_args(
+            [
+                "job",
+                "run",
+                "--config",
+                "unused.yaml",
+                "--image",
+                "python:3.12",
+                "--memory",
+                "16g",
+                "--cpus",
+                "8",
+                "--timeout",
+                "900",
+            ]
+        )
+        JobCommand()._apply_overrides(config, ns)
+
+        assert config.environment.image == "python:3.12"
+        assert config.environment.memory == "16g"
+        assert config.environment.cpus == 8.0
+        assert config.timeout == 900
+        assert config.environment.auto_stop is True
+
+    def test_env_overrides_append_and_overwrite(self):
+        from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
+        from rock.sdk.job.config import BashJobConfig
+
+        top = self._setup()
+        config = BashJobConfig(
+            script="echo hi",
+            environment=RockEnvironmentConfig(env={"FOO": "old", "KEEP": "1"}),
+        )
+        ns = top.parse_args(
+            [
+                "job",
+                "run",
+                "--config",
+                "unused.yaml",
+                "--env",
+                "FOO=new",
+                "--env",
+                "NEW=2",
+            ]
+        )
+        JobCommand()._apply_overrides(config, ns)
+
+        assert config.environment.env == {"FOO": "new", "KEEP": "1", "NEW": "2"}
+
+    def test_uploads_appended(self):
+        from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
+        from rock.sdk.job.config import BashJobConfig
+
+        top = self._setup()
+        config = BashJobConfig(
+            script="echo hi",
+            environment=RockEnvironmentConfig(uploads=[("/a", "/b")]),
+        )
+        ns = top.parse_args(
+            [
+                "job",
+                "run",
+                "--config",
+                "unused.yaml",
+                "--local-path",
+                "/src",
+                "--target-path",
+                "/dst",
+            ]
+        )
+        JobCommand()._apply_overrides(config, ns)
+
+        assert config.environment.uploads == [("/a", "/b"), ("/src", "/dst")]
+
+    def test_no_overrides_leaves_config_untouched_except_auto_stop(self):
+        from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
+        from rock.sdk.job.config import BashJobConfig
+
+        top = self._setup()
+        config = BashJobConfig(
+            script="echo hi",
+            environment=RockEnvironmentConfig(image="python:3.10", env={"X": "1"}),
+            timeout=1234,
+        )
+        ns = top.parse_args(["job", "run", "--config", "unused.yaml"])
+        # Force timeout to None so this test is robust regardless of the parser's
+        # current default (Task 11 flips it to None permanently).
+        ns.timeout = None
+        JobCommand()._apply_overrides(config, ns)
+
+        assert config.environment.image == "python:3.10"
+        assert config.environment.env == {"X": "1"}
+        assert config.timeout == 1234
+        assert config.environment.auto_stop is True  # always set

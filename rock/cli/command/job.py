@@ -158,6 +158,40 @@ class JobCommand(Command):
         except Exception as e:
             logger.error(f"Job failed: {e}")
 
+    def _apply_overrides(self, config, args: argparse.Namespace) -> None:
+        """Apply CLI overrides that are valid in both YAML and flags modes.
+
+        Mutates ``config`` in place. Works for both BashJobConfig and HarborJobConfig
+        because both use ``RockEnvironmentConfig`` for ``environment``.
+        """
+        env = config.environment
+        if args.image:
+            env.image = args.image
+        if args.memory:
+            env.memory = args.memory
+        if args.cpus:
+            env.cpus = args.cpus
+        if getattr(args, "base_url", None):
+            env.base_url = args.base_url
+        if getattr(args, "cluster", None):
+            env.cluster = args.cluster
+        if getattr(args, "extra_headers", None):
+            env.extra_headers = args.extra_headers
+        if getattr(args, "xrl_authorization", None):
+            env.xrl_authorization = args.xrl_authorization
+
+        for item in args.env or []:
+            key, _, value = item.partition("=")
+            env.env[key] = value
+
+        if args.local_path:
+            env.uploads = list(env.uploads) + [(args.local_path, args.target_path)]
+
+        if args.timeout is not None:
+            config.timeout = args.timeout
+
+        env.auto_stop = True
+
     def _config_from_yaml(self, parser: argparse.ArgumentParser, args: argparse.Namespace):
         """Load config via JobConfig.from_yaml and enforce --type consistency."""
         from pathlib import Path
