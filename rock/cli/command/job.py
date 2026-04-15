@@ -38,6 +38,23 @@ class JobCommand(Command):
         from rock.sdk.job import Job
         from rock.sdk.job.config import BashJobConfig
 
+        parser = self._run_parser
+
+        has_config = bool(args.config)
+        has_script = bool(args.script or args.script_content)
+
+        if not has_config and not has_script:
+            _fail(
+                parser,
+                "Missing job definition. Provide either a YAML config or inline script.",
+                hint=(
+                    "Examples:\n"
+                    "  rock job run --config job.yaml                     # any job type, auto-detected\n"
+                    "  rock job run --script path/to/run.sh               # bash, script file\n"
+                    '  rock job run --script-content "echo hi"            # bash, inline snippet'
+                ),
+            )
+
         job_type = args.type or "bash"
 
         if job_type == "bash":

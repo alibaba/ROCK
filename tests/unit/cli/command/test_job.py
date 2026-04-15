@@ -91,3 +91,33 @@ class TestRunParserStash:
         actions = {a.dest for a in JobCommand._run_parser._actions}
         assert "config" in actions
         assert "script" in actions
+
+
+class TestJobRunValidation:
+    @pytest.fixture(autouse=True)
+    def _parser(self):
+        """Rebuild the parser for each test so _run_parser is populated and fresh."""
+        JobCommand._run_parser = None
+        top = argparse.ArgumentParser(prog="rock")
+        subparsers = top.add_subparsers(dest="command")
+        asyncio.run(JobCommand.add_parser_to(subparsers))
+        self.top = top
+        yield
+
+    def _run(self, argv):
+        """Parse argv and invoke JobCommand.arun; SystemExit bubbles up."""
+        ns = self.top.parse_args(argv)
+        cmd = JobCommand()
+        asyncio.run(cmd.arun(ns))
+
+    def test_missing_both_config_and_script_errors(self, capsys):
+        """With neither --config nor --script*, must exit 2 with helpful message."""
+        with pytest.raises(SystemExit) as excinfo:
+            self._run(["job", "run"])
+
+        assert excinfo.value.code == 2
+        err = capsys.readouterr().err
+        assert "Missing job definition" in err
+        assert "--config job.yaml" in err  # example in hint
+        assert "--script" in err
+        assert "rock job run --help" in err
