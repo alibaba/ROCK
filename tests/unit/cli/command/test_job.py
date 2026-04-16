@@ -231,7 +231,6 @@ class TestConfigFromFlags:
         assert env.cpus == 4.0
         assert env.env == {"FOO": "bar", "BAZ": "qux"}
         assert env.uploads == [("/tmp/workspace", "/root/job")]
-        assert env.auto_stop is True
 
     def test_script_path_mode_no_env_no_uploads(self):
         ns = self._args(script="run.sh", script_content=None, env=None, local_path=None)
@@ -359,7 +358,6 @@ class TestApplyOverrides:
         assert config.environment.memory == "16g"
         assert config.environment.cpus == 8.0
         assert config.timeout == 900
-        assert config.environment.auto_stop is True
 
     def test_env_overrides_append_and_overwrite(self):
         from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
@@ -423,7 +421,7 @@ class TestApplyOverrides:
         assert "YAML mode" in desc
         assert "flags mode" in desc
 
-    def test_no_overrides_leaves_config_untouched_except_auto_stop(self):
+    def test_no_overrides_leaves_config_untouched(self):
         from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
         from rock.sdk.job.config import BashJobConfig
 
@@ -442,7 +440,6 @@ class TestApplyOverrides:
         assert config.environment.image == "python:3.10"
         assert config.environment.env == {"X": "1"}
         assert config.timeout == 1234
-        assert config.environment.auto_stop is True  # always set
 
 
 class TestJobRunEndToEnd:
