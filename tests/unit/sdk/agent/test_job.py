@@ -207,7 +207,7 @@ class TestJob:
             # Verify harbor command was started via nohup
             mock_sandbox.start_nohup_process.assert_called_once()
 
-    async def test_run_closes_sandbox(self):
+    async def test_run_does_not_close_sandbox(self):
         mock_sandbox = _make_mock_sandbox()
 
         with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
@@ -215,7 +215,7 @@ class TestJob:
             job = Job(config)
             await job.run()
 
-            mock_sandbox.close.assert_called_once()
+            mock_sandbox.close.assert_not_called()
 
     async def test_submit_starts_sandbox(self):
         mock_sandbox = _make_mock_sandbox()

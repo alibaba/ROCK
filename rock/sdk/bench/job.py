@@ -108,33 +108,28 @@ class Job:
         if self._pid is None or self._tmp_file is None:
             raise RuntimeError("No submitted job to wait for. Call submit() first.")
 
-        try:
-            success, message = await self._sandbox.wait_for_process_completion(
-                pid=self._pid,
-                session=self._session,
-                wait_timeout=self._get_wait_timeout(),
-                wait_interval=CHECK_INTERVAL,
-            )
+        success, message = await self._sandbox.wait_for_process_completion(
+            pid=self._pid,
+            session=self._session,
+            wait_timeout=self._get_wait_timeout(),
+            wait_interval=CHECK_INTERVAL,
+        )
 
-            obs = await self._sandbox.handle_nohup_output(
-                tmp_file=self._tmp_file,
-                session=self._session,
-                success=success,
-                message=message,
-                ignore_output=False,
-                response_limited_bytes_in_nohup=None,
-            )
+        obs = await self._sandbox.handle_nohup_output(
+            tmp_file=self._tmp_file,
+            session=self._session,
+            success=success,
+            message=message,
+            ignore_output=False,
+            response_limited_bytes_in_nohup=None,
+        )
 
-            result = await self._collect_results()
-            result.raw_output = obs.output if obs else ""
-            result.exit_code = obs.exit_code if obs else 1
-            if not success:
-                result.status = JobStatus.FAILED
-            return result
-
-        finally:
-            if self._sandbox:
-                await self._sandbox.close()
+        result = await self._collect_results()
+        result.raw_output = obs.output if obs else ""
+        result.exit_code = obs.exit_code if obs else 1
+        if not success:
+            result.status = JobStatus.FAILED
+        return result
 
     async def cancel(self):
         """Cancel a running job by killing the process."""

@@ -123,43 +123,40 @@ class JobExecutor:
         from rock.sdk.job.result import ExceptionInfo
 
         config = client.trial._config
-        try:
-            success, message = await client.sandbox.wait_for_process_completion(
-                pid=client.pid,
-                session=client.session,
-                wait_timeout=config.timeout,
-                wait_interval=30,
+        success, message = await client.sandbox.wait_for_process_completion(
+            pid=client.pid,
+            session=client.session,
+            wait_timeout=config.timeout,
+            wait_interval=30,
+        )
+        obs = await client.sandbox.handle_nohup_output(
+            tmp_file=f"{self._job_tmp_prefix(config)}.out",
+            session=client.session,
+            success=success,
+            message=message,
+            ignore_output=False,
+            response_limited_bytes_in_nohup=None,
+        )
+        exit_code = obs.exit_code if obs.exit_code is not None else 1
+        if obs.output:
+            logger.info(f"Trial output (job={config.job_name}):\n{obs.output}")
+        result = await client.trial.collect(client.sandbox, obs.output or "", exit_code)
+        # G5: populate raw_output / exit_code on every TrialResult so they surface in JobResult
+        iter_results = result if isinstance(result, list) else [result]
+        for r in iter_results:
+            if not r.raw_output:
+                r.raw_output = obs.output or ""
+            if r.exit_code == 0 and exit_code != 0:
+                r.exit_code = exit_code
+        if not success:
+            fail_info = ExceptionInfo(
+                exception_type="ProcessTimeout",
+                exception_message=message or "process did not complete successfully",
             )
-            obs = await client.sandbox.handle_nohup_output(
-                tmp_file=f"{self._job_tmp_prefix(config)}.out",
-                session=client.session,
-                success=success,
-                message=message,
-                ignore_output=False,
-                response_limited_bytes_in_nohup=None,
-            )
-            exit_code = obs.exit_code if obs.exit_code is not None else 1
-            if obs.output:
-                logger.info(f"Trial output (job={config.job_name}):\n{obs.output}")
-            result = await client.trial.collect(client.sandbox, obs.output or "", exit_code)
-            # G5: populate raw_output / exit_code on every TrialResult so they surface in JobResult
-            iter_results = result if isinstance(result, list) else [result]
             for r in iter_results:
-                if not r.raw_output:
-                    r.raw_output = obs.output or ""
-                if r.exit_code == 0 and exit_code != 0:
-                    r.exit_code = exit_code
-            if not success:
-                fail_info = ExceptionInfo(
-                    exception_type="ProcessTimeout",
-                    exception_message=message or "process did not complete successfully",
-                )
-                for r in iter_results:
-                    if r.exception_info is None:
-                        r.exception_info = fail_info
-            return result
-        finally:
-            await client.sandbox.close()
+                if r.exception_info is None:
+                    r.exception_info = fail_info
+        return result
 
     @staticmethod
     def _build_session_env(config: JobConfig) -> dict[str, str] | None:

@@ -132,7 +132,7 @@ class TestBlueGreenEquivalence:
         assert blue_result.exit_code == 0
         assert green_result.exit_code == 0
 
-    async def test_sandbox_closed_on_both_paths(self):
+    async def test_sandbox_not_closed_on_both_paths(self):
         from rock.sdk.bench import Job as BlueJob
         from rock.sdk.job import Job as GreenJob
 
@@ -144,5 +144,5 @@ class TestBlueGreenEquivalence:
         with patch("rock.sdk.job.executor.Sandbox", return_value=mock_green):
             await GreenJob(_make_config()).run()
 
-        mock_blue.close.assert_called_once()
-        mock_green.close.assert_called_once()
+        mock_blue.close.assert_not_called()
+        mock_green.close.assert_not_called()

@@ -158,14 +158,14 @@ class TestJobExecutorWait:
 
 
 class TestJobExecutorSandboxClose:
-    async def test_sandbox_always_closed_after_run(self):
+    async def test_sandbox_not_closed_after_run(self):
         mock_sandbox = _make_mock_sandbox()
         with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
             config = BashJobConfig(script="echo hi", job_name="test")
             executor = JobExecutor()
             await executor.run(ScatterOperator(size=1), config)
 
-        assert mock_sandbox.close.call_count == 1
+        assert mock_sandbox.close.call_count == 0
 
 
 # ---------------------------------------------------------------------------
