@@ -1,6 +1,6 @@
 """Tests for HarborJobConfig._sync_experiment_id model_validator and namespace consistency."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, PropertyMock
 
 import pytest
 from pydantic import ValidationError
@@ -58,8 +58,8 @@ class TestAutofillNamespaceConsistency:
 
         job = Job(config)
         sandbox = AsyncMock()
-        sandbox._namespace = "sandbox-ns"
-        sandbox._experiment_id = "exp-1"
+        type(sandbox).namespace = PropertyMock(return_value="sandbox-ns")
+        type(sandbox).experiment_id = PropertyMock(return_value="exp-1")
         job._sandbox = sandbox
 
         await job._autofill_sandbox_info()
@@ -70,8 +70,8 @@ class TestAutofillNamespaceConsistency:
         config = HarborJobConfig(job_name="test", experiment_id="exp-1", namespace="same-ns")
         job = Job(config)
         sandbox = AsyncMock()
-        sandbox._namespace = "same-ns"
-        sandbox._experiment_id = "exp-1"
+        type(sandbox).namespace = PropertyMock(return_value="same-ns")
+        type(sandbox).experiment_id = PropertyMock(return_value="exp-1")
         job._sandbox = sandbox
 
         await job._autofill_sandbox_info()
@@ -82,8 +82,8 @@ class TestAutofillNamespaceConsistency:
         config = HarborJobConfig(job_name="test", experiment_id="exp-1", namespace="user-ns")
         job = Job(config)
         sandbox = AsyncMock()
-        sandbox._namespace = "different-ns"
-        sandbox._experiment_id = "exp-1"
+        type(sandbox).namespace = PropertyMock(return_value="different-ns")
+        type(sandbox).experiment_id = PropertyMock(return_value="exp-1")
         job._sandbox = sandbox
 
         with pytest.raises(ValueError, match="namespace mismatch"):
@@ -94,8 +94,8 @@ class TestAutofillNamespaceConsistency:
         config = HarborJobConfig(job_name="test", experiment_id="exp-1", namespace="user-ns")
         job = Job(config)
         sandbox = AsyncMock()
-        sandbox._namespace = None
-        sandbox._experiment_id = "exp-1"
+        type(sandbox).namespace = PropertyMock(return_value=None)
+        type(sandbox).experiment_id = PropertyMock(return_value="exp-1")
         job._sandbox = sandbox
 
         await job._autofill_sandbox_info()
