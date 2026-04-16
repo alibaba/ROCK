@@ -10,9 +10,12 @@ Harbor's HarborJobConfig lives in rock.sdk.bench.models.job.config.
 from __future__ import annotations
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from rock.logger import init_logger
 from rock.sdk.envhub import EnvironmentConfig
+
+logger = init_logger(__name__)
 
 
 class JobConfig(BaseModel):
@@ -24,6 +27,23 @@ class JobConfig(BaseModel):
     experiment_id: str | None = None
     labels: dict[str, str] = Field(default_factory=dict)
     timeout: int = 7200
+
+    @model_validator(mode="after")
+    def _sync_experiment_id(self) -> JobConfig:
+        """When both experiment_id fields are set and differ, JobConfig.experiment_id takes priority."""
+        if (
+            self.experiment_id is not None
+            and self.environment.experiment_id is not None
+            and self.experiment_id != self.environment.experiment_id
+        ):
+            logger.warning(
+                "experiment_id conflict: JobConfig has '%s', environment has '%s'. "
+                "Using JobConfig.experiment_id and overriding environment.experiment_id.",
+                self.experiment_id,
+                self.environment.experiment_id,
+            )
+            self.environment.experiment_id = self.experiment_id
+        return self
 
     @classmethod
     def from_yaml(cls, path: str) -> JobConfig:

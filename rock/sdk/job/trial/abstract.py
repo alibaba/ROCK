@@ -44,12 +44,9 @@ class AbstractTrial(ABC):
 
         sb_exp = getattr(sandbox, "_experiment_id", None)
         if sb_exp is not None:
-            if self._config.experiment_id is not None and self._config.experiment_id != sb_exp:
-                raise ValueError(
-                    f"experiment_id mismatch: {type(self._config).__name__} has "
-                    f"'{self._config.experiment_id}', but sandbox returned '{sb_exp}'"
-                )
-            self._config.experiment_id = sb_exp
+            if self._config.experiment_id is None:
+                self._config.experiment_id = sb_exp
+            # If config already has experiment_id, it takes priority over sandbox's value.
 
     @abstractmethod
     async def setup(self, sandbox: Sandbox) -> None:

@@ -155,17 +155,17 @@ class TestHarborTrialOnSandboxReady:
 
         assert cfg.namespace == "sb-ns"
 
-    async def test_experiment_id_mismatch_raises(self):
-        import pytest
-
-        cfg = HarborJobConfig(experiment_id="exp-1")
+    async def test_experiment_id_config_takes_priority_over_sandbox(self):
+        """Config experiment_id overrides sandbox's different value — no error raised."""
+        cfg = HarborJobConfig(experiment_id="claw-eval")
         trial = HarborTrial(cfg)
         sandbox = MagicMock()
         sandbox._namespace = None
-        sandbox._experiment_id = "exp-DIFFERENT"
+        sandbox._experiment_id = "default"
 
-        with pytest.raises(ValueError, match="experiment_id mismatch"):
-            await trial.on_sandbox_ready(sandbox)
+        await trial.on_sandbox_ready(sandbox)
+
+        assert cfg.experiment_id == "claw-eval"
 
     async def test_namespace_mismatch_raises(self):
         import pytest

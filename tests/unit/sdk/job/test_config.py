@@ -71,6 +71,43 @@ class TestJobConfig:
 
         assert issubclass(JobConfig, BaseModel)
 
+    def test_experiment_id_overrides_environment_experiment_id(self):
+        """When both experiment_ids differ, JobConfig.experiment_id wins and a warning is logged."""
+        from unittest.mock import patch
+
+        import rock.sdk.job.config as job_config_module
+
+        env = EnvironmentConfig(experiment_id="default")
+        with patch.object(job_config_module.logger, "warning") as mock_warn:
+            cfg = JobConfig(experiment_id="claw-eval", environment=env)
+
+        assert cfg.environment.experiment_id == "claw-eval"
+        mock_warn.assert_called_once()
+        warn_msg = mock_warn.call_args[0][0]
+        assert "experiment_id" in warn_msg
+        assert "claw-eval" in str(mock_warn.call_args)
+
+    def test_environment_experiment_id_preserved_when_job_unset(self):
+        """When only environment.experiment_id is set, it is preserved unchanged."""
+        env = EnvironmentConfig(experiment_id="from-env")
+        cfg = JobConfig(environment=env)
+
+        assert cfg.environment.experiment_id == "from-env"
+        assert cfg.experiment_id is None
+
+    def test_no_warning_when_experiment_ids_match(self):
+        """When both experiment_ids are the same, no warning is emitted."""
+        from unittest.mock import patch
+
+        import rock.sdk.job.config as job_config_module
+
+        env = EnvironmentConfig(experiment_id="same-exp")
+        with patch.object(job_config_module.logger, "warning") as mock_warn:
+            cfg = JobConfig(experiment_id="same-exp", environment=env)
+
+        assert cfg.environment.experiment_id == "same-exp"
+        mock_warn.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # BashJobConfig
