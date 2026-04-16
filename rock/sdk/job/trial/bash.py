@@ -7,6 +7,7 @@ import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from rock import env_vars
 from rock.logger import init_logger
 
 if TYPE_CHECKING:
@@ -35,13 +36,11 @@ class BashTrial(AbstractTrial):
         if self._config.script_path:
             self._config.script = Path(self._config.script_path).read_text()
 
-        mirror = self._config.environment.oss_mirror
-        if mirror is not None and mirror.enabled:
-            await self._setup_oss_mirror(sandbox, mirror)
+        oss_mirror = self._config.environment.oss_mirror
+        if oss_mirror is not None and oss_mirror.enabled:
+            await self._setup_oss_mirror(sandbox, oss_mirror)
 
-    async def _setup_oss_mirror(self, sandbox: Sandbox, mirror) -> None:
-        from rock import env_vars
-
+    async def _setup_oss_mirror(self, sandbox: Sandbox, oss_mirror) -> None:
         if not self._config.namespace:
             raise ValueError("oss_mirror: namespace is not set (sandbox did not return one)")
         if not self._config.experiment_id:
@@ -50,16 +49,16 @@ class BashTrial(AbstractTrial):
         self._artifact_dir = env_vars.ROCK_BASH_JOB_ARTIFACT_DIR
 
         # Resolve credentials (config field → env var fallback)
-        bucket = mirror.oss_bucket or os.environ.get("OSS_BUCKET")
+        bucket = oss_mirror.oss_bucket or os.environ.get("OSS_BUCKET")
         if not bucket:
             raise ValueError("oss_mirror.enabled=True but oss_bucket is not set (config or OSS_BUCKET env)")
 
         self._oss_credentials = {
             "oss_bucket": bucket,
-            "access_key_id": mirror.oss_access_key_id or os.environ.get("OSS_ACCESS_KEY_ID", ""),
-            "access_key_secret": mirror.oss_access_key_secret or os.environ.get("OSS_ACCESS_KEY_SECRET", ""),
-            "endpoint": mirror.oss_endpoint or os.environ.get("OSS_ENDPOINT", ""),
-            "region": mirror.oss_region or os.environ.get("OSS_REGION", ""),
+            "access_key_id": oss_mirror.oss_access_key_id or os.environ.get("OSS_ACCESS_KEY_ID", ""),
+            "access_key_secret": oss_mirror.oss_access_key_secret or os.environ.get("OSS_ACCESS_KEY_SECRET", ""),
+            "endpoint": oss_mirror.oss_endpoint or os.environ.get("OSS_ENDPOINT", ""),
+            "region": oss_mirror.oss_region or os.environ.get("OSS_REGION", ""),
         }
 
         # Create artifact dir in sandbox
@@ -93,8 +92,8 @@ class BashTrial(AbstractTrial):
                 exception_message=f"Bash script exited with code {exit_code}",
             )
 
-        mirror = self._config.environment.oss_mirror
-        if mirror is not None and mirror.enabled and self._ossutil_ready and self._oss_credentials:
+        oss_mirror = self._config.environment.oss_mirror
+        if oss_mirror is not None and oss_mirror.enabled and self._ossutil_ready and self._oss_credentials:
             await self._upload_artifacts(sandbox)
 
         return TrialResult(
