@@ -22,7 +22,8 @@
 
 set -eo pipefail
 
-LOG_DIR="/data/logs/user-defined"
+ARTIFACT_DIR="${ROCK_BASH_JOB_ARTIFACT_DIR:-/tmp/shared}"
+LOG_DIR="$ARTIFACT_DIR/logs"
 
 # ── 1. Prepare log directory ───────────────────────────────
 mkdir -p "$LOG_DIR"
@@ -64,3 +65,18 @@ TOKENS=$(echo "$TEXT" | grep -oP 'tokens=\K\d+' | tail -1)
 echo "task_score=${TASK_SCORE:-N/A} completion=${COMPLETION:-N/A} robustness=${ROBUSTNESS:-N/A}"
 echo "communication=${COMMUNICATION:-N/A} safety=${SAFETY:-N/A} passed=${PASSED:-N/A}"
 echo "wall_time=${WALL_TIME:-N/A}s tokens=${TOKENS:-N/A}"
+
+# ── 6. Write score.json ───────────────────────────────────
+cat > "$ARTIFACT_DIR/score.json" <<EOF
+{
+  "task_score": ${TASK_SCORE:-null},
+  "completion": ${COMPLETION:-null},
+  "robustness": ${ROBUSTNESS:-null},
+  "communication": ${COMMUNICATION:-null},
+  "safety": ${SAFETY:-null},
+  "passed": ${PASSED:-null},
+  "wall_time": ${WALL_TIME:-null},
+  "tokens": ${TOKENS:-null}
+}
+EOF
+echo "Score written to $ARTIFACT_DIR/score.json"
