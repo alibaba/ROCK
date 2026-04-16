@@ -22,7 +22,7 @@
 
 set -eo pipefail
 
-ARTIFACT_DIR="${ROCK_BASH_JOB_ARTIFACT_DIR:-/tmp/shared}"
+ARTIFACT_DIR="${ROCK_BASH_JOB_ARTIFACT_DIR:-/data/logs/user-defined}"
 LOG_DIR="$ARTIFACT_DIR/logs"
 
 # ── 1. Prepare log directory ───────────────────────────────
