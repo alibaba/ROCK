@@ -20,10 +20,11 @@ if [ ! -f /etc/alpine-release ]; then
     # Install uv - check if pip is available
     elif command -v pip &> /dev/null || command -v pip3 &> /dev/null; then
         echo "Installing uv via pip..."
+        PIP_INDEX=${ROCK_PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
         if command -v pip3 &> /dev/null; then
-            pip3 install uv -i https://mirrors.aliyun.com/pypi/simple/
+            pip3 install uv -i "$PIP_INDEX"
         else
-            pip install uv -i https://mirrors.aliyun.com/pypi/simple/
+            pip install uv -i "$PIP_INDEX"
         fi
         UV_CMD=uv
     else
@@ -32,7 +33,10 @@ if [ ! -f /etc/alpine-release ]; then
         UV_CMD=$HOME/.local/bin/uv
     fi
 
-    cd $PROJECT_ROOT
+    # Copy project to a writable directory (PROJECT_ROOT may be read-only mounted)
+    WRITABLE_PROJECT=/tmp/rock-project
+    cp -r $PROJECT_ROOT $WRITABLE_PROJECT
+    cd $WRITABLE_PROJECT
 
     # Create virtual environment
     $UV_CMD venv --python 3.11 /tmp/rocklet-venv
