@@ -5,17 +5,15 @@ from __future__ import annotations
 import os
 import shlex
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from rock import env_vars
+from rock.actions.sandbox.request import Command
 from rock.logger import init_logger
-
-if TYPE_CHECKING:
-    from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.job.config import BashJobConfig
 from rock.sdk.job.result import ExceptionInfo, TrialResult
 from rock.sdk.job.trial.abstract import AbstractTrial
 from rock.sdk.job.trial.registry import register_trial
+from rock.sdk.sandbox.client import RunMode, Sandbox
 
 logger = init_logger(__name__)
 
@@ -31,16 +29,19 @@ class BashTrial(AbstractTrial):
         self._oss_credentials: dict | None = None
         self._artifact_dir: str | None = None
 
+    @property
+    def _oss_mirror(self):
+        return self._config.environment.oss_mirror
+
     async def setup(self, sandbox: Sandbox) -> None:
         await self._upload_files(sandbox)
         if self._config.script_path:
             self._config.script = Path(self._config.script_path).read_text()
 
-        oss_mirror = self._config.environment.oss_mirror
-        if oss_mirror is not None and oss_mirror.enabled:
-            await self._setup_oss_mirror(sandbox, oss_mirror)
+        if self._oss_mirror is not None and self._oss_mirror.enabled:
+            await self._setup_oss_mirror(sandbox)
 
-    async def _setup_oss_mirror(self, sandbox: Sandbox, oss_mirror) -> None:
+    async def _setup_oss_mirror(self, sandbox: Sandbox) -> None:
         if not self._config.namespace:
             raise ValueError("oss_mirror: namespace is not set (sandbox did not return one)")
         if not self._config.experiment_id:
@@ -48,31 +49,25 @@ class BashTrial(AbstractTrial):
 
         self._artifact_dir = env_vars.ROCK_BASH_JOB_ARTIFACT_DIR
 
-        # Resolve credentials (config field → env var fallback)
-        bucket = oss_mirror.oss_bucket or os.environ.get("OSS_BUCKET")
+        bucket = self._oss_mirror.oss_bucket or os.environ.get("OSS_BUCKET")
         if not bucket:
             raise ValueError("oss_mirror.enabled=True but oss_bucket is not set (config or OSS_BUCKET env)")
 
         self._oss_credentials = {
             "oss_bucket": bucket,
-            "access_key_id": oss_mirror.oss_access_key_id or os.environ.get("OSS_ACCESS_KEY_ID", ""),
-            "access_key_secret": oss_mirror.oss_access_key_secret or os.environ.get("OSS_ACCESS_KEY_SECRET", ""),
-            "endpoint": oss_mirror.oss_endpoint or os.environ.get("OSS_ENDPOINT", ""),
-            "region": oss_mirror.oss_region or os.environ.get("OSS_REGION", ""),
+            "access_key_id": self._oss_mirror.oss_access_key_id or os.environ.get("OSS_ACCESS_KEY_ID", ""),
+            "access_key_secret": self._oss_mirror.oss_access_key_secret or os.environ.get("OSS_ACCESS_KEY_SECRET", ""),
+            "endpoint": self._oss_mirror.oss_endpoint or os.environ.get("OSS_ENDPOINT", ""),
+            "region": self._oss_mirror.oss_region or os.environ.get("OSS_REGION", ""),
         }
-
-        # Create artifact dir in sandbox
-        from rock.actions.sandbox.request import Command
 
         await sandbox.execute(Command(command=["mkdir", "-p", self._artifact_dir]))
 
-        # Install ossutil
         self._ossutil_ready = await sandbox.fs.ensure_ossutil()
         if not self._ossutil_ready:
             logger.warning("ossutil install failed, OSS mirror upload will be skipped")
             return
 
-        # Initial upload to ensure OSS path exists before script runs
         await self._upload_artifacts(sandbox)
 
     def _build_oss_prefix(self) -> str:
@@ -92,8 +87,7 @@ class BashTrial(AbstractTrial):
                 exception_message=f"Bash script exited with code {exit_code}",
             )
 
-        oss_mirror = self._config.environment.oss_mirror
-        if oss_mirror is not None and oss_mirror.enabled and self._ossutil_ready and self._oss_credentials:
+        if self._oss_mirror is not None and self._oss_mirror.enabled and self._ossutil_ready and self._oss_credentials:
             await self._upload_artifacts(sandbox)
 
         return TrialResult(
@@ -115,8 +109,6 @@ class BashTrial(AbstractTrial):
         return f"bash -c {shlex.quote(inner)}"
 
     async def _upload_artifacts(self, sandbox: Sandbox) -> None:
-        from rock.sdk.sandbox.client import RunMode
-
         try:
             oss_url = f"oss://{self._oss_credentials['oss_bucket']}/{self._build_oss_prefix()}/"
             src = self._artifact_dir.rstrip("/") + "/"
