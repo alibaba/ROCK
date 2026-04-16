@@ -68,6 +68,7 @@ jobs:
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           export ROCK_WORKER_ENV_TYPE=uv
+          export ROCK_PIP_INDEX_URL=https://pypi.org/simple/
           nohup admin --env ci --role admin --port 8080 > /tmp/rock-admin.log 2>&1 &
           echo "Waiting for admin service to be ready..."
           for i in $(seq 1 60); do
@@ -116,7 +117,7 @@ jobs:
 
       # --- Cleanup & Diagnostics ---
       - name: Print admin logs on failure
-        if: failure()
+        if: always()
         run: |
           echo "=== ROCK Admin Logs ==="
           cat /tmp/rock-admin.log || true
