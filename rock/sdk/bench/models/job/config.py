@@ -18,11 +18,11 @@ from rock.sdk.bench.models.trial.config import (
     AgentConfig,
     ArtifactConfig,
     EnvironmentConfig,
-    OssMirrorConfig,
     RockEnvironmentConfig,  # noqa: F401 — re-exported for backward compat
     TaskConfig,
     VerifierConfig,
 )
+from rock.sdk.envhub.config import OssMirrorConfig
 from rock.sdk.job.config import JobConfig as _BaseJobConfig
 
 # ---------------------------------------------------------------------------

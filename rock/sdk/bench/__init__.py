@@ -14,7 +14,6 @@ from rock.sdk.bench.models.trial.config import (
     AgentConfig,
     ArtifactConfig,
     EnvironmentConfig,
-    OssMirrorConfig,
     RockEnvironmentConfig,
     TaskConfig,
     VerifierConfig,
@@ -26,6 +25,7 @@ from rock.sdk.bench.models.trial.result import (
     HarborTrialResult,
     VerifierResult,
 )
+from rock.sdk.envhub.config import OssMirrorConfig
 from rock.sdk.job.result import JobResult, JobStatus
 
 __all__ = [

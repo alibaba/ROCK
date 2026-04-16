@@ -317,3 +317,20 @@ class LinuxFileSystem(FileSystem):
         except Exception as e:
             logger.exception(f"Unexpected error during download_by_oss: {e}")
             return DownloadFileResponse(success=False, message=f"Unexpected error: {str(e)}")
+
+    async def ensure_ossutil(self) -> bool:
+        """Ensure ossutil is installed in the sandbox. Returns True if ready."""
+        ts = str(time.time_ns())
+        res = await self.sandbox.process.execute_script(
+            script_content=ENSURE_OSSUTIL_SCRIPT,
+            script_name=f"ensure_ossutil_{ts}.sh",
+            cleanup=True,
+        )
+        if res.exit_code != 0:
+            logger.warning(f"ossutil install failed: {res.output}")
+            return False
+        verify = await self.sandbox.execute(Command(command=["ossutil", "version"]))
+        if verify.exit_code != 0:
+            logger.warning(f"ossutil verify failed: {verify.stderr}")
+            return False
+        return True

@@ -634,3 +634,40 @@ class TestJobConfigFromYamlAutoDetect:
         cfg = HarborJobConfig.from_yaml(str(p))
         assert isinstance(cfg, HarborJobConfig)
         assert cfg.n_attempts == 2
+
+
+# ---------------------------------------------------------------------------
+# OssMirrorConfig on base EnvironmentConfig
+# ---------------------------------------------------------------------------
+
+
+class TestOssMirrorConfigOnBaseEnvironment:
+    def test_base_env_default_oss_mirror_is_none(self):
+        assert EnvironmentConfig().oss_mirror is None
+
+    def test_base_env_accepts_oss_mirror(self):
+        from rock.sdk.envhub.config import OssMirrorConfig
+
+        cfg = EnvironmentConfig(oss_mirror=OssMirrorConfig(enabled=True, oss_bucket="b"))
+        assert cfg.oss_mirror.enabled is True
+
+    def test_oss_mirror_config_importable_from_envhub(self):
+        from rock.sdk.envhub.config import OssMirrorConfig
+
+        assert OssMirrorConfig().enabled is False
+
+
+# ---------------------------------------------------------------------------
+# BashJobConfig.job_name UUID default
+# ---------------------------------------------------------------------------
+
+
+class TestBashJobConfigJobNameDefault:
+    def test_defaults_to_datetime_string(self):
+        cfg = BashJobConfig(script="echo hi")
+        import re
+
+        assert re.match(r"\d{4}-\d{2}-\d{2}__\d{2}-\d{2}-\d{2}", cfg.job_name)
+
+    def test_explicit_name_preserved(self):
+        assert BashJobConfig(job_name="x").job_name == "x"

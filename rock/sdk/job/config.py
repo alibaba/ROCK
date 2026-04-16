@@ -9,6 +9,8 @@ Harbor's HarborJobConfig lives in rock.sdk.bench.models.job.config.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -99,5 +101,6 @@ class BashJobConfig(JobConfig):
 
     model_config = ConfigDict(extra="forbid")
 
+    job_name: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d__%H-%M-%S"))
     script: str | None = None
     script_path: str | None = None

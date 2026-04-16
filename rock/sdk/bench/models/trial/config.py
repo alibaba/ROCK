@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from rock.sdk.bench.models.environment_type import EnvironmentType
 from rock.sdk.envhub import EnvironmentConfig as _EnvConfig
+from rock.sdk.envhub.config import OssMirrorConfig
 
 
 class AgentConfig(BaseModel):
@@ -18,23 +19,6 @@ class AgentConfig(BaseModel):
     max_timeout_sec: float | None = None
     kwargs: dict[str, Any] = Field(default_factory=dict)
     env: dict[str, str] = Field(default_factory=dict)
-
-
-class OssMirrorConfig(BaseModel):
-    """OSS artifact mirror configuration.
-
-    ``namespace`` / ``experiment_id`` are synced from ``HarborJobConfig``
-    top-level fields via model validators.
-    """
-
-    enabled: bool = False
-    oss_bucket: str | None = None
-    namespace: str | None = None
-    experiment_id: str | None = None
-    oss_access_key_id: str | None = None
-    oss_access_key_secret: str | None = None
-    oss_region: str | None = None
-    oss_endpoint: str | None = None
 
 
 class EnvironmentConfig(BaseModel):

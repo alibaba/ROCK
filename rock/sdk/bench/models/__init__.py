@@ -13,11 +13,11 @@ from rock.sdk.bench.models.trial.config import (
     AgentConfig,
     ArtifactConfig,
     EnvironmentConfig,
-    OssMirrorConfig,
     RockEnvironmentConfig,
     TaskConfig,
     VerifierConfig,
 )
+from rock.sdk.envhub.config import OssMirrorConfig
 
 __all__ = [
     "HarborJobConfig",

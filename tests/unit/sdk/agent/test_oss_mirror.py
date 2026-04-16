@@ -20,17 +20,17 @@ from rock.sdk.bench.models.trial.config import EnvironmentConfig
 
 class TestOssMirrorConfig:
     def test_importable_from_trial_config(self):
-        from rock.sdk.bench.models.trial.config import OssMirrorConfig
+        from rock.sdk.envhub.config import OssMirrorConfig
 
         assert OssMirrorConfig is not None
 
     def test_importable_from_agent_package(self):
-        from rock.sdk.bench import OssMirrorConfig
+        from rock.sdk.envhub.config import OssMirrorConfig
 
         assert OssMirrorConfig is not None
 
     def test_default_is_disabled(self):
-        from rock.sdk.bench.models.trial.config import OssMirrorConfig
+        from rock.sdk.envhub.config import OssMirrorConfig
 
         cfg = OssMirrorConfig()
         assert cfg.enabled is False
@@ -41,7 +41,7 @@ class TestOssMirrorConfig:
         assert cfg.oss_endpoint is None
 
     def test_all_fields_settable(self):
-        from rock.sdk.bench.models.trial.config import OssMirrorConfig
+        from rock.sdk.envhub.config import OssMirrorConfig
 
         cfg = OssMirrorConfig(
             enabled=True,
@@ -70,7 +70,7 @@ class TestEnvironmentConfigOssMirror:
         assert env.oss_mirror is None
 
     def test_set_oss_mirror(self):
-        from rock.sdk.bench.models.trial.config import OssMirrorConfig
+        from rock.sdk.envhub.config import OssMirrorConfig
 
         mirror = OssMirrorConfig(enabled=True, oss_bucket="b1", oss_region="r1")
         env = EnvironmentConfig(oss_mirror=mirror)
@@ -117,7 +117,8 @@ class TestToHarborYamlOssMirror:
     def test_namespace_at_top_level_in_yaml(self):
         """namespace/experiment_id 序列化为 HarborJobConfig 顶层字段。"""
         from rock.sdk.bench.models.job.config import HarborJobConfig
-        from rock.sdk.bench.models.trial.config import OssMirrorConfig, RockEnvironmentConfig
+        from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
+        from rock.sdk.envhub.config import OssMirrorConfig
 
         cfg = HarborJobConfig(
             job_name="mirror-test",

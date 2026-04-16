@@ -124,6 +124,14 @@ class Sandbox(AbstractSandbox):
         return self._cluster
 
     @property
+    def namespace(self) -> str | None:
+        return self._namespace
+
+    @property
+    def experiment_id(self) -> str | None:
+        return self._experiment_id
+
+    @property
     def url(self) -> str:
         return self._url
 

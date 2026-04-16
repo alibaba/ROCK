@@ -6,9 +6,27 @@ EnvironmentConfig extends SandboxConfig with common environment-level fields
 
 from __future__ import annotations
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from rock.sdk.sandbox.config import SandboxConfig
+
+
+class OssMirrorConfig(BaseModel):
+    """OSS artifact mirror configuration.
+
+    ``namespace`` / ``experiment_id`` are synced from ``JobConfig``
+    top-level fields via model validators (HarborJobConfig) or
+    from sandbox properties at setup time (BashTrial).
+    """
+
+    enabled: bool = False
+    oss_bucket: str | None = None
+    namespace: str | None = None
+    experiment_id: str | None = None
+    oss_access_key_id: str | None = None
+    oss_access_key_secret: str | None = None
+    oss_region: str | None = None
+    oss_endpoint: str | None = None
 
 
 class EnvironmentConfig(SandboxConfig):
@@ -20,3 +38,4 @@ class EnvironmentConfig(SandboxConfig):
         "Automatically detects file vs directory and uses the appropriate upload method.",
     )
     env: dict[str, str] = Field(default_factory=dict)
+    oss_mirror: OssMirrorConfig | None = None
