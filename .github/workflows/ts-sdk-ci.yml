@@ -1,0 +1,43 @@
+name: TS SDK CI
+
+on:
+  push:
+    branches: [master, release/**]
+  pull_request:
+    branches: [master, release/**]
+  workflow_dispatch:
+
+concurrency:
+  group: ts-sdk-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rock/ts-sdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          npm install -g pnpm
+
+      - name: Install dependencies
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          pnpm install --frozen-lockfile
+
+      - name: Run unit tests
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          pnpm test:unit
+
+
