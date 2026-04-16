@@ -259,14 +259,13 @@ export class Sandbox extends AbstractSandbox {
     const checkInterval = 3000; // 3s between checks
 
     while (Date.now() - startTime < this.config.startupTimeout * 1000) {
-      let timeoutId: ReturnType<typeof setTimeout> | undefined;
       try {
         logger.info(`Checking status... (elapsed: ${Math.round((Date.now() - startTime) / 1000)}s)`);
         // Use Promise.race to implement timeout for status check
         const statusPromise = this.getStatus();
-        const timeoutPromise = new Promise<null>((_, reject) => {
-          timeoutId = setTimeout(() => reject(new Error('Status check timeout')), checkTimeout);
-        });
+        const timeoutPromise = new Promise<null>((_, reject) =>
+          setTimeout(() => reject(new Error('Status check timeout')), checkTimeout)
+        );
 
         const status = await Promise.race([statusPromise, timeoutPromise]);
         if (status && status.isAlive) {
@@ -276,8 +275,6 @@ export class Sandbox extends AbstractSandbox {
       } catch (e) {
         // Status check may fail temporarily during startup, continue waiting
         logger.debug(`Status check failed (will retry): ${e}`);
-      } finally {
-        clearTimeout(timeoutId);
       }
       await sleep(checkInterval);
     }
