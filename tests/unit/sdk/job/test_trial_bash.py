@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, PropertyMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -133,8 +133,8 @@ class TestBashTrialOnSandboxReady:
         cfg = BashJobConfig(script="echo hi")
         trial = BashTrial(cfg)
         sandbox = MagicMock()
-        type(sandbox).namespace = PropertyMock(return_value="sb-ns")
-        type(sandbox).experiment_id = PropertyMock(return_value="exp-1")
+        sandbox._namespace = "sb-ns"
+        sandbox._experiment_id = "exp-1"
 
         await trial.on_sandbox_ready(sandbox)
 
@@ -146,8 +146,8 @@ class TestBashTrialOnSandboxReady:
         cfg = BashJobConfig(script="echo hi", experiment_id="claw-eval")
         trial = BashTrial(cfg)
         sandbox = MagicMock()
-        type(sandbox).namespace = PropertyMock(return_value=None)
-        type(sandbox).experiment_id = PropertyMock(return_value="default")
+        sandbox._namespace = None
+        sandbox._experiment_id = "default"
 
         await trial.on_sandbox_ready(sandbox)
 
@@ -157,8 +157,8 @@ class TestBashTrialOnSandboxReady:
         cfg = BashJobConfig(script="echo hi", namespace="cfg-ns")
         trial = BashTrial(cfg)
         sandbox = MagicMock()
-        type(sandbox).namespace = PropertyMock(return_value="sb-ns")
-        type(sandbox).experiment_id = PropertyMock(return_value=None)
+        sandbox._namespace = "sb-ns"
+        sandbox._experiment_id = None
 
         with pytest.raises(ValueError, match="namespace mismatch"):
             await trial.on_sandbox_ready(sandbox)
@@ -172,8 +172,8 @@ class TestBashTrialOnSandboxReady:
 def _oss_sandbox(ns="ns", exp="exp"):
     """Minimal sandbox mock with oss_mirror support."""
     sb = AsyncMock()
-    type(sb).namespace = PropertyMock(return_value=ns)
-    type(sb).experiment_id = PropertyMock(return_value=exp)
+    sb._namespace = ns
+    sb._experiment_id = exp
     sb.arun = AsyncMock(return_value=MagicMock(exit_code=0, output=""))
     sb.fs.ensure_ossutil = AsyncMock(return_value=True)
     sb.fs.upload_dir = AsyncMock(return_value=MagicMock(exit_code=0))

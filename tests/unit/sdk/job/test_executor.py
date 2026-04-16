@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -16,8 +16,8 @@ from rock.sdk.job.operator import ScatterOperator
 def _make_mock_sandbox():
     sandbox = AsyncMock()
     sandbox.sandbox_id = "sb-test"
-    type(sandbox).namespace = PropertyMock(return_value=None)
-    type(sandbox).experiment_id = PropertyMock(return_value=None)
+    sandbox._namespace = None
+    sandbox._experiment_id = None
     sandbox.start = AsyncMock()
     sandbox.close = AsyncMock()
     sandbox.create_session = AsyncMock()
@@ -257,8 +257,8 @@ class TestExecutorOnSandboxReady:
         from rock.sdk.job.trial.bash import BashTrial
 
         mock_sandbox = _make_mock_sandbox()
-        type(mock_sandbox).namespace = PropertyMock(return_value="ns")
-        type(mock_sandbox).experiment_id = PropertyMock(return_value="exp")
+        mock_sandbox._namespace = "ns"
+        mock_sandbox._experiment_id = "exp"
 
         with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
             executor = JobExecutor()

@@ -33,7 +33,7 @@ class AbstractTrial(ABC):
         with one already set on the config. Matches legacy
         ``_autofill_sandbox_info``. Subclasses can override to extend.
         """
-        sb_ns = sandbox.namespace
+        sb_ns = getattr(sandbox, "_namespace", None)
         if sb_ns is not None:
             if self._config.namespace is not None and self._config.namespace != sb_ns:
                 raise ValueError(
@@ -42,7 +42,7 @@ class AbstractTrial(ABC):
                 )
             self._config.namespace = sb_ns
 
-        sb_exp = sandbox.experiment_id
+        sb_exp = getattr(sandbox, "_experiment_id", None)
         if sb_exp is not None:
             if self._config.experiment_id is None:
                 self._config.experiment_id = sb_exp

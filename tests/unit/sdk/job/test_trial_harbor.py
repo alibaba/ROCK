@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock, PropertyMock
+from unittest.mock import AsyncMock, MagicMock
 
 from rock.sdk.bench.models.job.config import HarborJobConfig
 from rock.sdk.job.trial.harbor import HarborTrial
@@ -148,8 +148,8 @@ class TestHarborTrialOnSandboxReady:
         cfg = HarborJobConfig(experiment_id="exp-1")
         trial = HarborTrial(cfg)
         sandbox = MagicMock()
-        type(sandbox).namespace = PropertyMock(return_value="sb-ns")
-        type(sandbox).experiment_id = PropertyMock(return_value="exp-1")
+        sandbox._namespace = "sb-ns"
+        sandbox._experiment_id = "exp-1"
 
         await trial.on_sandbox_ready(sandbox)
 
@@ -160,8 +160,8 @@ class TestHarborTrialOnSandboxReady:
         cfg = HarborJobConfig(experiment_id="claw-eval")
         trial = HarborTrial(cfg)
         sandbox = MagicMock()
-        type(sandbox).namespace = PropertyMock(return_value=None)
-        type(sandbox).experiment_id = PropertyMock(return_value="default")
+        sandbox._namespace = None
+        sandbox._experiment_id = "default"
 
         await trial.on_sandbox_ready(sandbox)
 
@@ -173,8 +173,8 @@ class TestHarborTrialOnSandboxReady:
         cfg = HarborJobConfig(experiment_id="exp-1", namespace="cfg-ns")
         trial = HarborTrial(cfg)
         sandbox = MagicMock()
-        type(sandbox).namespace = PropertyMock(return_value="sb-ns")
-        type(sandbox).experiment_id = PropertyMock(return_value=None)
+        sandbox._namespace = "sb-ns"
+        sandbox._experiment_id = None
 
         with pytest.raises(ValueError, match="namespace mismatch"):
             await trial.on_sandbox_ready(sandbox)
