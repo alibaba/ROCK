@@ -238,25 +238,8 @@ class LinuxFileSystem(FileSystem):
                     "Note: Only regular files are supported. For directories, create a tar archive first.",
                 )
 
-            # Ensure ossutil is installed (checks wget/curl, unzip, installs if missing)
-            ensure_response = await self.sandbox.process.execute_script(
-                script_content=ENSURE_OSSUTIL_SCRIPT,
-                script_name=f"ensure_ossutil_{timestamp}.sh",
-                cleanup=True,
-            )
-            if ensure_response.exit_code != 0:
-                return DownloadFileResponse(
-                    success=False, message=f"Failed to ensure ossutil: {ensure_response.output}"
-                )
-
-            # Verify ossutil is actually working
-            verify_response: CommandResponse = await self.sandbox.execute(Command(command=["ossutil", "version"]))
-            if verify_response.exit_code != 0:
-                return DownloadFileResponse(
-                    success=False,
-                    message=f"ossutil verification failed (exit_code={verify_response.exit_code}): {verify_response.stderr}",
-                )
-            logger.debug(f"ossutil verified: {verify_response.stdout.strip()}")
+            if not await self.ensure_ossutil():
+                return DownloadFileResponse(success=False, message="Failed to ensure ossutil is installed and working")
 
             # Get STS credentials from sandbox (for both ossutil upload and oss2 download)
             try:
