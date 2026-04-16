@@ -2,8 +2,6 @@ import argparse
 import asyncio
 import subprocess
 
-import psutil
-
 from rock.cli.command.command import Command as CliCommand
 from rock.logger import init_logger
 
@@ -37,6 +35,11 @@ class AdminCommand(CliCommand):
 
     async def _admin_stop(self, args: argparse.Namespace):
         """Stop admin service"""
+        try:
+            import psutil
+        except ImportError:
+            raise ImportError("psutil is required for 'rock admin stop'. Install it with: pip install psutil")
+
         try:
             # Find admin processes
             admin_processes = []
