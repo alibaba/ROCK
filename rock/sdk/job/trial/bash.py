@@ -63,7 +63,7 @@ class BashTrial(AbstractTrial):
 
         await sandbox.execute(Command(command=["mkdir", "-p", self._artifact_dir]))
         # Touch a placeholder so ossutil cp has something to upload (OSS has no real dirs)
-        await sandbox.execute(Command(command=["touch", f"{self._artifact_dir}/.keep"]))
+        await sandbox.execute(Command(command=["touch", f"{self._artifact_dir}/.placeholder"]))
 
         self._ossutil_ready = await sandbox.fs.ensure_ossutil()
         if not self._ossutil_ready:
