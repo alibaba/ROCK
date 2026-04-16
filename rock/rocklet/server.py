@@ -13,14 +13,18 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.status import HTTP_504_GATEWAY_TIMEOUT
 
+from rock import env_vars
 from rock.actions import _ExceptionTransfer
 from rock.logger import init_logger
 from rock.rocklet import __version__
 from rock.rocklet.local_api import local_router
+from rock.rocklet.monitor import start_monitor_process, stop_monitor_process
 from rock.utils import EAGLE_EYE_TRACE_ID, REQUEST_TIMEOUT_SECONDS, sandbox_id_ctx_var, trace_id_ctx_var
 
 logger = init_logger("rocklet.server")
 app = FastAPI()
+
+_monitor_process = None
 
 app.include_router(local_router, tags=["local"])
 
@@ -95,6 +99,23 @@ async def exception_handler(request: Request, exc: Exception):
         extra_info=extra_info,
     )
     return JSONResponse(status_code=511, content={"rockletexception": _exc.model_dump()})
+
+
+@app.on_event("startup")
+async def startup_event():
+    global _monitor_process
+    if env_vars.ROCK_MONITOR_ENABLE and env_vars.ROCK_MONITOR_VIA_ROCKLET:
+        logger.info("Starting rocklet metrics monitor subprocess...")
+        _monitor_process = start_monitor_process()
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    global _monitor_process
+    if _monitor_process is not None:
+        logger.info("Stopping rocklet metrics monitor subprocess...")
+        stop_monitor_process(_monitor_process)
+        _monitor_process = None
 
 
 @app.get("/")

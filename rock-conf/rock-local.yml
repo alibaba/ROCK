@@ -7,3 +7,7 @@ ray:
 warmup:
     images:
       - "python:3.11"
+
+monitor:
+  enabled: true
+  via_rocklet: true
