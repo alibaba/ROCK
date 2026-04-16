@@ -17,10 +17,14 @@ else
     exit 1
 fi
 
-# Check unzip
+# Check unzip — try to install if missing
 if ! command -v unzip >/dev/null 2>&1; then
-    echo "ERROR: unzip is not available. Please install unzip first." >&2
-    exit 1
+    echo "unzip not found, attempting to install..."
+    apt-get install -y -q unzip 2>/dev/null || yum install -y -q unzip 2>/dev/null || true
+    if ! command -v unzip >/dev/null 2>&1; then
+        echo "ERROR: unzip is not available and could not be installed." >&2
+        exit 1
+    fi
 fi
 
 # Skip if already installed
