@@ -57,7 +57,7 @@ class EnvironmentConfig(BaseModel):
 class RockEnvironmentConfig(_EnvConfig, EnvironmentConfig):
     """Unified Rock environment config.
 
-    Combines job environment fields (uploads, auto_stop, env)
+    Combines job environment fields (uploads, env)
     from JobEnvironmentConfig with harbor environment fields (force_build,
     override_cpus, oss_mirror, etc.) from EnvironmentConfig.
     Rock-specific fields are stripped when serializing to Harbor YAML

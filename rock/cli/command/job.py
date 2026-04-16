@@ -135,8 +135,6 @@ class JobCommand(Command):
         if args.timeout is not None:
             config.timeout = args.timeout
 
-        env.auto_stop = True
-
     def _config_from_yaml(self, parser: argparse.ArgumentParser, args: argparse.Namespace):
         """Load config via JobConfig.from_yaml and enforce --type consistency."""
         from pathlib import Path
@@ -203,7 +201,6 @@ class JobCommand(Command):
             environment=RockEnvironmentConfig(
                 **env_kwargs,
                 uploads=uploads,
-                auto_stop=True,
                 env=env,
             ),
             **cfg_kwargs,

@@ -153,31 +153,19 @@ class TestJobExecutorWait:
 
 
 # ---------------------------------------------------------------------------
-# auto_stop behavior
+# sandbox close behavior
 # ---------------------------------------------------------------------------
 
 
-class TestJobExecutorAutoStop:
-    async def test_auto_stop_true_closes_sandbox(self):
+class TestJobExecutorSandboxClose:
+    async def test_sandbox_always_closed_after_run(self):
         mock_sandbox = _make_mock_sandbox()
         with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
-            from rock.sdk.envhub import EnvironmentConfig
-
-            config = BashJobConfig(script="echo hi", job_name="test", environment=EnvironmentConfig(auto_stop=True))
-            executor = JobExecutor()
-            await executor.run(ScatterOperator(size=1), config)
-
-        assert mock_sandbox.close.call_count == 1
-
-    async def test_auto_stop_false_does_not_close_sandbox(self):
-        mock_sandbox = _make_mock_sandbox()
-        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
-            # default: auto_stop=False
             config = BashJobConfig(script="echo hi", job_name="test")
             executor = JobExecutor()
             await executor.run(ScatterOperator(size=1), config)
 
-        assert mock_sandbox.close.call_count == 0
+        assert mock_sandbox.close.call_count == 1
 
 
 # ---------------------------------------------------------------------------

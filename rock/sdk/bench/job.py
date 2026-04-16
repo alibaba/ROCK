@@ -133,7 +133,7 @@ class Job:
             return result
 
         finally:
-            if self._config.environment.auto_stop and self._sandbox:
+            if self._sandbox:
                 await self._sandbox.close()
 
     async def cancel(self):

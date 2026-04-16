@@ -39,7 +39,6 @@ class TestRockEnvironmentConfigInheritance:
         env = RockEnvironmentConfig()
         assert env.env == {}
         assert env.uploads == []
-        assert env.auto_stop is False
 
     def test_env_field(self):
         env = RockEnvironmentConfig(env={"OPENAI_API_KEY": "sk-xxx"})
@@ -72,11 +71,9 @@ class TestToHarborEnvironment:
     def test_excludes_job_level_fields(self):
         env = RockEnvironmentConfig(
             uploads=[("a", "b")],
-            auto_stop=True,
         )
         result = env.to_harbor_environment()
         assert "uploads" not in result
-        assert "auto_stop" not in result
 
     def test_env_passes_through_to_harbor(self):
         env = RockEnvironmentConfig(env={"KEY": "val"})
@@ -120,7 +117,6 @@ class TestHarborJobConfigToHarborYaml:
             environment=RockEnvironmentConfig(
                 uploads=[("local.txt", "/sandbox/remote.txt")],
                 env={"API_KEY": "sk-xxx"},
-                auto_stop=True,
                 image="my-image:latest",
                 memory="32g",
             ),
@@ -132,8 +128,6 @@ class TestHarborJobConfigToHarborYaml:
         assert "sandbox_config" not in data
         assert "uploads" not in data
         assert "sandbox_env" not in data
-        assert "auto_stop_sandbox" not in data
-        assert "auto_stop" not in data
         # environment block should only contain harbor fields
         assert "environment" not in data or "image" not in data.get("environment", {})
 
@@ -255,7 +249,6 @@ environment:
   cpus: 8
   env:
     OPENAI_API_KEY: sk-xxx
-  auto_stop: true
 agents:
   - name: terminus-2
 """
@@ -266,7 +259,6 @@ agents:
         assert cfg.environment.image == "my-image:latest"
         assert cfg.environment.memory == "32g"
         assert cfg.environment.env == {"OPENAI_API_KEY": "sk-xxx"}
-        assert cfg.environment.auto_stop is True
 
     def test_from_yaml_with_local_dataset(self, tmp_path):
         yaml_content = """

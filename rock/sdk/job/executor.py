@@ -159,8 +159,7 @@ class JobExecutor:
                         r.exception_info = fail_info
             return result
         finally:
-            if config.environment.auto_stop:
-                await client.sandbox.close()
+            await client.sandbox.close()
 
     @staticmethod
     def _build_session_env(config: JobConfig) -> dict[str, str] | None:

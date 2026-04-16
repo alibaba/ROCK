@@ -36,7 +36,6 @@ class TestJobConfig:
         assert cfg.experiment_id is None
         assert cfg.labels == {}
         assert cfg.timeout == 7200
-        assert cfg.environment.auto_stop is False
         assert cfg.environment.uploads == []
         assert cfg.environment.env == {}
 
@@ -45,7 +44,6 @@ class TestJobConfig:
             image="ubuntu:22.04",
             uploads=[("/local/file.py", "/sandbox/file.py")],
             env={"MY_VAR": "hello"},
-            auto_stop=True,
         )
         cfg = JobConfig(
             environment=env,
@@ -60,7 +58,6 @@ class TestJobConfig:
         assert cfg.namespace == "team-a"
         assert cfg.experiment_id == "exp-001"
         assert cfg.labels == {"step": "42"}
-        assert cfg.environment.auto_stop is True
         assert cfg.environment.uploads == [("/local/file.py", "/sandbox/file.py")]
         assert cfg.environment.env == {"MY_VAR": "hello"}
         assert cfg.timeout == 7200
@@ -186,7 +183,6 @@ class TestHarborJobConfigToHarborYaml:
             experiment_id="my-exp",
             labels={"step": "1"},
             environment=RockEnvironmentConfig(
-                auto_stop=True,
                 uploads=[("/a", "/b")],
                 env={"KEY": "VAL"},
             ),
@@ -202,7 +198,7 @@ class TestHarborJobConfigToHarborYaml:
         assert data["experiment_id"] == "my-exp"
         assert data["labels"] == {"step": "1"}
         # Rock-only — must be absent
-        rock_only = {"auto_stop", "uploads", "timeout"}
+        rock_only = {"uploads", "timeout"}
         for field in rock_only:
             assert field not in data, f"Rock field '{field}' should be excluded"
 
@@ -403,26 +399,6 @@ class TestHarborInheritsBase:
         base_fields = set(JobConfig.model_fields.keys())
         harbor_fields = set(HarborJobConfig.model_fields.keys())
         assert base_fields.issubset(harbor_fields)
-
-
-# ---------------------------------------------------------------------------
-# G7: HarborJobConfig.auto_stop and environment.auto_stop sync (OR semantics)
-# ---------------------------------------------------------------------------
-
-
-class TestHarborJobConfigAutoStopSync:
-    """auto_stop lives on environment only."""
-
-    def test_environment_auto_stop_preserved(self):
-        cfg = HarborJobConfig(
-            experiment_id="exp-1",
-            environment=RockEnvironmentConfig(auto_stop=True),
-        )
-        assert cfg.environment.auto_stop is True
-
-    def test_default_auto_stop_is_false(self):
-        cfg = HarborJobConfig(experiment_id="exp-1")
-        assert cfg.environment.auto_stop is False
 
 
 # ---------------------------------------------------------------------------

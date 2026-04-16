@@ -1,7 +1,7 @@
 """General-purpose environment configuration.
 
 EnvironmentConfig extends SandboxConfig with common environment-level fields
-(uploads, environment variables, auto-stop).
+(uploads, environment variables).
 """
 
 from __future__ import annotations
@@ -19,5 +19,4 @@ class EnvironmentConfig(SandboxConfig):
         description="Files/dirs to upload before running: [(local_path, sandbox_path), ...]. "
         "Automatically detects file vs directory and uses the appropriate upload method.",
     )
-    auto_stop: bool = False
     env: dict[str, str] = Field(default_factory=dict)
