@@ -8,7 +8,7 @@ deprecation window.
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from rock.sdk.bench.models.job.config import (
     HarborJobConfig,
@@ -21,8 +21,8 @@ from rock.sdk.bench.models.trial.config import AgentConfig, RockEnvironmentConfi
 def _build_mock_sandbox():
     sandbox = AsyncMock()
     sandbox.sandbox_id = "sb-bg"
-    sandbox._namespace = "bg-ns"
-    sandbox._experiment_id = "bg-exp"
+    type(sandbox).namespace = PropertyMock(return_value="bg-ns")
+    type(sandbox).experiment_id = PropertyMock(return_value="bg-exp")
     sandbox.start = AsyncMock()
     sandbox.close = AsyncMock()
     sandbox.create_session = AsyncMock()

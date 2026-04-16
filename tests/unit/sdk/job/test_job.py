@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
 
@@ -18,8 +18,8 @@ def _make_mock_sandbox():
     # AsyncMock auto-creates child mocks for any attr access; force these
     # two back to None so AbstractTrial.on_sandbox_ready's default backfill
     # is a no-op (matching a real sandbox that reports no ns / exp_id).
-    sandbox._namespace = None
-    sandbox._experiment_id = None
+    type(sandbox).namespace = PropertyMock(return_value=None)
+    type(sandbox).experiment_id = PropertyMock(return_value=None)
     sandbox.start = AsyncMock()
     sandbox.close = AsyncMock()
     sandbox.create_session = AsyncMock()

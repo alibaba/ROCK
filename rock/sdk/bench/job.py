@@ -306,7 +306,7 @@ class Job:
         logger.info(f"Auto-generated job_name: {self._config.job_name}")
 
     async def _autofill_sandbox_info(self) -> None:
-        sandbox_ns = self._sandbox._namespace
+        sandbox_ns = self._sandbox.namespace
         if self._config.namespace is not None and sandbox_ns is not None:
             if self._config.namespace != sandbox_ns:
                 raise ValueError(
@@ -315,7 +315,7 @@ class Job:
         if sandbox_ns is not None:
             self._config.namespace = sandbox_ns
 
-        sandbox_exp = self._sandbox._experiment_id
+        sandbox_exp = self._sandbox.experiment_id
         if sandbox_exp is not None:
             if self._config.experiment_id is not None and self._config.experiment_id != sandbox_exp:
                 raise ValueError(
