@@ -133,6 +133,19 @@ class DockerDeploymentConfig(DeploymentConfig):
     extended_params: dict[str, str] = Field(default_factory=dict)
     """Generic extension field for storing custom string key-value pairs."""
 
+    use_temp_docker_auth: bool = Field(
+            default=True,
+            description="""Whether to use a temporary Docker configuration directory for authentication.
+
+            - true (default): Credentials stored in temp directory, isolated per sandbox,
+                              safe for concurrent operations, recommended for production.
+            - false: Use traditional DockerLoginHook with global ~/.docker/config.json,
+                     has concurrency risks, only for backward compatibility.
+
+            Priority: Environment variable ROCK_DOCKER_TEMP_AUTH > this config parameter
+            """
+        )
+
     @model_validator(mode="before")
     def validate_platform_args(cls, data: dict) -> dict:
         """Validate and extract platform arguments from docker_args.
