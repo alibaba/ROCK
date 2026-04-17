@@ -22,7 +22,7 @@ from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_s
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
 from rock.admin.gem.api import gem_router, set_env_service
 from rock.admin.scheduler.scheduler import SchedulerThread
-from rock.config import DatabaseConfig, RockConfig
+from rock.config import DatabaseConfig, RockConfig, SchedulerConfig
 from rock.logger import init_logger
 from rock.sandbox.gem_manager import GemManager
 from rock.sandbox.operator.factory import OperatorContext, OperatorFactory

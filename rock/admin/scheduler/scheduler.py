@@ -1,5 +1,8 @@
 # rock/admin/scheduler/scheduler.py
 import asyncio
+import hashlib
+import json
+import logging
 import threading
 import time
 from datetime import datetime, timedelta
@@ -75,7 +78,9 @@ class TaskScheduler:
         self._scheduler: AsyncIOScheduler | None = None
         self._stop_event: asyncio.Event | None = None
         self._worker_cache: WorkerIPCache | None = None
-        self._loop: asyncio.AbstractEventLoop | None = None
+        self._nacos_provider: NacosConfigProvider | None = None
+        self._event_loop: asyncio.AbstractEventLoop | None = None
+        self._last_scheduler_config_hash: str | None = None
 
     def _init_worker_cache(self) -> None:
         """Initialize the worker IP cache."""
@@ -388,7 +393,6 @@ class TaskScheduler:
         logger.info("Scheduler started")
 
         self._stop_event = asyncio.Event()
-        self._loop = asyncio.get_event_loop()
 
         try:
             await self._stop_event.wait()
@@ -400,22 +404,27 @@ class TaskScheduler:
 
     def stop(self) -> None:
         """Thread-safe stop: signal the scheduler to shut down."""
-        if self._stop_event and self._loop:
-            self._loop.call_soon_threadsafe(self._stop_event.set)
+        if self._stop_event and self._event_loop:
+            self._event_loop.call_soon_threadsafe(self._stop_event.set)
 
 
 class SchedulerThread:
     """Scheduler thread manager - runs APScheduler in a daemon thread with its own event loop."""
 
-    def __init__(self, scheduler_config: SchedulerConfig):
+    def __init__(
+        self,
+        scheduler_config: SchedulerConfig,
+        nacos_config: "NacosConfig | None" = None,
+    ):
         self.scheduler_config = scheduler_config
+        self.nacos_config = nacos_config
         self._thread: threading.Thread | None = None
         self._task_scheduler: TaskScheduler | None = None
 
     def _run_scheduler_in_thread(self) -> None:
         """Entry point for running scheduler in a thread with a dedicated event loop."""
         try:
-            self._task_scheduler = TaskScheduler(self.scheduler_config)
+            self._task_scheduler = TaskScheduler(self.scheduler_config, self.nacos_config)
             asyncio.run(self._task_scheduler.run())
         except Exception:
             logger.exception("Scheduler thread encountered an error")
