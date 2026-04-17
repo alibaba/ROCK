@@ -35,8 +35,13 @@ class DockerfileBuilder:
     @staticmethod
     async def build_terminal_bench(instance_record: dict[str, str], build_dir: str) -> str:
         os.makedirs(build_dir, exist_ok=True)
+        build_dir_resolved = os.path.abspath(build_dir)
         for file_name, content in instance_record["files"].items():
-            file_path = f"{build_dir}/{file_name}"
+            if os.path.isabs(file_name):
+                raise ValueError(f"Invalid file path: {file_name}")
+            file_path = os.path.abspath(os.path.join(build_dir_resolved, file_name))
+            if os.path.commonpath([build_dir_resolved, file_path]) != build_dir_resolved:
+                raise ValueError(f"Invalid file path: {file_name}")
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path, "w") as f:
                 f.write(content)
