@@ -35,7 +35,7 @@ admin = [
     "rl-rock[rocklet]",
     # Admin specific dependencies
     "ray[default]==2.43.0",
-    "nacos-sdk-python>=0.1.14",
+    "nacos-sdk-python>=0.1.14,<3.0.0",
     "redis",
     "apscheduler",
     "websockets>=15.0.1",
@@ -69,7 +69,7 @@ sandbox-actor = [
     "apscheduler>=3.11.0",
     "gem-llm>=0.1.0",
     "sqlmodel",
-    "nacos-sdk-python>=0.1.14",
+    "nacos-sdk-python>=0.1.14,<3.0.0",
     "redis",
 ]
 

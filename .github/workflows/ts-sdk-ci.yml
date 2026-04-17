@@ -14,9 +14,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: rock/ts-sdk
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -30,14 +28,84 @@ jobs:
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           npm install -g pnpm
 
-      - name: Install dependencies
+      - name: Install TS SDK dependencies
+        working-directory: rock/ts-sdk
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           pnpm install --frozen-lockfile
 
       - name: Run unit tests
+        working-directory: rock/ts-sdk
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           pnpm test:unit
+
+      # --- Python & ROCK Admin Setup ---
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ROCK Python dependencies
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          python -m pip install --upgrade pip
+          pip install uv
+          uv pip install --system -e ".[admin]"
+
+      - name: Pull Docker image
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          docker pull python:3.11
+
+      - name: Start ROCK Admin service
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          export ROCK_WORKER_ENV_TYPE=uv
+          export ROCK_PIP_INDEX_URL=https://pypi.org/simple/
+          nohup admin --env ci --role admin --port 8080 > /tmp/rock-admin.log 2>&1 &
+          echo "Waiting for admin service to be ready..."
+          for i in $(seq 1 60); do
+            if grep -q "Uvicorn running on" /tmp/rock-admin.log 2>/dev/null; then
+              echo "Admin service is ready!"
+              break
+            fi
+            echo "Attempt $i/60: Admin not ready yet, waiting 2s..."
+            sleep 2
+          done
+          if ! grep -q "Uvicorn running on" /tmp/rock-admin.log 2>/dev/null; then
+            echo "ERROR: Admin service failed to start!"
+            cat /tmp/rock-admin.log
+            exit 1
+          fi
+
+      # --- Run Integration Tests ---
+      - name: Run integration tests
+        working-directory: rock/ts-sdk
+        env:
+          ROCK_BASE_URL: http://127.0.0.1:8080
+          ROCK_TEST_IMAGE: python:3.11
+          ROCK_TEST_CLUSTER: default
+          ROCK_STARTUP_TIMEOUT: "300"
+          ROCK_TEST_TIMEOUT: "360000"
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          pnpm test:integration
+
+      # --- Cleanup & Diagnostics ---
+      - name: Print admin logs on failure
+        if: always()
+        run: |
+          echo "=== ROCK Admin Logs ==="
+          cat /tmp/rock-admin.log || true
+          echo "=== Docker Containers ==="
+          docker ps -a || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f $(docker ps -aq) 2>/dev/null || true
+          ray stop --force 2>/dev/null || true
+          pkill -f "admin --env ci" 2>/dev/null || true
 
 

@@ -14,9 +14,11 @@ import * as os from 'os';
 
 const TEST_CONFIG = {
   baseUrl: process.env.ROCK_BASE_URL || 'http://11.166.8.116:8080',
-  image: 'reg.docker.alibaba-inc.com/yanan/python:3.11',
-  cluster: 'zb',
-  startupTimeout: 120,
+  image: process.env.ROCK_TEST_IMAGE || 'reg.docker.alibaba-inc.com/yanan/python:3.11',
+  cluster: process.env.ROCK_TEST_CLUSTER || 'zb',
+  startupTimeout: parseInt(process.env.ROCK_STARTUP_TIMEOUT || '120', 10),
+  memory: process.env.ROCK_TEST_MEMORY || '2g',
+  cpus: parseInt(process.env.ROCK_TEST_CPUS || '1', 10),
 };
 
 describe('FileSystem Integration', () => {
