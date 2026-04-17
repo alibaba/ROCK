@@ -29,6 +29,14 @@ class ContainerCleanupTask(BaseTask):
             interval_seconds=interval_seconds,
             idempotency=IdempotencyType.IDEMPOTENT,
         )
+        try:
+            max_age_hours = int(max_age_hours)
+        except (TypeError, ValueError):
+            raise ValueError("max_age_hours must be an integer")
+
+        if max_age_hours <= 0 or max_age_hours > 8760:
+            raise ValueError("max_age_hours must be between 1 and 8760")
+
         self.max_age_hours = max_age_hours
 
     @classmethod
