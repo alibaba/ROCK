@@ -46,25 +46,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # --- Python & ROCK Admin Setup ---
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      # --- Cleanup & Python Setup (following python-ci.yml pattern) ---
+      - name: Cleanup old Ray sessions
+        run: |
+          target="$(readlink -f /tmp/ray 2>/dev/null || echo /tmp/ray)"
+          [ -d "$target" ] || exit 0
+          echo "ray dir: $target"
+          echo "Before:"
+          du -sh "$target" 2>/dev/null || true
+          find "$target" -mindepth 1 -maxdepth 1 -type d -name 'session_*' -mmin +60 -exec rm -rf -- {} + || true
+          echo "After:"
+          du -sh "$target" 2>/dev/null || true
 
       - name: Install ROCK Python dependencies
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
-          python -m pip install --upgrade pip
-          pip install uv
-          uv pip install --system -e ".[admin]"
+          uv sync --all-extras --python 3.11
 
       - name: Prepare Docker image
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
-          # Clean up dangling images and stopped containers to free disk space
           docker system prune -f 2>/dev/null || true
-          # Pull image only if not already present
           if ! docker image inspect python:3.11 > /dev/null 2>&1; then
             echo "Pulling python:3.11..."
             docker pull python:3.11
@@ -72,19 +74,11 @@ jobs:
             echo "python:3.11 already exists, skipping pull"
           fi
 
-      - name: Register Python shared libraries
-        run: |
-          # Ray workers need libpython3.11.so.1.0 but actions/setup-python doesn't register it system-wide
-          PYTHON_LIB_DIR="$(python -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')"
-          echo "$PYTHON_LIB_DIR" | sudo tee /etc/ld.so.conf.d/python.conf
-          sudo ldconfig
-          echo "Registered Python lib dir: $PYTHON_LIB_DIR"
-
       - name: Start ROCK Admin service
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           export ROCK_WORKER_ENV_TYPE=uv
-          nohup admin --env ci --role admin --port 8080 > /tmp/rock-admin.log 2>&1 &
+          nohup uv run admin --env ci --role admin --port 8080 > /tmp/rock-admin.log 2>&1 &
           echo "Waiting for admin service to be ready..."
           for i in $(seq 1 60); do
             if grep -q "Uvicorn running on" /tmp/rock-admin.log 2>/dev/null; then
@@ -143,4 +137,4 @@ jobs:
           docker rm -f $(docker ps -aq) 2>/dev/null || true
           ray stop --force 2>/dev/null || true
           pkill -f "admin --env ci" 2>/dev/null || true
-          sudo rm -f /etc/ld.so.conf.d/python.conf && sudo ldconfig 2>/dev/null || true
+
