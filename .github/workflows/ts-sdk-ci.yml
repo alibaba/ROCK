@@ -68,6 +68,9 @@ jobs:
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           export ROCK_WORKER_ENV_TYPE=uv
+          # Ensure Ray can find libpython shared library (needed for virtualenv creation)
+          PYTHON_LIB_DIR="$(python -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')"
+          export LD_LIBRARY_PATH="${PYTHON_LIB_DIR}:${LD_LIBRARY_PATH:-}"
           nohup admin --env ci --role admin --port 8080 > /tmp/rock-admin.log 2>&1 &
           echo "Waiting for admin service to be ready..."
           for i in $(seq 1 60); do
