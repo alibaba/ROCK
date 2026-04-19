@@ -64,13 +64,18 @@ jobs:
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           docker pull python:3.11
 
+      - name: Register Python shared libraries
+        run: |
+          # Ray workers need libpython3.11.so.1.0 but actions/setup-python doesn't register it system-wide
+          PYTHON_LIB_DIR="$(python -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')"
+          echo "$PYTHON_LIB_DIR" | sudo tee /etc/ld.so.conf.d/python.conf
+          sudo ldconfig
+          echo "Registered Python lib dir: $PYTHON_LIB_DIR"
+
       - name: Start ROCK Admin service
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           export ROCK_WORKER_ENV_TYPE=uv
-          # Ensure Ray can find libpython shared library (needed for virtualenv creation)
-          PYTHON_LIB_DIR="$(python -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')"
-          export LD_LIBRARY_PATH="${PYTHON_LIB_DIR}:${LD_LIBRARY_PATH:-}"
           nohup admin --env ci --role admin --port 8080 > /tmp/rock-admin.log 2>&1 &
           echo "Waiting for admin service to be ready..."
           for i in $(seq 1 60); do
@@ -130,3 +135,4 @@ jobs:
           docker rm -f $(docker ps -aq) 2>/dev/null || true
           ray stop --force 2>/dev/null || true
           pkill -f "admin --env ci" 2>/dev/null || true
+          sudo rm -f /etc/ld.so.conf.d/python.conf && sudo ldconfig 2>/dev/null || true
