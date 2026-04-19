@@ -41,7 +41,7 @@ jobs:
           pnpm test:unit
           
   integration-test:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -68,7 +68,6 @@ jobs:
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           export ROCK_WORKER_ENV_TYPE=uv
-          export ROCK_PIP_INDEX_URL=https://pypi.org/simple/
           nohup admin --env ci --role admin --port 8080 > /tmp/rock-admin.log 2>&1 &
           echo "Waiting for admin service to be ready..."
           for i in $(seq 1 60); do
@@ -107,10 +106,6 @@ jobs:
         working-directory: rock/ts-sdk
         env:
           ROCK_BASE_URL: http://127.0.0.1:8080
-          ROCK_TEST_IMAGE: python:3.11
-          ROCK_TEST_CLUSTER: default
-          ROCK_STARTUP_TIMEOUT: "600"
-          ROCK_TEST_TIMEOUT: "660000"
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           pnpm test:integration

@@ -416,9 +416,6 @@ class DockerDeployment(AbstractDeployment):
 
         env_arg.extend(["-e", f"ROCK_TIME_ZONE={env_vars.ROCK_TIME_ZONE}"])
 
-        if env_vars.ROCK_PIP_INDEX_URL:
-            env_arg.extend(["-e", f"ROCK_PIP_INDEX_URL={env_vars.ROCK_PIP_INDEX_URL}"])
-
         # Kata DinD: prepare disk image and add volume mount + env var
         if self._config.use_kata_runtime:
             self._prepare_kata_disk()

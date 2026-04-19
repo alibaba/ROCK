@@ -20,11 +20,10 @@ if [ ! -f /etc/alpine-release ]; then
     # Install uv - check if pip is available
     elif command -v pip &> /dev/null || command -v pip3 &> /dev/null; then
         echo "Installing uv via pip..."
-        PIP_INDEX=${ROCK_PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
         if command -v pip3 &> /dev/null; then
-            pip3 install uv -i "$PIP_INDEX"
+            pip3 install uv -i https://mirrors.aliyun.com/pypi/simple/
         else
-            pip install uv -i "$PIP_INDEX"
+            pip install uv -i https://mirrors.aliyun.com/pypi/simple/
         fi
         UV_CMD=uv
     else
