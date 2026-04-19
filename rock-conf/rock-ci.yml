@@ -1,7 +1,6 @@
 ray:
     runtime_env:
         working_dir: ./
-        pip: ./requirements_sandbox_actor.txt
     namespace: "rock-sandbox-ci"
 
 runtime:
