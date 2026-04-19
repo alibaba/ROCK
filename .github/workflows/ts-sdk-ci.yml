@@ -14,7 +14,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -86,8 +86,8 @@ jobs:
           ROCK_BASE_URL: http://127.0.0.1:8080
           ROCK_TEST_IMAGE: python:3.11
           ROCK_TEST_CLUSTER: default
-          ROCK_STARTUP_TIMEOUT: "300"
-          ROCK_TEST_TIMEOUT: "360000"
+          ROCK_STARTUP_TIMEOUT: "600"
+          ROCK_TEST_TIMEOUT: "660000"
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           pnpm test:integration
