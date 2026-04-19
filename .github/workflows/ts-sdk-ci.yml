@@ -14,7 +14,9 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: rock/ts-sdk
     steps:
       - uses: actions/checkout@v4
 
@@ -28,17 +30,21 @@ jobs:
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           npm install -g pnpm
 
-      - name: Install TS SDK dependencies
-        working-directory: rock/ts-sdk
+      - name: Install dependencies
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           pnpm install --frozen-lockfile
 
       - name: Run unit tests
-        working-directory: rock/ts-sdk
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           pnpm test:unit
+          
+  integration-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
 
       # --- Python & ROCK Admin Setup ---
       - name: Setup Python
@@ -79,6 +85,23 @@ jobs:
             exit 1
           fi
 
+      # --- Node.js & TS SDK Setup ---
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          npm install -g pnpm
+
+      - name: Install TS SDK dependencies
+        working-directory: rock/ts-sdk
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          pnpm install --frozen-lockfile
+
       # --- Run Integration Tests ---
       - name: Run integration tests
         working-directory: rock/ts-sdk
@@ -107,5 +130,3 @@ jobs:
           docker rm -f $(docker ps -aq) 2>/dev/null || true
           ray stop --force 2>/dev/null || true
           pkill -f "admin --env ci" 2>/dev/null || true
-
-
