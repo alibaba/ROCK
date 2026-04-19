@@ -106,6 +106,8 @@ jobs:
         working-directory: rock/ts-sdk
         env:
           ROCK_BASE_URL: http://127.0.0.1:8080
+          ROCK_TEST_IMAGE: python:3.11
+          ROCK_TEST_CLUSTER: default
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           pnpm test:integration
