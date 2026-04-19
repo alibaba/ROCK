@@ -128,10 +128,14 @@ jobs:
       - name: Print admin logs on failure
         if: always()
         run: |
-          echo "=== ROCK Admin Logs ==="
-          cat /tmp/rock-admin.log || true
+          echo "=== ROCK Admin Logs (last 200 lines) ==="
+          tail -200 /tmp/rock-admin.log || true
           echo "=== Docker Containers ==="
           docker ps -a || true
+          echo "=== Ray Status ==="
+          uv run ray status 2>/dev/null || true
+          echo "=== Ray Runtime Env Logs ==="
+          find /tmp/ray -name "runtime_env*.log" -exec tail -50 {} \; 2>/dev/null || true
 
       - name: Cleanup
         if: always()
