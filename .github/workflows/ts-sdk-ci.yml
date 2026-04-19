@@ -59,10 +59,18 @@ jobs:
           pip install uv
           uv pip install --system -e ".[admin]"
 
-      - name: Pull Docker image
+      - name: Prepare Docker image
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
-          docker pull python:3.11
+          # Clean up dangling images and stopped containers to free disk space
+          docker system prune -f 2>/dev/null || true
+          # Pull image only if not already present
+          if ! docker image inspect python:3.11 > /dev/null 2>&1; then
+            echo "Pulling python:3.11..."
+            docker pull python:3.11
+          else
+            echo "python:3.11 already exists, skipping pull"
+          fi
 
       - name: Register Python shared libraries
         run: |
