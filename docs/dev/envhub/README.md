@@ -55,19 +55,28 @@ REST 端点：`POST /env/register`、`POST /env/get`、`POST /env/list`、`POST 
 
 ### OSS 路径约定
 
+路径层级设计对齐 **HuggingFace Datasets** 的命名惯例（`{organization}/{dataset_name}/{split}`），在此基础上增加了 ROCK 特有的 `{task_id}` 层来组织结构化的 benchmark task 目录。
+
 ```
 oss://{bucket}/datasets/{organization}/{dataset_name}/{split}/{task_id}/
 ```
+
+| 层级 | 说明 | 类比 HuggingFace |
+|------|------|-----------------|
+| `organization` | 数据集所属组织，如 `qwen`、`alibaba` | HF namespace（`qwen/`） |
+| `dataset_name` | 数据集名称 | HF repo name（`my-bench`） |
+| `split` | 分片标识，如 `train`、`test`、`v1.0` | HF split（`train`/`test`） |
+| `task_id` | 单个 task 目录名（ROCK 特有） | HF 无此层，HF 直接存数据文件 |
 
 示例：
 
 ```
 oss://my-bucket/
 └── datasets/
-    └── qwen/
-        └── my-bench/
-            └── train/
-                ├── task-001/
+    └── qwen/                          # organization
+        └── my-bench/                  # dataset_name
+            └── train/                 # split
+                ├── task-001/          # task_id（ROCK 特有）
                 │   ├── task.toml
                 │   └── tests/
                 └── task-002/
@@ -75,10 +84,7 @@ oss://my-bucket/
                     └── tests/
 ```
 
-- `organization`：数据集所属组织，如 `qwen`、`alibaba`
-- `dataset_name`：数据集名称
-- `split`：分片标识，语义等同于版本，如 `train`、`test`、`v1.0`
-- `task_id`：单个 task 目录名，目录内文件原样保留（相对路径不变）
+task 目录内的文件结构原样保留（相对路径不变），上传和下载均以 `task_id/` 为单位。
 
 ---
 
@@ -108,18 +114,19 @@ rock/
 
 ### 核心模型
 
-**`rock/sdk/envhub/datasets/models.py`**
+**复用模型（来自 `rock.sdk.bench.models.job.config`，不新增、不移动）**
+
+| 模型 | 关键字段 | 用途 |
+|------|----------|------|
+| `OssRegistryInfo` | `oss_bucket`, `oss_endpoint`, `oss_region`, `oss_access_key_id`, `oss_access_key_secret`, `oss_dataset_path` | OSS 连接凭证与路径前缀（`oss_dataset_path` 默认 `"datasets"`） |
+| `LocalDatasetConfig` | `path: Path` | 本地 task 目录（upload 数据源） |
+| `RegistryDatasetConfig` | `name="org/dataset_name"`, `version=split`, `overwrite`, `registry=OssRegistryInfo(...)` | 远端数据集引用（upload 目标） |
+
+`RegistryDatasetConfig.name` 遵循 HuggingFace 惯例，使用 `"{organization}/{dataset_name}"` 格式；`OssDatasetRegistry` 通过 `name.split("/", 1)` 拆分得到 org 和 name。`version` 对应 split（如 `"train"`、`"test"`）。
+
+**新增模型（`rock/sdk/envhub/datasets/models.py`）**
 
 ```python
-@dataclass
-class OssRegistryConfig:
-    bucket: str
-    endpoint: str | None = None          # 如 https://oss-cn-hangzhou.aliyuncs.com
-    region: str | None = None
-    access_key_id: str | None = None
-    access_key_secret: str | None = None
-    base_path: str = "datasets"          # OSS 根前缀，固定为 datasets
-
 @dataclass
 class DatasetSpec:
     organization: str
@@ -160,14 +167,13 @@ class BaseDatasetRegistry(ABC):
     @abstractmethod
     def upload_dataset(
         self,
-        organization: str,
-        name: str,
-        split: str,
-        local_dir: Path,
+        source: LocalDatasetConfig,
+        target: RegistryDatasetConfig,
         concurrency: int = 4,
-        overwrite: bool = False,
     ) -> UploadResult:
-        """将 local_dir/{task_id}/ 批量上传到 registry。"""
+        """将 source.path/{task_id}/ 批量上传到 target 指定的远端路径。
+        org/name/split/overwrite 均从 target 提取。
+        """
         ...
 ```
 
@@ -179,14 +185,15 @@ class BaseDatasetRegistry(ABC):
 
 ```python
 class OssDatasetRegistry(BaseDatasetRegistry):
-    def __init__(self, config: OssRegistryConfig): ...
+    def __init__(self, registry: OssRegistryInfo): ...
 ```
 
 **路径构建：**
 
 ```python
 def _build_prefix(self, org: str, name: str, split: str | None = None) -> str:
-    parts = [self._config.base_path, org, name]
+    base = self._registry.oss_dataset_path or "datasets"
+    parts = [base, org, name]
     if split:
         parts.append(split)
     return "/".join(parts)
@@ -203,11 +210,12 @@ OSS 列举使用 `list_objects_v2` with `delimiter="/"` 逐层枚举目录，避
 
 **upload_dataset 逻辑：**
 
-1. 遍历 `local_dir` 下的一级子目录，每个子目录视为一个 task（`task_id = subdir.name`）
-2. 若 `overwrite=False` 且 OSS 上已存在该 task 目录，跳过
-3. 并发上传（`asyncio` + `ThreadPoolExecutor`，`concurrency` 控制并发数）
-4. 目标 key：`datasets/{org}/{name}/{split}/{task_id}/{relative_file_path}`
-5. 返回 `UploadResult`
+1. 从 `target.name.split("/", 1)` 提取 `org` 和 `name`；`target.version` 为 `split`；`target.overwrite` 为覆盖标志
+2. 遍历 `source.path` 下的一级子目录，每个子目录视为一个 task（`task_id = subdir.name`）
+3. 若 `target.overwrite=False` 且 OSS 上已存在该 task 目录，跳过
+4. 并发上传（`ThreadPoolExecutor`，`concurrency` 控制并发数）
+5. 目标 key：`datasets/{org}/{name}/{split}/{task_id}/{relative_file_path}`
+6. 返回 `UploadResult`
 
 ---
 
@@ -219,24 +227,19 @@ OSS 列举使用 `list_objects_v2` with `delimiter="/"` 逐层枚举目录，避
 
 ```python
 class DatasetClient:
-    def __init__(self, config: OssRegistryConfig):
-        self._registry = OssDatasetRegistry(config)
+    def __init__(self, registry: OssRegistryInfo):
+        self._registry = OssDatasetRegistry(registry)
 
-    def list_datasets(self, organization: str | None = None) -> list[DatasetSpec]:
-        return self._registry.list_datasets(organization)
+    def list_datasets(self, org: str | None = None) -> list[DatasetSpec]:
+        return self._registry.list_datasets(org)
 
     def upload_dataset(
         self,
-        organization: str,
-        name: str,
-        split: str,
-        local_dir: Path,
+        source: LocalDatasetConfig,
+        target: RegistryDatasetConfig,
         concurrency: int = 4,
-        overwrite: bool = False,
     ) -> UploadResult:
-        return self._registry.upload_dataset(
-            organization, name, split, local_dir, concurrency, overwrite
-        )
+        return self._registry.upload_dataset(source, target, concurrency)
 ```
 
 ---
@@ -317,7 +320,7 @@ oss_access_key_secret = xxxxxxx
 
 **优先级（高→低）**：CLI 参数 > `config.ini [dataset]` section > 报错（必填项缺失）
 
-`ConfigManager` 扩展：新增 `get_dataset_config() -> OssRegistryConfig | None`，读取 `[dataset]` section。`DatasetCommand` 在初始化时合并 config + CLI args 构建 `OssRegistryConfig`。
+`ConfigManager` 扩展：在 `CLIConfig` 新增 `dataset_config: DatasetConfig` 字段（内部结构体），读取 `[dataset]` section 中的 OSS 凭证。`DatasetsCommand` 在初始化时合并 `DatasetConfig` + CLI args 构建 `OssRegistryInfo`（来自 `rock.sdk.bench.models.job.config`）。
 
 ---
 
@@ -342,15 +345,21 @@ rock datasets list --org qwen
 
 ```
 rock datasets upload --org qwen --dataset my-bench --split train --dir ./tasks/
-  └─ DatasetCommand.upload()
-      ├─ ConfigManager.get_dataset_config()
-      ├─ 合并 CLI 参数 → OssRegistryConfig
-      ├─ DatasetClient(config)
-      └─ OssDatasetRegistry.upload_dataset(org, name, split, local_dir, concurrency, overwrite)
-          ├─ 遍历 ./tasks/ 下子目录：task-001/, task-002/, ...
+  └─ DatasetsCommand.upload()
+      ├─ ConfigManager.get_config().dataset_config   # 读 config.ini [dataset]
+      ├─ 合并 CLI 参数 → OssRegistryInfo
+      ├─ source = LocalDatasetConfig(path=./tasks/)
+      ├─ target = RegistryDatasetConfig(
+      │       name="qwen/my-bench", version="train",
+      │       overwrite=False, registry=OssRegistryInfo)
+      ├─ DatasetClient(registry=OssRegistryInfo)
+      └─ OssDatasetRegistry.upload_dataset(source, target, concurrency=4)
+          ├─ target.name.split("/", 1) → org="qwen", name="my-bench"
+          ├─ target.version → split="train"
+          ├─ 遍历 source.path 下子目录：task-001/, task-002/, ...
           ├─ ThreadPoolExecutor(max_workers=concurrency)
           └─ 每个 task：
-              ├─ 若 overwrite=False 且 OSS 存在 → skip
+              ├─ 若 target.overwrite=False 且 OSS 存在 → skip
               └─ 遍历文件 → PutObject(key="datasets/qwen/my-bench/train/task-001/{file}")
 ```
 
