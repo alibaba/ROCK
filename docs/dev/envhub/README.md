@@ -99,7 +99,7 @@ rock/
 │       ├── schema.py          # 现有
 │       └── datasets/          # 新增
 │           ├── __init__.py    # 对外入口：暴露 DatasetClient、DatasetSpec 等
-│           ├── models.py      # DatasetSpec, OssRegistryConfig, UploadResult
+│           ├── models.py      # DatasetSpec, UploadResult（OssRegistryInfo 复用自 bench）
 │           ├── client.py      # DatasetClient（对外统一入口）
 │           └── registry/
 │               ├── __init__.py
@@ -332,7 +332,7 @@ oss_access_key_secret = xxxxxxx
 rock datasets list --org qwen
   └─ DatasetCommand.list()
       ├─ ConfigManager.get_dataset_config()   # 读 config.ini [dataset]
-      ├─ 合并 CLI 参数 → OssRegistryConfig
+      ├─ 合并 CLI 参数 → OssRegistryInfo
       ├─ DatasetClient(config)
       └─ OssDatasetRegistry.list_datasets(org="qwen")
           └─ alibabacloud_oss_v2: list_objects_v2(prefix="datasets/qwen/", delimiter="/")
