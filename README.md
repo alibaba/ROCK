@@ -25,14 +25,6 @@ ROCK (Reinforcement Open Construction Kit) is a easy-to-use, and scalable sandbo
 
 ROCK adopts a client-server architecture, supports different levels of isolation mechanisms to ensure stable environment operation, and supports integration with various reinforcement learning training frameworks through SDK. ROCK not only supports traditional sandbox management functions but also is compatible with GEM-like protocols, providing standardized interfaces for reinforcement learning environments.
 
----
-## 📢 News
-| 📣 Update |
-|:--|
-| **[03/03/2026]** 🎉 ROCK v1.3.0 Released! K8s Operator, Docker registry login, Kata runtime, SWE-bench evaluation demo, and more. |
-| **[02/28/2026]** 🎉 ROCK v1.2.5 Released! Custom metrics endpoint, user-defined metric tags, and Aliyun MSE Nacos support. |
-| **[01/01/2026]** 🎉 Our [Let It Flow: Agentic Crafting on Rock and Roll](https://arxiv.org/abs/2512.24873) report released! Introducing ALE ecosystem and ROME, an open-source agentic model with novel IPA algorithm. |
----
 
 ## 🚀 Get Started
 [Documents](https://alibaba.github.io/ROCK/)
@@ -159,18 +151,15 @@ if __name__ == "__main__":
 
 ---
 
-## 📢 Latest Updates
+## 📢 Updates
 
-| 📣 Update Content |
-|:-----------|
-| **[2026-04-16]** 🎉 ROCK v1.5.1 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.5.1) |
-| **[2026-04-10]** 🎉 ROCK v1.4.7 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.4.7) |
-| **[2026-03-27]** 🎉 ROCK v1.4.4 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.4.4) |
-| **[2026-03-24]** 🎉 ROCK v1.4.3 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.4.3) |
-| **[2026-03-17]** 🎉 ROCK v1.4.2 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.4.2) |
-| **[2026-03-14]** 🎉 ROCK v1.4.1 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.4.1) |
-| **[2026-03-14]** 🎉 ROCK v1.4.0 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.4.0) |
-| **[2026-03-03]** 🎉 ROCK v1.3.0 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.3.0) |
+| Date | Release |
+|:-------------|:---|
+| **[Latest]** | 🎉 ROCK v1.5.1 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.5.1) |
+| **[2026-04-10]** | 🎉 ROCK v1.4.7 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.4.7) |
+| **[2026-03-27]** | 🎉 ROCK v1.4.4 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.4.4) |
+| **[2026-03-24]** | 🎉 ROCK v1.4.3 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.4.3) |
+| **[2026-03-17]** | 🎉 ROCK v1.4.2 Released — [Release Notes](https://alibaba.github.io/ROCK/docs/Release%20Notes/v1.4.2) |
 
 ---
 
