@@ -43,52 +43,58 @@ jobs:
   integration-test:
     runs-on: self-hosted
     timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: rock/ts-sdk
     steps:
       - uses: actions/checkout@v4
 
+      # --- Cleanup & Python Setup (following python-ci.yml pattern) ---
       - name: Cleanup old Ray sessions
         run: |
-          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
-          ray stop --force 2>/dev/null || true
-          docker rm -f $(docker ps -aq) 2>/dev/null || true
-        working-directory: .
+          target="$(readlink -f /tmp/ray 2>/dev/null || echo /tmp/ray)"
+          [ -d "$target" ] || exit 0
+          echo "ray dir: $target"
+          echo "Before:"
+          du -sh "$target" 2>/dev/null || true
+          find "$target" -mindepth 1 -maxdepth 1 -type d -name 'session_*' -mmin +60 -exec rm -rf -- {} + || true
+          echo "After:"
+          du -sh "$target" 2>/dev/null || true
 
-      - name: Install Python dependencies with uv
+      - name: Install ROCK Python dependencies
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           uv sync --all-extras --python 3.11
-        working-directory: .
 
-      - name: Pull test Docker image
+      - name: Prepare Docker image
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
-          docker image inspect python:3.11 > /dev/null 2>&1 || docker pull python:3.11
-        working-directory: .
+          docker system prune -f 2>/dev/null || true
+          if ! docker image inspect python:3.11 > /dev/null 2>&1; then
+            echo "Pulling python:3.11..."
+            docker pull python:3.11
+          else
+            echo "python:3.11 already exists, skipping pull"
+          fi
 
-      - name: Start ROCK Admin server
+      - name: Start ROCK Admin service
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           export ROCK_WORKER_ENV_TYPE=uv
           nohup uv run admin --env ci --role admin --port 8080 > /tmp/rock-admin.log 2>&1 &
-          echo $! > /tmp/rock-admin.pid
-          echo "Waiting for Admin server to be ready..."
+          echo "Waiting for admin service to be ready..."
           for i in $(seq 1 60); do
             if grep -q "Uvicorn running on" /tmp/rock-admin.log 2>/dev/null; then
-              echo "Admin server is ready!"
+              echo "Admin service is ready!"
               break
             fi
-            if [ $i -eq 60 ]; then
-              echo "Admin server failed to start within 60 seconds"
-              cat /tmp/rock-admin.log
-              exit 1
-            fi
-            sleep 1
+            echo "Attempt $i/60: Admin not ready yet, waiting 2s..."
+            sleep 2
           done
-        working-directory: .
+          if ! grep -q "Uvicorn running on" /tmp/rock-admin.log 2>/dev/null; then
+            echo "ERROR: Admin service failed to start!"
+            cat /tmp/rock-admin.log
+            exit 1
+          fi
 
+      # --- Node.js & TS SDK Setup ---
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -99,12 +105,15 @@ jobs:
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           npm install -g pnpm
 
-      - name: Install dependencies
+      - name: Install TS SDK dependencies
+        working-directory: rock/ts-sdk
         run: |
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           pnpm install --frozen-lockfile
 
+      # --- Run Integration Tests ---
       - name: Run integration tests
+        working-directory: rock/ts-sdk
         env:
           ROCK_BASE_URL: http://127.0.0.1:8080
           ROCK_TEST_IMAGE: python:3.11
@@ -115,28 +124,24 @@ jobs:
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           pnpm test:integration
 
-      - name: Print debug logs
+      # --- Cleanup & Diagnostics ---
+      - name: Print admin logs on failure
         if: always()
         run: |
-          echo "=== Admin server logs ==="
-          cat /tmp/rock-admin.log 2>/dev/null || echo "No admin log found"
-          echo ""
-          echo "=== Docker containers ==="
-          docker ps -a 2>/dev/null || true
-          echo ""
-          echo "=== Ray status ==="
-          ray status 2>/dev/null || true
-        working-directory: .
+          echo "=== ROCK Admin Logs (last 200 lines) ==="
+          tail -200 /tmp/rock-admin.log || true
+          echo "=== Docker Containers ==="
+          docker ps -a || true
+          echo "=== Ray Status ==="
+          uv run ray status 2>/dev/null || true
+          echo "=== Ray Runtime Env Logs ==="
+          find /tmp/ray -name "runtime_env*.log" -exec tail -50 {} \; 2>/dev/null || true
 
       - name: Cleanup
         if: always()
         run: |
-          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
-          if [ -f /tmp/rock-admin.pid ]; then
-            kill $(cat /tmp/rock-admin.pid) 2>/dev/null || true
-          fi
-          ray stop --force 2>/dev/null || true
           docker rm -f $(docker ps -aq) 2>/dev/null || true
-        working-directory: .
+          ray stop --force 2>/dev/null || true
+          pkill -f "admin --env ci" 2>/dev/null || true
 
 
