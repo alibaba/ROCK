@@ -2,7 +2,7 @@ run_cmd: "iflow -p ${prompt} --yolo"
 
 runtime_env_config:
   type: node
-  custom_install_cmd: "npm i -g @iflow-ai/iflow-cli@latest"
+  custom_install_cmd: "npm i -g @iflow-ai/iflow-cli@0.5.17"
 
 env:
   IFLOW_API_KEY: "xxxxxxx"
