@@ -40,4 +40,93 @@ jobs:
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           pnpm test:unit
 
+  integration-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Python & ROCK Setup ---
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install ROCK Python dependencies
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          uv sync --all-extras --python 3.11
+
+      - name: Prepare Docker image
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          docker pull python:3.11
+
+      - name: Start ROCK Admin service
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          export ROCK_WORKER_ENV_TYPE=uv
+          nohup uv run admin --env ci --role admin --port 8080 > /tmp/rock-admin.log 2>&1 &
+          echo "Waiting for admin service to be ready..."
+          for i in $(seq 1 60); do
+            if grep -q "Uvicorn running on" /tmp/rock-admin.log 2>/dev/null; then
+              echo "Admin service is ready!"
+              break
+            fi
+            echo "Attempt $i/60: Admin not ready yet, waiting 2s..."
+            sleep 2
+          done
+          if ! grep -q "Uvicorn running on" /tmp/rock-admin.log 2>/dev/null; then
+            echo "ERROR: Admin service failed to start!"
+            cat /tmp/rock-admin.log
+            exit 1
+          fi
+
+      # --- Node.js & TS SDK Setup ---
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install TS SDK dependencies
+        working-directory: rock/ts-sdk
+        run: pnpm install --frozen-lockfile
+
+      # --- Run Integration Tests ---
+      - name: Run integration tests
+        working-directory: rock/ts-sdk
+        env:
+          ROCK_BASE_URL: http://127.0.0.1:8080
+          ROCK_TEST_IMAGE: python:3.11
+          ROCK_TEST_CLUSTER: default
+          ROCK_STARTUP_TIMEOUT: "600"
+          ROCK_TEST_TIMEOUT: "660000"
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          pnpm test:integration
+
+      # --- Cleanup & Diagnostics ---
+      - name: Print admin logs on failure
+        if: always()
+        run: |
+          echo "=== ROCK Admin Logs (last 200 lines) ==="
+          tail -200 /tmp/rock-admin.log || true
+          echo "=== Docker Containers ==="
+          docker ps -a || true
+          echo "=== Ray Status ==="
+          uv run ray status 2>/dev/null || true
+          echo "=== Ray Runtime Env Logs ==="
+          find /tmp/ray -name "runtime_env*.log" -exec tail -50 {} \; 2>/dev/null || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f $(docker ps -aq) 2>/dev/null || true
+          ray stop --force 2>/dev/null || true
+          pkill -f "admin --env ci" 2>/dev/null || true
+
 
