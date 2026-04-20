@@ -15,7 +15,7 @@ import pytest
 from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.docker import DockerDeployment
 from rock.utils.docker import DockerUtil
-from rock.utils.docker_auth import TempAuthDockerClient, TempAuthDockerClientError
+from rock.deployments.docker_client import TempAuthDockerClient, TempAuthDockerClientError
 from tests.integration.conftest import SKIP_IF_NO_DOCKER
 
 

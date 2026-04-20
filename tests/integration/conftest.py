@@ -27,6 +27,14 @@ from rock.utils.system import find_free_port
 
 logger = init_logger(__name__)
 
+# Set default ROCK_WORKER_ENV_TYPE for integration tests
+# This ensures tests work in CI environments where LocalRuntimeEnv may fail
+# due to OS mismatch between host and container (e.g., different Linux distros
+# or missing .venv directory)
+if not os.environ.get("ROCK_WORKER_ENV_TYPE"):
+    os.environ["ROCK_WORKER_ENV_TYPE"] = "uv"
+    logger.info("Set ROCK_WORKER_ENV_TYPE=uv for integration tests")
+
 SKIP_IF_NO_DOCKER = pytest.mark.skipif(
     not (DockerUtil.is_docker_available() and DockerUtil.is_image_available(env_vars.ROCK_ENVHUB_DEFAULT_DOCKER_IMAGE)),
     reason=f"Requires Docker and image {env_vars.ROCK_ENVHUB_DEFAULT_DOCKER_IMAGE}",

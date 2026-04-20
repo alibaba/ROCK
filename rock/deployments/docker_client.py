@@ -1,5 +1,5 @@
 """
-Docker temporary authentication client.
+Docker client with temporary authentication.
 
 This module provides TempAuthDockerClient - a context manager for isolated Docker
 authentication that uses temporary configuration directories to ensure:
@@ -232,6 +232,3 @@ class TempAuthDockerClient:
     def logged_in(self) -> bool:
         """Check if client has logged in to a registry."""
         return self._logged_in
-
-
-

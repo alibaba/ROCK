@@ -1,5 +1,5 @@
 """
-Unit tests for rock/utils/docker_auth.py
+Unit tests for rock/deployments/docker_client.py
 
 Tests cover:
 - TempAuthDockerClient class: context manager, login, pull, is_image_available
@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from rock.utils.docker_auth import (
+from rock.deployments.docker_client import (
     TempAuthDockerClient,
     TempAuthDockerClientError,
 )

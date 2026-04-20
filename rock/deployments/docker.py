@@ -38,7 +38,7 @@ from rock.utils import (
     timeout,
     wait_until_alive,
 )
-from rock.utils.docker_auth import TempAuthDockerClient, TempAuthDockerClientError
+from rock.deployments.docker_client import TempAuthDockerClient, TempAuthDockerClientError
 
 __all__ = ["DockerDeployment", "DockerDeploymentConfig"]
 CHECK_CLEAR_INTERVAL_SECONDS = 300
