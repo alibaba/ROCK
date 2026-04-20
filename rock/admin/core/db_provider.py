@@ -37,8 +37,14 @@ class DatabaseProvider:
         For asyncpg, ``statement_cache_size=0`` prevents
         ``InvalidCachedStatementError`` after external DDL changes
         """
-        connect_args = {"statement_cache_size": 0} if "asyncpg" in self._url else {}
-        self._engine = create_async_engine(self._url, echo=False, connect_args=connect_args)
+        engine_kwargs: dict[str, object] = {"echo": False}
+        if "asyncpg" in self._url:
+            engine_kwargs["connect_args"] = {"statement_cache_size": 0}
+            engine_kwargs["pool_size"] = 100
+            engine_kwargs["max_overflow"] = 0
+            engine_kwargs["pool_timeout"] = 120
+
+        self._engine = create_async_engine(self._url, **engine_kwargs)
 
     async def create_tables(self) -> None:
         """Create all tables defined in Base.metadata (idempotent)."""
