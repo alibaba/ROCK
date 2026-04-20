@@ -25,6 +25,8 @@ if TYPE_CHECKING:
     ROCK_SANDBOX_EXPIRE_TIME_KEY: str | None = "expire_time"
     ROCK_SANDBOX_AUTO_CLEAR_TIME_KEY: str | None = "auto_clear_time"
     ROCK_TIME_ZONE: str = "Asia/Shanghai"
+    # Docker temp auth directory
+    ROCK_DOCKER_TEMP_AUTH_DIR: str | None = None
 
     # Scheduler
     ROCK_DOCUUM_INSTALL_URL: str | None = None
@@ -130,6 +132,8 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_DOCUUM_INSTALL_URL": lambda: os.getenv(
         "ROCK_DOCUUM_INSTALL_URL", "https://raw.githubusercontent.com/stepchowfun/docuum/main/install.sh"
     ),
+    # Docker temp auth directory
+    "ROCK_DOCKER_TEMP_AUTH_DIR": lambda: os.getenv("ROCK_DOCKER_TEMP_AUTH_DIR"),
 }
 
 

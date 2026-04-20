@@ -20,7 +20,6 @@ from rock.deployments.abstract import AbstractDeployment
 from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Port, Status
 from rock.deployments.hooks.abstract import CombinedDeploymentHook, DeploymentHook
-from rock.deployments.hooks.docker_login import DockerLoginHook
 from rock.deployments.runtime_env import DockerRuntimeEnv, LocalRuntimeEnv, PipRuntimeEnv, UvRuntimeEnv
 from rock.deployments.sandbox_validator import DockerSandboxValidator
 from rock.deployments.status import PersistedServiceStatus, ServiceStatus
@@ -31,6 +30,7 @@ from rock.sandbox.remote_sandbox import RemoteSandboxRuntime
 from rock.utils import (
     ENV_POOL,
     DockerUtil,
+    ImageUtil,
     Timer,
     find_free_port,
     get_executor,
@@ -39,6 +39,7 @@ from rock.utils import (
     timeout,
     wait_until_alive,
 )
+from rock.deployments.docker_client import TempAuthDockerClient, TempAuthDockerClientError
 
 __all__ = ["DockerDeployment", "DockerDeploymentConfig"]
 CHECK_CLEAR_INTERVAL_SECONDS = 300
@@ -57,7 +58,10 @@ class DockerDeployment(AbstractDeployment):
         Args:
             **kwargs: Keyword arguments (see `DockerDeploymentConfig` for details).
         """
+        registry_password = kwargs.pop('registry_password', None)
         self._config = DockerDeploymentConfig(**kwargs)
+        if registry_password:
+            self._config.registry_password = registry_password
         self._effective_disk_limit_rootfs: str | None = self._config.disk_limit_rootfs
         self._effective_disk_limit_log: str | None = self._config.disk_limit_log
         self._runtime: RemoteSandboxRuntime | None = None
@@ -68,6 +72,7 @@ class DockerDeployment(AbstractDeployment):
         self._check_stop_task = None
         self._container_name = None
         self._service_status = PersistedServiceStatus()
+
         if self._config.container_name:
             self.set_container_name(self._config.container_name)
         if env_vars.ROCK_WORKER_ENV_TYPE == "docker":
@@ -80,11 +85,6 @@ class DockerDeployment(AbstractDeployment):
             self._runtime_env = PipRuntimeEnv(self._config.runtime_config)
         else:
             raise Exception(f"Invalid ROCK_WORKER_ENV_TYPE: {env_vars.ROCK_WORKER_ENV_TYPE}")
-
-        if self._config.registry_username is not None and self._config.registry_password is not None:
-            self.add_hook(
-                DockerLoginHook(self._config.image, self._config.registry_username, self._config.registry_password)
-            )
 
         self.sandbox_validator: DockerSandboxValidator | None = DockerSandboxValidator()
 
@@ -238,30 +238,50 @@ class DockerDeployment(AbstractDeployment):
         ]
 
     def _pull_image(self) -> None:
+        """Pull image using temporary authentication.
+
+        Uses TempAuthDockerClient to ensure credentials are isolated
+        and automatically cleaned up after the pull operation.
+        """
         if self._config.pull == "never":
             self._service_status.update_status(
                 phase_name="image_pull", status=Status.SUCCESS, message="skip image pull"
             )
             return
+
         if self._config.pull == "missing" and DockerUtil.is_image_available(self._config.image):
             self._service_status.update_status(
                 phase_name="image_pull", status=Status.SUCCESS, message="use cached image, skip image pull"
             )
             return
-        self._service_status.update_status(phase_name="image_pull", status=Status.RUNNING, message="image pull running")
+
+        self._service_status.update_status(
+            phase_name="image_pull", status=Status.RUNNING, message="image pull running"
+        )
         logger.info(f"Pulling image {self._config.image!r}")
-        self._hooks.on_custom_step(DeploymentHookStep.PULLING_IMAGE)
+
         try:
             with Timer(description=f"[{self._config.image}] Image pull"):
-                DockerUtil.pull_image(self._config.image)
+                # Parse registry from image name
+                registry, _ = ImageUtil.parse_registry_and_others(self._config.image)
+                
+                # Create temp auth client with credentials if available
+                with TempAuthDockerClient(
+                    registry=registry if self._config.registry_username else None,
+                    username=self._config.registry_username,
+                    password=self._config.registry_password,
+                ) as client:
+                    client.pull(self._config.image)
+
             self._service_status.update_status(
                 phase_name="image_pull", status=Status.SUCCESS, message="image pull success"
             )
-        except subprocess.CalledProcessError as e:
-            msg = f"Failed to pull image {self._config.image}. "
-            msg += f"Error: {e.stderr.decode()}"
-            msg += f"Output: {e.output.decode()}"
-            self._service_status.update_status(phase_name="image_pull", status=Status.FAILED, message=msg)
+
+        except (subprocess.CalledProcessError, TempAuthDockerClientError) as e:
+            msg = f"Failed to pull image {self._config.image}: {e}"
+            self._service_status.update_status(
+                phase_name="image_pull", status=Status.FAILED, message=msg
+            )
             raise DockerPullError(msg) from e
 
     @property
@@ -434,6 +454,7 @@ class DockerDeployment(AbstractDeployment):
         self._service_status.set_sandbox_id(self._container_name)
         executor = get_executor()
         loop = asyncio.get_running_loop()
+
         await loop.run_in_executor(executor, self._pull_image)
         if self._config.python_standalone_dir is not None:
             image_id = self._build_image()
