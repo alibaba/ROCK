@@ -192,6 +192,7 @@ async def test_get_actor_not_exist_raises_value_error(sandbox_manager):
 
 
 @pytest.mark.need_ray
+@pytest.mark.need_docker
 @pytest.mark.asyncio
 async def test_use_standard_spec_only(sandbox_manager):
     """Test that use_standard_spec_only forces sandbox to use standard spec."""
@@ -233,6 +234,7 @@ async def test_use_standard_spec_only(sandbox_manager):
 
 
 @pytest.mark.need_ray
+@pytest.mark.need_docker
 @pytest.mark.asyncio
 async def test_use_standard_spec_only_disabled(sandbox_manager):
     """Test that sandbox uses requested spec when use_standard_spec_only is disabled."""
