@@ -37,6 +37,14 @@ def _render_node(node: Any, env: jinja2.Environment, ctx: Mapping[str, Any]) -> 
                 continue
             result[k] = rendered
         return result
+    if isinstance(node, list):
+        result_list: list[Any] = []
+        for item in node:
+            rendered = _render_node(item, env, ctx)
+            if rendered is _DROP:
+                continue
+            result_list.append(rendered)
+        return result_list
     raise NotImplementedError
 
 

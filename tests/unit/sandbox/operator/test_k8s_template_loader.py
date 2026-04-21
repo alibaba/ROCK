@@ -205,3 +205,17 @@ class TestRenderNode:
         node = {"cpu": "{{ cpus }}", "memory": "{{ memory }}", "static": "keep"}
         result = _render_node(node, env, {"cpus": "", "memory": "8Gi"})
         assert result == {"memory": "8Gi", "static": "keep"}
+
+    def test_list_renders_each_element(self):
+        from rock.sandbox.operator.k8s.template_loader import _render_node
+
+        env = self._make_env()
+        node = ["a", "{{ x }}", "c"]
+        assert _render_node(node, env, {"x": "b"}) == ["a", "b", "c"]
+
+    def test_list_drops_elements_rendered_to_empty(self):
+        from rock.sandbox.operator.k8s.template_loader import _render_node
+
+        env = self._make_env()
+        node = ["{{ a }}", "keep", "{{ b }}"]
+        assert _render_node(node, env, {"a": "", "b": "ok"}) == ["keep", "ok"]
