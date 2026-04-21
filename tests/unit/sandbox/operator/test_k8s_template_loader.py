@@ -238,3 +238,12 @@ class TestRenderNode:
         assert _render_node(3.14, env, {}) == 3.14
         assert _render_node(True, env, {}) is True
         assert _render_node(None, env, {}) is None
+
+    def test_strict_undefined_raises_on_unknown_variable(self):
+        import jinja2
+
+        from rock.sandbox.operator.k8s.template_loader import _render_node
+
+        env = self._make_env()
+        with pytest.raises(jinja2.UndefinedError):
+            _render_node("{{ typo_var }}", env, {"correct_var": "x"})
