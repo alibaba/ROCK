@@ -25,8 +25,10 @@ def _render_node(node: Any, env: jinja2.Environment, ctx: Mapping[str, Any]) -> 
     if isinstance(node, str):
         if "{{" not in node:
             return node
-        # remaining branches added in later tasks
-        raise NotImplementedError
+        rendered = env.from_string(node).render(**ctx).strip()
+        if rendered == "":
+            return _DROP
+        return rendered
     raise NotImplementedError
 
 

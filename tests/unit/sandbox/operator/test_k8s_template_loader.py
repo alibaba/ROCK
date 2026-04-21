@@ -166,3 +166,10 @@ class TestRenderNode:
         env = self._make_env()
         assert _render_node("hello world", env, {}) == "hello world"
         assert _render_node("/bin/sh -c 'echo'", env, {"x": "y"}) == "/bin/sh -c 'echo'"
+
+    def test_simple_variable_substitution(self):
+        from rock.sandbox.operator.k8s.template_loader import _render_node
+
+        env = self._make_env()
+        assert _render_node("{{ a }}", env, {"a": "x"}) == "x"
+        assert _render_node("prefix-{{ a }}-suffix", env, {"a": "v"}) == "prefix-v-suffix"
