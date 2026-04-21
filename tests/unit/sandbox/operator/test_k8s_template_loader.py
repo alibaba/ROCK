@@ -156,6 +156,65 @@ class TestK8sTemplateLoader:
         pod_labels = manifest["spec"]["template"]["metadata"]["labels"]
         assert pod_labels[K8sConstants.LABEL_SANDBOX_ID] == "test-sandbox"
 
+    def test_build_manifest_gpu_template(self):
+        """GPU placeholders fill correctly when num_gpus and accelerator_type provided."""
+        templates = {
+            "gpu": {
+                "ports": {"proxy": 8000, "server": 8080, "ssh": 22},
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "main",
+                                "image": "{{ image | default('cuda:12', true) }}",
+                                "resources": {
+                                    "limits": {
+                                        "alibabacloud.com/gpu": ("{{ (num_gpus * 100) if num_gpus else '' }}"),
+                                        "alibabacloud.com/gpu-mem-ratio": (
+                                            "{{ (num_gpus * 100) if num_gpus else '' }}"
+                                        ),
+                                    }
+                                },
+                            }
+                        ],
+                        "affinity": {
+                            "nodeAffinity": {
+                                "requiredDuringSchedulingIgnoredDuringExecution": {
+                                    "nodeSelectorTerms": [
+                                        {
+                                            "matchExpressions": [
+                                                {
+                                                    "key": "alibabacloud.com/gpu-card-model-detail",
+                                                    "operator": "In",
+                                                    "values": ["{{ accelerator_type }}"],
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                }
+                            }
+                        },
+                    }
+                },
+            }
+        }
+        loader = K8sTemplateLoader(templates=templates, default_namespace="rock-test")
+
+        manifest = loader.build_manifest(
+            template_name="gpu",
+            sandbox_id="test-gpu",
+            num_gpus=4,
+            accelerator_type="A100",
+        )
+
+        container = manifest["spec"]["template"]["spec"]["containers"][0]
+        assert container["resources"]["limits"]["alibabacloud.com/gpu"] == "400"
+        assert container["resources"]["limits"]["alibabacloud.com/gpu-mem-ratio"] == "400"
+
+        affinity = manifest["spec"]["template"]["spec"]["affinity"]
+        terms = affinity["nodeAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"]["nodeSelectorTerms"]
+        assert terms[0]["matchExpressions"][0]["values"] == ["A100"]
+
 
 class TestRenderNode:
     """Unit tests for the private _render_node helper."""
