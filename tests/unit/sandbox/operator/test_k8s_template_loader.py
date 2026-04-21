@@ -93,8 +93,12 @@ class TestK8sTemplateLoader:
 
         container = manifest["spec"]["template"]["spec"]["containers"][0]
 
-        # Should not have resources section if not specified
-        assert "resources" not in container or not container.get("resources")
+        # Should not have any concrete resource values when nothing is specified.
+        # The Jinja2-based render keeps the template's resources skeleton but
+        # drops any keys whose placeholder rendered to empty (cpus, memory).
+        resources = container.get("resources", {})
+        assert resources.get("requests", {}) == {}
+        assert resources.get("limits", {}) == {}
 
     def test_build_manifest_with_custom_image(self, template_loader):
         """Test building manifest with custom image."""

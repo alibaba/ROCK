@@ -198,7 +198,7 @@ def k8s_config():
 
 @pytest.fixture
 def basic_templates():
-    """Create basic template configuration."""
+    """Create basic template configuration with Jinja2 placeholders."""
     return {
         "default": {
             "ports": {
@@ -208,7 +208,24 @@ def basic_templates():
             },
             "template": {
                 "metadata": {"labels": {"app": "rock-sandbox"}},
-                "spec": {"containers": [{"name": "main", "image": "python:3.11"}]},
+                "spec": {
+                    "containers": [
+                        {
+                            "name": "main",
+                            "image": "{{ image | default('python:3.11', true) }}",
+                            "resources": {
+                                "requests": {
+                                    "cpu": "{{ cpus }}",
+                                    "memory": "{{ memory }}",
+                                },
+                                "limits": {
+                                    "cpu": "{{ cpus }}",
+                                    "memory": "{{ memory }}",
+                                },
+                            },
+                        }
+                    ]
+                },
             },
         }
     }

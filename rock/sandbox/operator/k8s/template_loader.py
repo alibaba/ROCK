@@ -94,44 +94,41 @@ class K8sTemplateLoader:
         image: str = None,
         cpus: float = None,
         memory: str = None,
+        num_gpus: int = None,
+        accelerator_type: str = None,
     ) -> dict[str, Any]:
         """Build a complete BatchSandbox manifest from template.
 
-        Template structure:
-        - namespace: K8S namespace for the sandbox (REQUIRED)
-        - ports: custom port configuration (not part of K8S manifest)
-        - template: corresponds to spec.template in BatchSandbox CRD
-          - template.metadata -> spec.template.metadata
-          - template.spec -> spec.template.spec (Pod spec)
+        The template is rendered with Jinja2: every string value is treated as
+        a Jinja2 template against a ``ctx`` built from the call arguments.
+        ``None`` arguments enter ``ctx`` as ``""`` so that:
 
-        Top-level fields are hardcoded:
-        - apiVersion: sandbox.opensandbox.io/v1alpha1
-        - kind: BatchSandbox
-        - metadata: constructed from parameters
-        - spec.replicas: always 1
+        * plain ``{{ var }}`` placeholders collapse to empty strings and the
+          drop-empty rule removes the surrounding dict key / list element;
+        * ``{{ var | default('x', true) }}`` placeholders fall back to the
+          template-supplied default.
+
+        The CRD wrapper (apiVersion/kind/metadata/spec.replicas) and the
+        sandbox-id / template / resource-speedup labels and ports annotation
+        are still assembled in code, since they are structural rather than
+        configurable.
 
         Args:
-            template_name: Name of the template to use
-            sandbox_id: Sandbox identifier
-            image: Container image
-            cpus: CPU resource limit
-            memory: Memory resource limit (normalized format like '2Gi')
+            template_name: Name of the template to use.
+            sandbox_id: Sandbox identifier (auto-generated if missing).
+            image: Container image (rendered into the template via {{ image }}).
+            cpus: CPU resource value (rendered via {{ cpus }}).
+            memory: Memory resource value (rendered via {{ memory }}).
+            num_gpus: GPU count (rendered via {{ num_gpus }}).
+            accelerator_type: GPU model (rendered via {{ accelerator_type }}).
 
         Returns:
-            Complete BatchSandbox manifest
+            Complete BatchSandbox manifest.
         """
         import uuid
 
-        # Get template configuration
         config = self.get_template(template_name)
 
-        # Use default namespace (configured at startup)
-        namespace = self._default_namespace
-
-        # Get enable_resource_speedup from template (default to True)
-        enable_resource_speedup = config.get("enable_resource_speedup", True)
-
-        # Get port configuration from template (required)
         ports_config = config.get("ports")
         if not ports_config:
             raise ValueError(
@@ -139,22 +136,32 @@ class K8sTemplateLoader:
                 f"Each template must define ports (proxy, server, ssh)."
             )
 
-        # Extract template (corresponds to spec.template in BatchSandbox)
-        pod_template = config.get("template", {})
-        template_metadata = copy.deepcopy(pod_template.get("metadata", {}))
-        pod_spec = copy.deepcopy(pod_template.get("spec", {}))
-
-        # Generate sandbox_id if not provided
         if not sandbox_id:
             sandbox_id = f"sandbox-{uuid.uuid4().hex[:8]}"
 
-        # Build top-level BatchSandbox manifest (hardcoded structure)
+        ctx = {
+            "sandbox_id": sandbox_id,
+            "template_name": template_name,
+            "image": image if image is not None else "",
+            "cpus": str(cpus) if cpus is not None else "",
+            "memory": memory if memory is not None else "",
+            "num_gpus": num_gpus if num_gpus is not None else "",
+            "accelerator_type": accelerator_type if accelerator_type is not None else "",
+        }
+
+        rendered = _render_node(config, self._jinja_env, ctx)
+
+        enable_resource_speedup = rendered.get("enable_resource_speedup", True)
+        pod_template = rendered.get("template", {})
+        template_metadata = pod_template.get("metadata", {})
+        pod_spec = pod_template.get("spec", {})
+
         manifest = {
             "apiVersion": K8sConstants.CRD_API_VERSION,
             "kind": K8sConstants.CRD_KIND,
             "metadata": {
                 "name": sandbox_id,
-                "namespace": namespace,
+                "namespace": self._default_namespace,
                 "labels": {
                     K8sConstants.LABEL_SANDBOX_ID: sandbox_id,
                     K8sConstants.LABEL_TEMPLATE: template_name,
@@ -164,44 +171,17 @@ class K8sTemplateLoader:
                 },
             },
             "spec": {
-                "replicas": 1,  # Always 1 for sandbox
+                "replicas": 1,
                 "template": {"metadata": template_metadata, "spec": pod_spec},
             },
         }
 
-        # Add resource speedup label if enabled
         if enable_resource_speedup:
             manifest["metadata"]["labels"][K8sConstants.LABEL_RESOURCE_SPEEDUP] = "true"
 
-        # Add sandbox-id label to template metadata
         if "labels" not in manifest["spec"]["template"]["metadata"]:
             manifest["spec"]["template"]["metadata"]["labels"] = {}
         manifest["spec"]["template"]["metadata"]["labels"][K8sConstants.LABEL_SANDBOX_ID] = sandbox_id
-
-        # Set container image
-        if image:
-            containers = pod_spec.get("containers", [])
-            if containers and len(containers) > 0:
-                containers[0]["image"] = image
-
-        # Set resources if provided
-        if cpus is not None or memory is not None:
-            containers = pod_spec.get("containers", [])
-            if containers and len(containers) > 0:
-                if "resources" not in containers[0]:
-                    containers[0]["resources"] = {}
-
-                if cpus is not None or memory is not None:
-                    containers[0]["resources"]["requests"] = {}
-                    containers[0]["resources"]["limits"] = {}
-
-                    if cpus is not None:
-                        containers[0]["resources"]["requests"]["cpu"] = str(cpus)
-                        containers[0]["resources"]["limits"]["cpu"] = str(cpus)
-
-                    if memory is not None:
-                        containers[0]["resources"]["requests"]["memory"] = memory
-                        containers[0]["resources"]["limits"]["memory"] = memory
 
         return manifest
 
