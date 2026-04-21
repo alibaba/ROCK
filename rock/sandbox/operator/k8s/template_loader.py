@@ -90,12 +90,12 @@ class K8sTemplateLoader:
     def build_manifest(
         self,
         template_name: str = "default",
-        sandbox_id: str = None,
-        image: str = None,
-        cpus: float = None,
-        memory: str = None,
-        num_gpus: int = None,
-        accelerator_type: str = None,
+        sandbox_id: str | None = None,
+        image: str | None = None,
+        cpus: float | None = None,
+        memory: str | None = None,
+        num_gpus: int | None = None,
+        accelerator_type: str | None = None,
     ) -> dict[str, Any]:
         """Build a complete BatchSandbox manifest from template.
 
@@ -139,6 +139,7 @@ class K8sTemplateLoader:
         if not sandbox_id:
             sandbox_id = f"sandbox-{uuid.uuid4().hex[:8]}"
 
+        # num_gpus stays numeric so templates can do arithmetic; cpus str-coerced to pin float->"4.0" formatting.
         ctx = {
             "sandbox_id": sandbox_id,
             "template_name": template_name,

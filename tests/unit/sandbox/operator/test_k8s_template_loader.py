@@ -96,7 +96,8 @@ class TestK8sTemplateLoader:
         # Should not have any concrete resource values when nothing is specified.
         # The Jinja2-based render keeps the template's resources skeleton but
         # drops any keys whose placeholder rendered to empty (cpus, memory).
-        resources = container.get("resources", {})
+        assert "resources" in container
+        resources = container["resources"]
         assert resources.get("requests", {}) == {}
         assert resources.get("limits", {}) == {}
 
