@@ -14,9 +14,9 @@ import * as os from 'os';
 
 const TEST_CONFIG = {
   baseUrl: process.env.ROCK_BASE_URL || 'http://11.166.8.116:8080',
-  image: 'reg.docker.alibaba-inc.com/yanan/python:3.11',
-  cluster: 'zb',
-  startupTimeout: 120,
+  image: process.env.ROCK_TEST_IMAGE || 'reg.docker.alibaba-inc.com/yanan/python:3.11',
+  cluster: process.env.ROCK_TEST_CLUSTER || 'zb',
+  startupTimeout: parseInt(process.env.ROCK_STARTUP_TIMEOUT || '120', 10),
 };
 
 describe('FileSystem Integration', () => {
@@ -32,7 +32,7 @@ describe('FileSystem Integration', () => {
     
     // Create a temporary directory for test files
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rock-test-'));
-  }, 180000); // 3 minutes timeout for sandbox startup
+  }, parseInt(process.env.ROCK_TEST_TIMEOUT || '180000', 10));
 
   afterEach(async () => {
     // Cleanup: ensure sandbox is stopped even if test fails
@@ -87,7 +87,7 @@ describe('FileSystem Integration', () => {
       // Assert: Nested files should exist
       const nestedResult = await sandbox.arun(`cat ${targetDir}/subdir/file3.txt`, { mode: RunMode.NORMAL });
       expect(nestedResult.output.trim()).toBe('Nested File');
-    }, 180000);
+    }, parseInt(process.env.ROCK_TEST_TIMEOUT || '180000', 10));
 
     test('should return error when source directory does not exist', async () => {
       const nonExistentDir = path.join(tempDir, 'nonexistent');
@@ -149,6 +149,6 @@ describe('FileSystem Integration', () => {
       // Use test command instead of ls to avoid throwing on non-existent file
       const oldFileCheck = await sandbox.arun(`test -f ${targetDir}/oldfile.txt && echo "exists" || echo "not exists"`, { mode: RunMode.NORMAL });
       expect(oldFileCheck.output.trim()).toBe('not exists');
-    }, 180000);
+    }, parseInt(process.env.ROCK_TEST_TIMEOUT || '180000', 10));
   });
 });

@@ -32,7 +32,10 @@ if [ ! -f /etc/alpine-release ]; then
         UV_CMD=$HOME/.local/bin/uv
     fi
 
-    cd $PROJECT_ROOT
+    # Copy project to a writable directory (volume may be mounted read-only)
+    WRITABLE_PROJECT=/tmp/rocklet-project
+    cp -r $PROJECT_ROOT $WRITABLE_PROJECT
+    cd $WRITABLE_PROJECT
 
     # Create virtual environment
     $UV_CMD venv --python 3.11 /tmp/rocklet-venv

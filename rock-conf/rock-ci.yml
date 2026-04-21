@@ -1,0 +1,14 @@
+ray:
+    runtime_env:
+        working_dir: ./
+        pip: ./requirements_sandbox_actor.txt
+    namespace: "rock-sandbox-ci"
+
+runtime:
+    standard_spec:
+        memory: "2g"
+        cpus: 1
+
+warmup:
+    images:
+      - "python:3.11"
