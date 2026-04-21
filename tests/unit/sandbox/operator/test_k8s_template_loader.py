@@ -187,3 +187,21 @@ class TestRenderNode:
         # boolean=true makes default trigger on falsy values (incl. "" / None)
         assert _render_node("{{ a | default('d', true) }}", env, {"a": ""}) == "d"
         assert _render_node("{{ a | default('d', true) }}", env, {"a": "real"}) == "real"
+
+    def test_dict_renders_each_value(self):
+        from rock.sandbox.operator.k8s.template_loader import _render_node
+
+        env = self._make_env()
+        node = {"image": "{{ image }}", "name": "main"}
+        assert _render_node(node, env, {"image": "ubuntu:22.04"}) == {
+            "image": "ubuntu:22.04",
+            "name": "main",
+        }
+
+    def test_dict_drops_keys_rendered_to_empty(self):
+        from rock.sandbox.operator.k8s.template_loader import _render_node
+
+        env = self._make_env()
+        node = {"cpu": "{{ cpus }}", "memory": "{{ memory }}", "static": "keep"}
+        result = _render_node(node, env, {"cpus": "", "memory": "8Gi"})
+        assert result == {"memory": "8Gi", "static": "keep"}

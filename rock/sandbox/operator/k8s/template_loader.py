@@ -29,6 +29,14 @@ def _render_node(node: Any, env: jinja2.Environment, ctx: Mapping[str, Any]) -> 
         if rendered == "":
             return _DROP
         return rendered
+    if isinstance(node, dict):
+        result: dict[Any, Any] = {}
+        for k, v in node.items():
+            rendered = _render_node(v, env, ctx)
+            if rendered is _DROP:
+                continue
+            result[k] = rendered
+        return result
     raise NotImplementedError
 
 
