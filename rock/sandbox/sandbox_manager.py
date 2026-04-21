@@ -240,6 +240,8 @@ class SandboxManager(BaseManager):
             namespace=sandbox_info.get("namespace"),
             cpus=sandbox_info.get("cpus"),
             memory=sandbox_info.get("memory"),
+            disk_limit_rootfs=sandbox_info.get("disk_limit_rootfs"),
+            disk_limit_log=sandbox_info.get("disk_limit_log"),
         )
 
     async def build_sandbox_info_from_redis(self, sandbox_id: str, deployment_info: SandboxInfo) -> SandboxInfo | None:
@@ -357,3 +359,11 @@ class SandboxManager(BaseManager):
         except ValueError as e:
             logger.warning(f"Invalid memory size: {deployment_config.memory}", exc_info=e)
             raise BadRequestRockError(f"Invalid memory size: {deployment_config.memory}")
+
+        # Validate disk_limit_rootfs format
+        if deployment_config.disk_limit_rootfs is not None:
+            try:
+                parse_size_to_bytes(deployment_config.disk_limit_rootfs)
+            except ValueError as e:
+                logger.warning(f"Invalid disk_limit_rootfs size: {deployment_config.disk_limit_rootfs}", exc_info=e)
+                raise BadRequestRockError(f"Invalid disk_limit_rootfs size: {deployment_config.disk_limit_rootfs}")

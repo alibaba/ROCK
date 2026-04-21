@@ -32,6 +32,18 @@ SKIP_IF_NO_DOCKER = pytest.mark.skipif(
     reason=f"Requires Docker and image {env_vars.ROCK_ENVHUB_DEFAULT_DOCKER_IMAGE}",
 )
 
+SKIP_IF_NO_STORAGE_OPT = pytest.mark.skipif(
+    not DockerUtil.detect_storage_opt_support(),
+    reason="Requires Docker with storage-opt support (overlay2 + xfs + prjquota/pquota)",
+)
+
+_log_path = env_vars.ROCK_LOGGING_PATH or ""
+
+SKIP_IF_LOG_PATH_NOT_XFS = pytest.mark.skipif(
+    not _log_path or not DockerUtil.is_xfs_prjquota_path(_log_path),
+    reason=f"ROCK_LOGGING_PATH ({_log_path!r}) is not set or not on XFS with prjquota, skipping log quota test",
+)
+
 
 @dataclass
 class RemoteServer:
