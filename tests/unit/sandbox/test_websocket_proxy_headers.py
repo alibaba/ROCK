@@ -4,10 +4,8 @@ from types import SimpleNamespace
 
 import websockets
 
-from rock.sandbox.service.sandbox_proxy_service import (
-    SandboxProxyService,
-    build_upstream_ws_headers,
-)
+from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+from rock.sandbox.utils.proxy import build_upstream_ws_headers
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Unit tests: build_upstream_ws_headers (pure function, no mocks)
