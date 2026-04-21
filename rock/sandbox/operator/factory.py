@@ -4,9 +4,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from rock.admin.core.ray_service import RayService
-from rock.config import K8sConfig, RuntimeConfig
+from rock.config import FCConfig, K8sConfig, RuntimeConfig
 from rock.logger import init_logger
 from rock.sandbox.operator.abstract import AbstractOperator
+from rock.sandbox.operator.fc import FCOperator
 from rock.sandbox.operator.k8s.operator import K8sOperator
 from rock.sandbox.operator.ray import RayOperator
 from rock.utils.providers.nacos_provider import NacosConfigProvider
@@ -30,6 +31,8 @@ class OperatorContext:
     # K8s operator dependencies
     k8s_config: K8sConfig | None = None
     nacos_provider: NacosConfigProvider | None = None
+    # FC operator dependencies
+    fc_config: FCConfig | None = None
     # Future operator dependencies can be added here without breaking existing code
     extra_params: dict[str, Any] = field(default_factory=dict)
 
@@ -76,5 +79,13 @@ class OperatorFactory:
             if context.nacos_provider is not None:
                 k8s_operator.set_nacos_provider(context.nacos_provider)
             return k8s_operator
+elif operator_type == "fc":
+            if context.fc_config is None:
+                raise ValueError("FCConfig is required for FCOperator")
+            logger.info("Creating FCOperator")
+            fc_operator = FCOperator(fc_config=context.fc_config)
+            if context.redis_provider is not None:
+                fc_operator.set_redis_provider(context.redis_provider)
+            return fc_operator
         else:
-            raise ValueError(f"Unsupported operator type: {operator_type}. Supported types: ray, kubernetes")
+            raise ValueError(f"Unsupported operator type: {operator_type}. " f"Supported types: ray, kubernetes, fc")
