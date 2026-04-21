@@ -64,6 +64,8 @@ class K8sTemplateLoader:
         if not self._templates:
             raise ValueError("No templates provided. At least one template must be defined in K8sConfig.templates.")
 
+        self._jinja_env = jinja2.Environment(undefined=jinja2.StrictUndefined, autoescape=False)
+
         logger.info(f"Loaded {len(self._templates)} K8S templates from config")
         logger.debug(f"Available templates: {', '.join(self._templates.keys())}")
 
