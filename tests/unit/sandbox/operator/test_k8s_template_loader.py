@@ -219,3 +219,22 @@ class TestRenderNode:
         env = self._make_env()
         node = ["{{ a }}", "keep", "{{ b }}"]
         assert _render_node(node, env, {"a": "", "b": "ok"}) == ["keep", "ok"]
+
+    def test_nested_dict_and_list_render_recursively(self):
+        from rock.sandbox.operator.k8s.template_loader import _render_node
+
+        env = self._make_env()
+        node = {"spec": {"containers": [{"name": "main", "image": "{{ image }}", "args": ["--port", "{{ port }}"]}]}}
+        ctx = {"image": "alpine:3.18", "port": "8080"}
+        assert _render_node(node, env, ctx) == {
+            "spec": {"containers": [{"name": "main", "image": "alpine:3.18", "args": ["--port", "8080"]}]}
+        }
+
+    def test_non_string_scalars_pass_through(self):
+        from rock.sandbox.operator.k8s.template_loader import _render_node
+
+        env = self._make_env()
+        assert _render_node(42, env, {}) == 42
+        assert _render_node(3.14, env, {}) == 3.14
+        assert _render_node(True, env, {}) is True
+        assert _render_node(None, env, {}) is None

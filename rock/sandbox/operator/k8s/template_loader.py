@@ -45,7 +45,7 @@ def _render_node(node: Any, env: jinja2.Environment, ctx: Mapping[str, Any]) -> 
                 continue
             result_list.append(rendered)
         return result_list
-    raise NotImplementedError
+    return node
 
 
 class K8sTemplateLoader:
