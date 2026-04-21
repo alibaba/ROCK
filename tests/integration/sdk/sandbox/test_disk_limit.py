@@ -19,8 +19,8 @@ async def test_disk_limit_enforcement(admin_remote_server):
     This test is only run when storage-opt is supported (overlay2 + xfs + prjquota).
 
     Steps:
-    1. Start a sandbox (server applies default limit_disk)
-    2. Check sandbox status to verify limit_disk is reported
+    1. Start a sandbox (server applies default disk_limit)
+    2. Check sandbox status to verify disk_limit is reported
     3. Try to create a file larger than the limit (should fail)
     4. Create a small file (should succeed)
     """
@@ -37,11 +37,13 @@ async def test_disk_limit_enforcement(admin_remote_server):
 
     try:
         status = await sandbox.get_status()
-        print(f"Sandbox status: limit_disk={status.limit_disk_rootfs}")
+        print(f"Sandbox status: disk_limit={status.disk_limit_rootfs}")
 
-        if status.limit_disk_rootfs is None:
-            pytest.skip("Server has no disk limit configured (sandbox_limit_disk_rootfs not set in rock-xxx.yml or nacos)")
-        print(f"✅ Disk limit is set to {status.limit_disk_rootfs}")
+        if status.disk_limit_rootfs is None:
+            pytest.skip(
+                "Server has no disk limit configured (sandbox_disk_limit_rootfs not set in rock-xxx.yml or nacos)"
+            )
+        print(f"✅ Disk limit is set to {status.disk_limit_rootfs}")
 
         # Parse limit to determine a file size that exceeds it
         result = await sandbox.execute(
@@ -49,7 +51,7 @@ async def test_disk_limit_enforcement(admin_remote_server):
                 command=[
                     "/bin/bash",
                     "-c",
-                    f"fallocate -l {status.limit_disk_rootfs.replace('g', '')}G /tmp/large_file.bin 2>&1 || echo 'EXPECTED_ERROR'",
+                    f"fallocate -l {status.disk_limit_rootfs.replace('g', '')}G /tmp/large_file.bin 2>&1 || echo 'EXPECTED_ERROR'",
                 ]
             )
         )
@@ -65,8 +67,7 @@ async def test_disk_limit_enforcement(admin_remote_server):
         )
 
         assert error_occurred, (
-            f"Expected disk space error when filling disk, "
-            f"but got exit_code={result.exit_code}, output={output}"
+            f"Expected disk space error when filling disk, " f"but got exit_code={result.exit_code}, output={output}"
         )
         print("✅ Disk limit enforcement verified")
 
@@ -76,8 +77,7 @@ async def test_disk_limit_enforcement(admin_remote_server):
 
         small_output = small_file_result.stdout + small_file_result.stderr
         assert small_file_result.exit_code == 0, (
-            f"Expected small file (100MB) creation to succeed, "
-            f"but got exit_code={small_file_result.exit_code}"
+            f"Expected small file (100MB) creation to succeed, " f"but got exit_code={small_file_result.exit_code}"
         )
         assert "SUCCESS" in small_output
         print("✅ Small file (100MB) creation succeeded")
@@ -90,7 +90,7 @@ async def test_disk_limit_enforcement(admin_remote_server):
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
 async def test_disk_limit_default_value(admin_remote_server):
-    """Test that the server applies a default limit_disk visible in status."""
+    """Test that the server applies a default disk_limit visible in status."""
     config = SandboxConfig(
         image="ubuntu:22.04",
         memory="2g",
@@ -104,18 +104,18 @@ async def test_disk_limit_default_value(admin_remote_server):
 
     try:
         status = await sandbox.get_status()
-        print(f"Sandbox status: limit_disk={status.limit_disk_rootfs}")
+        print(f"Sandbox status: disk_limit={status.disk_limit_rootfs}")
 
         storage_opt_supported = DockerUtil.detect_storage_opt_support()
 
         if not storage_opt_supported:
-            assert status.limit_disk_rootfs is None, (
-                f"Expected limit_disk=None when storage-opt not supported, got {status.limit_disk_rootfs}"
-            )
-            print("✅ Storage-opt not supported: limit_disk is None")
+            assert (
+                status.disk_limit_rootfs is None
+            ), f"Expected disk_limit=None when storage-opt not supported, got {status.disk_limit_rootfs}"
+            print("✅ Storage-opt not supported: disk_limit is None")
         else:
-            # When storage-opt is supported, limit_disk reflects server config (may be None if not configured)
-            print(f"✅ Server-reported limit_disk: {status.limit_disk_rootfs}")
+            # When storage-opt is supported, disk_limit reflects server config (may be None if not configured)
+            print(f"✅ Server-reported disk_limit: {status.disk_limit_rootfs}")
 
     finally:
         await sandbox.stop()
@@ -151,9 +151,7 @@ async def test_logging_path_disk_limit_enforcement(admin_remote_server):
     await sandbox.start()
 
     try:
-        env_result = await sandbox.execute(
-            Command(command=["/bin/bash", "-c", "echo $ROCK_LOGGING_PATH"])
-        )
+        env_result = await sandbox.execute(Command(command=["/bin/bash", "-c", "echo $ROCK_LOGGING_PATH"]))
         logging_path = env_result.stdout.strip()
         print(f"ROCK_LOGGING_PATH in container: {logging_path}")
 

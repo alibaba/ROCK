@@ -27,11 +27,11 @@ from rock.admin.proto.request import (
 from rock.admin.proto.response import SandboxStartResponse
 from rock.common.constants import (
     CPU_PREEMPT_SWITCH,
-    SANDBOX_LIMIT_DISK_LOG_KEY,
-    SANDBOX_LIMIT_DISK_ROOTFS_KEY,
     GET_STATUS_SWITCH,
     KATA_DIND_DISK_SIZE_KEY,
     KATA_RUNTIME_SWITCH,
+    SANDBOX_DISK_LIMIT_LOG_KEY,
+    SANDBOX_DISK_LIMIT_ROOTFS_KEY,
     SUPPORT_KATA_SWITCH,
 )
 from rock.common.exception import handle_exceptions
@@ -79,19 +79,19 @@ async def _apply_disk_limits(config: DockerDeploymentConfig) -> None:
     runtime = sandbox_manager.rock_config.runtime
     nacos = sandbox_manager.rock_config.nacos_provider
 
-    limit_disk_rootfs = runtime.sandbox_limit_disk_rootfs
-    limit_disk_log = runtime.sandbox_limit_disk_log
+    disk_limit_rootfs = runtime.sandbox_disk_limit_rootfs
+    disk_limit_log = runtime.sandbox_disk_limit_log
 
     if nacos is not None:
-        nacos_rootfs = await nacos.get_config_value(SANDBOX_LIMIT_DISK_ROOTFS_KEY)
+        nacos_rootfs = await nacos.get_config_value(SANDBOX_DISK_LIMIT_ROOTFS_KEY)
         if nacos_rootfs:
-            limit_disk_rootfs = nacos_rootfs
-        nacos_log = await nacos.get_config_value(SANDBOX_LIMIT_DISK_LOG_KEY)
+            disk_limit_rootfs = nacos_rootfs
+        nacos_log = await nacos.get_config_value(SANDBOX_DISK_LIMIT_LOG_KEY)
         if nacos_log:
-            limit_disk_log = nacos_log
+            disk_limit_log = nacos_log
 
-    config.limit_disk_rootfs = limit_disk_rootfs
-    config.limit_disk_log = limit_disk_log
+    config.disk_limit_rootfs = disk_limit_rootfs
+    config.disk_limit_log = disk_limit_log
 
 
 async def _apply_cpu_preempt_switch(config: DockerDeploymentConfig) -> None:

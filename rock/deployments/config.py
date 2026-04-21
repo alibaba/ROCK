@@ -93,10 +93,10 @@ class DockerDeploymentConfig(DeploymentConfig):
     limit_cpus: float | None = None
     """Hard limit on the number of CPU cores the container can use. Used as --cpus when CPU preemption is enabled via nacos switch."""
 
-    limit_disk_rootfs: str | None = None
+    disk_limit_rootfs: str | None = None
     """Maximum rootfs disk size for the container (e.g., '20g', '50g'). Maps to --storage-opt size=<value>. Only supported on overlay2 storage driver with xfs backing filesystem. None means no limit."""
 
-    limit_disk_log: str | None = None
+    disk_limit_log: str | None = None
     """XFS project quota for the sandbox log directory. Server-side only, applied via xfs_quota. None means no limit."""
 
     container_name: str | None = None

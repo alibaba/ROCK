@@ -2,7 +2,7 @@
 Unit tests for disk_limit support in DockerDeployment and DockerDeploymentConfig.
 
 Tests cover:
-- DockerDeploymentConfig default and custom limit_disk_rootfs / limit_disk_log values
+- DockerDeploymentConfig default and custom disk_limit_rootfs / disk_limit_log values
 - DockerDeployment._storage_opts() argument generation
 - DockerDeployment.start() graceful degradation when storage-opt is unsupported
 """
@@ -14,49 +14,48 @@ import pytest
 from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.docker import DockerDeployment
 
-
 # ---- DockerDeploymentConfig tests ----
 
 
 class TestDockerDeploymentConfigDiskLimit:
-    def test_default_limit_disk_rootfs_is_none(self):
+    def test_default_disk_limit_rootfs_is_none(self):
         config = DockerDeploymentConfig()
-        assert config.limit_disk_rootfs is None
+        assert config.disk_limit_rootfs is None
 
-    def test_default_limit_disk_log_is_none(self):
+    def test_default_disk_limit_log_is_none(self):
         config = DockerDeploymentConfig()
-        assert config.limit_disk_log is None
+        assert config.disk_limit_log is None
 
-    def test_custom_limit_disk_rootfs(self):
-        config = DockerDeploymentConfig(limit_disk_rootfs="50g")
-        assert config.limit_disk_rootfs == "50g"
+    def test_custom_disk_limit_rootfs(self):
+        config = DockerDeploymentConfig(disk_limit_rootfs="50g")
+        assert config.disk_limit_rootfs == "50g"
 
-    def test_custom_limit_disk_log(self):
-        config = DockerDeploymentConfig(limit_disk_log="5g")
-        assert config.limit_disk_log == "5g"
+    def test_custom_disk_limit_log(self):
+        config = DockerDeploymentConfig(disk_limit_log="5g")
+        assert config.disk_limit_log == "5g"
 
-    def test_limit_disk_rootfs_none(self):
-        config = DockerDeploymentConfig(limit_disk_rootfs=None)
-        assert config.limit_disk_rootfs is None
+    def test_disk_limit_rootfs_none(self):
+        config = DockerDeploymentConfig(disk_limit_rootfs=None)
+        assert config.disk_limit_rootfs is None
 
-    def test_limit_disk_log_none(self):
-        config = DockerDeploymentConfig(limit_disk_log=None)
-        assert config.limit_disk_log is None
+    def test_disk_limit_log_none(self):
+        config = DockerDeploymentConfig(disk_limit_log=None)
+        assert config.disk_limit_log is None
 
-    def test_limit_disk_rootfs_preserved_in_model_dump(self):
-        config = DockerDeploymentConfig(limit_disk_rootfs="50g")
+    def test_disk_limit_rootfs_preserved_in_model_dump(self):
+        config = DockerDeploymentConfig(disk_limit_rootfs="50g")
         dump = config.model_dump()
-        assert dump["limit_disk_rootfs"] == "50g"
+        assert dump["disk_limit_rootfs"] == "50g"
 
-    def test_limit_disk_log_preserved_in_model_dump(self):
-        config = DockerDeploymentConfig(limit_disk_log="5g")
+    def test_disk_limit_log_preserved_in_model_dump(self):
+        config = DockerDeploymentConfig(disk_limit_log="5g")
         dump = config.model_dump()
-        assert dump["limit_disk_log"] == "5g"
+        assert dump["disk_limit_log"] == "5g"
 
-    def test_limit_disk_rootfs_none_preserved_in_model_dump(self):
-        config = DockerDeploymentConfig(limit_disk_rootfs=None)
+    def test_disk_limit_rootfs_none_preserved_in_model_dump(self):
+        config = DockerDeploymentConfig(disk_limit_rootfs=None)
         dump = config.model_dump()
-        assert dump["limit_disk_rootfs"] is None
+        assert dump["disk_limit_rootfs"] is None
 
 
 # ---- DockerDeployment._storage_opts() tests ----
@@ -66,14 +65,14 @@ class TestStorageOpts:
     """Tests for DockerDeployment._storage_opts() method."""
 
     @patch("rock.deployments.docker.DockerSandboxValidator")
-    def test_storage_opts_with_limit_disk_rootfs(self, _mock_validator):
-        deployment = DockerDeployment.from_config(DockerDeploymentConfig(limit_disk_rootfs="30g"))
+    def test_storage_opts_with_disk_limit_rootfs(self, _mock_validator):
+        deployment = DockerDeployment.from_config(DockerDeploymentConfig(disk_limit_rootfs="30g"))
         result = deployment._storage_opts()
         assert result == ["--storage-opt", "size=30g"]
 
     @patch("rock.deployments.docker.DockerSandboxValidator")
     def test_storage_opts_with_none(self, _mock_validator):
-        deployment = DockerDeployment.from_config(DockerDeploymentConfig(limit_disk_rootfs=None))
+        deployment = DockerDeployment.from_config(DockerDeploymentConfig(disk_limit_rootfs=None))
         result = deployment._storage_opts()
         assert result == []
 
@@ -86,7 +85,7 @@ class TestStorageOpts:
     @patch("rock.deployments.docker.DockerSandboxValidator")
     def test_storage_opts_various_sizes(self, _mock_validator):
         for size in ("1g", "512m", "50g", "1t"):
-            deployment = DockerDeployment.from_config(DockerDeploymentConfig(limit_disk_rootfs=size))
+            deployment = DockerDeployment.from_config(DockerDeploymentConfig(disk_limit_rootfs=size))
             result = deployment._storage_opts()
             assert result == ["--storage-opt", f"size={size}"]
 
@@ -132,52 +131,52 @@ class TestDockerDeploymentStartDiskLimit:
     @patch("rock.deployments.docker.DockerSandboxValidator")
     @patch("rock.deployments.docker.DockerUtil.detect_storage_opt_support", return_value=False)
     async def test_rootfs_downgraded_when_storage_opt_unsupported(self, _mock_detect, _mock_validator):
-        """When storage-opt NOT supported: effective_limit_disk_rootfs=None; config unchanged."""
-        config = DockerDeploymentConfig(limit_disk_rootfs="50g", image="python:3.11")
+        """When storage-opt NOT supported: effective_disk_limit_rootfs=None; config unchanged."""
+        config = DockerDeploymentConfig(disk_limit_rootfs="50g", image="python:3.11")
         deployment = DockerDeployment.from_config(config)
         _make_start_mocks(deployment)
         await _run_start(deployment)
 
-        assert deployment.config.limit_disk_rootfs == "50g"
-        assert deployment.effective_limit_disk_rootfs is None
+        assert deployment.config.disk_limit_rootfs == "50g"
+        assert deployment.effective_disk_limit_rootfs is None
 
     @pytest.mark.asyncio
     @patch("rock.deployments.docker.DockerSandboxValidator")
     @patch("rock.deployments.docker.DockerUtil.detect_storage_opt_support", return_value=True)
     async def test_rootfs_preserved_when_storage_opt_supported(self, _mock_detect, _mock_validator):
-        """When storage-opt IS supported: effective_limit_disk_rootfs matches config."""
-        config = DockerDeploymentConfig(limit_disk_rootfs="50g", image="python:3.11")
+        """When storage-opt IS supported: effective_disk_limit_rootfs matches config."""
+        config = DockerDeploymentConfig(disk_limit_rootfs="50g", image="python:3.11")
         deployment = DockerDeployment.from_config(config)
         _make_start_mocks(deployment)
         await _run_start(deployment)
 
-        assert deployment.config.limit_disk_rootfs == "50g"
-        assert deployment.effective_limit_disk_rootfs == "50g"
+        assert deployment.config.disk_limit_rootfs == "50g"
+        assert deployment.effective_disk_limit_rootfs == "50g"
 
     @pytest.mark.asyncio
     @patch("rock.deployments.docker.DockerSandboxValidator")
     @patch("rock.deployments.docker.DockerUtil.detect_storage_opt_support", return_value=False)
     async def test_no_error_when_rootfs_already_none(self, _mock_detect, _mock_validator):
-        """When limit_disk_rootfs is None: start() should not error."""
-        config = DockerDeploymentConfig(limit_disk_rootfs=None, image="python:3.11")
+        """When disk_limit_rootfs is None: start() should not error."""
+        config = DockerDeploymentConfig(disk_limit_rootfs=None, image="python:3.11")
         deployment = DockerDeployment.from_config(config)
         _make_start_mocks(deployment)
         await _run_start(deployment)
 
-        assert deployment.config.limit_disk_rootfs is None
-        assert deployment.effective_limit_disk_rootfs is None
+        assert deployment.config.disk_limit_rootfs is None
+        assert deployment.effective_disk_limit_rootfs is None
 
     @pytest.mark.asyncio
     @patch("rock.deployments.docker.DockerSandboxValidator")
     @patch("rock.deployments.docker.DockerUtil.detect_storage_opt_support", return_value=True)
     @patch("rock.deployments.docker.DockerUtil.is_xfs_prjquota_path", return_value=False)
     async def test_log_downgraded_when_not_xfs_prjquota(self, _mock_prjquota, _mock_detect, _mock_validator):
-        """When log path is not XFS+prjquota: effective_limit_disk_log=None; config unchanged.
+        """When log path is not XFS+prjquota: effective_disk_limit_log=None; config unchanged.
 
         Note: log quota has NO dependency on docker being overlay2 —
         is_xfs_prjquota_path() is the only gate.
         """
-        config = DockerDeploymentConfig(limit_disk_log="5g", image="python:3.11")
+        config = DockerDeploymentConfig(disk_limit_log="5g", image="python:3.11")
         deployment = DockerDeployment.from_config(config)
         _make_start_mocks(deployment)
 
@@ -196,31 +195,31 @@ class TestDockerDeploymentStartDiskLimit:
             except Exception:
                 pass
 
-        assert deployment.config.limit_disk_log == "5g"
-        assert deployment.effective_limit_disk_log is None
+        assert deployment.config.disk_limit_log == "5g"
+        assert deployment.effective_disk_limit_log is None
 
     @patch("rock.deployments.docker.DockerSandboxValidator")
     @patch("rock.deployments.docker.DockerUtil.is_xfs_prjquota_path", return_value=False)
     def test_log_not_downgraded_when_no_log_path(self, _mock_prjquota, _mock_validator):
         """When ROCK_LOGGING_PATH is empty, _try_set_log_dir_quota is never called,
-        so effective_limit_disk_log remains equal to config.limit_disk_log."""
-        config = DockerDeploymentConfig(limit_disk_log="5g", image="python:3.11")
+        so effective_disk_limit_log remains equal to config.disk_limit_log."""
+        config = DockerDeploymentConfig(disk_limit_log="5g", image="python:3.11")
         deployment = DockerDeployment.from_config(config)
         # effective starts equal to config before start() is called
-        assert deployment.effective_limit_disk_log == "5g"
+        assert deployment.effective_disk_limit_log == "5g"
 
     @patch("rock.deployments.docker.DockerSandboxValidator")
     @patch("rock.deployments.docker.DockerUtil.is_xfs_prjquota_path", return_value=False)
     def test_try_set_log_dir_quota_downgrades_when_not_xfs_prjquota(self, _mock_prjquota, _mock_validator):
-        """_try_set_log_dir_quota: is_xfs_prjquota_path=False → effective_limit_disk_log=None."""
-        config = DockerDeploymentConfig(limit_disk_log="5g", image="python:3.11")
+        """_try_set_log_dir_quota: is_xfs_prjquota_path=False → effective_disk_limit_log=None."""
+        config = DockerDeploymentConfig(disk_limit_log="5g", image="python:3.11")
         deployment = DockerDeployment.from_config(config)
-        deployment._effective_limit_disk_log = "5g"
+        deployment._effective_disk_limit_log = "5g"
         deployment._container_name = "test-container"
 
         deployment._try_set_log_dir_quota("/var/log/rock/test-container")
 
-        assert deployment.effective_limit_disk_log is None
+        assert deployment.effective_disk_limit_log is None
 
     @patch("rock.deployments.docker.DockerSandboxValidator")
     @patch("rock.deployments.docker.DockerUtil.is_xfs_prjquota_path", return_value=True)
@@ -230,9 +229,9 @@ class TestDockerDeploymentStartDiskLimit:
         Log quota only requires is_xfs_prjquota_path(); overlay2 is irrelevant.
         The subprocess calls inside (findmnt, xfs_quota) are mocked to succeed.
         """
-        config = DockerDeploymentConfig(limit_disk_log="5g", image="python:3.11")
+        config = DockerDeploymentConfig(disk_limit_log="5g", image="python:3.11")
         deployment = DockerDeployment.from_config(config)
-        deployment._effective_limit_disk_log = "5g"
+        deployment._effective_disk_limit_log = "5g"
         deployment._container_name = "test-container"
 
         with patch("rock.deployments.docker.subprocess") as mock_sub:
@@ -243,4 +242,4 @@ class TestDockerDeploymentStartDiskLimit:
             deployment._try_set_log_dir_quota("/var/log/rock/test-container")
 
         # xfs_quota succeeded → effective value preserved
-        assert deployment.effective_limit_disk_log == "5g"
+        assert deployment.effective_disk_limit_log == "5g"

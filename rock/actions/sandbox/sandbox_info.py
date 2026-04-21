@@ -21,8 +21,8 @@ class SandboxInfo(TypedDict, total=False):
     create_user_gray_flag: bool
     cpus: float
     memory: str
-    limit_disk_rootfs: str
-    limit_disk_log: str
+    disk_limit_rootfs: str
+    disk_limit_log: str
     create_time: str
     start_time: str
     stop_time: str

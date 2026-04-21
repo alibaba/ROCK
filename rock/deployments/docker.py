@@ -19,6 +19,7 @@ from rock.common.constants import DeploymentHookStep
 from rock.deployments.abstract import AbstractDeployment
 from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Port, Status
+from rock.deployments.docker_client import TempAuthDockerClient, TempAuthDockerClientError
 from rock.deployments.hooks.abstract import CombinedDeploymentHook, DeploymentHook
 from rock.deployments.runtime_env import DockerRuntimeEnv, LocalRuntimeEnv, PipRuntimeEnv, UvRuntimeEnv
 from rock.deployments.sandbox_validator import DockerSandboxValidator
@@ -39,7 +40,6 @@ from rock.utils import (
     timeout,
     wait_until_alive,
 )
-from rock.deployments.docker_client import TempAuthDockerClient, TempAuthDockerClientError
 
 __all__ = ["DockerDeployment", "DockerDeploymentConfig"]
 CHECK_CLEAR_INTERVAL_SECONDS = 300
@@ -49,7 +49,6 @@ logger = init_logger(__name__)
 
 
 class DockerDeployment(AbstractDeployment):
-
     def __init__(
         self,
         **kwargs: Any,
@@ -59,12 +58,12 @@ class DockerDeployment(AbstractDeployment):
         Args:
             **kwargs: Keyword arguments (see `DockerDeploymentConfig` for details).
         """
-        registry_password = kwargs.pop('registry_password', None)
+        registry_password = kwargs.pop("registry_password", None)
         self._config = DockerDeploymentConfig(**kwargs)
         if registry_password:
             self._config.registry_password = registry_password
-        self._effective_limit_disk_rootfs: str | None = self._config.limit_disk_rootfs
-        self._effective_limit_disk_log: str | None = self._config.limit_disk_log
+        self._effective_disk_limit_rootfs: str | None = self._config.disk_limit_rootfs
+        self._effective_disk_limit_log: str | None = self._config.disk_limit_log
         self._runtime: RemoteSandboxRuntime | None = None
         self._container_process = None
         self._runtime_timeout = 0.15
@@ -256,16 +255,14 @@ class DockerDeployment(AbstractDeployment):
             )
             return
 
-        self._service_status.update_status(
-            phase_name="image_pull", status=Status.RUNNING, message="image pull running"
-        )
+        self._service_status.update_status(phase_name="image_pull", status=Status.RUNNING, message="image pull running")
         logger.info(f"Pulling image {self._config.image!r}")
 
         try:
             with Timer(description=f"[{self._config.image}] Image pull"):
                 # Parse registry from image name
                 registry, _ = ImageUtil.parse_registry_and_others(self._config.image)
-                
+
                 # Create temp auth client with credentials if available
                 with TempAuthDockerClient(
                     registry=registry if self._config.registry_username else None,
@@ -280,9 +277,7 @@ class DockerDeployment(AbstractDeployment):
 
         except (subprocess.CalledProcessError, TempAuthDockerClientError) as e:
             msg = f"Failed to pull image {self._config.image}: {e}"
-            self._service_status.update_status(
-                phase_name="image_pull", status=Status.FAILED, message=msg
-            )
+            self._service_status.update_status(phase_name="image_pull", status=Status.FAILED, message=msg)
             raise DockerPullError(msg) from e
 
     @property
@@ -375,8 +370,8 @@ class DockerDeployment(AbstractDeployment):
         return [f"--cpus={self.config.cpus}"]
 
     def _storage_opts(self):
-        if self._effective_limit_disk_rootfs is not None:
-            return ["--storage-opt", f"size={self._effective_limit_disk_rootfs}"]
+        if self._effective_disk_limit_rootfs is not None:
+            return ["--storage-opt", f"size={self._effective_disk_limit_rootfs}"]
         return []
 
     def _try_set_log_dir_quota(self, log_file_path: str) -> None:
@@ -385,12 +380,12 @@ class DockerDeployment(AbstractDeployment):
         Requires the log path to be on an XFS mount with prjquota/pquota enabled.
         This check is independent of Docker's storage driver (no overlay2 requirement).
         """
-        if self._effective_limit_disk_log is None:
+        if self._effective_disk_limit_log is None:
             return
 
         if not DockerUtil.is_xfs_prjquota_path(log_file_path):
             logger.info(f"Log path {log_file_path!r} is not on XFS+prjquota, skipping quota setup")
-            self._effective_limit_disk_log = None
+            self._effective_disk_limit_log = None
             return
 
         # Derive a deterministic project id from container name; reserve low ids.
@@ -404,16 +399,16 @@ class DockerDeployment(AbstractDeployment):
             )
             if findmnt_result.returncode != 0:
                 logger.warning(f"Failed to find mountpoint for log path {log_file_path!r}, skip quota setup")
-                self._effective_limit_disk_log = None
+                self._effective_disk_limit_log = None
                 return
             mount_point = findmnt_result.stdout.strip()
             if not mount_point:
                 logger.warning(f"Empty mountpoint for log path {log_file_path!r}, skip quota setup")
-                self._effective_limit_disk_log = None
+                self._effective_disk_limit_log = None
                 return
 
             set_project_cmd = f"project -s -p {shlex.quote(log_file_path)} {project_id}"
-            set_limit_cmd = f"limit -p bhard={self._effective_limit_disk_log} {project_id}"
+            set_limit_cmd = f"limit -p bhard={self._effective_disk_limit_log} {project_id}"
             for cmd in (set_project_cmd, set_limit_cmd):
                 result = subprocess.run(
                     ["xfs_quota", "-x", "-c", cmd, mount_point],
@@ -425,12 +420,12 @@ class DockerDeployment(AbstractDeployment):
                     logger.warning(
                         f"xfs_quota failed for {log_file_path!r} with cmd={cmd!r}: {result.stderr.strip() or result.stdout.strip()}"
                     )
-                    self._effective_limit_disk_log = None
+                    self._effective_disk_limit_log = None
                     return
-            logger.info(f"Set XFS project quota {self._effective_limit_disk_log} for log path {log_file_path!r}")
+            logger.info(f"Set XFS project quota {self._effective_disk_limit_log} for log path {log_file_path!r}")
         except Exception as e:
             logger.warning(f"Failed to set XFS project quota for {log_file_path!r}: {e}")
-            self._effective_limit_disk_log = None
+            self._effective_disk_limit_log = None
 
     async def start(self):
         """Starts the runtime."""
@@ -439,16 +434,16 @@ class DockerDeployment(AbstractDeployment):
 
         storage_opt_supported = DockerUtil.detect_storage_opt_support()
         # Resolve effective rootfs quota: downgrade to None if storage-opt is not supported.
-        if self._config.limit_disk_rootfs is not None and not storage_opt_supported:
+        if self._config.disk_limit_rootfs is not None and not storage_opt_supported:
             logger.warning(
                 f"[{self.config.container_name}] --storage-opt not supported on this worker "
-                f"(requires overlay2 + xfs + prjquota), ignoring limit_disk_rootfs={self._config.limit_disk_rootfs}"
+                f"(requires overlay2 + xfs + prjquota), ignoring disk_limit_rootfs={self._config.disk_limit_rootfs}"
             )
-            self._effective_limit_disk_rootfs = None
+            self._effective_disk_limit_rootfs = None
         else:
-            self._effective_limit_disk_rootfs = self._config.limit_disk_rootfs
+            self._effective_disk_limit_rootfs = self._config.disk_limit_rootfs
         # Resolve effective log quota; _try_set_log_dir_quota will downgrade to None if XFS+prjquota is unavailable.
-        self._effective_limit_disk_log = self._config.limit_disk_log
+        self._effective_disk_limit_log = self._config.disk_limit_log
 
         if self._container_name is None:
             self.set_container_name(self._get_container_name())
@@ -653,14 +648,14 @@ class DockerDeployment(AbstractDeployment):
         return self._config
 
     @property
-    def effective_limit_disk_rootfs(self) -> str | None:
-        """Returns the actual rootfs quota in effect after runtime capability checks (may differ from config.limit_disk_rootfs)."""
-        return self._effective_limit_disk_rootfs
+    def effective_disk_limit_rootfs(self) -> str | None:
+        """Returns the actual rootfs quota in effect after runtime capability checks (may differ from config.disk_limit_rootfs)."""
+        return self._effective_disk_limit_rootfs
 
     @property
-    def effective_limit_disk_log(self) -> str | None:
-        """Returns the actual log-dir quota in effect after runtime capability checks (may differ from config.limit_disk_log)."""
-        return self._effective_limit_disk_log
+    def effective_disk_limit_log(self) -> str | None:
+        """Returns the actual log-dir quota in effect after runtime capability checks (may differ from config.disk_limit_log)."""
+        return self._effective_disk_limit_log
 
     async def _check_stop(self):
         logger.info(f"Start check container to stop: {self._container_name}")
