@@ -150,3 +150,19 @@ class TestK8sTemplateLoader:
 
         pod_labels = manifest["spec"]["template"]["metadata"]["labels"]
         assert pod_labels[K8sConstants.LABEL_SANDBOX_ID] == "test-sandbox"
+
+
+class TestRenderNode:
+    """Unit tests for the private _render_node helper."""
+
+    def _make_env(self):
+        from jinja2 import Environment, StrictUndefined
+
+        return Environment(undefined=StrictUndefined, autoescape=False)
+
+    def test_string_without_placeholder_returned_as_is(self):
+        from rock.sandbox.operator.k8s.template_loader import _render_node
+
+        env = self._make_env()
+        assert _render_node("hello world", env, {}) == "hello world"
+        assert _render_node("/bin/sh -c 'echo'", env, {"x": "y"}) == "/bin/sh -c 'echo'"
