@@ -11,7 +11,7 @@ def make_registry_info():
 
 def test_dataset_client_list_delegates_to_registry():
     client = DatasetClient(make_registry_info())
-    expected = [DatasetSpec(organization="qwen", name="bench", split="train", task_ids=[])]
+    expected = [DatasetSpec(id="qwen/bench", split="train", task_ids=[])]
 
     with patch.object(client._registry, "list_datasets", return_value=expected) as mock_list:
         result = client.list_datasets(org="qwen")
@@ -24,7 +24,7 @@ def test_dataset_client_upload_delegates_to_registry(tmp_path):
     client = DatasetClient(make_registry_info())
     source = LocalDatasetConfig(path=tmp_path)
     target = RegistryDatasetConfig(name="qwen/bench", version="train", overwrite=True, registry=make_registry_info())
-    expected = UploadResult(organization="qwen", name="bench", split="train", uploaded=1, skipped=0, failed=0)
+    expected = UploadResult(id="qwen/bench", split="train", uploaded=1, skipped=0, failed=0)
 
     with patch.object(client._registry, "upload_dataset", return_value=expected) as mock_up:
         result = client.upload_dataset(source, target, concurrency=2)

@@ -37,8 +37,7 @@ def test_list_datasets_returns_all():
         datasets = registry.list_datasets()
 
     assert len(datasets) == 1
-    assert datasets[0].organization == "qwen"
-    assert datasets[0].name == "my-bench"
+    assert datasets[0].id == "qwen/my-bench"
     assert datasets[0].split == "train"
     assert datasets[0].task_ids == ["task-001", "task-002"]
 
