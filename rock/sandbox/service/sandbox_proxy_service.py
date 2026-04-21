@@ -46,6 +46,35 @@ from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var
 
 logger = init_logger(__name__)
 
+FORWARDED_WS_HEADER_NAMES = {
+    "authorization",
+    "cookie",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-real-ip",
+    "x-request-id",
+    "traceparent",
+    "tracestate",
+    "eagleeye-traceid",
+    "eagleeye-rpcid",
+    "eagleeye-userdata",
+}
+
+
+def build_upstream_ws_headers(client_websocket):
+    origin = client_websocket.headers.get("origin") or client_websocket.headers.get("Origin")
+    additional_headers = []
+
+    for key, value in client_websocket.headers.items():
+        lower_key = key.lower()
+        if lower_key == "origin":
+            continue
+        if lower_key in FORWARDED_WS_HEADER_NAMES:
+            additional_headers.append((key, value))
+
+    return origin, additional_headers or None
+
 
 class SandboxProxyService:
     _httpx_client = None
@@ -208,12 +237,15 @@ class SandboxProxyService:
 
         client_subprotocols = getattr(client_websocket, "subprotocols", []) or []
         upstream_subprotocols = client_subprotocols if client_subprotocols else ["binary", "base64"]
+        origin, additional_headers = build_upstream_ws_headers(client_websocket)
 
         try:
             async with websockets.connect(
                 target_url,
                 ping_interval=None,
                 ping_timeout=None,
+                origin=origin,
+                additional_headers=additional_headers,
                 subprotocols=upstream_subprotocols,
             ) as target_websocket:
                 negotiated = getattr(target_websocket, "subprotocol", None)
