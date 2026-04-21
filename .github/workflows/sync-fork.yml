@@ -1,0 +1,21 @@
+name: Sync Fork
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 每天自动跑一次
+  workflow_dispatch:       # 也支持手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Sync upstream
+        run: |
+          git remote add upstream https://github.com/alibaba/ROCK.git
+          git fetch upstream
+          git merge upstream/master --no-edit
+          git push origin master
