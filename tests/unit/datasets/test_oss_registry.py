@@ -79,6 +79,59 @@ def test_build_prefix_with_split():
     registry = OssDatasetRegistry(make_registry_info())
     assert registry._build_prefix("qwen", "my-bench", "train") == "datasets/qwen/my-bench/train"
 
+# ---------------------------------------------------------------------------
+# list_dataset_tasks tests
+# ---------------------------------------------------------------------------
+
+
+def test_list_dataset_tasks_uses_default_test_split_and_sorts_task_ids():
+    registry = OssDatasetRegistry(make_registry_info())
+    mock_bucket = MagicMock()
+    mock_bucket.list_objects_v2.return_value = make_list_result(prefixes=[
+        "datasets/qwen/my-bench/test/task-002/",
+        "datasets/qwen/my-bench/test/task-001/",
+    ])
+
+    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+        spec = registry.list_dataset_tasks("qwen", "my-bench")
+
+    assert spec is not None
+    assert spec.id == "qwen/my-bench"
+    assert spec.split == "test"
+    assert spec.task_ids == ["task-001", "task-002"]
+
+    first_call_kwargs = mock_bucket.list_objects_v2.call_args_list[0][1]
+    assert first_call_kwargs["prefix"] == "datasets/qwen/my-bench/test/"
+
+
+def test_list_dataset_tasks_supports_custom_split():
+    registry = OssDatasetRegistry(make_registry_info())
+    mock_bucket = MagicMock()
+    mock_bucket.list_objects_v2.return_value = make_list_result(prefixes=[
+        "datasets/qwen/my-bench/train/task-001/",
+    ])
+
+    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+        spec = registry.list_dataset_tasks("qwen", "my-bench", "train")
+
+    assert spec is not None
+    assert spec.split == "train"
+    assert spec.task_ids == ["task-001"]
+
+    first_call_kwargs = mock_bucket.list_objects_v2.call_args_list[0][1]
+    assert first_call_kwargs["prefix"] == "datasets/qwen/my-bench/train/"
+
+
+def test_list_dataset_tasks_returns_none_when_no_tasks_found():
+    registry = OssDatasetRegistry(make_registry_info())
+    mock_bucket = MagicMock()
+    mock_bucket.list_objects_v2.return_value = make_list_result(prefixes=[])
+
+    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+        spec = registry.list_dataset_tasks("qwen", "my-bench", "test")
+
+    assert spec is None
+
 
 # ---------------------------------------------------------------------------
 # upload_dataset tests

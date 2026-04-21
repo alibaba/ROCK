@@ -31,3 +31,14 @@ def test_dataset_client_upload_delegates_to_registry(tmp_path):
 
     mock_up.assert_called_once_with(source, target, 2)
     assert result == expected
+
+
+def test_dataset_client_list_tasks_delegates_to_registry_with_default_split():
+    client = DatasetClient(make_registry_info())
+    expected = DatasetSpec(id="qwen/bench", split="test", task_ids=["task-001"])
+
+    with patch.object(client._registry, "list_dataset_tasks", return_value=expected) as mock_list_tasks:
+        result = client.list_dataset_tasks("qwen", "bench")
+
+    mock_list_tasks.assert_called_once_with("qwen", "bench", "test")
+    assert result == expected

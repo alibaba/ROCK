@@ -11,6 +11,9 @@ class DatasetClient:
     def list_datasets(self, org: str | None = None) -> list[DatasetSpec]:
         return self._registry.list_datasets(org)
 
+    def list_dataset_tasks(self, organization: str, dataset: str, split: str = "test") -> DatasetSpec | None:
+        return self._registry.list_dataset_tasks(organization, dataset, split)
+
     def upload_dataset(
         self,
         source: LocalDatasetConfig,

@@ -13,12 +13,28 @@ from rock.sdk.envhub.datasets.client import DatasetClient
 logger = init_logger(__name__)
 
 
+def _non_negative_int(value: str) -> int:
+    ivalue = int(value)
+    if ivalue < 0:
+        raise argparse.ArgumentTypeError("must be >= 0")
+    return ivalue
+
+
+def _positive_int(value: str) -> int:
+    ivalue = int(value)
+    if ivalue <= 0:
+        raise argparse.ArgumentTypeError("must be >= 1")
+    return ivalue
+
+
 class DatasetsCommand(Command):
     name = "datasets"
 
     async def arun(self, args: argparse.Namespace) -> None:
         if args.datasets_command == "list":
             await self._list(args)
+        elif args.datasets_command == "tasks":
+            await self._tasks(args)
         elif args.datasets_command == "upload":
             await self._upload(args)
         else:
@@ -57,6 +73,31 @@ class DatasetsCommand(Command):
         print("-" * len(header))
         for ds in sorted(datasets, key=lambda d: (d.id, d.split)):
             print(f"{ds.id:<{col_id}}  {ds.split:<{col_split}}  {len(ds.task_ids):>6}")
+
+    async def _tasks(self, args: argparse.Namespace) -> None:
+        registry_info = self._build_oss_registry_info(args)
+        client = DatasetClient(registry_info)
+        spec = client.list_dataset_tasks(args.org, args.dataset, args.split)
+
+        if spec is None or not spec.task_ids:
+            print(f"No tasks found for dataset '{args.org}/{args.dataset}' split '{args.split}'.")
+            return
+
+        total = len(spec.task_ids)
+        start = args.offset
+        end = start + args.limit if args.limit is not None else None
+        shown_task_ids = spec.task_ids[start:end]
+
+        if not shown_task_ids:
+            print("No tasks found after applying offset/limit.")
+            return
+
+        limit_text = str(args.limit) if args.limit is not None else "all"
+        print(f"Dataset: {spec.id}")
+        print(f"Split: {spec.split}")
+        print(f"Total: {total}  Offset: {start}  Limit: {limit_text}  Shown: {len(shown_task_ids)}")
+        for task_id in shown_task_ids:
+            print(task_id)
 
     async def _upload(self, args: argparse.Namespace) -> None:
         local_dir = Path(args.dir)
@@ -99,6 +140,13 @@ class DatasetsCommand(Command):
         list_parser = datasets_subparsers.add_parser("list", help="List datasets in OSS registry")
         list_parser.add_argument("--org", help="Filter by organization")
         add_oss_args(list_parser)
+        tasks_parser = datasets_subparsers.add_parser("tasks", help="List task IDs under one dataset split")
+        tasks_parser.add_argument("--org", required=True, help="Organization name")
+        tasks_parser.add_argument("--dataset", required=True, help="Dataset name")
+        tasks_parser.add_argument("--split", default="test", help="Split name (default: test)")
+        tasks_parser.add_argument("--offset", type=_non_negative_int, default=0, help="Skip first N tasks")
+        tasks_parser.add_argument("--limit", type=_positive_int, default=None, help="Maximum number of tasks to show")
+        add_oss_args(tasks_parser)
 
         upload_parser = datasets_subparsers.add_parser("upload", help="Upload local task dirs to OSS")
         upload_parser.add_argument("--org", required=True, help="Organization name")

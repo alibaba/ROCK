@@ -68,6 +68,21 @@ class OssDatasetRegistry(BaseDatasetRegistry):
 
         return datasets
 
+    def list_dataset_tasks(self, organization: str, dataset: str, split: str = "test") -> DatasetSpec | None:
+        bucket = self._build_bucket()
+        split_prefix = f"{self._build_prefix(organization, dataset, split)}/"
+        result = bucket.list_objects_v2(prefix=split_prefix, delimiter="/", max_keys=1000)
+        task_ids = sorted(self._last_segment(prefix) for prefix in result.prefix_list)
+
+        if not task_ids:
+            return None
+
+        return DatasetSpec(
+            id=f"{organization}/{dataset}",
+            split=split,
+            task_ids=task_ids,
+        )
+
     def _task_exists(self, bucket: oss2.Bucket, task_prefix: str) -> bool:
         result = bucket.list_objects_v2(prefix=task_prefix, max_keys=1)
         return len(result.object_list) > 0
