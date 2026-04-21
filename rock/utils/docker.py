@@ -55,10 +55,12 @@ class DockerUtil:
             if result.returncode != 0:
                 logger.info(f"is_xfs_prjquota_path: findmnt failed for {path!r}")
                 return False
-            line = result.stdout.strip()
-            if not line:
+            lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+            if not lines:
                 logger.info(f"is_xfs_prjquota_path: empty findmnt output for {path!r}")
                 return False
+            # the last line is the most recent mount point
+            line = lines[-1]
             parts = line.split(None, 1)  # split on first whitespace: FSTYPE  OPTIONS
             if len(parts) < 2:
                 logger.info(f"is_xfs_prjquota_path: unexpected findmnt output for {path!r}: {line!r}")
@@ -71,8 +73,7 @@ class DockerUtil:
             has_prjquota = "prjquota" in opts or "pquota" in opts
             if not has_prjquota:
                 logger.info(
-                    f"is_xfs_prjquota_path: {path!r} is xfs but mount options {options!r} "
-                    f"missing prjquota/pquota"
+                    f"is_xfs_prjquota_path: {path!r} is xfs but mount options {options!r} missing prjquota/pquota"
                 )
             return has_prjquota
         except Exception as e:
