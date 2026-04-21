@@ -49,15 +49,14 @@ class DatasetsCommand(Command):
             print("No datasets found.")
             return
 
-        col_org = max(len("Organization"), max(len(d.organization) for d in datasets))
-        col_name = max(len("Dataset"), max(len(d.name) for d in datasets))
+        col_id = max(len("Dataset"), max(len(d.id) for d in datasets))
         col_split = max(len("Split"), max(len(d.split) for d in datasets))
 
-        header = f"{'Organization':<{col_org}}  {'Dataset':<{col_name}}  {'Split':<{col_split}}  {'Tasks':>6}"
+        header = f"{'Dataset':<{col_id}}  {'Split':<{col_split}}  {'Tasks':>6}"
         print(header)
         print("-" * len(header))
-        for ds in sorted(datasets, key=lambda d: (d.organization, d.name, d.split)):
-            print(f"{ds.organization:<{col_org}}  {ds.name:<{col_name}}  {ds.split:<{col_split}}  {len(ds.task_ids):>6}")
+        for ds in sorted(datasets, key=lambda d: (d.id, d.split)):
+            print(f"{ds.id:<{col_id}}  {ds.split:<{col_split}}  {len(ds.task_ids):>6}")
 
     async def _upload(self, args: argparse.Namespace) -> None:
         local_dir = Path(args.dir)

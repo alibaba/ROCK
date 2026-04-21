@@ -3,20 +3,14 @@ from dataclasses import dataclass, field
 
 @dataclass
 class DatasetSpec:
-    organization: str
-    name: str
+    id: str  # "{organization}/{dataset_name}", e.g. "princeton-nlp/SWE-bench_Verified"
     split: str
     task_ids: list[str] = field(default_factory=list)
-
-    @property
-    def full_name(self) -> str:
-        return f"{self.organization}/{self.name}"
 
 
 @dataclass
 class UploadResult:
-    organization: str
-    name: str
+    id: str  # "{organization}/{dataset_name}"
     split: str
     uploaded: int
     skipped: int

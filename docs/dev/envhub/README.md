@@ -122,26 +122,20 @@ rock/
 | `LocalDatasetConfig` | `path: Path` | 本地 task 目录（upload 数据源） |
 | `RegistryDatasetConfig` | `name="org/dataset_name"`, `version=split`, `overwrite`, `registry=OssRegistryInfo(...)` | 远端数据集引用（upload 目标） |
 
-`RegistryDatasetConfig.name` 遵循 HuggingFace 惯例，使用 `"{organization}/{dataset_name}"` 格式；`OssDatasetRegistry` 通过 `name.split("/", 1)` 拆分得到 org 和 name。`version` 对应 split（如 `"train"`、`"test"`）。
+`RegistryDatasetConfig.name` 遵循 HuggingFace 惯例，使用 `"{organization}/{dataset_name}"` 格式；`OssDatasetRegistry` 通过 `name.split("/", 1)` 拆分得到 org 和 name。`version` 对应 split（如 `"train"`、`"test"`）。`DatasetSpec.id` / `UploadResult.id` 同样使用此格式，对齐 HF `DatasetInfo.id`。
 
 **新增模型（`rock/sdk/envhub/datasets/models.py`）**
 
 ```python
 @dataclass
 class DatasetSpec:
-    organization: str
-    name: str
+    id: str              # "{organization}/{dataset_name}"，对齐 HF DatasetInfo.id，如 "princeton-nlp/SWE-bench_Verified"
     split: str
     task_ids: list[str]
 
-    @property
-    def full_name(self) -> str:
-        return f"{self.organization}/{self.name}"
-
 @dataclass
 class UploadResult:
-    organization: str
-    name: str
+    id: str              # "{organization}/{dataset_name}"
     split: str
     uploaded: int        # 成功上传的文件数
     skipped: int         # 已存在跳过的 task 数（overwrite=False）
@@ -264,10 +258,10 @@ Options:
 输出示例：
 
 ```
-Organization  Dataset    Split   Tasks
-qwen          my-bench   train   42
-qwen          my-bench   test    10
-alibaba       code-eval  train   100
+Dataset                            Split   Tasks
+qwen/my-bench                      train      42
+qwen/my-bench                      test       10
+alibaba/code-eval                  train     100
 ```
 
 #### rock datasets upload

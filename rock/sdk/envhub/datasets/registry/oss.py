@@ -61,8 +61,7 @@ class OssDatasetRegistry(BaseDatasetRegistry):
                     result3 = bucket.list_objects_v2(prefix=split_prefix, delimiter="/", max_keys=1000)
                     task_ids = [self._last_segment(p) for p in result3.prefix_list]
                     datasets.append(DatasetSpec(
-                        organization=org,
-                        name=name,
+                        id=f"{org}/{name}",
                         split=split,
                         task_ids=task_ids,
                     ))
@@ -136,8 +135,7 @@ class OssDatasetRegistry(BaseDatasetRegistry):
                 print(f"  \u2713 {task_id}  ({outcome} files)")
 
         return UploadResult(
-            organization=org,
-            name=name,
+            id=f"{org}/{name}",
             split=split,
             uploaded=uploaded,
             skipped=skipped,
