@@ -215,6 +215,43 @@ class TestK8sTemplateLoader:
         terms = affinity["nodeAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"]["nodeSelectorTerms"]
         assert terms[0]["matchExpressions"][0]["values"] == ["A100"]
 
+    def test_build_manifest_drops_gpu_when_no_gpu(self):
+        """When num_gpus omitted, GPU keys collapse out of resources.limits."""
+        templates = {
+            "gpu": {
+                "ports": {"proxy": 8000, "server": 8080, "ssh": 22},
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "main",
+                                "image": "{{ image | default('cuda:12', true) }}",
+                                "resources": {
+                                    "limits": {
+                                        "cpu": "{{ cpus | default('2', true) }}",
+                                        "alibabacloud.com/gpu": ("{{ (num_gpus * 100) if num_gpus else '' }}"),
+                                        "alibabacloud.com/gpu-mem-ratio": (
+                                            "{{ (num_gpus * 100) if num_gpus else '' }}"
+                                        ),
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                },
+            }
+        }
+        loader = K8sTemplateLoader(templates=templates, default_namespace="rock-test")
+
+        manifest = loader.build_manifest(template_name="gpu", sandbox_id="test-cpu")
+
+        limits = manifest["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]
+        # cpu has a default → present
+        assert limits["cpu"] == "2"
+        # GPU placeholders rendered to empty → keys dropped
+        assert "alibabacloud.com/gpu" not in limits
+        assert "alibabacloud.com/gpu-mem-ratio" not in limits
+
 
 class TestRenderNode:
     """Unit tests for the private _render_node helper."""
