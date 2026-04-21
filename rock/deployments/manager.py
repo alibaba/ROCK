@@ -2,7 +2,13 @@ import uuid
 
 from rock import env_vars
 from rock.config import RockConfig
-from rock.deployments.config import AbstractDeployment, DeploymentConfig, DockerDeploymentConfig, RayDeploymentConfig
+from rock.deployments.config import (
+    AbstractDeployment,
+    DeploymentConfig,
+    DockerDeploymentConfig,
+    FCDeploymentConfig,
+    RayDeploymentConfig,
+)
 from rock.logger import init_logger
 from rock.utils import sandbox_id_ctx_var
 
@@ -21,7 +27,20 @@ class DeploymentManager:
             return config.container_name
         return uuid.uuid4().hex
 
-    async def init_config(self, config: DeploymentConfig) -> DockerDeploymentConfig:
+    async def init_config(self, config: DeploymentConfig) -> DeploymentConfig:
+        """Initialize deployment config with ROCK defaults.
+
+        For FC deployments, preserve the config as-is (FCOperator handles merge with FCConfig).
+        For Docker/Ray deployments, convert to RayDeploymentConfig with ROCK defaults.
+        """
+        # Preserve FC config - FCOperator handles the merge with FCConfig internally
+        if isinstance(config, FCDeploymentConfig):
+            sandbox_id = config.session_id or f"fc-{uuid.uuid4().hex[:12]}"
+            config.session_id = sandbox_id
+            sandbox_id_ctx_var.set(sandbox_id)
+            return config
+
+        # Docker/Ray deployments: convert to RayDeploymentConfig
         _role = env_vars.ROCK_ADMIN_ROLE
         _env = env_vars.ROCK_ADMIN_ENV
         sandbox_id = self._generate_sandbox_id(config)
