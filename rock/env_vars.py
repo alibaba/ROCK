@@ -128,7 +128,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
         "ROCK_MODEL_SERVICE_INSTALL_CMD",
         "pip install rl_rock[model-service]",
     ),
-    "ROCK_TIME_ZONE": lambda: os.getenv("ROCK_TIME_ZONE", "Asia/Shanghai"),
+    "ROCK_TIME_ZONE": lambda: os.getenv("ROCK_TIME_ZONE", os.getenv("TZ", "Asia/Shanghai")),
     "ROCK_DOCUUM_INSTALL_URL": lambda: os.getenv(
         "ROCK_DOCUUM_INSTALL_URL", "https://raw.githubusercontent.com/stepchowfun/docuum/main/install.sh"
     ),
