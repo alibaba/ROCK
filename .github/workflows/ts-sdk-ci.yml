@@ -40,4 +40,77 @@ jobs:
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           pnpm test:unit
 
+  integration-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
 
+      # --- Python + uv + ROCK admin ---
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install ROCK Python dependencies
+        run: uv sync --all-extras --python 3.11
+
+      - name: Pull sandbox Docker image
+        run: docker pull python:3.11
+
+      - name: Start ROCK Admin service
+        env:
+          ROCK_WORKER_ENV_TYPE: uv
+        run: |
+          nohup uv run admin --env ci --role admin --port 8080 > /tmp/rock-admin.log 2>&1 &
+          echo "Waiting for admin to be ready..."
+          for i in $(seq 1 60); do
+            if grep -q "Uvicorn running on" /tmp/rock-admin.log 2>/dev/null; then
+              echo "Admin is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "ERROR: admin failed to start within 120s"
+          cat /tmp/rock-admin.log
+          exit 1
+
+      # --- Node.js + TS SDK ---
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install TS SDK dependencies
+        working-directory: rock/ts-sdk
+        run: pnpm install --frozen-lockfile
+
+      # --- Integration tests ---
+      # ubuntu-latest has 4 vCPU / 16GB RAM. SDK default sandbox spec is
+      # 2 CPU / 8g, which leaves no headroom for admin + Ray overhead once
+      # multiple sandboxes cycle. Force 1 CPU / 2g so each test can start
+      # cleanly within 120s.
+      - name: Run integration tests
+        working-directory: rock/ts-sdk
+        env:
+          ROCK_BASE_URL: http://127.0.0.1:8080
+          ROCK_TEST_IMAGE: python:3.11
+          ROCK_TEST_CLUSTER: default
+          ROCK_DEFAULT_MEMORY: "2g"
+          ROCK_DEFAULT_CPUS: "1"
+          ROCK_STARTUP_TIMEOUT: "120"
+        run: pnpm test:integration
+
+      - name: Print admin logs on failure
+        if: failure()
+        run: |
+          echo "=== ROCK Admin Logs (last 200 lines) ==="
+          tail -200 /tmp/rock-admin.log || true
+          echo "=== Docker Containers ==="
+          docker ps -a || true
