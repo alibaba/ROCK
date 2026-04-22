@@ -1,3 +1,4 @@
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -29,7 +30,7 @@ async def test_post_proxy_path_parsing(app):
         args = mock_service.http_proxy.call_args
         assert args[0][0] == "sandbox-id"
         assert args[0][1] == ""
-        assert args[0][2] == {"key": "value"}
+        assert json.loads(args[0][2]) == {"key": "value"}
         mock_service.http_proxy.reset_mock()
 
         # Single path segment
@@ -44,7 +45,7 @@ async def test_post_proxy_path_parsing(app):
         args = mock_service.http_proxy.call_args
         assert args[0][0] == "sandbox-id"
         assert args[0][1] == "api/v1/chat"
-        assert args[0][2] == {"msg": "hi"}
+        assert json.loads(args[0][2]) == {"msg": "hi"}
         mock_service.http_proxy.reset_mock()
 
         # Deep nested path
@@ -52,3 +53,39 @@ async def test_post_proxy_path_parsing(app):
         args = mock_service.http_proxy.call_args
         assert args[0][0] == "sandbox-id"
         assert args[0][1] == "a/b/c/d"
+
+
+@pytest.mark.asyncio
+async def test_post_proxy_form_body(app):
+    app, mock_service = app
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.post(
+            "/sandboxes/sandbox-id/proxy/submit",
+            data={"name": "test", "value": "123"},
+        )
+        args = mock_service.http_proxy.call_args
+        assert args[0][0] == "sandbox-id"
+        assert args[0][1] == "submit"
+        body = args[0][2]
+        assert isinstance(body, bytes)
+        assert b"name=test" in body
+
+
+@pytest.mark.asyncio
+async def test_post_proxy_raw_body(app):
+    app, mock_service = app
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.post(
+            "/sandboxes/sandbox-id/proxy/echo",
+            content=b"raw data here",
+        )
+        args = mock_service.http_proxy.call_args
+        assert args[0][0] == "sandbox-id"
+        assert args[0][1] == "echo"
+        body = args[0][2]
+        assert isinstance(body, bytes)
+        assert body == b"raw data here"
