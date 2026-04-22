@@ -406,12 +406,13 @@ class BatchSandboxProvider(K8sProvider):
         return ResourceMatchingPoolSelector().select_pool(config, pools)
 
     def _get_template_name(self, config: DockerDeploymentConfig) -> str:
-        """Get template name from extended_params or config template_map.
+        """Get template name from extended_params, GPU detection, or template_map.
 
         Priority:
-        1. Check extended_params for template name
-        2. Fallback to template_map based on image_os matching
-        3. Return 'default' if not found
+        1. Check extended_params for explicit template name
+        2. If config.num_gpus > 0, auto-select 'default-gpu'
+        3. Fallback to template_map based on image_os matching
+        4. Return 'default' if not found
 
         Args:
             config: Docker deployment configuration
@@ -419,19 +420,23 @@ class BatchSandboxProvider(K8sProvider):
         Returns:
             Template name (defaults to 'default')
         """
-        # Priority 1: Check extended_params
+        # Priority 1: Check extended_params (explicit override)
         template_name = config.extended_params.get(K8sConstants.EXT_TEMPLATE_NAME)
         if template_name:
             return template_name
 
-        # Priority 2: Check template_map based on image_os
+        # Priority 2: Auto-select GPU template when GPUs are requested
+        if config.num_gpus is not None and config.num_gpus > 0:
+            return K8sConstants.TEMPLATE_DEFAULT_GPU
+
+        # Priority 3: Check template_map based on image_os
         if config.image_os and self._k8s_config.template_map:
             mapped_template = self._k8s_config.template_map.get(config.image_os)
             if mapped_template:
                 return mapped_template
 
-        # Priority 3: Return default
-        return "default"
+        # Priority 4: Return default
+        return K8sConstants.TEMPLATE_DEFAULT
 
     def _normalize_memory(self, memory: str) -> str:
         """Normalize memory format to Kubernetes standard.
@@ -576,7 +581,7 @@ class BatchSandboxProvider(K8sProvider):
         Raises:
             Exception: If creation fails or sandbox already exists
         """
-        await self._ensure_initialized()
+        # await self._ensure_initialized()
 
         sandbox_id = config.container_name
 

@@ -242,6 +242,8 @@ importlib-metadata==8.7.0
     #   opentelemetry-api
 incremental==24.7.2
     # via twisted
+jinja2==3.1.6
+    # via rl-rock
 jmespath==0.10.0
     # via
     #   aliyun-python-sdk-core
@@ -265,6 +267,8 @@ magiccube==0.3.0
     # via reasoning-gym
 markdown-it-py==4.0.0
     # via rich
+markupsafe==3.0.3
+    # via jinja2
 math-verify==0.8.0
     # via gem-llm
 matplotlib==3.10.7

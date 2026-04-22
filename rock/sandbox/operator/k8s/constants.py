@@ -25,5 +25,9 @@ class K8sConstants:
     EXT_TEMPLATE_NAME = "template_name"
     EXT_RESOURCE_VERSION = "k8s_resource_version"
 
+    # Built-in template names
+    TEMPLATE_DEFAULT = "default"
+    TEMPLATE_DEFAULT_GPU = "default-gpu"
+
     # Nacos config keys
     NACOS_POOLS_KEY = "pools"
