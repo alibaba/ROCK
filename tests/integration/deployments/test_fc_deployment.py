@@ -1,17 +1,17 @@
 """
 FC (Function Compute) Integration Tests (IT)
 
-Tests for FC deployment, runtime, and session management integration.
+Tests for FC runtime and session management integration.
 Validates module interfaces and behaviors match the design specification.
 
 FC (Function Compute) is Alibaba Cloud's serverless compute service.
 
+Note: FC uses direct Runtime management via FCOperator, not the Deployment pattern.
+
 Test Coverage:
 - IT-FC-01: FCDeploymentConfig validation and defaults
-- IT-FC-02: FCDeployment lifecycle (start/stop)
 - IT-FC-03: FCSessionManager WebSocket session management
 - IT-FC-04: FCRuntime session operations (create/run/close)
-- IT-FC-07: SandboxManager FC integration
 - IT-FC-08: Error handling and recovery
 - IT-FC-09: ReconnectConfig and session state
 - IT-FC-10: WebSocket reconnection logic
@@ -94,18 +94,19 @@ class TestFCDeploymentConfig:
         assert config.memory == 16384
         assert config.cpus == 4.0
 
-    def test_get_deployment_returns_fc_deployment(self):
-        """IT-FC-01c: Verify get_deployment returns FCDeployment instance."""
+    def test_get_deployment_raises_not_implemented(self):
+        """IT-FC-01c: Verify get_deployment raises NotImplementedError.
+
+        FC uses direct Runtime management via FCOperator, not the Deployment pattern.
+        """
         config = FCDeploymentConfig(
             account_id="test",
             access_key_id="ak",
             access_key_secret="sk",
         )
-        deployment = config.get_deployment()
 
-        from rock.deployments.fc import FCDeployment
-
-        assert isinstance(deployment, FCDeployment)
+        with pytest.raises(NotImplementedError, match="FC does not use the Deployment pattern"):
+            config.get_deployment()
 
     def test_session_ttl_custom(self):
         """IT-FC-01d: Verify session_ttl can be set."""
@@ -116,87 +117,6 @@ class TestFCDeploymentConfig:
         """IT-FC-01e: Verify session_ttl default is None (uses FCConfig)."""
         config = FCDeploymentConfig()
         assert config.session_ttl is None
-
-
-# ============================================================
-# IT-FC-02: FCDeployment lifecycle
-# ============================================================
-
-
-class TestFCDeployment:
-    """Integration tests for FCDeployment lifecycle.
-
-    Purpose: Verify deployment start/stop correctly initializes
-    and cleans up FCRuntime.
-    """
-
-    @pytest.fixture
-    def fc_config(self):
-        return FCDeploymentConfig(
-            account_id="test_account",
-            access_key_id="test_ak",
-            access_key_secret="test_sk",
-            function_name="test-function",
-        )
-
-    @pytest.mark.asyncio
-    async def test_deployment_start(self, fc_config):
-        """IT-FC-02a: Verify deployment start initializes runtime."""
-        from rock.deployments.fc import FCDeployment, FCRuntime
-
-        deployment = FCDeployment.from_config(fc_config)
-
-        # Mock the runtime's is_alive to avoid actual network calls
-        with patch.object(FCRuntime, "is_alive", return_value=True):
-            await deployment.start()
-
-        assert deployment._started is True
-        assert deployment._runtime is not None
-        assert deployment._sandbox_id is not None
-        assert deployment._sandbox_id.startswith("fc-")
-
-        # Cleanup
-        await deployment.stop()
-
-    @pytest.mark.asyncio
-    async def test_deployment_stop(self, fc_config):
-        """IT-FC-02b: Verify deployment stop cleans up runtime."""
-        from rock.deployments.fc import FCDeployment
-
-        deployment = FCDeployment.from_config(fc_config)
-        await deployment.start()
-
-        assert deployment._started is True
-
-        await deployment.stop()
-
-        assert deployment._started is False
-        assert deployment._runtime is None
-
-    @pytest.mark.asyncio
-    async def test_deployment_double_start(self, fc_config):
-        """IT-FC-02c: Verify double start is handled gracefully."""
-        from rock.deployments.fc import FCDeployment
-
-        deployment = FCDeployment.from_config(fc_config)
-        await deployment.start()
-        sandbox_id = deployment._sandbox_id
-
-        # Second start should not change anything
-        await deployment.start()
-
-        assert deployment._sandbox_id == sandbox_id
-
-        await deployment.stop()
-
-    def test_set_sandbox_id(self, fc_config):
-        """IT-FC-02d: Verify sandbox_id can be set before start."""
-        from rock.deployments.fc import FCDeployment
-
-        deployment = FCDeployment.from_config(fc_config)
-        deployment.set_sandbox_id("fc-custom-id")
-
-        assert deployment.sandbox_id == "fc-custom-id"
 
 
 # ============================================================
@@ -298,17 +218,6 @@ class TestFCRuntime:
 
 
 # ============================================================
-# IT-FC-07: SandboxManager FC integration
-# ============================================================
-
-
-class TestSandboxManagerFCIntegration:
-    """Integration tests for SandboxManager with FC.
-
-    Purpose: Verify SandboxManager correctly routes FC deployments.
-    """
-
-    # ============================================================
 # IT-FC-08: Error handling and recovery
 # ============================================================
 
@@ -329,20 +238,26 @@ class TestFCErrorHandling:
         assert config.access_key_secret is None
 
     @pytest.mark.asyncio
-    async def test_runtime_not_started_error(self):
-        """IT-FC-08b: Verify error when accessing runtime before start."""
-        from rock.deployments.fc import FCDeployment
+    async def test_runtime_initialization_with_config(self):
+        """IT-FC-08b: Verify FCRuntime initializes correctly with config."""
+        from rock.deployments.fc import FCRuntime
 
         config = FCDeploymentConfig(
             account_id="test",
             access_key_id="ak",
             access_key_secret="sk",
+            function_name="test-function",
+            region="cn-hangzhou",
         )
-        deployment = FCDeployment.from_config(config)
+        runtime = FCRuntime(config)
 
-        # Accessing runtime before start should raise error
-        with pytest.raises(Exception):
-            _ = deployment.runtime
+        # Runtime should be initialized but not started
+        assert runtime.config is not None
+        assert runtime.session_manager is not None
+        assert runtime._started is False
+
+        # Cleanup
+        await runtime.close()
 
 
 # ============================================================
