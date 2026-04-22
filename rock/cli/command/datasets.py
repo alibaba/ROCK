@@ -93,9 +93,13 @@ class DatasetsCommand(Command):
             return
 
         limit_text = str(args.limit) if args.limit is not None else "all"
-        print(f"Dataset: {spec.id}")
-        print(f"Split: {spec.split}")
-        print(f"Total: {total}  Offset: {start}  Limit: {limit_text}  Shown: {len(shown_task_ids)}")
+
+        print()
+        print("=" * 80)
+        print(f"Dataset: {spec.id}  Split: {spec.split}  Total: {total}  Shown: {len(shown_task_ids)}")
+        print("=" * 80)
+        print("#Task name")
+        print("-" * 10)
         for task_id in shown_task_ids:
             print(task_id)
 
