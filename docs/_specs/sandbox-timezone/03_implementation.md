@@ -49,23 +49,13 @@ else:
 
 ## Validation Plan
 
-### 用例 1：单元测试 — 挂载参数生成
+### 集成测试 — 真实 Docker 容器验证
 
-- mock `os.path.isfile` 返回 `True`
-- 验证 `_start` 生成的 `docker run` 命令中包含 `-v /usr/share/zoneinfo/Asia/Shanghai:/etc/localtime:ro`
+测试用例：`test_docker_deployment_mounts_localtime_in_container`
 
-### 用例 2：单元测试 — zoneinfo 文件不存在时跳过
-
-- mock `os.path.isfile` 返回 `False`
-- 验证 `docker run` 命令中不包含 `/etc/localtime` 相关挂载
-- 验证打印了 warning 日志
-
-### 用例 3：集成测试 — 真实 Docker 容器验证
-
-- 前提：宿主机有 `/usr/share/zoneinfo/Asia/Shanghai`
-- 启动 Docker 容器，挂载 `/etc/localtime`
-- 在容器内执行 `date +%Z` 或 `ls -l /etc/localtime`
-- 验证时区显示正确
+- 检测宿主机是否存在 `/usr/share/zoneinfo/{ROCK_TIME_ZONE}` 文件
+- **文件存在时**：启动容器，执行 `date +%z` 获取容器内 UTC offset，与宿主机在相同时区下的 offset 比对，确认一致
+- **文件不存在时**：启动容器，执行 `date +%Z`，确认回退到 UTC
 
 ---
 
