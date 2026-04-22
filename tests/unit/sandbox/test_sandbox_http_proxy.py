@@ -110,7 +110,7 @@ async def test_post_proxy(sandbox_manager: SandboxManager, sandbox_proxy_service
         result = await sandbox_proxy_service.http_proxy(
             sandbox_id=sandbox_id,
             target_path="api/test",
-            body={"hello": "world"},
+            body=json.dumps({"hello": "world"}).encode(),
             headers=mock_headers,
         )
         assert result.status_code == 200
@@ -122,7 +122,7 @@ async def test_post_proxy(sandbox_manager: SandboxManager, sandbox_proxy_service
         result = await sandbox_proxy_service.http_proxy(
             sandbox_id=sandbox_id,
             target_path="",
-            body={"key": "value"},
+            body=json.dumps({"key": "value"}).encode(),
             headers=mock_headers,
         )
         assert result.status_code == 200
@@ -145,7 +145,7 @@ async def test_post_proxy(sandbox_manager: SandboxManager, sandbox_proxy_service
         result = await sandbox_proxy_service.http_proxy(
             sandbox_id=sandbox_id,
             target_path="stream",
-            body={"msg": "hello"},
+            body=json.dumps({"msg": "hello"}).encode(),
             headers=mock_headers,
         )
         assert result.status_code == 200
