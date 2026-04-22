@@ -37,7 +37,7 @@ else:
 
 ### 设计要点
 
-1. **用 `ROCK_TIME_ZONE` 而非 `TZ`**：`ROCK_TIME_ZONE` 始终是 IANA 格式（如 `Asia/Shanghai`），可直接映射到 `/usr/share/zoneinfo/` 下的文件路径。`TZ` 可能是 POSIX 格式（如 `CST-8`），无法映射到文件。
+1. **用 `ROCK_TIME_ZONE` 而非 `TZ` 定位 zoneinfo 文件**：`ROCK_TIME_ZONE` 始终是 IANA 格式（如 `Asia/Shanghai`），可直接映射到 `/usr/share/zoneinfo/` 下的文件路径。`TZ` 可能是 POSIX 格式（如 `CST-8`），无法映射到文件。此外，sandbox 启动 API 允许用户通过环境变量自定义容器配置，如果直接依赖 `TZ` 来定位 zoneinfo 文件，当用户在启动参数中指定了不同的 `TZ` 值时，会导致挂载的 `/etc/localtime` 与用户期望的 `TZ` 不一致。使用独立的 `ROCK_TIME_ZONE` 作为平台级配置，可以避免与用户指定的 `TZ` 变量冲突。
 
 2. **文件存在性校验**：启动前用 `os.path.isfile()` 检查 zoneinfo 文件是否存在。不存在时打 warning 并跳过，不阻断容器启动。
 
