@@ -26,7 +26,8 @@ from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
 from rock.config import RockConfig, RuntimeConfig
-from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig, FCDeploymentConfig
+from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
+from rock.sandbox.operator.fc import FCOperatorConfig
 from rock.logger import init_logger
 from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
@@ -111,11 +112,13 @@ class SandboxManager(BaseManager):
         self, config: DeploymentConfig, user_info: UserInfo = {}, cluster_info: ClusterInfo = {}
     ) -> SandboxStartResponse:
         await self._check_sandbox_exists_in_redis(config)
-        self.validate_sandbox_spec(self.rock_config.runtime, config)
-        deployment_config: DeploymentConfig = await self.deployment_manager.init_config(config)
+        # Skip spec validation for FC (uses FCOperatorConfig)
+        if not isinstance(config, FCOperatorConfig):
+            self.validate_sandbox_spec(self.rock_config.runtime, config)
+        deployment_config = await self.deployment_manager.init_config(config)
 
         # Get sandbox_id based on config type
-        if isinstance(deployment_config, FCDeploymentConfig):
+        if isinstance(deployment_config, FCOperatorConfig):
             sandbox_id = deployment_config.session_id
         else:
             sandbox_id = deployment_config.container_name
@@ -135,7 +138,7 @@ class SandboxManager(BaseManager):
         await self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)
 
         # Create timeout info based on config type
-        if isinstance(deployment_config, FCDeploymentConfig):
+        if isinstance(deployment_config, FCOperatorConfig):
             timeout_info = SandboxTimeoutHelper.make_timeout_info(
                 deployment_config.session_ttl // 60 if deployment_config.session_ttl else 10
             )

@@ -6,10 +6,10 @@ Validates module interfaces and behaviors match the design specification.
 
 FC (Function Compute) is Alibaba Cloud's serverless compute service.
 
-Note: FC uses direct Runtime management via FCOperator, not the Deployment pattern.
+Note: FC uses Operator-level configuration (FCOperatorConfig), not Deployment-level.
 
 Test Coverage:
-- IT-FC-01: FCDeploymentConfig validation and defaults
+- IT-FC-01: FCOperatorConfig validation and defaults
 - IT-FC-03: FCSessionManager WebSocket session management
 - IT-FC-04: FCRuntime session operations (create/run/close)
 - IT-FC-08: Error handling and recovery
@@ -25,49 +25,45 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from rock.deployments.config import FCDeploymentConfig
 from rock.logger import init_logger
+from rock.sandbox.operator.fc import FCOperatorConfig
 
 logger = init_logger(__name__)
 
 
 # ============================================================
-# IT-FC-01: FCDeploymentConfig validation and defaults
+# IT-FC-01: FCOperatorConfig validation and defaults
 # ============================================================
 
 
-class TestFCDeploymentConfig:
-    """Integration tests for FCDeploymentConfig.
+class TestFCOperatorConfig:
+    """Integration tests for FCOperatorConfig.
 
     Purpose: Verify configuration class correctly validates inputs,
-    provides defaults, and integrates with deployment factory.
+    provides defaults, and integrates with FCOperator.
     """
 
-    def test_import_from_config_module(self):
-        """IT-FC-00: Verify FCDeploymentConfig can be imported from config module.
-
-        This test ensures the ImportError issue is fixed and won't regress.
-        The class must be importable from rock.deployments.config for tests
-        and production code to work correctly.
-        """
-        from rock.deployments.config import FCDeploymentConfig as ImportedConfig
+    def test_import_from_operator_module(self):
+        """IT-FC-00: Verify FCOperatorConfig can be imported from operator module."""
+        from rock.sandbox.operator.fc import FCOperatorConfig as ImportedConfig
 
         assert ImportedConfig is not None
         config = ImportedConfig()
         assert config.type == "fc"
 
-    def test_is_deployment_config_subclass(self):
-        """IT-FC-00b: Verify FCDeploymentConfig is a DeploymentConfig subclass."""
-        from rock.deployments.config import DeploymentConfig, FCDeploymentConfig as ImportedConfig
+    def test_is_pydantic_model(self):
+        """IT-FC-00b: Verify FCOperatorConfig is a Pydantic BaseModel."""
+        from pydantic import BaseModel
+        from rock.sandbox.operator.fc import FCOperatorConfig as ImportedConfig
 
-        assert issubclass(ImportedConfig, DeploymentConfig)
+        assert issubclass(ImportedConfig, BaseModel)
 
     def test_default_values(self):
         """IT-FC-01a: Verify default configuration values."""
-        config = FCDeploymentConfig()
+        config = FCOperatorConfig()
 
         assert config.type == "fc"
-        # All fields are now optional and default to None
+        # All fields are optional and default to None
         # They will be merged with FCConfig defaults at runtime
         assert config.function_name is None
         assert config.region is None
@@ -78,7 +74,7 @@ class TestFCDeploymentConfig:
 
     def test_custom_values(self):
         """IT-FC-01b: Verify custom configuration values."""
-        config = FCDeploymentConfig(
+        config = FCOperatorConfig(
             function_name="my-sandbox",
             region="cn-shanghai",
             account_id="12345678",
@@ -94,28 +90,14 @@ class TestFCDeploymentConfig:
         assert config.memory == 16384
         assert config.cpus == 4.0
 
-    def test_get_deployment_raises_not_implemented(self):
-        """IT-FC-01c: Verify get_deployment raises NotImplementedError.
-
-        FC uses direct Runtime management via FCOperator, not the Deployment pattern.
-        """
-        config = FCDeploymentConfig(
-            account_id="test",
-            access_key_id="ak",
-            access_key_secret="sk",
-        )
-
-        with pytest.raises(NotImplementedError, match="FC does not use the Deployment pattern"):
-            config.get_deployment()
-
     def test_session_ttl_custom(self):
         """IT-FC-01d: Verify session_ttl can be set."""
-        config = FCDeploymentConfig(session_ttl=7200)  # 2 hours in seconds
+        config = FCOperatorConfig(session_ttl=7200)  # 2 hours in seconds
         assert config.session_ttl == 7200
 
     def test_session_ttl_default(self):
         """IT-FC-01e: Verify session_ttl default is None (uses FCConfig)."""
-        config = FCDeploymentConfig()
+        config = FCOperatorConfig()
         assert config.session_ttl is None
 
 
@@ -135,7 +117,7 @@ class TestFCSessionManager:
     def session_manager(self):
         from rock.deployments.fc import FCSessionManager
 
-        config = FCDeploymentConfig(
+        config = FCOperatorConfig(
             account_id="test_account",
             access_key_id="test_ak",
             access_key_secret="test_sk",
@@ -192,7 +174,7 @@ class TestFCRuntime:
     def fc_runtime(self):
         from rock.deployments.fc import FCRuntime
 
-        config = FCDeploymentConfig(
+        config = FCOperatorConfig(
             account_id="test_account",
             access_key_id="test_ak",
             access_key_secret="test_sk",
@@ -230,7 +212,7 @@ class TestFCErrorHandling:
 
     def test_config_missing_credentials(self):
         """IT-FC-08a: Verify config with missing credentials defaults to None."""
-        config = FCDeploymentConfig()
+        config = FCOperatorConfig()
 
         # Missing credentials default to None (can be set via environment or config file)
         assert config.account_id is None
@@ -242,7 +224,7 @@ class TestFCErrorHandling:
         """IT-FC-08b: Verify FCRuntime initializes correctly with config."""
         from rock.deployments.fc import FCRuntime
 
-        config = FCDeploymentConfig(
+        config = FCOperatorConfig(
             account_id="test",
             access_key_id="ak",
             access_key_secret="sk",
@@ -368,7 +350,7 @@ class TestFCSessionManagerReconnect:
     def session_manager(self):
         from rock.deployments.fc import FCSessionManager
 
-        config = FCDeploymentConfig(
+        config = FCOperatorConfig(
             account_id="test_account",
             access_key_id="test_ak",
             access_key_secret="test_sk",
@@ -474,7 +456,7 @@ class TestFCRuntimeHttpRetry:
     def fc_runtime(self):
         from rock.deployments.fc import FCRuntime
 
-        config = FCDeploymentConfig(
+        config = FCOperatorConfig(
             account_id="test_account",
             access_key_id="test_ak",
             access_key_secret="test_sk",
