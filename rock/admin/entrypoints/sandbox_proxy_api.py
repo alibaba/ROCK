@@ -379,18 +379,15 @@ async def http_proxy(
     except BadRequestRockError as e:
         return _JSONResponse(status_code=400, content={"detail": str(e)})
 
-    body = None
+    raw_body = None
     if request.method not in ("GET", "HEAD", "DELETE", "OPTIONS"):
-        try:
-            body = await request.json()
-        except Exception:
-            body = None
+        raw_body = await request.body()
 
     proxy_prefix = request.url.path.rstrip(path).rstrip("/") if path else request.url.path.rstrip("/")
     return await sandbox_proxy_service.http_proxy(
         sandbox_id,
         resolved_path,
-        body,
+        raw_body,
         request.headers,
         method=request.method,
         port=port,
