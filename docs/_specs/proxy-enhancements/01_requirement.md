@@ -39,12 +39,12 @@ ROCK Admin 目前提供两类代理能力：
    - 在现有 `/sandboxes/{sandbox_id}/proxy[/{path}]` 路由上，允许通过 query param `port` 指定目标 HTTP 端口
    - 当 `port` 未指定时，保持现有行为（使用 `Port.SERVER = 8080`）
 
-4. **WebSocket Proxy 支持白名单透传通用请求头**
-   - 通过 `/sandboxes/{id}/proxy/{path:path}` 建立 WebSocket 代理时，允许将客户端请求中的通用 header 按白名单转发到下游服务
-   - 首批需要覆盖的 header 包括：`Origin`、`Authorization`、`Cookie`、`X-Forwarded-For`、`X-Forwarded-Host`、`X-Forwarded-Proto`、`X-Real-IP`、`X-Request-Id`、`Traceparent`、`Tracestate`、`EagleEye-TraceId`、`EagleEye-RpcId`、`EagleEye-UserData`
+4. **WebSocket Proxy 支持黑名单过滤透传通用请求头**
+   - 通过 `/sandboxes/{id}/proxy/{path:path}` 建立 WebSocket 代理时，默认将客户端请求中的通用 header 转发到下游服务，通过黑名单排除不应转发的头
+   - 黑名单排除的头包括：WebSocket 握手专用头（`Host`、`Connection`、`Upgrade`、`Sec-WebSocket-Key`、`Sec-WebSocket-Version`、`Sec-WebSocket-Extensions`、`Sec-WebSocket-Protocol`）和 hop-by-hop 头（`Transfer-Encoding`、`TE`、`Trailer`、`Keep-Alive`、`Proxy-Authorization`、`Proxy-Connection`、`Content-Length`）
    - `Origin` 是必须支持的关键头，因为下游服务可能使用来源白名单（例如 `gateway.controlUi.allowedOrigins`）校验 WebSocket 握手
    - `Sec-WebSocket-Protocol` 继续通过 WebSocket 子协议协商传递，不作为普通 header 透传
-   - 采用白名单策略，避免将握手专用头和 hop-by-hop 头错误转发给下游
+   - 采用黑名单策略，确保用户自定义 header 能被透传到下游服务
 
 ### Out（本次不做的）
 
@@ -52,7 +52,6 @@ ROCK Admin 目前提供两类代理能力：
 - HTTP Proxy 的 multipart/form-data 支持（upload 接口已单独处理）
 - `host_proxy` 的 method 扩展（范围外）
 - SDK 客户端侧的封装更新
-- WebSocket 代理透传“所有”请求头，或由客户端动态指定任意 header 白名单
 - 自动伪造、补默认值或重写任意 `Origin`
 - 透传 WebSocket 握手专用头（如 `Host`、`Connection`、`Upgrade`、`Sec-WebSocket-Key`）
 
@@ -70,9 +69,9 @@ ROCK Admin 目前提供两类代理能力：
 - **AC8**：`GET /sandboxes/{sandbox_id}/proxy/api/health?port=9000` 能成功代理到沙箱内 9000 端口的 HTTP 服务
 - **AC9**：HTTP proxy 不带 `port` 参数时行为不变（向后兼容）
 - **AC10**：当客户端 WebSocket 握手包含 `Origin` 时，代理发起到下游的二跳握手必须携带相同 `Origin`，以满足下游来源校验
-- **AC11**：当客户端握手包含 `Authorization`、`Cookie`、`X-Forwarded-*`、`X-Request-Id`、`Traceparent` 等白名单头时，代理发起到下游的二跳握手必须一并转发
+- **AC11**：当客户端握手包含 `Authorization`、`Cookie`、`X-Forwarded-*`、`X-Request-Id`、`Traceparent` 或任意自定义头时，代理发起到下游的二跳握手必须一并转发
 - **AC12**：`Sec-WebSocket-Protocol` 必须继续通过现有 `subprotocols` 机制转发和协商，不能降级为普通 header 透传
-- **AC13**：`Host`、`Connection`、`Upgrade`、`Sec-WebSocket-Key`、`Sec-WebSocket-Version`、`Sec-WebSocket-Extensions` 等握手专用头不得被转发到下游
+- **AC13**：黑名单头（`Host`、`Connection`、`Upgrade`、`Sec-WebSocket-Key`、`Sec-WebSocket-Version`、`Sec-WebSocket-Extensions`、`Transfer-Encoding`、`TE`、`Trailer`、`Keep-Alive`、`Proxy-Authorization`、`Proxy-Connection`、`Content-Length`）不得被转发到下游
 - **AC14**：当客户端未携带任何白名单头时，WebSocket proxy 的默认行为与现状保持一致（向后兼容）
 
 ---
@@ -83,7 +82,7 @@ ROCK Admin 目前提供两类代理能力：
 - 不修改 `Port.SERVER` / `Port.PROXY` 枚举定义
 - `port_validation` 逻辑复用现有 `validate_port_forward_port`（但 WebSocket proxy 端口校验需新增对 `Port.SERVER = 8080` 的允许，或直接用同一校验函数）
 - 保持现有 portforward 端点（`/sandboxes/{id}/portforward`）不变
-- WebSocket header 转发采用**白名单**而不是**黑名单**策略，避免误传握手专用头
+- WebSocket header 转发采用**黑名单**策略，排除握手专用头和 hop-by-hop 头，允许用户自定义 header 透传
 - `Origin` 通过 WebSocket 客户端库的显式参数透传，不与普通 `additional_headers` 混用
 - `Sec-WebSocket-Protocol` 继续通过 `subprotocols` 参数处理，不走通用 header 透传逻辑
 
@@ -92,7 +91,7 @@ ROCK Admin 目前提供两类代理能力：
 ## Risks & Rollout
 
 - **风险**：WebSocket proxy 中用户可以指定任意端口访问沙箱内服务，存在横向访问风险 → 通过 `sandbox_id` 鉴权已覆盖，端口范围校验作为防护层
-- **风险**：若白名单范围定义过宽，可能把不该下传的敏感或握手专用头带给下游 → 通过固定白名单和单元测试约束范围
+- **风险**：黑名单策略下，未列入黑名单的头会默认转发 → 通过单元测试确保握手专用头和 hop-by-hop 头被正确过滤
 - **风险**：不同下游服务对 `Origin`、`Cookie`、`Authorization` 的要求不同，透传后暴露出原本被代理层掩盖的问题 → 以“尽可能保留客户端上下文、但不伪造默认值”为原则
 - **回滚**：修改集中在 `sandbox_proxy_service.py` 和对应单元测试；如需回滚，可仅还原 WebSocket header 透传逻辑
 - **上线策略**：无数据库变更，直接部署；建议先在依赖 `Origin` 校验的控制台类服务上验证

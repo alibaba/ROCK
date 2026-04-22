@@ -1,16 +1,18 @@
-FORWARDED_WS_HEADER_NAMES = {
-    "authorization",
-    "cookie",
-    "x-forwarded-for",
-    "x-forwarded-host",
-    "x-forwarded-proto",
-    "x-real-ip",
-    "x-request-id",
-    "traceparent",
-    "tracestate",
-    "eagleeye-traceid",
-    "eagleeye-rpcid",
-    "eagleeye-userdata",
+BLOCKED_WS_HEADER_NAMES = {
+    "host",
+    "connection",
+    "upgrade",
+    "sec-websocket-key",
+    "sec-websocket-version",
+    "sec-websocket-extensions",
+    "sec-websocket-protocol",
+    "transfer-encoding",
+    "te",
+    "trailer",
+    "keep-alive",
+    "proxy-authorization",
+    "proxy-connection",
+    "content-length",
 }
 
 
@@ -22,7 +24,8 @@ def build_upstream_ws_headers(client_websocket):
         lower_key = key.lower()
         if lower_key == "origin":
             continue
-        if lower_key in FORWARDED_WS_HEADER_NAMES:
-            additional_headers.append((key, value))
+        if lower_key in BLOCKED_WS_HEADER_NAMES:
+            continue
+        additional_headers.append((key, value))
 
     return origin, additional_headers or None

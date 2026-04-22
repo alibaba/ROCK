@@ -1,11 +1,11 @@
-"""Tests for WebSocket proxy header forwarding (whitelist-based)."""
+"""Tests for WebSocket proxy header forwarding (blacklist-based)."""
 
 from types import SimpleNamespace
 
 import websockets
 
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
-from rock.sandbox.utils.proxy import build_upstream_ws_headers
+from rock.sandbox.utils.proxy import BLOCKED_WS_HEADER_NAMES, build_upstream_ws_headers
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Unit tests: build_upstream_ws_headers (pure function, no mocks)
@@ -18,7 +18,7 @@ def _ws_with_headers(headers: dict):
 
 
 class TestBuildUpstreamWsHeaders:
-    def test_whitelist_and_origin_forwarded(self):
+    def test_known_headers_forwarded(self):
         ws = _ws_with_headers(
             {
                 "Origin": "https://example.com",
@@ -26,9 +26,6 @@ class TestBuildUpstreamWsHeaders:
                 "cookie": "session=abc",
                 "traceparent": "00-trace-span-01",
                 "EagleEye-TraceId": "eagle-trace-001",
-                "host": "should-be-excluded",
-                "sec-websocket-protocol": "binary",
-                "x-pictor-callid": "pictor-123",
             }
         )
         origin, additional = build_upstream_ws_headers(ws)
@@ -39,11 +36,46 @@ class TestBuildUpstreamWsHeaders:
         assert forwarded["cookie"] == "session=abc"
         assert forwarded["traceparent"] == "00-trace-span-01"
         assert forwarded["EagleEye-TraceId"] == "eagle-trace-001"
-        excluded = {"origin", "host", "sec-websocket-protocol", "x-pictor-callid"}
-        assert excluded.isdisjoint({k.lower() for k, _ in additional})
 
-    def test_no_whitelist_headers_returns_none(self):
-        ws = _ws_with_headers({"host": "localhost", "connection": "upgrade", "user-agent": "test"})
+    def test_custom_headers_forwarded(self):
+        ws = _ws_with_headers(
+            {
+                "x-my-custom": "custom-value",
+                "x-pictor-callid": "pictor-123",
+                "web-server-type": "nginx",
+            }
+        )
+        origin, additional = build_upstream_ws_headers(ws)
+        assert origin is None
+        assert additional is not None
+        forwarded = dict(additional)
+        assert forwarded["x-my-custom"] == "custom-value"
+        assert forwarded["x-pictor-callid"] == "pictor-123"
+        assert forwarded["web-server-type"] == "nginx"
+
+    def test_blocked_headers_excluded(self):
+        ws = _ws_with_headers(
+            {
+                "Authorization": "Bearer token123",
+                "host": "should-be-excluded",
+                "connection": "upgrade",
+                "upgrade": "websocket",
+                "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+                "sec-websocket-version": "13",
+                "sec-websocket-extensions": "permessage-deflate",
+                "sec-websocket-protocol": "binary",
+                "transfer-encoding": "chunked",
+                "keep-alive": "timeout=5",
+            }
+        )
+        origin, additional = build_upstream_ws_headers(ws)
+        assert origin is None
+        assert additional is not None
+        forwarded_keys = {k.lower() for k, _ in additional}
+        assert forwarded_keys == {"authorization"}
+
+    def test_no_forwardable_headers_returns_none(self):
+        ws = _ws_with_headers({"host": "localhost", "connection": "upgrade"})
         origin, additional = build_upstream_ws_headers(ws)
         assert origin is None
         assert additional is None
@@ -52,6 +84,25 @@ class TestBuildUpstreamWsHeaders:
         ws = _ws_with_headers({"origin": "https://example.com"})
         origin, additional = build_upstream_ws_headers(ws)
         assert origin == "https://example.com"
+        assert additional is None
+
+    def test_origin_not_in_additional(self):
+        ws = _ws_with_headers(
+            {
+                "origin": "https://example.com",
+                "Authorization": "Bearer xxx",
+            }
+        )
+        origin, additional = build_upstream_ws_headers(ws)
+        assert origin == "https://example.com"
+        forwarded_keys = {k.lower() for k, _ in additional}
+        assert "origin" not in forwarded_keys
+
+    def test_all_blocked_headers_covered(self):
+        headers = {name: "value" for name in BLOCKED_WS_HEADER_NAMES}
+        ws = _ws_with_headers(headers)
+        origin, additional = build_upstream_ws_headers(ws)
+        assert origin is None
         assert additional is None
 
 
@@ -114,7 +165,7 @@ class TestWebSocketHeaderForwardingE2E:
         headers = await self._run_proxy_with_server({"origin": "https://my-app.example.com"})
         assert headers.get("origin") == "https://my-app.example.com"
 
-    async def test_whitelist_headers_received_by_downstream(self):
+    async def test_known_headers_received_by_downstream(self):
         client_headers = {
             "authorization": "Bearer secret-token",
             "eagleeye-traceid": "eagle-trace-e2e",
@@ -127,18 +178,26 @@ class TestWebSocketHeaderForwardingE2E:
         assert headers.get("x-request-id") == "req-e2e-001"
         assert headers.get("traceparent") == "00-abcdef-123456-01"
 
-    async def test_forbidden_headers_not_received_by_downstream(self):
+    async def test_custom_headers_received_by_downstream(self):
         client_headers = {
-            "authorization": "Bearer xxx",
-            "x-pictor-callid": "should-not-arrive",
-            "x-rock-sandbox-default-upstream": "should-not-arrive",
+            "x-my-custom-app": "my-value",
+            "x-pictor-callid": "pictor-123",
             "web-server-type": "nginx",
         }
         headers = await self._run_proxy_with_server(client_headers)
+        assert headers.get("x-my-custom-app") == "my-value"
+        assert headers.get("x-pictor-callid") == "pictor-123"
+        assert headers.get("web-server-type") == "nginx"
+
+    async def test_blocked_headers_not_duplicated_by_proxy(self):
+        client_headers = {
+            "authorization": "Bearer xxx",
+            "host": "evil.example.com",
+            "connection": "upgrade",
+        }
+        headers = await self._run_proxy_with_server(client_headers)
         assert headers.get("authorization") == "Bearer xxx"
-        assert "x-pictor-callid" not in headers
-        assert "x-rock-sandbox-default-upstream" not in headers
-        assert "web-server-type" not in headers
+        assert headers.get("host") != "evil.example.com"
 
     async def test_no_extra_headers_backward_compatible(self):
         headers = await self._run_proxy_with_server({})
