@@ -64,7 +64,7 @@ import pytest
 #   2. Set environment variables: FC_ACCOUNT_ID, FC_ACCESS_KEY_ID, FC_ACCESS_KEY_SECRET
 pytestmark = pytest.mark.need_fc
 
-from rock.deployments.config import FCDeploymentConfig
+from rock.sandbox.operator.fc import FCOperatorConfig
 from rock.deployments.fc import FCRuntime, FCSessionManager
 from rock.logger import init_logger
 
@@ -107,14 +107,14 @@ def skip_if_no_credentials():
 
 
 @pytest.fixture
-def fc_runtime_config() -> FCDeploymentConfig:
-    """Create FCDeploymentConfig for testing."""
+def fc_runtime_config() -> FCOperatorConfig:
+    """Create FCOperatorConfig for testing."""
     skip_if_no_credentials()
 
     config = get_fc_config()
     session_id = f"e2e-{uuid.uuid4().hex[:8]}"
 
-    return FCDeploymentConfig(
+    return FCOperatorConfig(
         type="fc",
         session_id=session_id,
         function_name=config["function_name"],
@@ -130,7 +130,7 @@ def fc_runtime_config() -> FCDeploymentConfig:
 
 
 @pytest.fixture
-async def fc_runtime(fc_runtime_config: FCDeploymentConfig) -> FCRuntime:
+async def fc_runtime(fc_runtime_config: FCOperatorConfig) -> FCRuntime:
     """Create and initialize FCRuntime for testing."""
     runtime = FCRuntime(fc_runtime_config)
     # Create WebSocket session for this sandbox
@@ -588,7 +588,7 @@ class TestE2EWebSocketSession:
     """E2E tests for WebSocket session operations."""
 
     @pytest.mark.asyncio
-    async def test_create_session(self, fc_runtime_config: FCDeploymentConfig):
+    async def test_create_session(self, fc_runtime_config: FCOperatorConfig):
         """E2E-WS-01a: Test creating session via WebSocket."""
         session_manager = FCSessionManager(config=fc_runtime_config)
         session_id = f"ws-{uuid.uuid4().hex[:8]}"
@@ -601,7 +601,7 @@ class TestE2EWebSocketSession:
             await session_manager.close_session(session_id=session_id)
 
     @pytest.mark.asyncio
-    async def test_execute_command(self, fc_runtime_config: FCDeploymentConfig):
+    async def test_execute_command(self, fc_runtime_config: FCOperatorConfig):
         """E2E-WS-01b: Test executing command via WebSocket."""
         session_manager = FCSessionManager(config=fc_runtime_config)
         session_id = f"ws-{uuid.uuid4().hex[:8]}"
@@ -619,7 +619,7 @@ class TestE2EWebSocketSession:
             await session_manager.close_session(session_id=session_id)
 
     @pytest.mark.asyncio
-    async def test_close_session(self, fc_runtime_config: FCDeploymentConfig):
+    async def test_close_session(self, fc_runtime_config: FCOperatorConfig):
         """E2E-WS-01c: Test closing WebSocket session."""
         session_manager = FCSessionManager(config=fc_runtime_config)
         session_id = f"ws-{uuid.uuid4().hex[:8]}"
@@ -631,7 +631,7 @@ class TestE2EWebSocketSession:
         assert session_id not in session_manager.sessions
 
     @pytest.mark.asyncio
-    async def test_session_stats(self, fc_runtime_config: FCDeploymentConfig):
+    async def test_session_stats(self, fc_runtime_config: FCOperatorConfig):
         """E2E-WS-01d: Test getting session statistics."""
         session_manager = FCSessionManager(config=fc_runtime_config)
         session_id = f"ws-{uuid.uuid4().hex[:8]}"
@@ -650,7 +650,7 @@ class TestE2EWebSocketReconnection:
     """E2E tests for WebSocket reconnection behavior."""
 
     @pytest.mark.asyncio
-    async def test_session_state_tracking(self, fc_runtime_config: FCDeploymentConfig):
+    async def test_session_state_tracking(self, fc_runtime_config: FCOperatorConfig):
         """E2E-WS-02a: Test session state is tracked correctly."""
         session_manager = FCSessionManager(config=fc_runtime_config)
         session_id = f"ws-{uuid.uuid4().hex[:8]}"
@@ -670,7 +670,7 @@ class TestE2EWebSocketReconnection:
             await session_manager.close_session(session_id=session_id)
 
     @pytest.mark.asyncio
-    async def test_multiple_sessions(self, fc_runtime_config: FCDeploymentConfig):
+    async def test_multiple_sessions(self, fc_runtime_config: FCOperatorConfig):
         """E2E-WS-02b: Test managing multiple WebSocket sessions."""
         session_manager = FCSessionManager(config=fc_runtime_config)
         session_ids = [f"ws-multi-{i}-{uuid.uuid4().hex[:6]}" for i in range(3)]
@@ -752,9 +752,9 @@ class TestE2EErrorHandling:
         assert response.status_code in [200, 400, 404]
 
     @pytest.mark.asyncio
-    async def test_command_timeout(self, fc_runtime_config: FCDeploymentConfig):
+    async def test_command_timeout(self, fc_runtime_config: FCOperatorConfig):
         """E2E-ERR-01b: Test command timeout handling."""
-        short_timeout_config = FCDeploymentConfig(
+        short_timeout_config = FCOperatorConfig(
             type="fc",
             session_id=f"timeout-{uuid.uuid4().hex[:8]}",
             function_name=fc_runtime_config.function_name,

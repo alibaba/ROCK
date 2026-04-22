@@ -6,10 +6,10 @@ import uuid
 from rock.actions.sandbox.response import State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.config import FCConfig
-from rock.deployments.config import FCDeploymentConfig
 from rock.deployments.fc import FCRuntime
 from rock.logger import init_logger
 from rock.sandbox.operator.abstract import AbstractOperator
+from rock.sandbox.operator.fc.config import FCOperatorConfig
 
 logger = init_logger(__name__)
 
@@ -28,7 +28,7 @@ class FCOperator(AbstractOperator):
     - Session affinity via x-rock-session-id header
     - Automatic config merge with FCConfig defaults
     - Local runtime tracking with asyncio lock for thread safety
-    - Direct FCRuntime management (no FCDeployment wrapper)
+    - Direct FCRuntime management (no Deployment wrapper)
     """
 
     def __init__(self, fc_config: FCConfig):
@@ -39,14 +39,14 @@ class FCOperator(AbstractOperator):
         """
         self._fc_config = fc_config
         self._runtimes: dict[str, FCRuntime] = {}
-        self._runtime_configs: dict[str, FCDeploymentConfig] = {}
+        self._runtime_configs: dict[str, FCOperatorConfig] = {}
         self._runtimes_lock = asyncio.Lock()
 
-    async def submit(self, config: FCDeploymentConfig, user_info: dict = {}) -> SandboxInfo:
+    async def submit(self, config: FCOperatorConfig, user_info: dict = {}) -> SandboxInfo:
         """Submit (start) an FC sandbox with session affinity.
 
         Args:
-            config: FCDeploymentConfig with sandbox settings.
+            config: FCOperatorConfig with sandbox settings.
             user_info: User metadata (user_id, experiment_id, namespace).
 
         Returns:
@@ -62,7 +62,7 @@ class FCOperator(AbstractOperator):
         session_id = merged_config.session_id or f"fc-{uuid.uuid4().hex[:12]}"
 
         # Create final config with resolved session_id
-        final_config = FCDeploymentConfig(
+        final_config = FCOperatorConfig(
             type="fc",
             session_id=session_id,
             function_name=merged_config.function_name,
@@ -79,7 +79,8 @@ class FCOperator(AbstractOperator):
             extended_params=merged_config.extended_params,
         )
 
-        # Create FCRuntime directly (no FCDeployment wrapper)
+        # Create FCRuntime directly (no Deployment wrapper)
+        # FCRuntime expects a config object with same fields as FCOperatorConfig
         runtime = FCRuntime(final_config)
 
         try:

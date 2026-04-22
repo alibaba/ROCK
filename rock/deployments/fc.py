@@ -199,12 +199,12 @@ class FCSessionManager:
 
     def __init__(
         self,
-        config: "FCDeploymentConfig",
+        config: "FCOperatorConfig",
         reconnect_config: ReconnectConfig | None = None,
     ):
-        from rock.deployments.config import FCDeploymentConfig
+        from rock.sandbox.operator.fc.config import FCOperatorConfig
 
-        self.config: FCDeploymentConfig = config
+        self.config: FCOperatorConfig = config
         self.reconnect_config = reconnect_config or ReconnectConfig()
         self.sessions: dict[str, SessionState] = {}  # session_id -> SessionState
         self._websocket_url = self._build_websocket_url()
@@ -603,10 +603,10 @@ class FCRuntime(AbstractSandbox):
     # HTTP status codes that should trigger retry
     RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
-    def __init__(self, config: "FCDeploymentConfig"):
-        from rock.deployments.config import FCDeploymentConfig
+    def __init__(self, config: "FCOperatorConfig"):
+        from rock.sandbox.operator.fc.config import FCOperatorConfig
 
-        self.config: FCDeploymentConfig = config
+        self.config: FCOperatorConfig = config
         self.session_manager = FCSessionManager(config)
         self._http_client = None
         self._started = False

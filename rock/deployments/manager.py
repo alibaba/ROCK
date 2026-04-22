@@ -6,10 +6,10 @@ from rock.deployments.config import (
     AbstractDeployment,
     DeploymentConfig,
     DockerDeploymentConfig,
-    FCDeploymentConfig,
     RayDeploymentConfig,
 )
 from rock.logger import init_logger
+from rock.sandbox.operator.fc import FCOperatorConfig
 from rock.utils import sandbox_id_ctx_var
 
 logger = init_logger(__name__)
@@ -30,11 +30,11 @@ class DeploymentManager:
     async def init_config(self, config: DeploymentConfig) -> DeploymentConfig:
         """Initialize deployment config with ROCK defaults.
 
-        For FC deployments, preserve the config as-is (FCOperator handles merge with FCConfig).
+        For FC (FCOperatorConfig), preserve the config as-is (FCOperator handles merge with FCConfig).
         For Docker/Ray deployments, convert to RayDeploymentConfig with ROCK defaults.
         """
         # Preserve FC config - FCOperator handles the merge with FCConfig internally
-        if isinstance(config, FCDeploymentConfig):
+        if isinstance(config, FCOperatorConfig):
             sandbox_id = config.session_id or f"fc-{uuid.uuid4().hex[:12]}"
             config.session_id = sandbox_id
             sandbox_id_ctx_var.set(sandbox_id)
