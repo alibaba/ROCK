@@ -581,7 +581,7 @@ class BatchSandboxProvider(K8sProvider):
         Raises:
             Exception: If creation fails or sandbox already exists
         """
-        # await self._ensure_initialized()
+        await self._ensure_initialized()
 
         sandbox_id = config.container_name
 
