@@ -56,15 +56,20 @@ jobs:
         uses: astral-sh/setup-uv@v6
 
       - name: Install ROCK Python dependencies
-        run: uv sync --all-extras --python 3.11
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          uv sync --all-extras --python 3.11
 
       - name: Pull sandbox Docker image
-        run: docker pull python:3.11
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          docker pull python:3.11
 
       - name: Start ROCK Admin service
         env:
           ROCK_WORKER_ENV_TYPE: uv
         run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           nohup uv run admin --env ci --role admin --port 8080 > /tmp/rock-admin.log 2>&1 &
           echo "Waiting for admin to be ready..."
           for i in $(seq 1 60); do
@@ -85,11 +90,15 @@ jobs:
           node-version: "20"
 
       - name: Install pnpm
-        run: npm install -g pnpm
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          npm install -g pnpm
 
       - name: Install TS SDK dependencies
         working-directory: rock/ts-sdk
-        run: pnpm install --frozen-lockfile
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          pnpm install --frozen-lockfile
 
       # --- Integration tests ---
       # ubuntu-latest has 4 vCPU / 16GB RAM. SDK default sandbox spec is
@@ -105,11 +114,14 @@ jobs:
           ROCK_DEFAULT_MEMORY: "2g"
           ROCK_DEFAULT_CPUS: "1"
           ROCK_STARTUP_TIMEOUT: "120"
-        run: pnpm test:integration
+        run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          pnpm test:integration
 
       - name: Print admin logs on failure
         if: failure()
         run: |
+          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           echo "=== ROCK Admin Logs (last 200 lines) ==="
           tail -200 /tmp/rock-admin.log || true
           echo "=== Docker Containers ==="
