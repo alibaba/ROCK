@@ -7,7 +7,7 @@ from rock.actions.sandbox.response import State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.config import FCConfig
 from rock.deployments.config import FCDeploymentConfig
-from rock.deployments.fc import FCDeployment
+from rock.deployments.fc import FCRuntime
 from rock.logger import init_logger
 from rock.sandbox.operator.abstract import AbstractOperator
 
@@ -18,16 +18,17 @@ class FCOperator(AbstractOperator):
     """Operator for managing sandboxes via Alibaba Cloud Function Compute.
 
     This operator manages FC sandbox lifecycle using the WebSocket session API
-    for stateful bash sessions. It tracks deployments locally and integrates
-    with SandboxManager through the AbstractOperator interface.
+    for stateful bash sessions. It tracks FCRuntime instances directly without
+    using the Deployment pattern.
 
     Architecture:
-        SandboxManager -> FCOperator -> FCDeployment -> FCRuntime -> FCSessionManager
+        SandboxManager -> FCOperator -> FCRuntime -> FCSessionManager
 
     Key features:
     - Session affinity via x-rock-session-id header
     - Automatic config merge with FCConfig defaults
-    - Local deployment tracking with asyncio lock for thread safety
+    - Local runtime tracking with asyncio lock for thread safety
+    - Direct FCRuntime management (no FCDeployment wrapper)
     """
 
     def __init__(self, fc_config: FCConfig):
@@ -37,8 +38,9 @@ class FCOperator(AbstractOperator):
             fc_config: FCConfig from RockConfig containing default credentials and settings.
         """
         self._fc_config = fc_config
-        self._deployments: dict[str, FCDeployment] = {}
-        self._deployments_lock = asyncio.Lock()
+        self._runtimes: dict[str, FCRuntime] = {}
+        self._runtime_configs: dict[str, FCDeploymentConfig] = {}
+        self._runtimes_lock = asyncio.Lock()
 
     async def submit(self, config: FCDeploymentConfig, user_info: dict = {}) -> SandboxInfo:
         """Submit (start) an FC sandbox with session affinity.
@@ -51,7 +53,7 @@ class FCOperator(AbstractOperator):
             SandboxInfo with sandbox_id, host_name, and other metadata.
 
         Raises:
-            RuntimeError: If FC deployment fails to start.
+            RuntimeError: If FC runtime fails to start.
         """
         # Merge with FCConfig defaults from Admin config
         merged_config = config.merge_with_fc_config(self._fc_config)
@@ -74,19 +76,23 @@ class FCOperator(AbstractOperator):
             session_ttl=merged_config.session_ttl,
             session_idle_timeout=merged_config.session_idle_timeout,
             function_timeout=merged_config.function_timeout,
+            extended_params=merged_config.extended_params,
         )
 
-        deployment = FCDeployment.from_config(final_config)
+        # Create FCRuntime directly (no FCDeployment wrapper)
+        runtime = FCRuntime(final_config)
 
         try:
-            await deployment.start()
+            # Create WebSocket session for this sandbox
+            await runtime.session_manager.create_session(session_id)
         except Exception as e:
-            logger.error(f"Failed to start FC deployment for {session_id}: {e}")
+            logger.error(f"Failed to create FC session for {session_id}: {e}")
             raise
 
-        # Track deployment after successful start
-        async with self._deployments_lock:
-            self._deployments[session_id] = deployment
+        # Track runtime and config after successful session creation
+        async with self._runtimes_lock:
+            self._runtimes[session_id] = runtime
+            self._runtime_configs[session_id] = final_config
 
         logger.info(f"FC sandbox {session_id} submitted successfully")
 
@@ -117,11 +123,12 @@ class FCOperator(AbstractOperator):
         Raises:
             ValueError: If sandbox not found in local tracking.
         """
-        async with self._deployments_lock:
-            deployment = self._deployments.get(sandbox_id)
+        async with self._runtimes_lock:
+            runtime = self._runtimes.get(sandbox_id)
+            config = self._runtime_configs.get(sandbox_id)
 
-        if deployment is None:
-            # Check Redis for sandbox info if deployment not tracked locally
+        if runtime is None:
+            # Check Redis for sandbox info if runtime not tracked locally
             if self._redis_provider:
                 from rock.admin.core.redis_key import alive_sandbox_key
 
@@ -131,18 +138,17 @@ class FCOperator(AbstractOperator):
 
             raise ValueError(f"FC sandbox {sandbox_id} not found")
 
-        is_alive = await deployment.is_alive()
-        config = deployment.config
+        is_alive = await runtime.is_alive()
 
         return SandboxInfo(
             sandbox_id=sandbox_id,
             type="fc",
-            function_name=config.function_name,
-            region=config.region,
-            memory=config.memory,
-            cpus=config.cpus,
+            function_name=config.function_name if config else None,
+            region=config.region if config else None,
+            memory=config.memory if config else None,
+            cpus=config.cpus if config else None,
             state=State.RUNNING if is_alive.is_alive else State.PENDING,
-            host_name=f"{config.account_id}.{config.region}.fc.aliyuncs.com",
+            host_name=f"{config.account_id}.{config.region}.fc.aliyuncs.com" if config else None,
             host_ip=None,
         )
 
@@ -155,12 +161,13 @@ class FCOperator(AbstractOperator):
         Returns:
             True if sandbox was stopped successfully.
         """
-        async with self._deployments_lock:
-            deployment = self._deployments.pop(sandbox_id, None)
+        async with self._runtimes_lock:
+            runtime = self._runtimes.pop(sandbox_id, None)
+            self._runtime_configs.pop(sandbox_id, None)
 
-        if deployment:
+        if runtime:
             try:
-                await deployment.stop()
+                await runtime.close()
                 logger.info(f"FC sandbox {sandbox_id} stopped")
                 return True
             except Exception as e:

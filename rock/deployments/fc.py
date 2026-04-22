@@ -18,8 +18,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from typing_extensions import Self
-
 from rock.actions import (
     CloseResponse,
     CloseSessionRequest,
@@ -39,9 +37,6 @@ from rock.actions import (
 from rock.actions.sandbox.base import AbstractSandbox
 from rock.actions.sandbox.request import Action
 from rock.actions.sandbox.response import Observation
-from rock.deployments.abstract import AbstractDeployment
-from rock.deployments.hooks.abstract import CombinedDeploymentHook, DeploymentHook
-from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
 
 try:
@@ -51,7 +46,7 @@ except ImportError:
     websockets = None
     ConnectionClosed = Exception
 
-__all__ = ["FCDeployment", "FCRuntime", "FCSessionManager", "ReconnectConfig", "CircuitBreaker", "CircuitState", "FCError", "FCSandboxNotFoundError", "FCRuntimeError"]
+__all__ = ["FCRuntime", "FCSessionManager", "ReconnectConfig", "CircuitBreaker", "CircuitState", "FCError", "FCSandboxNotFoundError", "FCRuntimeError"]
 
 logger = init_logger(__name__)
 
@@ -886,123 +881,3 @@ class FCRuntime(AbstractSandbox):
             self._http_client = None
         self._started = False
         return CloseResponse()
-
-
-class FCDeployment(AbstractDeployment):
-    """Alibaba Cloud Function Compute (FC) deployment implementation.
-
-    Manages the lifecycle of FC function instances and provides
-    a stateful sandbox runtime via WebSocket session API.
-
-    FC (Function Compute) is Alibaba Cloud's serverless compute service
-    that allows running code without provisioning servers.
-    """
-
-    def __init__(self, **kwargs: Any):
-        from rock.deployments.config import FCDeploymentConfig
-
-        self._config = FCDeploymentConfig(**kwargs)
-        self._runtime: FCRuntime | None = None
-        self._hooks = CombinedDeploymentHook()
-        self._service_status = ServiceStatus()
-        self._sandbox_id: str | None = None
-        self._started = False
-
-    @classmethod
-    def from_config(cls, config: "FCDeploymentConfig") -> Self:
-        return cls(**config.model_dump())
-
-    def add_hook(self, hook: DeploymentHook):
-        self._hooks.add_hook(hook)
-
-    async def is_alive(self, *, timeout: float | None = None) -> IsAliveResponse:
-        """Check if the FC deployment is alive."""
-        if self._runtime is None:
-            return IsAliveResponse(is_alive=False)
-        return await self._runtime.is_alive(timeout=timeout)
-
-    async def start(self, *args, **kwargs):
-        """Start the FC deployment.
-
-        For FC, this initializes the runtime and ensures the function is ready.
-        The actual function instance is created on-demand when sessions are created.
-        """
-        if self._started:
-            logger.warning("FC deployment already started")
-            return
-
-        logger.info(f"Starting FC deployment for function {self._config.function_name}")
-
-        # Generate sandbox ID if not set
-        if self._sandbox_id is None:
-            self._sandbox_id = f"fc-{uuid.uuid4().hex[:12]}"
-
-        # Initialize runtime
-        self._runtime = FCRuntime(self._config)
-
-        # Optionally warm up the function
-        try:
-            is_alive = await self._runtime.is_alive(timeout=10.0)
-            if is_alive.is_alive:
-                logger.info("FC function is ready")
-            else:
-                logger.warning("FC function health check failed, but continuing")
-        except Exception as e:
-            logger.warning(f"FC warmup failed: {e}, but continuing")
-
-        self._started = True
-        logger.info(f"FC deployment started with sandbox_id: {self._sandbox_id}")
-
-    async def stop(self, *args, **kwargs):
-        """Stop the FC deployment."""
-        if not self._started:
-            return
-
-        logger.info(f"Stopping FC deployment: {self._sandbox_id}")
-
-        if self._runtime:
-            await self._runtime.close()
-            self._runtime = None
-
-        self._started = False
-        logger.info(f"FC deployment stopped: {self._sandbox_id}")
-
-    @property
-    def runtime(self) -> FCRuntime:
-        """Returns the FC runtime."""
-        if self._runtime is None:
-            from rock.rocklet.exceptions import DeploymentNotStartedError
-            raise DeploymentNotStartedError()
-        return self._runtime
-
-    @property
-    def config(self) -> "FCDeploymentConfig":
-        """Returns the deployment configuration."""
-        return self._config
-
-    @property
-    def sandbox_id(self) -> str | None:
-        """Returns the sandbox ID."""
-        return self._sandbox_id
-
-    def set_sandbox_id(self, sandbox_id: str):
-        """Set the sandbox ID."""
-        self._sandbox_id = sandbox_id
-
-    def get_status(self) -> ServiceStatus:
-        """Returns the service status."""
-        return self._service_status
-
-    async def creator_actor(self, actor_name: str):
-        """Create a Ray actor for FC deployment.
-
-        Note: For FC, we don't use Ray actors directly.
-        This method is for compatibility with the existing interface.
-        """
-        # FC doesn't use Ray actors, return None
-        # The FCDeployment itself manages the runtime
-        return None
-
-
-# Import config at module level for type hints
-from rock.deployments.config import FCDeploymentConfig  # noqa: E402

@@ -6,6 +6,8 @@ These tests require a real FC function to be deployed.
 
 FC (Function Compute) is Alibaba Cloud's serverless compute service.
 
+Note: FC uses direct Runtime management via FCOperator, not the Deployment pattern.
+
 Prerequisites:
 1. Deploy FC function (choose one runtime mode):
    - Custom Runtime: cd rock/deployments/fc_rocklet/runtime && ./package.sh && s deploy
@@ -14,7 +16,7 @@ Prerequisites:
    FC_ACCOUNT_ID, FC_ACCESS_KEY_ID, FC_ACCESS_KEY_SECRET
 
 Access Protocols:
-- FC SDK: Use FCDeployment class with FC API (recommended)
+- FC Runtime: Use FCRuntime class with FC API (recommended)
 - HTTP: Direct HTTP calls to FC function endpoints
 - WebSocket: Stateful session via FC WebSocket API
 - gRPC: Not supported yet (planned)
@@ -63,7 +65,7 @@ import pytest
 pytestmark = pytest.mark.need_fc
 
 from rock.deployments.config import FCDeploymentConfig
-from rock.deployments.fc import FCDeployment, FCSessionManager
+from rock.deployments.fc import FCRuntime, FCSessionManager
 from rock.logger import init_logger
 
 logger = init_logger(__name__)
@@ -105,7 +107,7 @@ def skip_if_no_credentials():
 
 
 @pytest.fixture
-def fc_deployment_config() -> FCDeploymentConfig:
+def fc_runtime_config() -> FCDeploymentConfig:
     """Create FCDeploymentConfig for testing."""
     skip_if_no_credentials()
 
@@ -128,14 +130,15 @@ def fc_deployment_config() -> FCDeploymentConfig:
 
 
 @pytest.fixture
-async def fc_deployment(fc_deployment_config: FCDeploymentConfig) -> FCDeployment:
-    """Create and start FCDeployment for testing."""
-    deployment = FCDeployment.from_config(fc_deployment_config)
-    await deployment.start()
-    yield deployment
+async def fc_runtime(fc_runtime_config: FCDeploymentConfig) -> FCRuntime:
+    """Create and initialize FCRuntime for testing."""
+    runtime = FCRuntime(fc_runtime_config)
+    # Create WebSocket session for this sandbox
+    await runtime.session_manager.create_session(fc_runtime_config.session_id)
+    yield runtime
     # Cleanup
     try:
-        await deployment.close()
+        await runtime.close()
     except Exception:
         pass
 
@@ -153,12 +156,12 @@ def http_client() -> httpx.AsyncClient:
 
 
 class TestE2EFCSDKHealthCheck:
-    """E2E tests via FC SDK (FCDeployment class)."""
+    """E2E tests via FC SDK (FCRuntime class)."""
 
     @pytest.mark.asyncio
-    async def test_is_alive(self, fc_deployment: FCDeployment):
+    async def test_is_alive(self, fc_runtime: FCRuntime):
         """E2E-FC-SDK-01: Test is_alive via FC SDK."""
-        result = await fc_deployment.is_alive()
+        result = await fc_runtime.is_alive()
         assert result.is_alive is True
 
 
@@ -166,32 +169,32 @@ class TestE2EFCSDKSessionLifecycle:
     """E2E tests for session lifecycle via FC SDK."""
 
     @pytest.mark.asyncio
-    async def test_create_session(self, fc_deployment: FCDeployment):
+    async def test_create_session(self, fc_runtime: FCRuntime):
         """E2E-FC-SDK-02a: Create session via FC SDK."""
-        create_result = await fc_deployment.create_session(
+        create_result = await fc_runtime.create_session(
             request={"session_type": "bash"}
         )
         assert create_result.success is True
 
     @pytest.mark.asyncio
-    async def test_full_session_lifecycle(self, fc_deployment: FCDeployment):
+    async def test_full_session_lifecycle(self, fc_runtime: FCRuntime):
         """E2E-FC-SDK-02b: Full session lifecycle via FC SDK."""
         # Create session
-        create_result = await fc_deployment.create_session(
+        create_result = await fc_runtime.create_session(
             request={"session_type": "bash"}
         )
         assert create_result.success is True
 
         # Run command
-        run_result = await fc_deployment.run_in_session(
+        run_result = await fc_runtime.run_in_session(
             action={"action_type": "bash", "command": "echo 'hello fc sdk'"}
         )
         assert run_result.exit_code == 0
         assert "hello fc sdk" in run_result.output
 
         # Close session
-        close_result = await fc_deployment.close_session(
-            request={"session_id": fc_deployment.sandbox_id}
+        close_result = await fc_runtime.close_session(
+            request={"session_id": fc_runtime.sandbox_id}
         )
         assert close_result.success is True
 
@@ -200,53 +203,53 @@ class TestE2EFCSDKCommandExecution:
     """E2E tests for command execution via FC SDK."""
 
     @pytest.fixture(autouse=True)
-    async def setup_session(self, fc_deployment: FCDeployment):
+    async def setup_session(self, fc_runtime: FCRuntime):
         """Create session before each test."""
-        await fc_deployment.create_session(request={"session_type": "bash"})
+        await fc_runtime.create_session(request={"session_type": "bash"})
         yield
         try:
-            await fc_deployment.close_session(
-                request={"session_id": fc_deployment.sandbox_id}
+            await fc_runtime.close_session(
+                request={"session_id": fc_runtime.sandbox_id}
             )
         except Exception:
             pass
 
     @pytest.mark.asyncio
-    async def test_echo_command(self, fc_deployment: FCDeployment):
+    async def test_echo_command(self, fc_runtime: FCRuntime):
         """E2E-FC-SDK-03a: Test echo command."""
-        result = await fc_deployment.run_in_session(
+        result = await fc_runtime.run_in_session(
             action={"action_type": "bash", "command": "echo 'test'"}
         )
         assert result.exit_code == 0
         assert "test" in result.output
 
     @pytest.mark.asyncio
-    async def test_command_with_pipe(self, fc_deployment: FCDeployment):
+    async def test_command_with_pipe(self, fc_runtime: FCRuntime):
         """E2E-FC-SDK-03b: Test command with pipe."""
-        result = await fc_deployment.run_in_session(
+        result = await fc_runtime.run_in_session(
             action={"action_type": "bash", "command": "echo 'hello world' | wc -w"}
         )
         assert result.exit_code == 0
         assert "2" in result.output
 
     @pytest.mark.asyncio
-    async def test_environment_variable_persistence(self, fc_deployment: FCDeployment):
+    async def test_environment_variable_persistence(self, fc_runtime: FCRuntime):
         """E2E-FC-SDK-03c: Test environment variable persists."""
-        await fc_deployment.run_in_session(
+        await fc_runtime.run_in_session(
             action={"action_type": "bash", "command": "export TEST_VAR='e2e_value'"}
         )
-        result = await fc_deployment.run_in_session(
+        result = await fc_runtime.run_in_session(
             action={"action_type": "bash", "command": "echo $TEST_VAR"}
         )
         assert "e2e_value" in result.output
 
     @pytest.mark.asyncio
-    async def test_working_directory_persistence(self, fc_deployment: FCDeployment):
+    async def test_working_directory_persistence(self, fc_runtime: FCRuntime):
         """E2E-FC-SDK-03d: Test cd command persists."""
-        await fc_deployment.run_in_session(
+        await fc_runtime.run_in_session(
             action={"action_type": "bash", "command": "mkdir -p /tmp/e2e_test && cd /tmp/e2e_test"}
         )
-        result = await fc_deployment.run_in_session(
+        result = await fc_runtime.run_in_session(
             action={"action_type": "bash", "command": "pwd"}
         )
         assert "/tmp/e2e_test" in result.output
@@ -256,38 +259,38 @@ class TestE2EFCSDKFileOperations:
     """E2E tests for file operations via FC SDK."""
 
     @pytest.fixture(autouse=True)
-    async def setup_session(self, fc_deployment: FCDeployment):
+    async def setup_session(self, fc_runtime: FCRuntime):
         """Create session before each test."""
-        await fc_deployment.create_session(request={"session_type": "bash"})
+        await fc_runtime.create_session(request={"session_type": "bash"})
         yield
         try:
-            await fc_deployment.close_session(
-                request={"session_id": fc_deployment.sandbox_id}
+            await fc_runtime.close_session(
+                request={"session_id": fc_runtime.sandbox_id}
             )
         except Exception:
             pass
 
     @pytest.mark.asyncio
-    async def test_write_and_read_file(self, fc_deployment: FCDeployment):
+    async def test_write_and_read_file(self, fc_runtime: FCRuntime):
         """E2E-FC-SDK-04a: Test write and read file."""
         test_content = f"e2e test content {uuid.uuid4().hex}"
         test_file = f"/tmp/e2e_test_{uuid.uuid4().hex[:8]}.txt"
 
         # Write file
-        write_result = await fc_deployment.write_file(
+        write_result = await fc_runtime.write_file(
             request={"path": test_file, "content": test_content}
         )
         assert write_result.success is True
 
         # Read file
-        read_result = await fc_deployment.read_file(request={"path": test_file})
+        read_result = await fc_runtime.read_file(request={"path": test_file})
         assert read_result.success is True
         assert test_content in read_result.content
 
     @pytest.mark.asyncio
-    async def test_read_nonexistent_file(self, fc_deployment: FCDeployment):
+    async def test_read_nonexistent_file(self, fc_runtime: FCRuntime):
         """E2E-FC-SDK-04b: Test reading nonexistent file."""
-        result = await fc_deployment.read_file(
+        result = await fc_runtime.read_file(
             request={"path": f"/tmp/nonexistent_{uuid.uuid4().hex}.txt"}
         )
         assert result.success is False or result.error is not None
@@ -297,9 +300,9 @@ class TestE2EFCSDKDirectExecute:
     """E2E tests for direct execute via FC SDK."""
 
     @pytest.mark.asyncio
-    async def test_execute_command_directly(self, fc_deployment: FCDeployment):
+    async def test_execute_command_directly(self, fc_runtime: FCRuntime):
         """E2E-FC-SDK-05: Test execute command without session."""
-        result = await fc_deployment.execute(
+        result = await fc_runtime.execute(
             command={"command": "echo 'direct execute'", "timeout": 30, "shell": True}
         )
         assert result.exit_code == 0
@@ -585,9 +588,9 @@ class TestE2EWebSocketSession:
     """E2E tests for WebSocket session operations."""
 
     @pytest.mark.asyncio
-    async def test_create_session(self, fc_deployment_config: FCDeploymentConfig):
+    async def test_create_session(self, fc_runtime_config: FCDeploymentConfig):
         """E2E-WS-01a: Test creating session via WebSocket."""
-        session_manager = FCSessionManager(config=fc_deployment_config)
+        session_manager = FCSessionManager(config=fc_runtime_config)
         session_id = f"ws-{uuid.uuid4().hex[:8]}"
 
         try:
@@ -598,9 +601,9 @@ class TestE2EWebSocketSession:
             await session_manager.close_session(session_id=session_id)
 
     @pytest.mark.asyncio
-    async def test_execute_command(self, fc_deployment_config: FCDeploymentConfig):
+    async def test_execute_command(self, fc_runtime_config: FCDeploymentConfig):
         """E2E-WS-01b: Test executing command via WebSocket."""
-        session_manager = FCSessionManager(config=fc_deployment_config)
+        session_manager = FCSessionManager(config=fc_runtime_config)
         session_id = f"ws-{uuid.uuid4().hex[:8]}"
 
         try:
@@ -616,9 +619,9 @@ class TestE2EWebSocketSession:
             await session_manager.close_session(session_id=session_id)
 
     @pytest.mark.asyncio
-    async def test_close_session(self, fc_deployment_config: FCDeploymentConfig):
+    async def test_close_session(self, fc_runtime_config: FCDeploymentConfig):
         """E2E-WS-01c: Test closing WebSocket session."""
-        session_manager = FCSessionManager(config=fc_deployment_config)
+        session_manager = FCSessionManager(config=fc_runtime_config)
         session_id = f"ws-{uuid.uuid4().hex[:8]}"
 
         await session_manager.create_session(session_id=session_id)
@@ -628,9 +631,9 @@ class TestE2EWebSocketSession:
         assert session_id not in session_manager.sessions
 
     @pytest.mark.asyncio
-    async def test_session_stats(self, fc_deployment_config: FCDeploymentConfig):
+    async def test_session_stats(self, fc_runtime_config: FCDeploymentConfig):
         """E2E-WS-01d: Test getting session statistics."""
-        session_manager = FCSessionManager(config=fc_deployment_config)
+        session_manager = FCSessionManager(config=fc_runtime_config)
         session_id = f"ws-{uuid.uuid4().hex[:8]}"
 
         try:
@@ -647,9 +650,9 @@ class TestE2EWebSocketReconnection:
     """E2E tests for WebSocket reconnection behavior."""
 
     @pytest.mark.asyncio
-    async def test_session_state_tracking(self, fc_deployment_config: FCDeploymentConfig):
+    async def test_session_state_tracking(self, fc_runtime_config: FCDeploymentConfig):
         """E2E-WS-02a: Test session state is tracked correctly."""
-        session_manager = FCSessionManager(config=fc_deployment_config)
+        session_manager = FCSessionManager(config=fc_runtime_config)
         session_id = f"ws-{uuid.uuid4().hex[:8]}"
 
         try:
@@ -667,9 +670,9 @@ class TestE2EWebSocketReconnection:
             await session_manager.close_session(session_id=session_id)
 
     @pytest.mark.asyncio
-    async def test_multiple_sessions(self, fc_deployment_config: FCDeploymentConfig):
+    async def test_multiple_sessions(self, fc_runtime_config: FCDeploymentConfig):
         """E2E-WS-02b: Test managing multiple WebSocket sessions."""
-        session_manager = FCSessionManager(config=fc_deployment_config)
+        session_manager = FCSessionManager(config=fc_runtime_config)
         session_ids = [f"ws-multi-{i}-{uuid.uuid4().hex[:6]}" for i in range(3)]
 
         try:
@@ -749,29 +752,30 @@ class TestE2EErrorHandling:
         assert response.status_code in [200, 400, 404]
 
     @pytest.mark.asyncio
-    async def test_command_timeout(self, fc_deployment_config: FCDeploymentConfig):
+    async def test_command_timeout(self, fc_runtime_config: FCDeploymentConfig):
         """E2E-ERR-01b: Test command timeout handling."""
         short_timeout_config = FCDeploymentConfig(
             type="fc",
             session_id=f"timeout-{uuid.uuid4().hex[:8]}",
-            function_name=fc_deployment_config.function_name,
-            region=fc_deployment_config.region,
-            account_id=fc_deployment_config.account_id,
-            access_key_id=fc_deployment_config.access_key_id,
-            access_key_secret=fc_deployment_config.access_key_secret,
+            function_name=fc_runtime_config.function_name,
+            region=fc_runtime_config.region,
+            account_id=fc_runtime_config.account_id,
+            access_key_id=fc_runtime_config.access_key_id,
+            access_key_secret=fc_runtime_config.access_key_secret,
             function_timeout=2.0,
         )
 
-        deployment = FCDeployment.from_config(short_timeout_config)
+        runtime = FCRuntime(short_timeout_config)
         try:
-            await deployment.start()
-            result = await deployment.execute(
+            # Create session before executing
+            await runtime.session_manager.create_session(short_timeout_config.session_id)
+            result = await runtime.execute(
                 command={"command": "sleep 10", "timeout": 1, "shell": True}
             )
             # Should timeout or return error
-            assert result.exit_code != 0 or result.error is not None
+            assert result.exit_code != 0 or result.stderr is not None
         finally:
             try:
-                await deployment.close()
+                await runtime.close()
             except Exception:
                 pass

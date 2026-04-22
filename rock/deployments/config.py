@@ -238,6 +238,9 @@ class FCDeploymentConfig(DeploymentConfig):
     FC (Function Compute) is Alibaba Cloud's serverless compute service.
     This deployment type enables serverless sandbox execution with WebSocket
     session management for stateful operations.
+
+    Note: FC uses a direct Runtime pattern, not the Deployment pattern.
+    FCOperator directly manages FCRuntime instances without FCDeployment wrapper.
     """
 
     type: Literal["fc"] = "fc"
@@ -263,10 +266,20 @@ class FCDeploymentConfig(DeploymentConfig):
     session_idle_timeout: int | None = None
     function_timeout: float | None = None
 
-    def get_deployment(self) -> AbstractDeployment:
-        from rock.deployments.fc import FCDeployment
+    # Extension field for custom parameters (matching DockerDeploymentConfig pattern)
+    extended_params: dict[str, str] = Field(default_factory=dict)
+    """Generic extension field for storing custom string key-value pairs."""
 
-        return FCDeployment.from_config(self)
+    def get_deployment(self) -> AbstractDeployment:
+        """FC does not use the Deployment pattern.
+
+        Raises:
+            NotImplementedError: FC uses direct Runtime management via FCOperator.
+        """
+        raise NotImplementedError(
+            "FC does not use the Deployment pattern. "
+            "Use FCOperator to manage FCRuntime directly."
+        )
 
     def merge_with_fc_config(self, fc_config: "FCConfig") -> "FCDeploymentConfig":
         """Merge this config with FCConfig defaults."""
@@ -286,6 +299,7 @@ class FCDeploymentConfig(DeploymentConfig):
             session_ttl=self.session_ttl or fc_config.default_session_ttl,
             session_idle_timeout=self.session_idle_timeout or fc_config.default_session_idle_timeout,
             function_timeout=self.function_timeout or fc_config.default_function_timeout,
+            extended_params=self.extended_params,
         )
 
 
