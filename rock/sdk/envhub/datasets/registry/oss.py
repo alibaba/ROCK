@@ -36,6 +36,40 @@ class OssDatasetRegistry(BaseDatasetRegistry):
     def _last_segment(prefix: str) -> str:
         return prefix.rstrip("/").rsplit("/", 1)[-1]
 
+    def _extract_tasks_from_split(self, bucket: oss2.Bucket, split_prefix: str) -> list[str]:
+        """Extract tasks from a split prefix, combining directory and file tasks.
+
+        Directory tasks: from prefix_list (e.g., "datasets/org/name/split/task-001/")
+        File tasks: from object_list (e.g., "datasets/org/name/split/task-001.json")
+
+        File tasks are stripped of their suffix (e.g., "task-001.json" -> "task-001").
+        Placeholder objects (key ending with "/") and nested objects are ignored.
+        """
+        result = bucket.list_objects_v2(prefix=split_prefix, delimiter="/", max_keys=1000)
+
+        # Directory tasks from prefix_list
+        dir_tasks = [self._last_segment(p) for p in result.prefix_list]
+
+        # File tasks from object_list: direct files under split, strip suffix
+        file_tasks = []
+        for obj in result.object_list:
+            key = obj.key
+            # Ignore directory placeholder objects (key ending with "/")
+            if key.endswith("/"):
+                continue
+            # Get the relative path from split_prefix
+            relative = key[len(split_prefix):]
+            # Only direct files (no nested paths with "/")
+            if "/" in relative:
+                continue
+            # Strip suffix (e.g., "task-001.json" -> "task-001")
+            name = relative.rsplit(".", 1)[0] if "." in relative else relative
+            file_tasks.append(name)
+
+        # Merge and dedupe with stable sort
+        all_tasks = sorted(set(dir_tasks + file_tasks))
+        return all_tasks
+
     def list_datasets(self, organization: str | None = None) -> list[DatasetSpec]:
         bucket = self._build_bucket()
         base = self._registry.oss_dataset_path or "datasets"
@@ -58,8 +92,7 @@ class OssDatasetRegistry(BaseDatasetRegistry):
                 for split_prefix in result2.prefix_list:
                     split = self._last_segment(split_prefix)
 
-                    result3 = bucket.list_objects_v2(prefix=split_prefix, delimiter="/", max_keys=1000)
-                    task_ids = [self._last_segment(p) for p in result3.prefix_list]
+                    task_ids = self._extract_tasks_from_split(bucket, split_prefix)
                     datasets.append(DatasetSpec(
                         id=f"{org}/{name}",
                         split=split,
@@ -71,8 +104,7 @@ class OssDatasetRegistry(BaseDatasetRegistry):
     def list_dataset_tasks(self, organization: str, dataset: str, split: str = "test") -> DatasetSpec | None:
         bucket = self._build_bucket()
         split_prefix = f"{self._build_prefix(organization, dataset, split)}/"
-        result = bucket.list_objects_v2(prefix=split_prefix, delimiter="/", max_keys=1000)
-        task_ids = sorted(self._last_segment(prefix) for prefix in result.prefix_list)
+        task_ids = self._extract_tasks_from_split(bucket, split_prefix)
 
         if not task_ids:
             return None

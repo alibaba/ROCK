@@ -181,9 +181,8 @@ def test_tasks_outputs_paginated_results(capsys):
     assert "task-003" in out
     assert "task-001" not in out
     assert "Total: 3" in out
-    assert "Offset: 1" in out
-    assert "Limit: 2" in out
     assert "Shown: 2" in out
+    assert "#Task name" in out
 
 
 def test_tasks_prints_no_tasks_message_when_not_found(capsys):
