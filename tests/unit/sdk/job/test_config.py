@@ -696,11 +696,13 @@ class TestTrackingConfig:
     def test_default_values(self):
         config = TrackingConfig()
         assert config.enabled is True
+        assert config.api_key is None
         assert config.params == {}
 
     def test_disabled(self):
         config = TrackingConfig(enabled=False)
         assert config.enabled is False
+        assert config.api_key is None
         assert config.params == {}
 
     def test_custom_params(self):
@@ -709,22 +711,56 @@ class TestTrackingConfig:
         assert config.params["epochs"] == 10
         assert config.params["model"] == "qwen-72b"
 
+    def test_api_key(self):
+        config = TrackingConfig(api_key="sk-test-key-123")
+        assert config.api_key == "sk-test-key-123"
+        assert config.enabled is True
+
+    def test_api_key_with_disabled(self):
+        config = TrackingConfig(enabled=False, api_key="sk-key")
+        assert config.enabled is False
+        assert config.api_key == "sk-key"
+
+    def test_api_key_none_by_default(self):
+        config = TrackingConfig()
+        assert config.api_key is None
+
     def test_from_dict(self):
         data = {"enabled": True, "params": {"batch_size": 32}}
         config = TrackingConfig.model_validate(data)
         assert config.enabled is True
+        assert config.api_key is None
         assert config.params["batch_size"] == 32
+
+    def test_from_dict_with_api_key(self):
+        data = {"api_key": "sk-from-dict", "params": {"lr": 0.01}}
+        config = TrackingConfig.model_validate(data)
+        assert config.api_key == "sk-from-dict"
+        assert config.params["lr"] == 0.01
 
     def test_from_dict_minimal(self):
         config = TrackingConfig.model_validate({})
         assert config.enabled is True
+        assert config.api_key is None
         assert config.params == {}
 
     def test_serialization_roundtrip(self):
-        config = TrackingConfig(enabled=True, params={"lr": 0.001, "algo": "GRPO"})
+        config = TrackingConfig(enabled=True, api_key="sk-round", params={"lr": 0.001, "algo": "GRPO"})
         json_str = config.model_dump_json()
         restored = TrackingConfig.model_validate_json(json_str)
         assert restored == config
+        assert restored.api_key == "sk-round"
+
+    def test_exclude_none_omits_api_key_when_not_set(self):
+        config = TrackingConfig(params={"lr": 0.01})
+        data = config.model_dump(mode="json", exclude_none=True)
+        assert "api_key" not in data
+        assert data["params"] == {"lr": 0.01}
+
+    def test_exclude_none_includes_api_key_when_set(self):
+        config = TrackingConfig(api_key="sk-present")
+        data = config.model_dump(mode="json", exclude_none=True)
+        assert data["api_key"] == "sk-present"
 
 
 # ---------------------------------------------------------------------------
@@ -753,11 +789,22 @@ class TestTrackingConfigOnBaseEnvironment:
         assert env.tracking.params["model"] == "qwen-72b"
         assert env.tracking.params["lr"] == 1e-5
 
+    def test_tracking_with_api_key(self):
+        env = EnvironmentConfig(tracking=TrackingConfig(api_key="sk-env-key", params={"model": "test"}))
+        assert env.tracking.api_key == "sk-env-key"
+        assert env.tracking.params["model"] == "test"
+
     def test_tracking_from_dict(self):
         data = {"tracking": {"enabled": True, "params": {"batch_size": 64}}}
         env = EnvironmentConfig.model_validate(data)
         assert env.tracking is not None
         assert env.tracking.params["batch_size"] == 64
+
+    def test_tracking_from_dict_with_api_key(self):
+        data = {"tracking": {"api_key": "sk-yaml-key", "params": {"lr": 0.01}}}
+        env = EnvironmentConfig.model_validate(data)
+        assert env.tracking.api_key == "sk-yaml-key"
+        assert env.tracking.params["lr"] == 0.01
 
     def test_tracking_none_from_dict(self):
         data = {"tracking": None}
@@ -783,10 +830,11 @@ class TestTrackingConfigOnBaseEnvironment:
         assert env.tracking.params["model"] == "test"
 
     def test_serialization_roundtrip_with_tracking(self):
-        env = EnvironmentConfig(tracking=TrackingConfig(params={"lr": 0.01}))
+        env = EnvironmentConfig(tracking=TrackingConfig(api_key="sk-rt", params={"lr": 0.01}))
         json_str = env.model_dump_json()
         restored = EnvironmentConfig.model_validate_json(json_str)
         assert restored.tracking is not None
+        assert restored.tracking.api_key == "sk-rt"
         assert restored.tracking.params["lr"] == 0.01
 
     def test_serialization_roundtrip_without_tracking(self):
