@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+from rock.admin.metrics.constants import MetricsConstants
 from rock.admin.metrics.monitor import MetricsMonitor, aggregate_metrics
 
 
@@ -164,3 +165,82 @@ def test_create_with_user_defined_tags(mock_env_vars, mock_instance_id, mock_uni
     assert monitor.base_attributes["pod"] == "test-pod"
     assert monitor.base_attributes["env"] == "daily"
     assert monitor.base_attributes["role"] == "test"
+
+
+def _create_dev_monitor(metric_prefix: str = "") -> MetricsMonitor:
+    """Create a real MetricsMonitor with env=dev (InMemoryMetricReader, no skip)."""
+    return MetricsMonitor(
+        host="127.0.0.1",
+        port="4318",
+        pod="test-pod",
+        env="dev",
+        role="test",
+        metric_prefix=metric_prefix,
+    )
+
+
+class TestMetastoreMetricsRegistration:
+    """Verify that metastore metric names are registered and usable on a real monitor."""
+
+    def test_metastore_counters_registered(self):
+        monitor = _create_dev_monitor()
+        for name in [
+            MetricsConstants.METASTORE_SUCCESS,
+            MetricsConstants.METASTORE_FAILURE,
+            MetricsConstants.METASTORE_TOTAL,
+            MetricsConstants.METASTORE_DB_SUCCESS,
+            MetricsConstants.METASTORE_DB_FAILURE,
+            MetricsConstants.METASTORE_DB_TOTAL,
+        ]:
+            assert name in monitor.counters, f"Counter '{name}' not registered"
+            assert monitor.counters[name] is not None, f"Counter '{name}' is None"
+
+    def test_metastore_gauges_registered(self):
+        monitor = _create_dev_monitor()
+        for name in [
+            MetricsConstants.METASTORE_RT,
+            MetricsConstants.METASTORE_DB_RT,
+        ]:
+            assert name in monitor.gauges, f"Gauge '{name}' not registered"
+            assert monitor.gauges[name] is not None, f"Gauge '{name}' is None"
+
+    def test_record_counter_by_name_does_not_raise(self):
+        """Calling record_counter_by_name with registered metric names should not KeyError."""
+        monitor = _create_dev_monitor()
+        attrs = {"operation": "create", "method": "create"}
+        monitor.record_counter_by_name(MetricsConstants.METASTORE_SUCCESS, 1, attrs)
+        monitor.record_counter_by_name(MetricsConstants.METASTORE_TOTAL, 1, attrs)
+        monitor.record_counter_by_name(MetricsConstants.METASTORE_DB_SUCCESS, 1, attrs)
+        monitor.record_counter_by_name(MetricsConstants.METASTORE_DB_TOTAL, 1, attrs)
+
+    def test_record_gauge_by_name_does_not_raise(self):
+        """Calling record_gauge_by_name with registered metric names should not KeyError."""
+        monitor = _create_dev_monitor()
+        attrs = {"operation": "create", "method": "create"}
+        monitor.record_gauge_by_name(MetricsConstants.METASTORE_RT, 1.5, attrs)
+        monitor.record_gauge_by_name(MetricsConstants.METASTORE_DB_RT, 0.8, attrs)
+
+    def test_metric_prefix_stored(self):
+        monitor = _create_dev_monitor(metric_prefix="meta_store")
+        assert monitor.metric_prefix == "meta_store"
+
+    def test_end_to_end_record_does_not_raise(self):
+        """Full round-trip: create real monitor, record metrics, no errors.
+
+        OTel's global MeterProvider can only be set once per process, so
+        subsequent dev monitors share the first reader.  We verify the
+        record path completes without exceptions, which proves the counters
+        and gauges are real OTel instruments (not None).
+        """
+        monitor = _create_dev_monitor(metric_prefix="meta_store")
+        attrs = {"operation": "get", "method": "get"}
+        # These would raise KeyError if names are unregistered,
+        # or AttributeError if instruments are None.
+        monitor.record_counter_by_name(MetricsConstants.METASTORE_SUCCESS, 1, attrs)
+        monitor.record_counter_by_name(MetricsConstants.METASTORE_FAILURE, 1, {**attrs, "error_type": "ValueError"})
+        monitor.record_counter_by_name(MetricsConstants.METASTORE_TOTAL, 1, attrs)
+        monitor.record_gauge_by_name(MetricsConstants.METASTORE_RT, 5.0, attrs)
+        monitor.record_counter_by_name(MetricsConstants.METASTORE_DB_SUCCESS, 1, attrs)
+        monitor.record_counter_by_name(MetricsConstants.METASTORE_DB_FAILURE, 1, {**attrs, "error_type": "IOError"})
+        monitor.record_counter_by_name(MetricsConstants.METASTORE_DB_TOTAL, 1, attrs)
+        monitor.record_gauge_by_name(MetricsConstants.METASTORE_DB_RT, 2.0, attrs)
