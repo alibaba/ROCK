@@ -6,6 +6,8 @@ EnvironmentConfig extends SandboxConfig with common environment-level fields
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field, model_validator
 
 from rock.sdk.sandbox.config import SandboxConfig
@@ -70,6 +72,25 @@ class ProxyConfig(BaseModel):
                 "set one (recording mode) or the other (replay mode), not both."
             )
         return self
+class TrackingConfig(BaseModel):
+    """Experiment tracking configuration.
+
+    When present and enabled, activates Harbor's built-in ml_tracker to report
+    per-trial metrics (reward, duration, token usage, RL training signals)
+    and a final job-level summary.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Whether to enable experiment tracking for this job.",
+    )
+    params: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "User-defined hyperparameters merged into ml_tracker.init(config=...). "
+            "Combined with auto-collected job metadata (agents, datasets, etc.)."
+        ),
+    )
 
 
 class EnvironmentConfig(SandboxConfig):
@@ -85,3 +106,7 @@ class EnvironmentConfig(SandboxConfig):
     proxy: ProxyConfig | None = None
     """In-sandbox model-service proxy for OpenAI request record/replay.
     None (default) means no proxy is started."""
+    tracking: TrackingConfig | None = Field(
+        default=None,
+        description="Experiment tracking configuration. None = disabled (default).",
+    )
