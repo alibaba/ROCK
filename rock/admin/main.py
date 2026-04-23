@@ -9,7 +9,6 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, Request
-from OpenSource.rock.utils.system import is_primary_pod
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 
@@ -31,6 +30,7 @@ from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sandbox.service.warmup_service import WarmupService
 from rock.utils import EAGLE_EYE_TRACE_ID, sandbox_id_ctx_var, trace_id_ctx_var
 from rock.utils.providers import RedisProvider
+from rock.utils.system import is_primary_pod
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--env", type=str, default="local")
@@ -136,6 +136,7 @@ async def lifespan(app: FastAPI):
         if rock_config.scheduler.enabled and is_primary_pod():
             scheduler_thread = SchedulerThread(
                 scheduler_config=rock_config.scheduler,
+                nacos_provider=rock_config.nacos_provider,
             )
             scheduler_thread.start()
             logger.info("Scheduler thread started on primary pod")
