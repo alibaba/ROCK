@@ -76,21 +76,33 @@ class EnvironmentConfig(SandboxConfig):
     )
 ```
 
-**Harbor 侧** — `harbor/ml_tracker/config.py`（内部模块名保持 `ml_tracker` 不变）：
+**Harbor 侧** — `harbor/tracker/config.py`（模块目录已从 `ml_tracker/` 重命名为 `tracker/`）：
 
 ```python
-class MLTrackerConfig(BaseModel):
+class TrackingConfig(BaseModel):
     enabled: bool = Field(default=True)
     params: dict[str, Any] = Field(
         default_factory=dict,
-        description="User-defined hyperparameters merged into ml_tracker.init(config=...).",
+        description="User-defined hyperparameters merged into tracker init config.",
+    )
+```
+
+Harbor 侧 `EnvironmentConfig`（`harbor/models/trial/config.py`）中同样作为二级字段：
+
+```python
+class EnvironmentConfig(BaseModel):
+    ...
+    tracking: TrackingConfig | None = Field(
+        default=None,
+        description="Experiment tracking configuration. None = disabled (default).",
     )
 ```
 
 > **命名决策**：
 > - 用户配置字段名 = `tracking`（不绑定具体 SDK，未来可扩展到其他 tracker）
 > - 子字段 = `params`（而非 `config`，避免 `tracking.config` 语义重复）
-> - Harbor 内部模块目录仍叫 `ml_tracker/`（内部实现，不暴露给用户）
+> - ROCK 和 Harbor 两侧配置类统一命名为 `TrackingConfig`
+> - Harbor 内部模块目录从 `ml_tracker/` 重命名为 `tracker/`，实现类 `MLTrackerImpl` 保持不变（因为底层仍使用 `ml_tracker` SDK）
 
 #### 在配置层次中的位置
 
@@ -258,13 +270,13 @@ BashJobConfig(JobConfig)
 
 | 文件 | 改动 |
 |------|------|
-| `harbor/ml_tracker/config.py` | `config` 字段重命名为 `params` |
-| `harbor/ml_tracker/factory.py` | 新增 `tracker_config` 参数，合并用户 `params` 到自动采集的 config |
-| `harbor/models/job/config.py` | 新增 `tracking: MLTrackerConfig \| None` 字段 |
-| `harbor/job.py` | 从 `self.config.tracking` 读取配置替代 env var 硬编码；传递 `tracker_config` 给 factory |
-| `tests/unit/ml_tracker/test_config.py` | `config` → `params` 适配 |
-| `tests/unit/ml_tracker/test_factory.py` | 新增 `test_create_merges_user_params` 测试 |
-| `tests/unit/ml_tracker/test_job_integration.py` | 重写为测试 `tracking` 字段的配置集成 |
+| `harbor/tracker/config.py` | 新模块，`TrackingConfig`（`enabled` + `params`） |
+| `harbor/tracker/base.py` | `BaseMLTracker` → `BaseTracker` |
+| `harbor/tracker/tracker.py` | `MLTrackerImpl` 改为继承 `BaseTracker`，逻辑不变 |
+| `harbor/tracker/factory.py` | `MLTrackerFactory`，新增 `tracker_config` 参数，合并用户 `params` |
+| `harbor/models/trial/config.py` | `EnvironmentConfig` 新增 `tracking: TrackingConfig \| None` 字段 |
+| `harbor/job.py` | 从 `self.config.environment.tracking` 读取配置；`tracking.enabled` 控制启用（不再硬编码检查 env var） |
+| ~~`harbor/ml_tracker/`~~ | 整个目录重命名为 `harbor/tracker/` |
 
 #### 配置传递链路
 
@@ -272,8 +284,9 @@ BashJobConfig(JobConfig)
 用户 YAML
   → rock HarborJobConfig.environment.tracking (解析 + 校验)
     → to_harbor_yaml() → environment 段携带 tracking
-      → harbor JobConfig.tracking (反序列化)
-        → harbor Job.__init__ 读取 → MLTrackerFactory.create(tracker_config=...)
+      → harbor EnvironmentConfig.tracking (反序列化)
+        → harbor Job.__init__ 从 self.config.environment.tracking 读取
+          → MLTrackerFactory.create(tracker_config=...)
 ```
 
 ---
@@ -284,4 +297,4 @@ BashJobConfig(JobConfig)
 - `SandboxConfig` 基类不受影响（`tracking` 只加在 `EnvironmentConfig` 层）。
 - `BashJobConfig` / `HarborJobConfig`：通过 `environment` 间接访问，不涉及 `extra="forbid"` 问题。
 - `_HarborJobFields`：environment 中 `tracking` 为 `None` 时被序列化过滤，不出现在 Harbor YAML 中。
-- `ROCK_API_KEY` 环境变量：Harbor `job.py` 中同时检查 `tracking is not None and tracking.enabled` **和** `ROCK_API_KEY`，两个条件都满足才启用。这保证了即使配置启用了 tracking，没有 API key 也不会报错。
+- `ROCK_API_KEY` 环境变量：不再用于控制启用逻辑（改由 `tracking.enabled` 控制）。`ROCK_API_KEY` 仅在 `MLTrackerImpl.__init__` 中作为 `ml_tracker.login(key=...)` 的凭证使用，未设置时传 `None`（由 SDK 自行处理鉴权 fallback）。
