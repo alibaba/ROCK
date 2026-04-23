@@ -1,11 +1,14 @@
-# FC Rocklet 部署方案
+# FC Runtime Example - FC函数部署参考
 
-本目录包含将 ROCK Sandbox 运行时部署到阿里云函数计算的两种方案。
+本目录包含将 ROCK Sandbox 运行时（rocklet）部署到阿里云函数计算的参考配置。
+
+**注意：** 这是 FC平台函数部署配置，不是 ROCK 的 Deployment pattern。
+ROCK 通过 FCOperator 管理已部署的 FC函数的 WebSocket 会话。
 
 ## 目录结构
 
 ```
-fc_rocklet/
+runtime_example/
 ├── README.md           # 本文件
 ├── container/          # 方案 A：自定义容器（推荐生产环境）
 │   ├── Dockerfile
@@ -24,8 +27,6 @@ fc_rocklet/
 | A: 自定义容器 | custom-container | 较慢 | 需维护镜像 | 生产环境 |
 | B: 自定义运行时 | custom.debian12 | 慢 | 需管理依赖 | 中等规模 |
 
-> **备注**：方案 C（混合适配层）为概念方案，使用 Python 标准运行时 + WSGI 适配层快速验证，暂未实现。
-
 ## 统一架构
 
 所有方案复用 `rock.rocklet.local_sandbox.LocalSandboxRuntime` 提供统一的 Sandbox 能力：
@@ -42,21 +43,21 @@ fc_rocklet/
 ```bash
 # 1. 构建镜像
 cd /path/to/ROCK
-docker build -t rock-rocklet:latest -f rock/deployments/fc_rocklet/container/Dockerfile .
+docker build -t rock-rocklet:latest -f rock/sandbox/operator/fc/runtime_example/container/Dockerfile .
 
 # 2. 推送到 ACR
 docker tag rock-rocklet:latest registry.cn-hangzhou.aliyuncs.com/your-namespace/rock-rocklet:latest
 docker push registry.cn-hangzhou.aliyuncs.com/your-namespace/rock-rocklet:latest
 
 # 3. 修改 s.yaml 中的镜像地址，部署
-cd rock/deployments/fc_rocklet/container
+cd rock/sandbox/operator/fc/runtime_example/container
 s deploy
 ```
 
 ### 方案 B：自定义运行时
 
 ```bash
-cd rock/deployments/fc_rocklet/runtime
+cd rock/sandbox/operator/fc/runtime_example/runtime
 ./package.sh
 s deploy
 ```

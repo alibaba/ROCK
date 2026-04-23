@@ -6,7 +6,7 @@
 # 方案 B：打包 rocklet 代码用于自定义运行时部署
 #
 # 使用方式：
-#   cd rock/deployments/fc_rocklet/runtime
+#   cd rock/sandbox/operator/fc/runtime_example/runtime
 #   ./package.sh
 #
 # 输出：dist/fc_rocklet_runtime.zip
@@ -16,7 +16,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROCK_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+ROCK_ROOT="$(cd "$SCRIPT_DIR/../../../../../../.." && pwd)"
 OUTPUT_DIR="$SCRIPT_DIR/dist"
 OUTPUT_FILE="$OUTPUT_DIR/fc_rocklet_runtime.zip"
 
