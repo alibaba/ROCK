@@ -1,10 +1,12 @@
-"""Alibaba Cloud Function Compute (FC) deployment implementation.
+"""Alibaba Cloud Function Compute (FC) runtime implementation.
 
 This module provides FC runtime support for ROCK sandboxes using
 WebSocket session API to maintain stateful bash sessions.
 
 FC (Function Compute) is Alibaba Cloud's serverless compute service:
 https://www.alibabacloud.com/product/function-compute
+
+Note: This module is part of the FC Operator implementation, not the Deployment layer.
 """
 
 import asyncio
@@ -13,10 +15,9 @@ import hashlib
 import hmac
 import json
 import time
-import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rock.actions import (
     CloseResponse,
@@ -38,6 +39,9 @@ from rock.actions.sandbox.base import AbstractSandbox
 from rock.actions.sandbox.request import Action
 from rock.actions.sandbox.response import Observation
 from rock.logger import init_logger
+
+if TYPE_CHECKING:
+    from rock.sandbox.operator.fc.config import FCOperatorConfig
 
 try:
     import websockets

@@ -18,9 +18,7 @@ Test Coverage:
 - IT-FC-11: HTTP retry mechanism
 """
 
-import asyncio
 import json
-import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -54,6 +52,7 @@ class TestFCOperatorConfig:
     def test_is_pydantic_model(self):
         """IT-FC-00b: Verify FCOperatorConfig is a Pydantic BaseModel."""
         from pydantic import BaseModel
+
         from rock.sandbox.operator.fc import FCOperatorConfig as ImportedConfig
 
         assert issubclass(ImportedConfig, BaseModel)
@@ -115,7 +114,7 @@ class TestFCSessionManager:
 
     @pytest.fixture
     def session_manager(self):
-        from rock.deployments.fc import FCSessionManager
+        from rock.sandbox.operator.fc import FCSessionManager
 
         config = FCOperatorConfig(
             account_id="test_account",
@@ -172,7 +171,7 @@ class TestFCRuntime:
 
     @pytest.fixture
     def fc_runtime(self):
-        from rock.deployments.fc import FCRuntime
+        from rock.sandbox.operator.fc import FCRuntime
 
         config = FCOperatorConfig(
             account_id="test_account",
@@ -222,7 +221,7 @@ class TestFCErrorHandling:
     @pytest.mark.asyncio
     async def test_runtime_initialization_with_config(self):
         """IT-FC-08b: Verify FCRuntime initializes correctly with config."""
-        from rock.deployments.fc import FCRuntime
+        from rock.sandbox.operator.fc import FCRuntime
 
         config = FCOperatorConfig(
             account_id="test",
@@ -255,7 +254,7 @@ class TestReconnectConfig:
 
     def test_default_values(self):
         """IT-FC-09a: Verify default reconnection configuration values."""
-        from rock.deployments.fc import ReconnectConfig
+        from rock.sandbox.operator.fc import ReconnectConfig
 
         config = ReconnectConfig()
 
@@ -266,7 +265,7 @@ class TestReconnectConfig:
 
     def test_get_delay_exponential_backoff(self):
         """IT-FC-09b: Verify exponential backoff calculation."""
-        from rock.deployments.fc import ReconnectConfig
+        from rock.sandbox.operator.fc import ReconnectConfig
 
         config = ReconnectConfig(base_delay=1.0, backoff_factor=2.0)
 
@@ -278,7 +277,7 @@ class TestReconnectConfig:
 
     def test_get_delay_capped_at_max(self):
         """IT-FC-09c: Verify delay is capped at max_delay."""
-        from rock.deployments.fc import ReconnectConfig
+        from rock.sandbox.operator.fc import ReconnectConfig
 
         config = ReconnectConfig(base_delay=1.0, max_delay=10.0, backoff_factor=2.0)
 
@@ -288,7 +287,7 @@ class TestReconnectConfig:
 
     def test_custom_values(self):
         """IT-FC-09d: Verify custom reconnection configuration."""
-        from rock.deployments.fc import ReconnectConfig
+        from rock.sandbox.operator.fc import ReconnectConfig
 
         config = ReconnectConfig(
             max_retries=5,
@@ -311,7 +310,7 @@ class TestSessionState:
 
     def test_default_values(self):
         """IT-FC-09e: Verify SessionState default values."""
-        from rock.deployments.fc import SessionState
+        from rock.sandbox.operator.fc import SessionState
 
         state = SessionState(session_id="test-session")
 
@@ -322,8 +321,9 @@ class TestSessionState:
 
     def test_touch_updates_last_activity(self):
         """IT-FC-09f: Verify touch() updates last_activity."""
-        from rock.deployments.fc import SessionState
         import time
+
+        from rock.sandbox.operator.fc import SessionState
 
         state = SessionState(session_id="test")
         initial_activity = state.last_activity
@@ -348,7 +348,7 @@ class TestFCSessionManagerReconnect:
 
     @pytest.fixture
     def session_manager(self):
-        from rock.deployments.fc import FCSessionManager
+        from rock.sandbox.operator.fc import FCSessionManager
 
         config = FCOperatorConfig(
             account_id="test_account",
@@ -370,7 +370,7 @@ class TestFCSessionManagerReconnect:
     @pytest.mark.asyncio
     async def test_create_session_with_retries(self, session_manager, mock_websocket):
         """IT-FC-10a: Verify session creation with retry on first failure."""
-        with patch("rock.deployments.fc.websockets") as mock_ws_module:
+        with patch("rock.sandbox.operator.fc.runtime.websockets") as mock_ws_module:
             # First attempt fails, second succeeds
             mock_ws_module.connect = AsyncMock()
             mock_ws_module.connect.side_effect = [
@@ -388,13 +388,13 @@ class TestFCSessionManagerReconnect:
     @pytest.mark.asyncio
     async def test_reconnect_session_success(self, session_manager, mock_websocket):
         """IT-FC-10b: Verify _reconnect_session returns True on success."""
-        from rock.deployments.fc import SessionState
+        from rock.sandbox.operator.fc import SessionState
 
         # Setup existing session
         state = SessionState(session_id="test-session", ps1="custom$ ")
         session_manager.sessions["test-session"] = state
 
-        with patch("rock.deployments.fc.websockets") as mock_ws_module:
+        with patch("rock.sandbox.operator.fc.runtime.websockets") as mock_ws_module:
             mock_ws_module.connect = AsyncMock(return_value=mock_websocket)
             mock_ws_module.exceptions.ConnectionClosed = Exception
 
@@ -406,12 +406,12 @@ class TestFCSessionManagerReconnect:
     @pytest.mark.asyncio
     async def test_reconnect_session_failure(self, session_manager):
         """IT-FC-10c: Verify _reconnect_session returns False on failure."""
-        from rock.deployments.fc import SessionState
+        from rock.sandbox.operator.fc import SessionState
 
         state = SessionState(session_id="test-session")
         session_manager.sessions["test-session"] = state
 
-        with patch("rock.deployments.fc.websockets") as mock_ws_module:
+        with patch("rock.sandbox.operator.fc.runtime.websockets") as mock_ws_module:
             mock_ws_module.connect = AsyncMock(side_effect=Exception("Connection failed"))
             mock_ws_module.exceptions.ConnectionClosed = Exception
 
@@ -422,7 +422,7 @@ class TestFCSessionManagerReconnect:
     @pytest.mark.asyncio
     async def test_get_session_stats(self, session_manager):
         """IT-FC-10d: Verify get_session_stats returns session information."""
-        from rock.deployments.fc import SessionState
+        from rock.sandbox.operator.fc import SessionState
 
         state = SessionState(session_id="test-session")
         session_manager.sessions["test-session"] = state
@@ -454,7 +454,7 @@ class TestFCRuntimeHttpRetry:
 
     @pytest.fixture
     def fc_runtime(self):
-        from rock.deployments.fc import FCRuntime
+        from rock.sandbox.operator.fc import FCRuntime
 
         config = FCOperatorConfig(
             account_id="test_account",

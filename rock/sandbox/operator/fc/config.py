@@ -46,6 +46,10 @@ class FCOperatorConfig(BaseModel):
     security_token: str | None = None
     """STS security token (for temporary credentials)."""
 
+    # Container image settings
+    image: str | None = None
+    """Container image URL for custom-container runtime (e.g., 'registry.cn-hangzhou.aliyuncs.com/xxx/yyy:tag')."""
+
     # Resource settings
     memory: int | None = None
     """Memory allocation in MB."""
@@ -85,6 +89,7 @@ class FCOperatorConfig(BaseModel):
             access_key_id=self.access_key_id or fc_config.access_key_id,
             access_key_secret=self.access_key_secret or fc_config.access_key_secret,
             security_token=self.security_token or fc_config.security_token,
+            image=self.image,  # Image is sandbox-specific, no default
             memory=self.memory or fc_config.default_memory,
             cpus=self.cpus or fc_config.default_cpus,
             session_ttl=self.session_ttl or fc_config.default_session_ttl,

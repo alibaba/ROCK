@@ -48,27 +48,22 @@ E2E-GRPC (gRPC Protocol - Not Supported):
 - E2E-GRPC-03: Execute command via gRPC (planned)
 """
 
-import asyncio
 import os
 import uuid
-from io import BytesIO
-from pathlib import Path
-from typing import Optional
 
 import httpx
 import pytest
+
+from rock.logger import init_logger
+from rock.sandbox.operator.fc import FCOperatorConfig, FCRuntime, FCSessionManager
+
+logger = init_logger(__name__)
 
 # E2E tests requiring deployed FC function
 # Prerequisites:
 #   1. Deploy FC function: cd rock/deployments/fc_rocklet/runtime && s deploy
 #   2. Set environment variables: FC_ACCOUNT_ID, FC_ACCESS_KEY_ID, FC_ACCESS_KEY_SECRET
 pytestmark = pytest.mark.need_fc
-
-from rock.sandbox.operator.fc import FCOperatorConfig
-from rock.deployments.fc import FCRuntime, FCSessionManager
-from rock.logger import init_logger
-
-logger = init_logger(__name__)
 
 
 # ============================================================
