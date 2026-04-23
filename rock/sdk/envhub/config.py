@@ -43,6 +43,10 @@ class TrackingConfig(BaseModel):
         default=True,
         description="Whether to enable experiment tracking for this job.",
     )
+    api_key: str | None = Field(
+        default=None,
+        description="API key for the tracking platform. Falls back to ROCK_API_KEY env var if not set.",
+    )
     params: dict[str, Any] = Field(
         default_factory=dict,
         description=(
