@@ -29,21 +29,21 @@ import yaml
 
 
 @pytest.fixture
-def fc_rocklet_dir() -> Path:
-    """Get the fc_rocklet directory path."""
-    return Path(__file__).parent.parent.parent.parent / "rock" / "deployments" / "fc_rocklet"
+def runtime_example_dir() -> Path:
+    """Get the FC runtime example directory path."""
+    return Path(__file__).parent.parent.parent.parent / "rock" / "sandbox" / "operator" / "fc" / "runtime_example"
 
 
 @pytest.fixture
-def runtime_dir(fc_rocklet_dir) -> Path:
+def runtime_dir(runtime_example_dir) -> Path:
     """Get the custom runtime directory path."""
-    return fc_rocklet_dir / "runtime"
+    return runtime_example_dir / "runtime"
 
 
 @pytest.fixture
-def container_dir(fc_rocklet_dir) -> Path:
+def container_dir(runtime_example_dir) -> Path:
     """Get the custom container directory path."""
-    return fc_rocklet_dir / "container"
+    return runtime_example_dir / "container"
 
 
 @pytest.fixture

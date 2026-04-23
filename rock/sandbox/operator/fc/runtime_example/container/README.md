@@ -23,7 +23,7 @@
 ```bash
 # 在项目根目录执行
 cd /path/to/ROCK
-docker build -t rock-rocklet:latest -f rock/deployments/fc_rocklet/container/Dockerfile .
+docker build -t rock-rocklet:latest -f rock/sandbox/operator/fc/runtime_example/container/Dockerfile .
 ```
 
 ### 2. 推送到 ACR
@@ -41,7 +41,7 @@ docker push registry.cn-hangzhou.aliyuncs.com/your-namespace/rock-rocklet:latest
 ### 4. 部署
 
 ```bash
-cd rock/deployments/fc_rocklet/container
+cd rock/sandbox/operator/fc/runtime_example/container
 s deploy
 ```
 
@@ -49,7 +49,7 @@ s deploy
 
 ```bash
 # 构建并运行容器
-docker build -t rock-rocklet:latest -f rock/deployments/fc_rocklet/container/Dockerfile .
+docker build -t rock-rocklet:latest -f rock/sandbox/operator/fc/runtime_example/container/Dockerfile .
 docker run -p 9000:9000 rock-rocklet:latest
 
 # 测试

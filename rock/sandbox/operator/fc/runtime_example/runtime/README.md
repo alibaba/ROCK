@@ -36,7 +36,7 @@
 ### 1. 打包代码
 
 ```bash
-cd rock/deployments/fc_rocklet/runtime
+cd rock/sandbox/operator/fc/runtime_example/runtime
 ./package.sh
 ```
 
