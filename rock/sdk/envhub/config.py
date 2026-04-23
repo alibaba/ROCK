@@ -6,6 +6,8 @@ EnvironmentConfig extends SandboxConfig with common environment-level fields
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from rock.sdk.sandbox.config import SandboxConfig
@@ -29,6 +31,27 @@ class OssMirrorConfig(BaseModel):
     oss_endpoint: str | None = None
 
 
+class TrackingConfig(BaseModel):
+    """Experiment tracking configuration.
+
+    When present and enabled, activates Harbor's built-in ml_tracker to report
+    per-trial metrics (reward, duration, token usage, RL training signals)
+    and a final job-level summary.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Whether to enable experiment tracking for this job.",
+    )
+    params: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "User-defined hyperparameters merged into ml_tracker.init(config=...). "
+            "Combined with auto-collected job metadata (agents, datasets, etc.)."
+        ),
+    )
+
+
 class EnvironmentConfig(SandboxConfig):
     """General environment config — sandbox base fields + environment-level fields."""
 
@@ -39,3 +62,7 @@ class EnvironmentConfig(SandboxConfig):
     )
     env: dict[str, str] = Field(default_factory=dict)
     oss_mirror: OssMirrorConfig | None = None
+    tracking: TrackingConfig | None = Field(
+        default=None,
+        description="Experiment tracking configuration. None = disabled (default).",
+    )
