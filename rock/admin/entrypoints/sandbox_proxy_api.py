@@ -340,17 +340,15 @@ async def vnc_http_proxy(
     request: Request,
     path: str = "",
 ):
-    body = None
+    raw_body = None
     if request.method not in ("GET", "HEAD", "DELETE", "OPTIONS"):
-        try:
-            body = await request.json()
-        except Exception:
-            body = None
+        raw_body = await request.body()
+
     proxy_prefix = request.url.path.rstrip(path).rstrip("/")
     return await sandbox_proxy_service.http_proxy(
         sandbox_id,
         path,
-        body,
+        raw_body,
         request.headers,
         method=request.method,
         port=8006,
