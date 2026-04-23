@@ -32,13 +32,23 @@ if [ ! -f /etc/alpine-release ]; then
         UV_CMD=$HOME/.local/bin/uv
     fi
 
-    cd $PROJECT_ROOT
+    # Copy project to a writable directory (source mount is read-only)
+    # Use tar to exclude large unnecessary directories for faster copy
+    WRITABLE_PROJECT=/tmp/rock-build
+    mkdir -p $WRITABLE_PROJECT
+    tar -cf - --exclude='.venv' --exclude='.git' --exclude='__pycache__' \
+        --exclude='*.egg-info' --exclude='.pytest_cache' --exclude='.ruff_cache' \
+        -C $PROJECT_ROOT . | tar -xf - -C $WRITABLE_PROJECT
+    cd $WRITABLE_PROJECT
 
     # Create virtual environment
     $UV_CMD venv --python 3.11 /tmp/rocklet-venv
 
     # Install dependencies
-    $UV_CMD pip install --python /tmp/rocklet-venv/bin/python -e ".[rocklet]"
+    $UV_CMD pip install --python /tmp/rocklet-venv/bin/python ".[rocklet]"
+
+    # Clean up build directory to free disk space
+    rm -rf $WRITABLE_PROJECT
 
 
     mkdir -p /data/logs

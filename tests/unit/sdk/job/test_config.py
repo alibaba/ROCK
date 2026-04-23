@@ -105,6 +105,19 @@ class TestJobConfig:
         assert cfg.environment.experiment_id == "same-exp"
         mock_warn.assert_not_called()
 
+    def test_experiment_id_synced_to_environment_when_env_is_none(self):
+        """When JobConfig.experiment_id is set and environment.experiment_id is None,
+        it should be synced down to environment without a warning."""
+        from unittest.mock import patch
+
+        import rock.sdk.job.config as job_config_module
+
+        with patch.object(job_config_module.logger, "warning") as mock_warn:
+            cfg = JobConfig(experiment_id="exp-sync")
+
+        assert cfg.environment.experiment_id == "exp-sync"
+        mock_warn.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # BashJobConfig

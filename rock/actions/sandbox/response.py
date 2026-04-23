@@ -48,6 +48,8 @@ class SandboxStatusResponse(BaseModel):
     namespace: str | None = None
     cpus: float | None = None
     memory: str | None = None
+    disk_limit_rootfs: str | None = None
+    disk_limit_log: str | None = None
 
 
 class CommandResponse(BaseModel):

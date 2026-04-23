@@ -1,12 +1,9 @@
+import os
+
 import pytest
 
 from rock import env_vars
-from rock.actions import (
-    BashAction,
-    CloseBashSessionRequest,
-    Command,
-    CreateBashSessionRequest,
-)
+from rock.actions import BashAction, CloseBashSessionRequest, Command, CreateBashSessionRequest
 from rock.deployments.config import DockerDeploymentConfig, get_deployment
 
 
@@ -48,6 +45,30 @@ async def test_docker_deployment(container_name):
     close_session_request = CloseBashSessionRequest(session_type="bash")
     await d.runtime.close_session(close_session_request)
     await d.stop()
+
+
+@pytest.mark.need_docker
+async def test_docker_deployment_mounts_localtime_in_container(container_name):
+    tz = env_vars.ROCK_TIME_ZONE
+    host_has_zoneinfo = os.path.isfile(f"/usr/share/zoneinfo/{tz}")
+
+    d = get_deployment(
+        DockerDeploymentConfig(image=env_vars.ROCK_ENVHUB_DEFAULT_DOCKER_IMAGE, container_name=container_name)
+    )
+    try:
+        await d.start()
+
+        if host_has_zoneinfo:
+            result = await d.runtime.execute(Command(command=["/bin/sh", "-c", "date +%z"]))
+            import subprocess
+
+            host_offset = subprocess.check_output(["date", "+%z"], env={**os.environ, "TZ": tz}).decode().strip()
+            assert result.stdout.strip() == host_offset
+        else:
+            result = await d.runtime.execute(Command(command=["/bin/sh", "-c", "date +%Z"]))
+            assert result.stdout.strip() == "UTC"
+    finally:
+        await d.stop()
 
 
 def test_docker_deployment_config_platform():

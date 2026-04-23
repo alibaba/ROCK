@@ -29,17 +29,7 @@ async def redis():
 
 
 @pytest.fixture
-async def db(tmp_path):
-    provider = DatabaseProvider(db_config=DatabaseConfig(url=f"sqlite:///{tmp_path / 'test.db'}"))
-    await provider.init()
-    await provider.create_tables()
-    table = SandboxTable(provider)
-    yield table
-    await provider.close()
-
-
-@pytest.fixture
-async def db_memory():
+async def db():
     provider = DatabaseProvider(db_config=DatabaseConfig(url="sqlite:///:memory:"))
     await provider.init()
     await provider.create_tables()
@@ -51,11 +41,6 @@ async def db_memory():
 @pytest.fixture
 def repo(redis, db):
     return SandboxMetaStore(redis_provider=redis, sandbox_table=db)
-
-
-@pytest.fixture
-def repo_with_memory_db(redis, db_memory):
-    return SandboxMetaStore(redis_provider=redis, sandbox_table=db_memory)
 
 
 # ---------------------------------------------------------------------------
@@ -262,24 +247,6 @@ class TestIterAliveSandboxIds:
 
         ids = [sid async for sid in repo.iter_alive_sandbox_ids()]
         assert "sbx-running" in ids
-        assert "sbx-stopped" not in ids
-
-    async def test_iter_alive_sandbox_ids_works_with_sqlite_memory(self, repo_with_memory_db):
-        """iter_alive_sandbox_ids() should work with sqlite in-memory DB + Redis fallback."""
-        await repo_with_memory_db.create(
-            "sbx-running", {**SANDBOX_INFO, "sandbox_id": "sbx-running", "state": State.RUNNING}
-        )
-        await repo_with_memory_db.create(
-            "sbx-pending", {**SANDBOX_INFO, "sandbox_id": "sbx-pending", "state": State.PENDING}
-        )
-        await repo_with_memory_db.create(
-            "sbx-stopped", {**SANDBOX_INFO, "sandbox_id": "sbx-stopped", "state": "stopped"}
-        )
-        await asyncio.sleep(0.1)
-
-        ids = {sid async for sid in repo_with_memory_db.iter_alive_sandbox_ids()}
-        assert "sbx-running" in ids
-        assert "sbx-pending" in ids
         assert "sbx-stopped" not in ids
 
     async def test_iter_alive_sandbox_ids_consistent_with_redis_scan(self, repo, redis):

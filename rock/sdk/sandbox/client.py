@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 import mimetypes
 import os
 import time
@@ -169,8 +170,8 @@ class Sandbox(AbstractSandbox):
         data = {
             "image": self.config.image,
             "image_os": self.config.image_os,
-            "auto_clear_time": self.config.auto_clear_seconds / 60,
-            "auto_clear_time_minutes": self.config.auto_clear_seconds / 60,
+            "auto_clear_time": int(math.ceil(self.config.auto_clear_seconds / 60)),
+            "auto_clear_time_minutes": int(math.ceil(self.config.auto_clear_seconds / 60)),
             "startup_timeout": self.config.startup_timeout,
             "memory": self.config.memory,
             "cpus": self.config.cpus,
@@ -637,6 +638,7 @@ class Sandbox(AbstractSandbox):
                 tuple[bool, str]: (success status, message)
         """
         wait_interval = max(5, wait_interval)  # Minimum interval 5 seconds
+        wait_interval = min(self.config.auto_clear_seconds - 2, wait_interval)  # wait_interval < auto_clear_seconds
         check_alive_cmd = f"kill -0 {pid}"
         check_alive_timeout = min(wait_interval * 2, wait_timeout)  # Not greater than wait_timeout
 

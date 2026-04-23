@@ -32,18 +32,20 @@ class JobConfig(BaseModel):
 
     @model_validator(mode="after")
     def _sync_experiment_id(self) -> JobConfig:
-        """When both experiment_id fields are set and differ, JobConfig.experiment_id takes priority."""
-        if (
-            self.experiment_id is not None
-            and self.environment.experiment_id is not None
-            and self.experiment_id != self.environment.experiment_id
-        ):
-            logger.warning(
-                "experiment_id conflict: JobConfig has '%s', environment has '%s'. "
-                "Using JobConfig.experiment_id and overriding environment.experiment_id.",
-                self.experiment_id,
-                self.environment.experiment_id,
-            )
+        """Sync JobConfig.experiment_id down to environment.experiment_id.
+
+        - If only JobConfig.experiment_id is set, propagate it to environment silently.
+        - If both are set and differ, JobConfig.experiment_id wins and a warning is logged.
+        - If both are set and equal, or JobConfig.experiment_id is None, do nothing.
+        """
+        if self.experiment_id is not None:
+            if self.environment.experiment_id is not None and self.experiment_id != self.environment.experiment_id:
+                logger.warning(
+                    "experiment_id conflict: JobConfig has '%s', environment has '%s'. "
+                    "Using JobConfig.experiment_id and overriding environment.experiment_id.",
+                    self.experiment_id,
+                    self.environment.experiment_id,
+                )
             self.environment.experiment_id = self.experiment_id
         return self
 

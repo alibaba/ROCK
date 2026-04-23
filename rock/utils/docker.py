@@ -1,3 +1,4 @@
+import json
 import logging
 import subprocess
 
@@ -6,6 +7,111 @@ logger = logging.getLogger(__name__)
 
 class DockerUtil:
     """Docker operation utilities"""
+
+    @classmethod
+    def get_docker_info(cls) -> dict | None:
+        """Run 'docker info' and return the parsed JSON, or None on failure."""
+        try:
+            result = subprocess.run(
+                ["docker", "info", "--format", "{{json .}}"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                logger.warning("get_docker_info: docker info failed")
+                return None
+            return json.loads(result.stdout)
+        except Exception as e:
+            logger.warning(f"get_docker_info: failed: {e}")
+            return None
+
+    @classmethod
+    def get_docker_root_dir(cls) -> str | None:
+        """Return DockerRootDir from docker info, or None on failure."""
+        info = cls.get_docker_info()
+        if info is None:
+            return None
+        root = info.get("DockerRootDir")
+        if not root:
+            logger.warning("get_docker_root_dir: DockerRootDir not found in docker info")
+        return root or None
+
+    @classmethod
+    def is_xfs_prjquota_path(cls, path: str) -> bool:
+        """Return True if *path* is on an XFS mount with prjquota (or pquota) enabled.
+
+        This is the prerequisite for XFS project quota on a directory.
+        Unlike detect_storage_opt_support(), this check is independent of Docker's
+        storage driver configuration.
+        """
+        try:
+            result = subprocess.run(
+                ["findmnt", "-T", path, "-o", "FSTYPE,OPTIONS", "--noheadings"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode != 0:
+                logger.info(f"is_xfs_prjquota_path: findmnt failed for {path!r}")
+                return False
+            lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+            if not lines:
+                logger.info(f"is_xfs_prjquota_path: empty findmnt output for {path!r}")
+                return False
+            # the last line is the most recent mount point
+            line = lines[-1]
+            parts = line.split(None, 1)  # split on first whitespace: FSTYPE  OPTIONS
+            if len(parts) < 2:
+                logger.info(f"is_xfs_prjquota_path: unexpected findmnt output for {path!r}: {line!r}")
+                return False
+            fstype, options = parts[0], parts[1]
+            if fstype != "xfs":
+                logger.info(f"is_xfs_prjquota_path: {path!r} is on {fstype!r}, not xfs")
+                return False
+            opts = options.split(",")
+            has_prjquota = "prjquota" in opts or "pquota" in opts
+            if not has_prjquota:
+                logger.info(
+                    f"is_xfs_prjquota_path: {path!r} is xfs but mount options {options!r} missing prjquota/pquota"
+                )
+            return has_prjquota
+        except Exception as e:
+            logger.info(f"is_xfs_prjquota_path: findmnt command failed for {path!r}: {e}")
+            return False
+
+    @classmethod
+    def detect_storage_opt_support(cls) -> bool:
+        """Detect whether --storage-opt size= is supported in this environment.
+
+        Requirements:
+        - Docker storage driver is overlay2
+        - Docker root directory is on an XFS mount with prjquota/pquota enabled
+          (checked via is_xfs_prjquota_path)
+
+        Returns:
+            True if --storage-opt size= can be used, False otherwise.
+        """
+        info = cls.get_docker_info()
+        if info is None:
+            return False
+
+        # Check 1: Driver must be overlay2
+        if info.get("Driver") != "overlay2":
+            logger.info(f"detect_storage_opt_support: storage driver is {info.get('Driver')!r}, not overlay2")
+            return False
+
+        # Check 2: DockerRootDir must be on XFS with prjquota/pquota
+        docker_root = info.get("DockerRootDir")
+        if not docker_root:
+            logger.warning("detect_storage_opt_support: DockerRootDir not found in docker info")
+            return False
+
+        if not cls.is_xfs_prjquota_path(docker_root):
+            return False
+
+        logger.info(f"detect_storage_opt_support: supported — overlay2, {docker_root!r} is xfs+prjquota")
+        return True
 
     @classmethod
     def is_docker_available(cls):

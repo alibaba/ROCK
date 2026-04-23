@@ -40,6 +40,7 @@ from rock.deployments.status import ServiceStatus
 from rock.common.port_validation import validate_port_forward_port
 from rock.logger import init_logger
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
+from rock.sandbox.utils.proxy import build_upstream_ws_headers
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var
@@ -208,12 +209,15 @@ class SandboxProxyService:
 
         client_subprotocols = getattr(client_websocket, "subprotocols", []) or []
         upstream_subprotocols = client_subprotocols if client_subprotocols else ["binary", "base64"]
+        origin, additional_headers = build_upstream_ws_headers(client_websocket)
 
         try:
             async with websockets.connect(
                 target_url,
                 ping_interval=None,
                 ping_timeout=None,
+                origin=origin,
+                additional_headers=additional_headers,
                 subprotocols=upstream_subprotocols,
             ) as target_websocket:
                 negotiated = getattr(target_websocket, "subprotocol", None)

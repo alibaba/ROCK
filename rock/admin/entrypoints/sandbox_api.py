@@ -30,6 +30,8 @@ from rock.common.constants import (
     GET_STATUS_SWITCH,
     KATA_DIND_DISK_SIZE_KEY,
     KATA_RUNTIME_SWITCH,
+    SANDBOX_DISK_LIMIT_LOG_KEY,
+    SANDBOX_DISK_LIMIT_ROOTFS_KEY,
     SUPPORT_KATA_SWITCH,
 )
 from rock.common.exception import handle_exceptions
@@ -69,6 +71,29 @@ async def _apply_kata_disk_size(config: DockerDeploymentConfig) -> None:
             config.kata_disk_size = disk_size
 
 
+async def _apply_disk_limits(config: DockerDeploymentConfig) -> None:
+    """Apply disk limits from RuntimeConfig (rock-xxx.yml), overridable by Nacos at runtime.
+
+    Priority: Nacos > RuntimeConfig (rock-xxx.yml). None in both means no limit.
+    """
+    runtime = sandbox_manager.rock_config.runtime
+    nacos = sandbox_manager.rock_config.nacos_provider
+
+    disk_limit_rootfs = runtime.sandbox_disk_limit_rootfs
+    disk_limit_log = runtime.sandbox_disk_limit_log
+
+    if nacos is not None:
+        nacos_rootfs = await nacos.get_config_value(SANDBOX_DISK_LIMIT_ROOTFS_KEY)
+        if nacos_rootfs:
+            disk_limit_rootfs = nacos_rootfs
+        nacos_log = await nacos.get_config_value(SANDBOX_DISK_LIMIT_LOG_KEY)
+        if nacos_log:
+            disk_limit_log = nacos_log
+
+    config.disk_limit_rootfs = disk_limit_rootfs
+    config.disk_limit_log = disk_limit_log
+
+
 async def _apply_cpu_preempt_switch(config: DockerDeploymentConfig) -> None:
     """Check nacos switch and enable CPU preemption on the config if the switch is on.
 
@@ -89,6 +114,7 @@ async def start(request: SandboxStartRequest) -> RockResponse[SandboxStartRespon
     await _apply_kata_runtime_switch(config)
     await _apply_kata_disk_size(config)
     await _apply_cpu_preempt_switch(config)
+    await _apply_disk_limits(config)
     sandbox_start_response = await sandbox_manager.start(config)
     return RockResponse(result=sandbox_start_response)
 
@@ -103,6 +129,7 @@ async def start_async(
     await _apply_kata_runtime_switch(config)
     await _apply_kata_disk_size(config)
     await _apply_cpu_preempt_switch(config)
+    await _apply_disk_limits(config)
     sandbox_start_response = await sandbox_manager.start_async(
         config,
         user_info=headers.user_info,

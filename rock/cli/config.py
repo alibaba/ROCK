@@ -9,11 +9,21 @@ logger = init_logger(__name__)
 
 
 @dataclass
+class DatasetConfig:
+    oss_bucket: str | None = None
+    oss_endpoint: str | None = None
+    oss_access_key_id: str | None = None
+    oss_access_key_secret: str | None = None
+    oss_region: str | None = None
+
+
+@dataclass
 class CLIConfig:
     """CLI configuration class"""
 
     base_url: str = env_vars.ROCK_BASE_URL
     extra_headers: dict[str, str] = field(default_factory=dict)
+    dataset_config: DatasetConfig = field(default_factory=DatasetConfig)
 
 
 class ConfigManager:
@@ -55,6 +65,16 @@ class ConfigManager:
                 for key, value in headers_section.items():
                     if value.strip():
                         self.config.extra_headers[key] = value.strip()
+
+            if "dataset" in parser:
+                ds = parser["dataset"]
+                self.config.dataset_config = DatasetConfig(
+                    oss_bucket=ds.get("oss_bucket") or None,
+                    oss_endpoint=ds.get("oss_endpoint") or None,
+                    oss_access_key_id=ds.get("oss_access_key_id") or None,
+                    oss_access_key_secret=ds.get("oss_access_key_secret") or None,
+                    oss_region=ds.get("oss_region") or None,
+                )
 
         except Exception as e:
             logger.warning(f"Failed to load config file {self.config_path}: {e}", exc_info=True)
