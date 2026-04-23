@@ -25,6 +25,7 @@ class TestK8sTemplateLoader:
     def test_get_template_success(self, template_loader):
         """Test getting template by name."""
         template = template_loader.get_template("default")
+
         assert template is not None
         assert "ports" in template
         assert "template" in template
@@ -131,6 +132,7 @@ class TestK8sTemplateLoader:
     def test_build_manifest_auto_generate_sandbox_id(self, template_loader):
         """Test building manifest auto-generates sandbox_id if not provided."""
         manifest = template_loader.build_manifest(template_name="default")
+
         sandbox_id = manifest["metadata"]["name"]
         assert sandbox_id.startswith("sandbox-")
         assert len(sandbox_id) > 8  # Should have UUID suffix
@@ -138,6 +140,7 @@ class TestK8sTemplateLoader:
     def test_available_templates_property(self, template_loader):
         """Test available_templates property."""
         templates = template_loader.available_templates
+
         assert isinstance(templates, list)
         assert "default" in templates
 

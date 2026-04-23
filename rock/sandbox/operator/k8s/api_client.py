@@ -81,6 +81,7 @@ class K8sApiClient:
     - Consistent error handling
     - Simple CRUD interface for K8s custom resources
     """
+
     def __init__(
         self,
         api_client: client.ApiClient,

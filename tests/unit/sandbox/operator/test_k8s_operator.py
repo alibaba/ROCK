@@ -60,7 +60,6 @@ class TestK8sOperator:
         """Test submission fails when no host IP is allocated."""
         # Mock provider to raise exception
         mock_provider.submit = AsyncMock(side_effect=Exception("Failed to get host IP for sandbox test-sandbox"))
-        mock_provider.submit = AsyncMock(side_effect=Exception("Failed to get host IP for sandbox test-sandbox"))
 
         with pytest.raises(Exception, match="Failed to get host IP"):
             await k8s_operator.submit(deployment_config)
@@ -116,7 +115,6 @@ class TestK8sOperator:
     async def test_get_status_not_found(self, k8s_operator, mock_provider):
         """Test status retrieval when sandbox not found in cache."""
         mock_provider.get_status = AsyncMock(side_effect=Exception("Sandbox test-sandbox not found"))
-        mock_provider.get_status = AsyncMock(side_effect=Exception("Sandbox test-sandbox not found"))
 
         with pytest.raises(Exception, match="not found"):
             await k8s_operator.get_status("test-sandbox")
@@ -148,7 +146,6 @@ class TestK8sOperator:
         mock_provider.stop = AsyncMock(return_value=False)
 
         result = await k8s_operator.stop("test-sandbox")
-
 
         assert result is False
 

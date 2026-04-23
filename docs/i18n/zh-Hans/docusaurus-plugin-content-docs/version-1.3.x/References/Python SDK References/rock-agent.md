@@ -33,7 +33,7 @@ env:
 run_cmd: "iflow -p ${prompt} --yolo"           # ${prompt} 必须
 
 runtime_env_config:
-  type: node
+  type: node                                    
   custom_install_cmd: "npm i -g @iflow-ai/iflow-cli@latest"
 
 env:                                            # 环境变量

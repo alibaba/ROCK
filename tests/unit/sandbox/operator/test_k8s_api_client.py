@@ -18,6 +18,7 @@ class TestK8sApiClient:
 
     def test_initialization(self, mock_api_client):
         """Test K8sApiClient initialization.
+
         Verifies AsyncLimiter is configured with QPS limit.
         """
         api_client = K8sApiClient(
