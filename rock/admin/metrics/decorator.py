@@ -226,3 +226,27 @@ def monitor_sandbox_operation(
     if func is not None:
         return decorator(func)
     return decorator
+
+
+def monitor_metastore_operation(f):
+    """Decorator for async MetaStore/SandboxTable methods."""
+
+    @functools.wraps(f)
+    async def wrapper(self, *args, **kwargs):
+        metrics_monitor = getattr(self, "metrics_monitor", None)
+        if not metrics_monitor:
+            return await f(self, *args, **kwargs)
+
+        prefix = metrics_monitor.metric_prefix
+        sandbox_id = _extract_sandbox_id(args, kwargs)
+        attributes: dict[str, str] = {"operation": f.__name__, "method": f.__name__, "sandbox_id": sandbox_id}
+
+        start_time = time.perf_counter()
+
+        try:
+            result = await f(self, *args, **kwargs)
+            return _record_metrics(metrics_monitor, result, attributes, start_time, prefix)
+        except Exception as e:
+            return _record_metrics(metrics_monitor, e, attributes, start_time, prefix)
+
+    return wrapper

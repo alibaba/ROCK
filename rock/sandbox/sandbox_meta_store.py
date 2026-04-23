@@ -14,6 +14,8 @@ from rock.actions.sandbox.response import State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.core.redis_key import alive_sandbox_key, timeout_sandbox_key
 from rock.admin.core.sandbox_table import SandboxTable
+from rock.admin.metrics.decorator import monitor_metastore_operation
+from rock.admin.metrics.monitor import MetricsMonitor
 
 if TYPE_CHECKING:
     from rock.deployments.config import DockerDeploymentConfig
@@ -39,11 +41,13 @@ class SandboxMetaStore:
     ) -> None:
         self._redis: RedisProvider = redis_provider
         self._db: SandboxTable = sandbox_table
+        self.metrics_monitor = MetricsMonitor.create(metric_prefix="meta_store")
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
+    @monitor_metastore_operation
     async def create(
         self,
         sandbox_id: str,
@@ -67,6 +71,7 @@ class SandboxMetaStore:
 
         await self._db.create(sandbox_id, sandbox_info, deployment_config)
 
+    @monitor_metastore_operation
     async def update(self, sandbox_id: str, sandbox_info: SandboxInfo) -> None:
         """Merge *sandbox_info* into the existing Redis alive key and await DB update."""
         current = await self._redis.json_get(alive_sandbox_key(sandbox_id), "$")
@@ -75,6 +80,7 @@ class SandboxMetaStore:
 
         await self._db.update(sandbox_id, sandbox_info)
 
+    @monitor_metastore_operation
     async def delete(self, sandbox_id: str) -> None:
         """Delete Redis alive + timeout keys and await DB delete."""
         await self._redis.json_delete(alive_sandbox_key(sandbox_id))
@@ -82,6 +88,7 @@ class SandboxMetaStore:
 
         await self._db.delete(sandbox_id)
 
+    @monitor_metastore_operation
     async def archive(self, sandbox_id: str, final_info: SandboxInfo) -> None:
         """Persist final state to DB, then remove sandbox from Redis.
 
@@ -100,6 +107,7 @@ class SandboxMetaStore:
         await self._redis.json_delete(alive_sandbox_key(sandbox_id))
         await self._redis.json_delete(timeout_sandbox_key(sandbox_id))
 
+    @monitor_metastore_operation
     async def get(self, sandbox_id: str) -> SandboxInfo | None:
         """Read sandbox info from the Redis alive key."""
         result = await self._redis.json_get(alive_sandbox_key(sandbox_id), "$")
@@ -111,6 +119,7 @@ class SandboxMetaStore:
         """Return ``True`` when the Redis alive key exists for ``sandbox_id``."""
         return await self.get(sandbox_id) is not None
 
+    @monitor_metastore_operation
     async def get_timeout(self, sandbox_id: str) -> dict[str, str] | None:
         """Read timeout info from the Redis timeout key."""
         timeout_info = await self._redis.json_get(timeout_sandbox_key(sandbox_id), "$")
@@ -118,6 +127,7 @@ class SandboxMetaStore:
             return timeout_info[0]
         return None
 
+    @monitor_metastore_operation
     async def update_timeout(self, sandbox_id: str, timeout_info: dict[str, str]) -> None:
         """Overwrite the Redis timeout key with *timeout_info*."""
         await self._redis.json_set(timeout_sandbox_key(sandbox_id), "$", timeout_info)
@@ -129,6 +139,7 @@ class SandboxMetaStore:
             if sandbox_id:
                 yield sandbox_id
 
+    @monitor_metastore_operation
     async def batch_get(self, sandbox_ids: list[str]) -> list[SandboxInfo]:
         """Fetch sandbox info for multiple IDs from the DB. Missing IDs are omitted."""
         if not sandbox_ids:
@@ -136,6 +147,7 @@ class SandboxMetaStore:
 
         return await self._db.list_by_in("sandbox_id", sandbox_ids)
 
+    @monitor_metastore_operation
     async def list_by(self, field: str, value: str | int | float | bool) -> list[SandboxInfo]:
         """Query sandboxes by *field* == *value* from the DB."""
         return await self._db.list_by(field, value)
