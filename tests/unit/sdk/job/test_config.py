@@ -20,6 +20,7 @@ from rock.sdk.bench.models.trial.config import (
     VerifierConfig,
 )
 from rock.sdk.envhub import EnvironmentConfig
+from rock.sdk.envhub.config import TrackingConfig
 from rock.sdk.job.config import BashJobConfig, JobConfig
 
 # ---------------------------------------------------------------------------
@@ -684,3 +685,112 @@ class TestBashJobConfigJobNameDefault:
 
     def test_explicit_name_preserved(self):
         assert BashJobConfig(job_name="x").job_name == "x"
+
+
+# ---------------------------------------------------------------------------
+# TrackingConfig
+# ---------------------------------------------------------------------------
+
+
+class TestTrackingConfig:
+    def test_default_values(self):
+        config = TrackingConfig()
+        assert config.enabled is True
+        assert config.params == {}
+
+    def test_disabled(self):
+        config = TrackingConfig(enabled=False)
+        assert config.enabled is False
+        assert config.params == {}
+
+    def test_custom_params(self):
+        config = TrackingConfig(params={"learning_rate": 0.01, "epochs": 10, "model": "qwen-72b"})
+        assert config.params["learning_rate"] == 0.01
+        assert config.params["epochs"] == 10
+        assert config.params["model"] == "qwen-72b"
+
+    def test_from_dict(self):
+        data = {"enabled": True, "params": {"batch_size": 32}}
+        config = TrackingConfig.model_validate(data)
+        assert config.enabled is True
+        assert config.params["batch_size"] == 32
+
+    def test_from_dict_minimal(self):
+        config = TrackingConfig.model_validate({})
+        assert config.enabled is True
+        assert config.params == {}
+
+    def test_serialization_roundtrip(self):
+        config = TrackingConfig(enabled=True, params={"lr": 0.001, "algo": "GRPO"})
+        json_str = config.model_dump_json()
+        restored = TrackingConfig.model_validate_json(json_str)
+        assert restored == config
+
+
+# ---------------------------------------------------------------------------
+# TrackingConfig on base EnvironmentConfig
+# ---------------------------------------------------------------------------
+
+
+class TestTrackingConfigOnBaseEnvironment:
+    def test_tracking_default_none(self):
+        env = EnvironmentConfig()
+        assert env.tracking is None
+
+    def test_tracking_enabled(self):
+        env = EnvironmentConfig(tracking=TrackingConfig())
+        assert env.tracking is not None
+        assert env.tracking.enabled is True
+        assert env.tracking.params == {}
+
+    def test_tracking_disabled(self):
+        env = EnvironmentConfig(tracking=TrackingConfig(enabled=False))
+        assert env.tracking is not None
+        assert env.tracking.enabled is False
+
+    def test_tracking_with_params(self):
+        env = EnvironmentConfig(tracking=TrackingConfig(params={"model": "qwen-72b", "lr": 1e-5}))
+        assert env.tracking.params["model"] == "qwen-72b"
+        assert env.tracking.params["lr"] == 1e-5
+
+    def test_tracking_from_dict(self):
+        data = {"tracking": {"enabled": True, "params": {"batch_size": 64}}}
+        env = EnvironmentConfig.model_validate(data)
+        assert env.tracking is not None
+        assert env.tracking.params["batch_size"] == 64
+
+    def test_tracking_none_from_dict(self):
+        data = {"tracking": None}
+        env = EnvironmentConfig.model_validate(data)
+        assert env.tracking is None
+
+    def test_tracking_empty_dict_from_yaml(self):
+        """Simulates YAML `tracking: {}` — should enable with defaults."""
+        data = {"tracking": {}}
+        env = EnvironmentConfig.model_validate(data)
+        assert env.tracking is not None
+        assert env.tracking.enabled is True
+        assert env.tracking.params == {}
+
+    def test_tracking_coexists_with_other_fields(self):
+        env = EnvironmentConfig(
+            image="python:3.11",
+            env={"MY_VAR": "hello"},
+            tracking=TrackingConfig(params={"model": "test"}),
+        )
+        assert env.image == "python:3.11"
+        assert env.env == {"MY_VAR": "hello"}
+        assert env.tracking.params["model"] == "test"
+
+    def test_serialization_roundtrip_with_tracking(self):
+        env = EnvironmentConfig(tracking=TrackingConfig(params={"lr": 0.01}))
+        json_str = env.model_dump_json()
+        restored = EnvironmentConfig.model_validate_json(json_str)
+        assert restored.tracking is not None
+        assert restored.tracking.params["lr"] == 0.01
+
+    def test_serialization_roundtrip_without_tracking(self):
+        env = EnvironmentConfig()
+        json_str = env.model_dump_json()
+        restored = EnvironmentConfig.model_validate_json(json_str)
+        assert restored.tracking is None
