@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from rock.sdk.bench.models.environment_type import EnvironmentType
 from rock.sdk.envhub import EnvironmentConfig as _EnvConfig
-from rock.sdk.envhub.config import OssMirrorConfig
+from rock.sdk.envhub.config import OssMirrorConfig, TrackingConfig
 
 
 class AgentConfig(BaseModel):
@@ -33,6 +33,7 @@ class EnvironmentConfig(BaseModel):
     suppress_override_warnings: bool = False
     mounts_json: list[dict[str, Any]] | None = None
     oss_mirror: OssMirrorConfig | None = None
+    tracking: TrackingConfig | None = None
     oss_deps: dict[str, str] = Field(default_factory=dict)
     env: dict[str, str] = Field(default_factory=dict)
     kwargs: dict[str, Any] = Field(default_factory=dict)
