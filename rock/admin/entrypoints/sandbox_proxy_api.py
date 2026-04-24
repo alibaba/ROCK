@@ -238,7 +238,7 @@ async def vnc_websocket_proxy(
 ):
     logger.info(f"Client connected to VNC WebSocket proxy: {sandbox_id}, path: {path}")
     try:
-        await sandbox_proxy_service.websocket_proxy(websocket, sandbox_id, path, port=8006)
+        await sandbox_proxy_service.websocket_proxy(websocket, sandbox_id, path, port=8006, forward_ws_headers=False)
     except WebSocketDisconnect:
         logger.info(f"Client disconnected from VNC WebSocket proxy: {sandbox_id}")
     except Exception as e:

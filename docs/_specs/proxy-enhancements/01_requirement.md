@@ -41,10 +41,17 @@ ROCK Admin 目前提供两类代理能力：
 
 4. **WebSocket Proxy 支持黑名单过滤透传通用请求头**
    - 通过 `/sandboxes/{id}/proxy/{path:path}` 建立 WebSocket 代理时，默认将客户端请求中的通用 header 转发到下游服务，通过黑名单排除不应转发的头
-   - 黑名单排除的头包括：WebSocket 握手专用头（`Host`、`Connection`、`Upgrade`、`Sec-WebSocket-Key`、`Sec-WebSocket-Version`、`Sec-WebSocket-Extensions`、`Sec-WebSocket-Protocol`）和 hop-by-hop 头（`Transfer-Encoding`、`TE`、`Trailer`、`Keep-Alive`、`Proxy-Authorization`、`Proxy-Connection`、`Content-Length`）
+   - 黑名单排除的头包括：
+     - WebSocket 握手专用头：`Host`、`Connection`、`Upgrade`、`Sec-WebSocket-Key`、`Sec-WebSocket-Version`、`Sec-WebSocket-Extensions`、`Sec-WebSocket-Protocol`
+     - Hop-by-hop 头：`Transfer-Encoding`、`TE`、`Trailer`、`Keep-Alive`、`Proxy-Authorization`、`Proxy-Connection`、`Content-Length`
    - `Origin` 是必须支持的关键头，因为下游服务可能使用来源白名单（例如 `gateway.controlUi.allowedOrigins`）校验 WebSocket 握手
    - `Sec-WebSocket-Protocol` 继续通过 WebSocket 子协议协商传递，不作为普通 header 透传
    - 采用黑名单策略，确保用户自定义 header 能被透传到下游服务
+
+5. **VNC WebSocket Proxy 不转发客户端 header**
+   - VNC 路由（`/sandboxes/{id}/vnc/{path}`）调用 `websocket_proxy()` 时设置 `forward_ws_headers=False`
+   - QEMU 内置 WebSocket 服务器的握手 header buffer 仅 4KB（`QIO_CHANNEL_WEBSOCK_MAX_HEADER_SIZE`），上游网关注入的大量 header（SSO cookie、安全校验头等）会导致超限返回 502
+   - VNC 服务不需要客户端的 Origin、Cookie、认证头等上下文，关闭转发最安全
 
 ### Out（本次不做的）
 
@@ -69,7 +76,7 @@ ROCK Admin 目前提供两类代理能力：
 - **AC8**：`GET /sandboxes/{sandbox_id}/proxy/api/health?port=9000` 能成功代理到沙箱内 9000 端口的 HTTP 服务
 - **AC9**：HTTP proxy 不带 `port` 参数时行为不变（向后兼容）
 - **AC10**：当客户端 WebSocket 握手包含 `Origin` 时，代理发起到下游的二跳握手必须携带相同 `Origin`，以满足下游来源校验
-- **AC11**：当客户端握手包含 `Authorization`、`Cookie`、`X-Forwarded-*`、`X-Request-Id`、`Traceparent` 或任意自定义头时，代理发起到下游的二跳握手必须一并转发
+- **AC11**：当客户端握手包含 `Authorization`、`X-Request-Id`、`Traceparent`、`Cookie`、`Accept-Encoding`、`X-Forwarded-*`、`X-Real-IP` 或任意自定义头时，代理发起到下游的二跳握手必须一并转发
 - **AC12**：`Sec-WebSocket-Protocol` 必须继续通过现有 `subprotocols` 机制转发和协商，不能降级为普通 header 透传
 - **AC13**：黑名单头（`Host`、`Connection`、`Upgrade`、`Sec-WebSocket-Key`、`Sec-WebSocket-Version`、`Sec-WebSocket-Extensions`、`Transfer-Encoding`、`TE`、`Trailer`、`Keep-Alive`、`Proxy-Authorization`、`Proxy-Connection`、`Content-Length`）不得被转发到下游
 - **AC14**：当客户端未携带任何白名单头时，WebSocket proxy 的默认行为与现状保持一致（向后兼容）
@@ -91,7 +98,8 @@ ROCK Admin 目前提供两类代理能力：
 ## Risks & Rollout
 
 - **风险**：WebSocket proxy 中用户可以指定任意端口访问沙箱内服务，存在横向访问风险 → 通过 `sandbox_id` 鉴权已覆盖，端口范围校验作为防护层
-- **风险**：黑名单策略下，未列入黑名单的头会默认转发 → 通过单元测试确保握手专用头和 hop-by-hop 头被正确过滤
-- **风险**：不同下游服务对 `Origin`、`Cookie`、`Authorization` 的要求不同，透传后暴露出原本被代理层掩盖的问题 → 以“尽可能保留客户端上下文、但不伪造默认值”为原则
-- **回滚**：修改集中在 `sandbox_proxy_service.py` 和对应单元测试；如需回滚，可仅还原 WebSocket header 透传逻辑
+- **风险**：黑名单策略下，未列入黑名单的头会默认转发 → 通过单元测试确保握手专用头、hop-by-hop 头、网关注入头被正确过滤
+- **风险**：不同下游服务对 `Origin`、`Authorization` 的要求不同，透传后暴露出原本被代理层掩盖的问题 → 以”尽可能保留客户端上下文、但不伪造默认值”为原则
+- **风险**：下游 WebSocket 服务（如 QEMU VNC）header buffer 有限（4KB），大量网关注入头会导致 502 → VNC 路由通过 `forward_ws_headers=False` 关闭 header 转发
+- **回滚**：修改集中在 `sandbox_proxy_service.py`、`rock/sandbox/utils/proxy.py` 和对应单元测试；如需回滚，可仅还原 WebSocket header 透传逻辑
 - **上线策略**：无数据库变更，直接部署；建议先在依赖 `Origin` 校验的控制台类服务上验证

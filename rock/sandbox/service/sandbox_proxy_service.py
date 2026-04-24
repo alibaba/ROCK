@@ -203,13 +203,22 @@ class SandboxProxyService:
             raise
 
     async def websocket_proxy(
-        self, client_websocket, sandbox_id: str, target_path: str | None = None, port: int | None = None
+        self,
+        client_websocket,
+        sandbox_id: str,
+        target_path: str | None = None,
+        port: int | None = None,
+        forward_ws_headers: bool = True,
     ):
         target_url = await self.get_sandbox_websocket_url(sandbox_id, target_path, port=port)
 
         client_subprotocols = getattr(client_websocket, "subprotocols", []) or []
         upstream_subprotocols = client_subprotocols if client_subprotocols else ["binary", "base64"]
-        origin, additional_headers = build_upstream_ws_headers(client_websocket)
+        if forward_ws_headers:
+            origin, additional_headers = build_upstream_ws_headers(client_websocket)
+            logger.info(f"origin for upstream WebSocket: {origin}, additional_headers: {additional_headers}")
+        else:
+            origin, additional_headers = None, None
 
         try:
             async with websockets.connect(
