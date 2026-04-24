@@ -293,12 +293,31 @@ class TestHarborJobConfigToHarborYaml:
         parsed = yaml.safe_load(yaml_str)
         assert isinstance(parsed, dict)
 
+    def test_tracking_config_preserved_in_harbor_yaml(self):
+        """tracking config on environment must survive to_harbor_yaml() serialization."""
+        tracking = TrackingConfig(enabled=True, api_key="sk-test-123", params={"lr": 0.01})
+        env = RockEnvironmentConfig(tracking=tracking)
+        cfg = HarborJobConfig(experiment_id="test-exp", environment=env)
+        yaml_str = cfg.to_harbor_yaml()
+        data = yaml.safe_load(yaml_str)
+        assert "environment" in data
+        assert "tracking" in data["environment"], "tracking must not be stripped by to_harbor_yaml()"
+        assert data["environment"]["tracking"]["enabled"] is True
+        assert data["environment"]["tracking"]["api_key"] == "sk-test-123"
+        assert data["environment"]["tracking"]["params"] == {"lr": 0.01}
+
+    def test_tracking_config_none_omitted_in_harbor_yaml(self):
+        """When tracking is None (default), it should not appear in harbor YAML."""
+        cfg = HarborJobConfig(experiment_id="test-exp")
+        yaml_str = cfg.to_harbor_yaml()
+        data = yaml.safe_load(yaml_str)
+        env_data = data.get("environment", {})
+        assert "tracking" not in env_data
+
 
 # ---------------------------------------------------------------------------
 # HarborJobConfig.from_yaml
 # ---------------------------------------------------------------------------
-
-
 class TestHarborJobConfigFromYaml:
     def test_round_trip(self, tmp_path):
         """Write a YAML config, read it back, verify fields."""
