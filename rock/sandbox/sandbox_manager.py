@@ -27,6 +27,7 @@ from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
 from rock.config import RockConfig, RuntimeConfig
 from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
+from rock.sandbox.operator.fc import FCOperatorConfig
 from rock.logger import init_logger
 from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
@@ -111,26 +112,44 @@ class SandboxManager(BaseManager):
         self, config: DeploymentConfig, user_info: UserInfo = {}, cluster_info: ClusterInfo = {}
     ) -> SandboxStartResponse:
         await self._check_sandbox_exists_in_redis(config)
-        self.validate_sandbox_spec(self.rock_config.runtime, config)
-        docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(config)
+        # Skip spec validation for FC (uses FCOperatorConfig)
+        if not isinstance(config, FCOperatorConfig):
+            self.validate_sandbox_spec(self.rock_config.runtime, config)
+        deployment_config = await self.deployment_manager.init_config(config)
 
-        sandbox_id = docker_deployment_config.container_name
-        if self.rock_config.runtime.use_standard_spec_only:
-            logger.info(
-                f"[{sandbox_id}] Using standard spec only: "
-                f"cpus={self.rock_config.runtime.standard_spec.cpus}, "
-                f"memory={self.rock_config.runtime.standard_spec.memory}"
-            )
-            docker_deployment_config.cpus = self.rock_config.runtime.standard_spec.cpus
-            docker_deployment_config.memory = self.rock_config.runtime.standard_spec.memory
-        sandbox_info: SandboxInfo = await self._operator.submit(docker_deployment_config, user_info)
+        # Get sandbox_id based on config type
+        if isinstance(deployment_config, FCOperatorConfig):
+            sandbox_id = deployment_config.session_id
+        else:
+            sandbox_id = deployment_config.container_name
+
+        # Apply standard_spec only for Docker/Ray deployments
+        if isinstance(deployment_config, DockerDeploymentConfig):
+            if self.rock_config.runtime.use_standard_spec_only:
+                logger.info(
+                    f"[{sandbox_id}] Using standard spec only: "
+                    f"cpus={self.rock_config.runtime.standard_spec.cpus}, "
+                    f"memory={self.rock_config.runtime.standard_spec.memory}"
+                )
+                deployment_config.cpus = self.rock_config.runtime.standard_spec.cpus
+                deployment_config.memory = self.rock_config.runtime.standard_spec.memory
+
+        sandbox_info: SandboxInfo = await self._operator.submit(deployment_config, user_info)
         await self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)
-        timeout_info = SandboxTimeoutHelper.make_timeout_info(docker_deployment_config.auto_clear_time)
+
+        # Create timeout info based on config type
+        if isinstance(deployment_config, FCOperatorConfig):
+            timeout_info = SandboxTimeoutHelper.make_timeout_info(
+                deployment_config.session_ttl // 60 if deployment_config.session_ttl else 10
+            )
+        else:
+            timeout_info = SandboxTimeoutHelper.make_timeout_info(deployment_config.auto_clear_time)
+
         await self._meta_store.create(
             sandbox_id,
             sandbox_info,
             timeout_info=timeout_info,
-            deployment_config=docker_deployment_config,
+            deployment_config=deployment_config,
         )
         return SandboxStartResponse(
             sandbox_id=sandbox_id,

@@ -157,6 +157,36 @@ class K8sConfig:
 
 
 @dataclass
+class FCConfig:
+    """FC (Function Compute) configuration for FC operator.
+
+    FC (Function Compute) is Alibaba Cloud's serverless compute service.
+    This configuration provides default values and credentials for FC sandbox deployment.
+    """
+
+    region: str = "cn-hangzhou"
+    account_id: str | None = None
+    function_name: str = "rock-serverless-runtime-rocklet"
+
+    # Credentials
+    access_key_id: str | None = None
+    access_key_secret: str = field(default="", repr=False)
+    security_token: str | None = None
+
+    # Resource defaults
+    default_memory: int = 4096
+    default_cpus: float = 2.0
+
+    # Timeout defaults (in seconds)
+    default_session_ttl: int = 86400  # 会话生命周期（秒），24小时
+    default_function_timeout: float = 3600.0  # 函数执行超时（秒），单次请求最大1小时
+    default_session_idle_timeout: int = 1800  # 会话空闲超时（秒），30分钟
+
+    # Protocol settings
+    session_affinity_header: str = "x-rock-session-id"
+
+
+@dataclass
 class RuntimeConfig:
     enable_auto_clear: bool = False
     project_root: str = field(default_factory=lambda: env_vars.ROCK_PROJECT_ROOT)
@@ -199,6 +229,7 @@ class RuntimeConfig:
 class RockConfig:
     ray: RayConfig = field(default_factory=RayConfig)
     k8s: K8sConfig = field(default_factory=K8sConfig)
+    fc: FCConfig = field(default_factory=FCConfig)
     warmup: WarmupConfig = field(default_factory=WarmupConfig)
     nacos: NacosConfig = field(default_factory=NacosConfig)
     redis: RedisConfig = field(default_factory=RedisConfig)
@@ -233,6 +264,8 @@ class RockConfig:
             kwargs["ray"] = RayConfig(**config["ray"])
         if "k8s" in config:
             kwargs["k8s"] = K8sConfig(**config["k8s"])
+        if "fc" in config:
+            kwargs["fc"] = FCConfig(**config["fc"])
         if "warmup" in config:
             kwargs["warmup"] = WarmupConfig(**config["warmup"])
         if "nacos" in config:
