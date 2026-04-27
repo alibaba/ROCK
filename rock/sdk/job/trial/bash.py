@@ -119,7 +119,14 @@ class BashTrial(AbstractTrial):
         return f"artifacts/{self._config.namespace}/{self._config.experiment_id}/{self._config.job_name}"
 
     def build(self) -> str:
-        return self._config.script or ""
+        script = self._config.script or ""
+        mirror = self._oss_mirror
+        if mirror is None or not mirror.enabled:
+            return script
+        if not self._ossutil_ready:
+            logger.warning("ossutil unavailable, falling back to raw script (OSS mirror upload disabled for this run)")
+            return script
+        return _render_wrapper(script)
 
     async def collect(self, sandbox: Sandbox, output: str, exit_code: int) -> TrialResult:
         exception_info = None

@@ -37,6 +37,52 @@ class TestBashTrialBuild:
         trial = BashTrial(cfg)
         assert trial.build() == ""
 
+    def test_build_without_oss_mirror_returns_raw(self):
+        """No oss_mirror -> user script is returned as-is."""
+        cfg = BashJobConfig(script="echo hi")
+        trial = BashTrial(cfg)
+        assert trial.build() == "echo hi"
+
+    def test_build_oss_disabled_returns_raw(self):
+        """oss_mirror.enabled=False -> raw script."""
+        cfg = BashJobConfig(
+            script="echo hi",
+            environment=EnvironmentConfig(oss_mirror=OssMirrorConfig(enabled=False)),
+        )
+        trial = BashTrial(cfg)
+        assert trial.build() == "echo hi"
+
+    def test_build_oss_enabled_and_ready_returns_wrapper(self):
+        """oss_mirror.enabled=True and ossutil_ready -> wrapper script."""
+        cfg = BashJobConfig(
+            script="echo hi",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=True, oss_bucket="b"),
+            ),
+        )
+        trial = BashTrial(cfg)
+        trial._ossutil_ready = True  # simulate successful setup
+
+        wrapper = trial.build()
+
+        assert wrapper.startswith("#!/bin/bash")
+        assert "echo hi" in wrapper
+        assert "ossutil cp" in wrapper
+        assert "__ROCK_USER_SCRIPT_EOF_" in wrapper
+
+    def test_build_oss_enabled_but_not_ready_falls_back(self):
+        """oss_mirror.enabled=True but ossutil install failed -> raw script."""
+        cfg = BashJobConfig(
+            script="echo hi",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=True, oss_bucket="b"),
+            ),
+        )
+        trial = BashTrial(cfg)
+        trial._ossutil_ready = False  # ensure_ossutil failed
+
+        assert trial.build() == "echo hi"
+
 
 # ---------------------------------------------------------------------------
 # BashTrial.setup()
