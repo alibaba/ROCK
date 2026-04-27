@@ -201,6 +201,10 @@ class JobExecutor:
                 raise ValueError("oss_mirror: experiment_id is not set (sandbox did not return one)")
             if not env.get("OSS_BUCKET"):
                 raise ValueError("oss_mirror.enabled=True but OSS_BUCKET is not resolvable")
+            if not env.get("OSS_ENDPOINT"):
+                raise ValueError("oss_mirror.enabled=True but OSS_ENDPOINT is not resolvable")
+            if not env.get("OSS_REGION"):
+                raise ValueError("oss_mirror.enabled=True but OSS_REGION is not resolvable")
 
             # Derived keys consumed by the wrapper script
             env["ROCK_ARTIFACT_DIR"] = env_vars.ROCK_BASH_JOB_ARTIFACT_DIR

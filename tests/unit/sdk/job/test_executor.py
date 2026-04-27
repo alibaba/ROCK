@@ -298,7 +298,7 @@ class TestBuildSessionEnvOssMirror:
             namespace="ns",
             experiment_id="exp",
             environment=EnvironmentConfig(
-                env={"OSS_ACCESS_KEY_ID": "env_id", "OSS_ENDPOINT": "env_ep"},
+                env={"OSS_ACCESS_KEY_ID": "env_id", "OSS_ENDPOINT": "env_ep", "OSS_REGION": "env_rg"},
                 oss_mirror=OssMirrorConfig(
                     enabled=True,
                     oss_bucket="cfg_bucket",
@@ -332,6 +332,7 @@ class TestBuildSessionEnvOssMirror:
                     "OSS_ACCESS_KEY_ID": "ak",
                     "OSS_ACCESS_KEY_SECRET": "sk",
                     "OSS_ENDPOINT": "ep",
+                    "OSS_REGION": "rg",
                     "OSS_BUCKET": "b",
                 },
                 oss_mirror=OssMirrorConfig(enabled=True),
@@ -354,7 +355,7 @@ class TestBuildSessionEnvOssMirror:
             namespace="ns1",
             experiment_id="exp1",
             environment=EnvironmentConfig(
-                oss_mirror=OssMirrorConfig(enabled=True, oss_bucket="b"),
+                oss_mirror=OssMirrorConfig(enabled=True, oss_bucket="b", oss_endpoint="ep", oss_region="rg"),
             ),
         )
         merged = JobExecutor._build_session_env(config)
@@ -429,4 +430,40 @@ class TestBuildSessionEnvOssMirror:
             ),
         )
         with pytest.raises(ValueError, match="OSS_BUCKET"):
+            JobExecutor._build_session_env(config)
+
+    def test_missing_endpoint_raises(self, monkeypatch):
+        self._clear_oss(monkeypatch)
+
+        from rock.sdk.envhub import EnvironmentConfig
+        from rock.sdk.envhub.config import OssMirrorConfig
+
+        config = BashJobConfig(
+            script="echo",
+            job_name="j",
+            namespace="ns",
+            experiment_id="exp",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=True, oss_bucket="b"),
+            ),
+        )
+        with pytest.raises(ValueError, match="OSS_ENDPOINT"):
+            JobExecutor._build_session_env(config)
+
+    def test_missing_region_raises(self, monkeypatch):
+        self._clear_oss(monkeypatch)
+
+        from rock.sdk.envhub import EnvironmentConfig
+        from rock.sdk.envhub.config import OssMirrorConfig
+
+        config = BashJobConfig(
+            script="echo",
+            job_name="j",
+            namespace="ns",
+            experiment_id="exp",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=True, oss_bucket="b", oss_endpoint="ep"),
+            ),
+        )
+        with pytest.raises(ValueError, match="OSS_REGION"):
             JobExecutor._build_session_env(config)
