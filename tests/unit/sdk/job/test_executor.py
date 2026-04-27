@@ -269,3 +269,164 @@ class TestExecutorOnSandboxReady:
         trial.on_sandbox_ready.assert_awaited_once_with(mock_sandbox)
         # Must be called AFTER sandbox.start()
         assert mock_sandbox.start.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# _build_session_env — oss_mirror enabled scenarios (spec 2026-04-27)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildSessionEnvOssMirror:
+    """When oss_mirror.enabled=True: three-tier priority + derived keys + validation."""
+
+    def _clear_oss(self, monkeypatch):
+        for k in list(__import__("os").environ):
+            if k.startswith("OSS"):
+                monkeypatch.delenv(k, raising=False)
+
+    def test_oss_mirror_config_field_wins_over_env_and_host(self, monkeypatch):
+        """Priority: OssMirrorConfig field > environment.env > host os.environ."""
+        self._clear_oss(monkeypatch)
+        monkeypatch.setenv("OSS_ACCESS_KEY_ID", "host_id")
+
+        from rock.sdk.envhub import EnvironmentConfig
+        from rock.sdk.envhub.config import OssMirrorConfig
+
+        config = BashJobConfig(
+            script="echo",
+            job_name="j",
+            namespace="ns",
+            experiment_id="exp",
+            environment=EnvironmentConfig(
+                env={"OSS_ACCESS_KEY_ID": "env_id", "OSS_ENDPOINT": "env_ep"},
+                oss_mirror=OssMirrorConfig(
+                    enabled=True,
+                    oss_bucket="cfg_bucket",
+                    oss_access_key_id="cfg_id",
+                ),
+            ),
+        )
+        merged = JobExecutor._build_session_env(config)
+
+        assert merged is not None
+        # OssMirrorConfig field wins
+        assert merged["OSS_ACCESS_KEY_ID"] == "cfg_id"
+        assert merged["OSS_BUCKET"] == "cfg_bucket"
+        # environment.env fills the slots the config did not supply
+        assert merged["OSS_ENDPOINT"] == "env_ep"
+
+    def test_environment_env_can_supply_oss_credentials(self, monkeypatch):
+        """Issue-2 fix: OSS_* inside environment.env must be usable as credentials."""
+        self._clear_oss(monkeypatch)
+
+        from rock.sdk.envhub import EnvironmentConfig
+        from rock.sdk.envhub.config import OssMirrorConfig
+
+        config = BashJobConfig(
+            script="echo",
+            job_name="j",
+            namespace="ns",
+            experiment_id="exp",
+            environment=EnvironmentConfig(
+                env={
+                    "OSS_ACCESS_KEY_ID": "ak",
+                    "OSS_ACCESS_KEY_SECRET": "sk",
+                    "OSS_ENDPOINT": "ep",
+                    "OSS_BUCKET": "b",
+                },
+                oss_mirror=OssMirrorConfig(enabled=True),
+            ),
+        )
+        merged = JobExecutor._build_session_env(config)
+
+        assert merged["OSS_ACCESS_KEY_ID"] == "ak"
+        assert merged["OSS_BUCKET"] == "b"
+
+    def test_derived_rock_env_keys_present_when_enabled(self, monkeypatch):
+        self._clear_oss(monkeypatch)
+
+        from rock.sdk.envhub import EnvironmentConfig
+        from rock.sdk.envhub.config import OssMirrorConfig
+
+        config = BashJobConfig(
+            script="echo",
+            job_name="myjob",
+            namespace="ns1",
+            experiment_id="exp1",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=True, oss_bucket="b"),
+            ),
+        )
+        merged = JobExecutor._build_session_env(config)
+
+        assert merged["ROCK_ARTIFACT_DIR"] == "/data/logs/user-defined"
+        assert merged["ROCK_OSS_PREFIX"] == "artifacts/ns1/exp1/myjob"
+
+    def test_no_derived_keys_when_mirror_disabled(self, monkeypatch):
+        self._clear_oss(monkeypatch)
+
+        from rock.sdk.envhub import EnvironmentConfig
+        from rock.sdk.envhub.config import OssMirrorConfig
+
+        config = BashJobConfig(
+            script="echo",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=False, oss_bucket="b"),
+            ),
+        )
+        merged = JobExecutor._build_session_env(config)
+
+        assert merged is None or "ROCK_ARTIFACT_DIR" not in merged
+        assert merged is None or "ROCK_OSS_PREFIX" not in merged
+
+    def test_missing_namespace_raises(self, monkeypatch):
+        self._clear_oss(monkeypatch)
+
+        from rock.sdk.envhub import EnvironmentConfig
+        from rock.sdk.envhub.config import OssMirrorConfig
+
+        config = BashJobConfig(
+            script="echo",
+            job_name="j",
+            experiment_id="exp",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=True, oss_bucket="b"),
+            ),
+        )
+        with pytest.raises(ValueError, match="namespace"):
+            JobExecutor._build_session_env(config)
+
+    def test_missing_experiment_id_raises(self, monkeypatch):
+        self._clear_oss(monkeypatch)
+
+        from rock.sdk.envhub import EnvironmentConfig
+        from rock.sdk.envhub.config import OssMirrorConfig
+
+        config = BashJobConfig(
+            script="echo",
+            job_name="j",
+            namespace="ns",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=True, oss_bucket="b"),
+            ),
+        )
+        with pytest.raises(ValueError, match="experiment_id"):
+            JobExecutor._build_session_env(config)
+
+    def test_missing_bucket_raises(self, monkeypatch):
+        self._clear_oss(monkeypatch)
+
+        from rock.sdk.envhub import EnvironmentConfig
+        from rock.sdk.envhub.config import OssMirrorConfig
+
+        config = BashJobConfig(
+            script="echo",
+            job_name="j",
+            namespace="ns",
+            experiment_id="exp",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=True),
+            ),
+        )
+        with pytest.raises(ValueError, match="OSS_BUCKET"):
+            JobExecutor._build_session_env(config)

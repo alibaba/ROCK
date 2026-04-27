@@ -160,7 +160,50 @@ class JobExecutor:
 
     @staticmethod
     def _build_session_env(config: JobConfig) -> dict[str, str] | None:
-        """Merge OSS_* env vars from the process with config.env (config wins)."""
-        oss_env = {k: v for k, v in os.environ.items() if k.startswith("OSS")}
-        merged = {**oss_env, **config.environment.env}
-        return merged or None
+        """Build session env for the sandbox bash session.
+
+        Resolution order (later overrides earlier):
+          3. Host os.environ OSS_* variables (lowest priority)
+          2. config.environment.env (includes non-OSS variables)
+          1. OssMirrorConfig non-empty fields (highest priority)
+
+        When oss_mirror is enabled, also validates required fields and injects
+        ROCK_ARTIFACT_DIR / ROCK_OSS_PREFIX so the wrapper script can read them.
+        """
+        from rock import env_vars
+
+        env: dict[str, str] = {}
+
+        # 3. Host process OSS_* variables
+        env.update({k: v for k, v in os.environ.items() if k.startswith("OSS_")})
+
+        # 2. environment.env (includes non-OSS variables)
+        env.update(config.environment.env)
+
+        # 1. OssMirrorConfig non-empty fields (highest priority)
+        oss_mirror = getattr(config.environment, "oss_mirror", None)
+        if oss_mirror is not None and oss_mirror.enabled:
+            for field_name, env_key in [
+                ("oss_access_key_id", "OSS_ACCESS_KEY_ID"),
+                ("oss_access_key_secret", "OSS_ACCESS_KEY_SECRET"),
+                ("oss_endpoint", "OSS_ENDPOINT"),
+                ("oss_region", "OSS_REGION"),
+                ("oss_bucket", "OSS_BUCKET"),
+            ]:
+                v = getattr(oss_mirror, field_name, None)
+                if v:
+                    env[env_key] = v
+
+            # Required-field validation: fail fast when any is missing
+            if not config.namespace:
+                raise ValueError("oss_mirror: namespace is not set (sandbox did not return one)")
+            if not config.experiment_id:
+                raise ValueError("oss_mirror: experiment_id is not set (sandbox did not return one)")
+            if not env.get("OSS_BUCKET"):
+                raise ValueError("oss_mirror.enabled=True but OSS_BUCKET is not resolvable")
+
+            # Derived keys consumed by the wrapper script
+            env["ROCK_ARTIFACT_DIR"] = env_vars.ROCK_BASH_JOB_ARTIFACT_DIR
+            env["ROCK_OSS_PREFIX"] = f"artifacts/{config.namespace}/{config.experiment_id}/{config.job_name}"
+
+        return env or None
