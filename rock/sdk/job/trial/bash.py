@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 from pathlib import Path
 
+from rock import env_vars
 from rock.logger import init_logger
 from rock.sdk.job.config import BashJobConfig
 from rock.sdk.job.result import ExceptionInfo, TrialResult
@@ -69,6 +71,63 @@ class BashTrial(AbstractTrial):
     def _oss_mirror_enabled(self) -> bool:
         mirror = self._config.environment.oss_mirror
         return mirror is not None and mirror.enabled
+
+    async def on_sandbox_ready(self, sandbox: Sandbox) -> None:
+        """Backfill namespace/experiment_id (via super) then prepare OSS session env.
+
+        All BashJob-specific session env preparation (credential resolution,
+        validation, derived ROCK_* keys) lives here so that the shared
+        ``JobExecutor._build_session_env`` stays trial-agnostic. Because this
+        hook runs strictly before ``_build_session_env``, any keys we write
+        into ``config.environment.env`` here will propagate into the bash
+        session env.
+        """
+        await super().on_sandbox_ready(sandbox)
+        if self._oss_mirror_enabled():
+            self._prepare_oss_session_env()
+
+    def _prepare_oss_session_env(self) -> None:
+        """Resolve OSS credentials, validate, and inject derived ROCK_* keys.
+
+        Resolution order per key (first non-empty wins):
+          1. ``OssMirrorConfig`` field (highest priority)
+          2. ``environment.env`` (if the user already put it there)
+          3. Host process ``os.environ`` (lowest priority)
+
+        The resolved credentials are written into ``environment.env`` so that
+        ``JobExecutor._build_session_env`` picks them up without needing to
+        know anything about OSS. Also writes ``ROCK_ARTIFACT_DIR`` and
+        ``ROCK_OSS_PREFIX`` for the wrapper script to consume.
+        """
+        mirror = self._config.environment.oss_mirror
+        env = self._config.environment.env
+
+        for field_name, env_key in [
+            ("oss_access_key_id", "OSS_ACCESS_KEY_ID"),
+            ("oss_access_key_secret", "OSS_ACCESS_KEY_SECRET"),
+            ("oss_endpoint", "OSS_ENDPOINT"),
+            ("oss_region", "OSS_REGION"),
+            ("oss_bucket", "OSS_BUCKET"),
+        ]:
+            v = getattr(mirror, field_name, None) or env.get(env_key) or os.environ.get(env_key)
+            if v:
+                env[env_key] = v
+
+        if not self._config.namespace:
+            raise ValueError("oss_mirror: namespace is not set (sandbox did not return one)")
+        if not self._config.experiment_id:
+            raise ValueError("oss_mirror: experiment_id is not set (sandbox did not return one)")
+        if not env.get("OSS_BUCKET"):
+            raise ValueError("oss_mirror.enabled=True but OSS_BUCKET is not resolvable")
+        if not env.get("OSS_ENDPOINT"):
+            raise ValueError("oss_mirror.enabled=True but OSS_ENDPOINT is not resolvable")
+        if not env.get("OSS_REGION"):
+            raise ValueError("oss_mirror.enabled=True but OSS_REGION is not resolvable")
+
+        env["ROCK_ARTIFACT_DIR"] = env_vars.ROCK_BASH_JOB_ARTIFACT_DIR
+        env[
+            "ROCK_OSS_PREFIX"
+        ] = f"artifacts/{self._config.namespace}/{self._config.experiment_id}/{self._config.job_name}"
 
     async def setup(self, sandbox: Sandbox) -> None:
         await self._upload_files(sandbox)
