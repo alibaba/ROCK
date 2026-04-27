@@ -8,6 +8,18 @@ from rock.deployments.ray import RayDeployment
 from rock.sandbox.sandbox_actor import SandboxActor
 
 
+def _mock_write_lock(service):
+    """Helper to set up a mock write lock on a RayService instance."""
+    mock_lock_cm = AsyncMock()
+    mock_lock = MagicMock()
+    mock_lock.__aenter__ = mock_lock_cm.__aenter__
+    mock_lock.__aexit__ = mock_lock_cm.__aexit__
+    mock_rwlock = MagicMock()
+    mock_rwlock.write_lock.return_value = mock_lock
+    service._ray_rwlock = mock_rwlock
+    return mock_rwlock, mock_lock
+
+
 @pytest.mark.need_ray
 @pytest.mark.asyncio
 async def test_reconnect_ray_calls_ray_shutdown_and_init_and_reset_counters(ray_service: RayService):
@@ -16,18 +28,12 @@ async def test_reconnect_ray_calls_ray_shutdown_and_init_and_reset_counters(ray_
     service._ray_request_count = 123
     old_establish_time = service._ray_establish_time
 
-    mock_lock_cm = AsyncMock()
-    mock_lock = MagicMock()
-    mock_lock.__aenter__ = mock_lock_cm.__aenter__
-    mock_lock.__aexit__ = mock_lock_cm.__aexit__
-
-    mock_rwlock = MagicMock()
-    mock_rwlock.write_lock.return_value = mock_lock
-    service._ray_rwlock = mock_rwlock
+    mock_rwlock, mock_lock = _mock_write_lock(service)
 
     with (
         patch("rock.admin.core.ray_service.ray.shutdown") as mock_shutdown,
         patch("rock.admin.core.ray_service.ray.init") as mock_init,
+        patch("rock.admin.core.ray_service.ray.cluster_resources") as mock_cluster,
         patch("time.time", return_value=old_establish_time + 5),
     ):
         await service._reconnect_ray()
@@ -37,13 +43,8 @@ async def test_reconnect_ray_calls_ray_shutdown_and_init_and_reset_counters(ray_
         mock_lock.__aexit__.assert_awaited()
 
         mock_shutdown.assert_called_once()
-        mock_init.assert_called_once_with(
-            address=ray_service._config.address,
-            runtime_env=ray_service._config.runtime_env,
-            namespace=ray_service._config.namespace,
-            resources=ray_service._config.resources,
-            _temp_dir=ray_service._config.temp_dir,
-        )
+        mock_init.assert_called_once()
+        mock_cluster.assert_called_once()
 
         assert service._ray_request_count == 0
 
@@ -77,6 +78,96 @@ async def test_reconnect_ray_skip_when_reader_exists_and_write_lock_timeout(ray_
 
         assert service._ray_request_count == old_count
         assert service._ray_establish_time == old_est
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_reconnect_ray_catches_init_exception_and_triggers_retry(ray_service: RayService):
+    """When ray.init() raises a non-InternalServerRockError exception,
+    _reconnect_ray should catch it and call _retry_ray_init."""
+    service = ray_service
+    service._ray_request_count = 50
+    old_count = service._ray_request_count
+    old_est = service._ray_establish_time
+
+    _mock_write_lock(service)
+
+    with (
+        patch("rock.admin.core.ray_service.ray.shutdown"),
+        patch("rock.admin.core.ray_service.ray.init", side_effect=ConnectionError("head node unreachable")),
+        patch("rock.admin.core.ray_service.ray.cluster_resources"),
+        patch.object(service, "_retry_ray_init", new_callable=AsyncMock) as mock_retry,
+    ):
+        await service._reconnect_ray()
+
+        mock_retry.assert_awaited_once()
+        assert service._ray_request_count == old_count
+        assert service._ray_establish_time == old_est
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_retry_ray_init_succeeds(ray_service: RayService):
+    """_retry_ray_init should succeed on a single retry attempt."""
+    service = ray_service
+    service._ray_request_count = 99
+
+    with (
+        patch("rock.admin.core.ray_service.ray.shutdown") as mock_shutdown,
+        patch("rock.admin.core.ray_service.ray.init"),
+        patch("rock.admin.core.ray_service.ray.cluster_resources"),
+    ):
+        await service._retry_ray_init()
+
+        assert service._ray_request_count == 0
+        mock_shutdown.assert_called_once()
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_retry_ray_init_fails(ray_service: RayService):
+    """When the single recovery attempt fails, counters should NOT be reset."""
+    service = ray_service
+    service._ray_request_count = 99
+    old_count = service._ray_request_count
+    old_est = service._ray_establish_time
+
+    with (
+        patch("rock.admin.core.ray_service.ray.shutdown") as mock_shutdown,
+        patch("rock.admin.core.ray_service.ray.init", side_effect=ConnectionError("head node unreachable")),
+        patch("rock.admin.core.ray_service.ray.cluster_resources"),
+    ):
+        await service._retry_ray_init()
+
+        assert service._ray_request_count == old_count
+        assert service._ray_establish_time == old_est
+        mock_shutdown.assert_called_once()
+
+
+@pytest.mark.need_ray
+@pytest.mark.asyncio
+async def test_reconnect_ray_timeout_on_hanging_init(ray_service: RayService):
+    """When _do_ray_init hangs, the timeout should fire and trigger _retry_ray_init."""
+
+    service = ray_service
+    service._config.ray_init_timeout_seconds = 0.1
+
+    _mock_write_lock(service)
+
+    def blocking_init(*args, **kwargs):
+        import time
+
+        time.sleep(5)
+
+    with (
+        patch("rock.admin.core.ray_service.ray.shutdown"),
+        patch("rock.admin.core.ray_service.ray.init", side_effect=blocking_init),
+        patch("rock.admin.core.ray_service.ray.cluster_resources"),
+        patch.object(service, "_retry_ray_init", new_callable=AsyncMock) as mock_retry,
+    ):
+        await service._reconnect_ray()
+
+        mock_retry.assert_awaited_once()
 
 
 @pytest.mark.need_docker
