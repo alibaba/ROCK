@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import shlex
 from pathlib import Path
 
@@ -16,6 +17,48 @@ from rock.sdk.job.trial.registry import register_trial
 from rock.sdk.sandbox.client import RunMode, Sandbox
 
 logger = init_logger(__name__)
+
+
+def _render_wrapper(user_script: str, token: str | None = None) -> str:
+    """Render the BashJob wrapper script.
+
+    Structure: prologue (mkdir + touch + initial upload) → user script
+    (isolated in a single-quoted heredoc) → epilogue (final upload) → exit
+    with user's exit code.
+
+    When ``token`` is ``None`` a random 8-char hex is generated. Collision
+    probability is ~2^-32 and collisions also require the user script to
+    contain the terminator on its own line, which is not actively guarded
+    against — the risk is acceptable.
+    """
+    if token is None:
+        token = secrets.token_hex(4)  # 8-char hex
+    eof = f"__ROCK_USER_SCRIPT_EOF_{token}__"
+    return (
+        "#!/bin/bash\n"
+        "# rock bash-job wrapper (generated, do not edit)\n"
+        "# OSS credentials and paths come from session env; no secrets in this file.\n"
+        "set +e\n"
+        "\n"
+        "# -- prologue: prepare artifact dir and do an initial placeholder upload --\n"
+        'mkdir -p "$ROCK_ARTIFACT_DIR"\n'
+        'touch "$ROCK_ARTIFACT_DIR/.placeholder"\n'
+        'ossutil cp "$ROCK_ARTIFACT_DIR/" "oss://$OSS_BUCKET/$ROCK_OSS_PREFIX/" \\\n'
+        "    --recursive -f >/dev/null 2>&1 || true\n"
+        "\n"
+        "# -- user script: heredoc isolates user's trap/exit from the wrapper --\n"
+        f"bash <<'{eof}'\n"
+        f"{user_script}\n"
+        f"{eof}\n"
+        "_rock_user_rc=$?\n"
+        "\n"
+        "# -- epilogue: final upload (failure is logged but does not change exit code) --\n"
+        'ossutil cp "$ROCK_ARTIFACT_DIR/" "oss://$OSS_BUCKET/$ROCK_OSS_PREFIX/" \\\n'
+        "    --recursive -f \\\n"
+        '    || echo "[rock] oss upload failed (rc=$?), ignored" >&2\n'
+        "\n"
+        "exit $_rock_user_rc\n"
+    )
 
 
 class BashTrial(AbstractTrial):
