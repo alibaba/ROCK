@@ -12,10 +12,15 @@ from typing import Any
 
 import bashlex
 import bashlex.ast
-import gem
 import pexpect
 import psutil
 from typing_extensions import Self
+
+# Optional dependency: gem (GEM game environment)
+try:
+    import gem
+except ImportError:
+    gem = None
 
 from rock.actions import (
     AbstractSandbox,

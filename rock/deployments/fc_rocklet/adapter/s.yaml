@@ -1,0 +1,82 @@
+# =============================================================================
+# FC Hybrid Adapter Deployment Configuration
+# =============================================================================
+#
+# 方案 C：混合适配层部署
+#
+# 部署步骤：
+#   1. 执行 ./package.sh 打包代码
+#   2. 执行: s deploy
+#
+# 优点：
+#   - 使用 Python3.10 运行时，启动快
+#   - 复用 rocklet 核心代码
+#   - 无需构建镜像
+#
+# =============================================================================
+
+edition: 3.0.0
+name: rock-serverless-runtime-rocklet
+access: default
+
+vars:
+  region: cn-hangzhou
+  functionName: rock-serverless-runtime-rocklet
+
+resources:
+  rock-rocklet:
+    component: fc3
+    props:
+      region: ${vars.region}
+      functionName: ${vars.functionName}
+      description: "ROCK Rocklet Sandbox Runtime (Hybrid Adapter)"
+
+      # 使用 Python3.10 运行时
+      runtime: python3.10
+      # 指向适配层的 WSGI handler
+      handler: server.handler
+
+      # 代码配置（使用打包后的 zip）
+      code: ./dist/fc_rocklet_adapter.zip
+
+      # 资源配置
+      memorySize: 4096
+      cpu: 2
+      diskSize: 10240
+      timeout: 3600
+
+      # 单实例多并发
+      instanceConcurrency: 200
+
+      # 会话隔离配置
+      instanceIsolationMode: SESSION_EXCLUSIVE
+      sessionAffinity: HEADER_FIELD
+      sessionAffinityConfig:
+        affinityHeaderFieldName: x-rock-session-id
+        sessionConcurrencyPerInstance: 1
+        sessionIdleTimeoutInSeconds: 60
+        sessionTTLInSeconds: 600
+
+      # 环境变量
+      environmentVariables:
+        PYTHONUNBUFFERED: "1"
+        PYTHONDONTWRITEBYTECODE: "1"
+
+      # 日志配置
+      logConfig: auto
+
+      # HTTP 触发器
+      triggers:
+        - triggerName: httpTrigger
+          triggerType: http
+          triggerConfig:
+            authType: anonymous
+            methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+
+      # 层配置（可选，如需复用依赖层）
+      # layers:
+      #   - acs:fc:cn-hangzhou:xxx:layers/rock-deps/versions/1

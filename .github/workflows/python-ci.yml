@@ -58,5 +58,11 @@ jobs:
     - name: Run tests need admin and network
       if: success()
       run: |
-        echo "🔐 Running admin and network tests..."
+        echo "🌐 Running admin and network tests..."
         uv run pytest -n auto -m "need_admin_and_network" --reruns 1
+
+    - name: Run tests need FC
+      if: success()
+      run: |
+        echo "☁️ Running FC tests..."
+        uv run pytest -n auto -m "need_fc" --reruns 1

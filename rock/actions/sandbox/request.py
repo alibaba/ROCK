@@ -45,6 +45,8 @@ Action = Annotated[BashAction, Field(discriminator="action_type")]
 class WriteFileRequest(BaseModel):
     content: str
     path: str
+    encoding: str = "utf-8"
+    """Text encoding to use when writing the file. Defaults to utf-8."""
 
 
 class CloseBashSessionRequest(BaseModel):

@@ -68,6 +68,83 @@ class OssConfig:
 
 
 @dataclass
+class FCConfig:
+    """FC (Function Compute) 服务级配置，用于 Admin。
+
+    提供 FC 沙箱部署的默认值和凭证。
+    API 调用可通过 FCDeploymentConfig 覆盖特定字段。
+
+    FC (Function Compute) 是阿里云的无服务器计算服务：
+    https://www.alibabacloud.com/product/function-compute
+
+    配置层级：
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  FCConfig (Admin 服务级) - 本文件                                    │
+    │  - Admin 启动时加载，提供默认值和凭证                                 │
+    │  - 服务级设置 (region, account_id, credentials)                     │
+    └─────────────────────────────────────────────────────────────────────┘
+                              │
+                              │ merge_with_fc_config()
+                              ▼
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  FCDeploymentConfig (API 调用级)                                     │
+    │  - 每个 sandbox API 请求创建                                         │
+    │  - session_id 与 ROCK sandbox_id 1:1 映射                           │
+    │  - 用于调用已部署的 FC 函数，不涉及函数部署                            │
+    └─────────────────────────────────────────────────────────────────────┘
+                              │
+                              │ 调用已部署的 FC 函数
+                              ▼
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  s.yaml (FC 函数部署配置)                                            │
+    │  - 定义 FC 函数资源规格，通过 `s deploy` 部署                         │
+    │  - 函数部署是前置条件，Admin 调用时函数已存在                           │
+    └─────────────────────────────────────────────────────────────────────┘
+    """
+
+    # Connection settings (service-level defaults)
+    region: str = "cn-hangzhou"
+    """Alibaba Cloud region for FC function."""
+
+    account_id: str | None = None
+    """Alibaba Cloud account ID."""
+
+    function_name: str = "rock-serverless-runtime-rocklet"
+    """Default FC function name for sandbox runtime."""
+
+    # Credentials (service-level, sensitive)
+    access_key_id: str | None = None
+    """Alibaba Cloud AccessKey ID for authentication."""
+
+    access_key_secret: str = field(default="", repr=False)
+    """Alibaba Cloud AccessKey Secret for authentication."""
+
+    security_token: str | None = None
+    """Alibaba Cloud STS security token for temporary credentials."""
+
+    # Resource defaults (can be overridden by API)
+    default_memory: int = 4096
+    """Default memory allocation in MB for FC function."""
+
+    default_cpus: float = 2.0
+    """Default CPU cores for FC function."""
+
+    # Timeout defaults (can be overridden by API, all in seconds)
+    default_session_ttl: int = 600
+    """Default session time-to-live in seconds."""
+
+    default_function_timeout: float = 30.0
+    """Default function execution timeout in seconds for single request."""
+
+    default_session_idle_timeout: int = 60
+    """Default session idle timeout in seconds. Matches s.yaml sessionIdleTimeoutInSeconds."""
+
+    # Protocol settings (service-level fixed)
+    session_affinity_header: str = "x-rock-session-id"
+    """Header field name for session affinity routing."""
+
+
+@dataclass
 class ProxyServiceConfig:
     timeout: float = 180.0
     max_connections: int = 500
@@ -204,6 +281,7 @@ class RockConfig:
     redis: RedisConfig = field(default_factory=RedisConfig)
     sandbox_config: SandboxConfig = field(default_factory=SandboxConfig)
     oss: OssConfig = field(default_factory=OssConfig)
+    fc: FCConfig = field(default_factory=FCConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     proxy_service: ProxyServiceConfig = field(default_factory=ProxyServiceConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
@@ -243,6 +321,8 @@ class RockConfig:
             kwargs["sandbox_config"] = SandboxConfig(**config["sandbox_config"])
         if "oss" in config:
             kwargs["oss"] = OssConfig(**config["oss"])
+        if "fc" in config:
+            kwargs["fc"] = FCConfig(**config["fc"])
         if "runtime" in config:
             kwargs["runtime"] = RuntimeConfig(**config["runtime"])
         if "proxy_service" in config:

@@ -232,6 +232,128 @@ class RemoteDeploymentConfig(DeploymentConfig):
         return RemoteDeployment.from_config(self)
 
 
+class FCDeploymentConfig(DeploymentConfig):
+    """Configuration for Alibaba Cloud Function Compute deployment.
+
+    This deployment type enables serverless sandbox execution using FC
+    with WebSocket session management for stateful operations.
+
+    FC (Function Compute) is Alibaba Cloud's serverless compute service:
+    https://www.alibabacloud.com/product/function-compute
+
+    Configuration Hierarchy:
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  FCConfig (Admin 服务级) - 本文件                                    │
+    │  - Admin 启动时加载，提供默认值和凭证                                 │
+    │  - 服务级设置 (region, account_id, credentials)                     │
+    └─────────────────────────────────────────────────────────────────────┘
+                              │
+                              │ merge_with_fc_config()
+                              ▼
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  FCDeploymentConfig (API 调用级)                                     │
+    │  - 每个 sandbox API 请求创建                                         │
+    │  - session_id 与 ROCK sandbox_id 1:1 映射                           │
+    │  - 用于调用已部署的 FC 函数，不涉及函数部署                            │
+    │  - session_ttl/session_idle_timeout: FC 会话生命周期管理                │
+    └─────────────────────────────────────────────────────────────────────┘
+                              │
+                              │ 调用已部署的 FC 函数
+                              ▼
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  s.yaml (FC 函数部署配置)                                            │
+    │  - 定义 FC 函数资源规格，通过 `s deploy` 部署                         │
+    │  - Session affinity, memory, CPU, timeout 等                        │
+    │  - 位置: rock/deployments/fc_rocklet/{runtime,container,adapter}/    │
+    │  - 函数部署是前置条件，Admin 调用时函数已存在                           │
+    └─────────────────────────────────────────────────────────────────────┘
+
+    The session_id serves as both the FC session identifier (for WebSocket
+    stateful invocation routing) and the ROCK sandbox_id (for business logic).
+    """
+
+    type: Literal["fc"] = "fc"
+    """Deployment type discriminator for JSON/YAML parsing."""
+
+    session_id: str | None = None
+    """FC session identifier for stateful invocation routing.
+
+    This serves as both:
+    - FC native session_id: Routes WebSocket requests to the same function instance
+    - ROCK sandbox_id: Used for lifecycle management, billing, and state tracking
+
+    If None, will be auto-generated as 'fc-{uuid}'.
+    """
+
+    # Connection settings (optional, use FCConfig defaults if not provided)
+    function_name: str | None = None
+    """FC function name. If None, uses FCConfig.function_name."""
+
+    region: str | None = None
+    """Alibaba Cloud region. If None, uses FCConfig.region."""
+
+    account_id: str | None = None
+    """Alibaba Cloud account ID. If None, uses FCConfig.account_id."""
+
+    access_key_id: str | None = None
+    """AccessKey ID. If None, uses FCConfig.access_key_id."""
+
+    access_key_secret: str | None = Field(default=None, repr=False, exclude=True)
+    """AccessKey Secret. If None, uses FCConfig.access_key_secret."""
+
+    security_token: str | None = None
+    """STS security token. If None, uses FCConfig.security_token."""
+
+    # Resource settings (optional, use FCConfig defaults if not provided)
+    memory: int | None = None
+    """Memory in MB. If None, uses FCConfig.default_memory."""
+
+    cpus: float | None = None
+    """CPU cores. If None, uses FCConfig.default_cpus."""
+
+    # Timeout settings (optional, use FCConfig defaults if not provided, all in seconds)
+    session_ttl: int | None = None
+    """Session time-to-live in seconds. If None, uses FCConfig.default_session_ttl."""
+
+    session_idle_timeout: int | None = None
+    """Session idle timeout in seconds. If None, uses FCConfig.default_session_idle_timeout."""
+
+    function_timeout: float | None = None
+    """Function execution timeout in seconds for single request. If None, uses FCConfig.default_function_timeout."""
+
+    def get_deployment(self) -> AbstractDeployment:
+        from rock.deployments.fc import FCDeployment
+
+        return FCDeployment.from_config(self)
+
+    def merge_with_fc_config(self, fc_config: "FCConfig") -> "FCDeploymentConfig":
+        """Merge this config with FCConfig defaults.
+
+        Args:
+            fc_config: Admin-level FC configuration with defaults.
+
+        Returns:
+            New FCDeploymentConfig with all fields populated.
+        """
+        from rock.config import FCConfig
+
+        return FCDeploymentConfig(
+            type=self.type,
+            session_id=self.session_id,
+            function_name=self.function_name or fc_config.function_name,
+            region=self.region or fc_config.region,
+            account_id=self.account_id or fc_config.account_id,
+            access_key_id=self.access_key_id or fc_config.access_key_id,
+            access_key_secret=self.access_key_secret or fc_config.access_key_secret,
+            security_token=self.security_token or fc_config.security_token,
+            memory=self.memory or fc_config.default_memory,
+            cpus=self.cpus or fc_config.default_cpus,
+            session_ttl=self.session_ttl or fc_config.default_session_ttl,
+            session_idle_timeout=self.session_idle_timeout or fc_config.default_session_idle_timeout,
+            function_timeout=self.function_timeout or fc_config.default_function_timeout,
+        )
+
+
 def get_deployment(config: DeploymentConfig) -> AbstractDeployment:
     """Create a deployment instance from the given configuration.
 
