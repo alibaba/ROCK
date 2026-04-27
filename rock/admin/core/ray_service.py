@@ -1,12 +1,23 @@
+# ruff: noqa: E402  --  os.environ assignment below MUST run before `import ray`.
 import asyncio
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
+
+# Disable Ray's auto-init hook before importing ray. When ray is shut down
+# (e.g. after a failed periodic reconnect), any unguarded ray API call such as
+# ``Actor.options(...).remote(...)`` or ``actor.method.remote()`` would
+# otherwise trigger ``auto_init_ray()`` and silently spawn a local cluster on
+# this host. ``enable_auto_connect`` in ``ray._private.auto_init_hook`` is
+# evaluated at import time, so the env var must be set BEFORE ``import ray``.
+os.environ["RAY_ENABLE_AUTO_CONNECT"] = "0"
 
 import ray
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from rock import InternalServerRockError
+from rock._codes import codes
 from rock.config import RayConfig
 from rock.logger import init_logger
 from rock.utils.rwlock import AsyncRWLock
@@ -69,24 +80,60 @@ class RayService:
     async def _reconnect_ray(self):
         try:
             async with self._ray_rwlock.write_lock(timeout=self._config.ray_reconnect_wait_timeout_seconds):
-                start_time = time.time()
-                logger.info(f"current time {start_time}, Reconnect ray cluster")
-                ray.shutdown()
-                ray.init(
-                    address=self._config.address,
-                    runtime_env=self._config.runtime_env,
-                    namespace=self._config.namespace,
-                    resources=self._config.resources,
-                    _temp_dir=self._config.temp_dir,
-                )
-                self._ray_request_count = 0
-                end_time = time.time()
-                self._ray_establish_time = end_time
-                logger.info(
-                    f"current time {end_time}, Reconnect ray cluster successfully, duration {end_time - start_time}s"
+                max_attempts = max(1, self._config.ray_reconnect_max_attempts)
+                backoff = self._config.ray_reconnect_retry_backoff_seconds
+                last_exc: Exception | None = None
+                for attempt in range(1, max_attempts + 1):
+                    start_time = time.time()
+                    logger.info(f"current time {start_time}, Reconnect ray cluster (attempt {attempt}/{max_attempts})")
+                    try:
+                        ray.shutdown()
+                        ray.init(
+                            address=self._config.address,
+                            runtime_env=self._config.runtime_env,
+                            namespace=self._config.namespace,
+                            resources=self._config.resources,
+                            _temp_dir=self._config.temp_dir,
+                        )
+                    except Exception as e:
+                        last_exc = e
+                        logger.warning(
+                            f"Reconnect ray cluster attempt {attempt}/{max_attempts} failed: {e}", exc_info=e
+                        )
+                        if attempt < max_attempts and backoff > 0:
+                            await asyncio.sleep(backoff)
+                        continue
+                    self._ray_request_count = 0
+                    end_time = time.time()
+                    self._ray_establish_time = end_time
+                    logger.info(
+                        f"current time {end_time}, Reconnect ray cluster successfully, "
+                        f"duration {end_time - start_time}s"
+                    )
+                    return
+                logger.critical(
+                    f"Ray reconnect failed after {max_attempts} attempts; ray cluster is in shutdown state. "
+                    f"Last error: {last_exc}",
+                    exc_info=last_exc,
                 )
         except InternalServerRockError as e:
             logger.warning("Reconnect ray cluster timeout, skip reconnectting", exc_info=e)
+
+    def _ensure_ray_initialized(self) -> None:
+        """Reject the call if Ray is not initialized.
+
+        Why: a failed periodic ``_reconnect_ray`` may leave the process in a
+        ``ray.shutdown`` state. Without this guard a subsequent ``ray.get`` /
+        ``ray.get_actor`` would fall through to Ray's auto-init hook and
+        ``ray.init()`` with no args, spawning a local cluster on the admin host
+        and OOM-ing under concurrent requests.
+        """
+        if not ray.is_initialized():
+            raise InternalServerRockError(
+                "Ray cluster is not initialized; refusing to call ray API to avoid "
+                "spawning a local cluster via auto-init.",
+                code=codes.INTERNAL_SERVER_ERROR,
+            )
 
     async def async_ray_get(self, ray_future: ray.ObjectRef, timeout: int = 60):
         """
@@ -102,6 +149,7 @@ class RayService:
         Raises:
             Exception: If ray.get fails
         """
+        self._ensure_ray_initialized()
         self.increment_ray_request_count()
         loop = asyncio.get_running_loop()
         try:
@@ -127,6 +175,7 @@ class RayService:
             ValueError: If actor does not exist
             Exception: If ray.get_actor fails
         """
+        self._ensure_ray_initialized()
         self.increment_ray_request_count()
         namespace = namespace or self._config.namespace
         loop = asyncio.get_running_loop()

@@ -2,10 +2,127 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from rock import InternalServerRockError
 from rock.admin.core.ray_service import RayService
+from rock.config import RayConfig
 from rock.deployments.config import RayDeploymentConfig
 from rock.deployments.ray import RayDeployment
 from rock.sandbox.sandbox_actor import SandboxActor
+
+
+def _make_service(**overrides) -> RayService:
+    cfg_kwargs = dict(
+        address=None,
+        ray_reconnect_enabled=False,
+        ray_reconnect_wait_timeout_seconds=1,
+        ray_reconnect_max_attempts=3,
+        ray_reconnect_retry_backoff_seconds=0,
+    )
+    cfg_kwargs.update(overrides)
+    return RayService(RayConfig(**cfg_kwargs))
+
+
+@pytest.mark.asyncio
+async def test_reconnect_ray_retries_on_init_failure_and_eventually_succeeds():
+    service = _make_service(ray_reconnect_max_attempts=3)
+    service._ray_request_count = 99
+    old_establish_time = service._ray_establish_time
+
+    init_calls = {"n": 0}
+
+    def init_side_effect(**_kwargs):
+        init_calls["n"] += 1
+        if init_calls["n"] < 3:
+            raise ConnectionError("ray head unreachable")
+
+    with (
+        patch("rock.admin.core.ray_service.ray.shutdown") as mock_shutdown,
+        patch("rock.admin.core.ray_service.ray.init", side_effect=init_side_effect) as mock_init,
+        patch("rock.admin.core.ray_service.time.time", return_value=old_establish_time + 5),
+    ):
+        await service._reconnect_ray()
+
+    assert mock_init.call_count == 3
+    assert mock_shutdown.call_count == 3
+    assert service._ray_request_count == 0
+    assert service._ray_establish_time == old_establish_time + 5
+
+
+@pytest.mark.asyncio
+async def test_reconnect_ray_does_not_reset_counters_when_all_attempts_fail():
+    service = _make_service(ray_reconnect_max_attempts=2)
+    service._ray_request_count = 99
+    old_establish_time = service._ray_establish_time
+
+    with (
+        patch("rock.admin.core.ray_service.ray.shutdown"),
+        patch("rock.admin.core.ray_service.ray.init", side_effect=ConnectionError("down")),
+    ):
+        await service._reconnect_ray()
+
+    # Counters preserved so the next scheduler tick will retry promptly.
+    assert service._ray_request_count == 99
+    assert service._ray_establish_time == old_establish_time
+
+
+@pytest.mark.asyncio
+async def test_reconnect_ray_releases_write_lock_after_init_failure():
+    service = _make_service(ray_reconnect_max_attempts=1)
+
+    with (
+        patch("rock.admin.core.ray_service.ray.shutdown"),
+        patch("rock.admin.core.ray_service.ray.init", side_effect=ConnectionError("down")),
+    ):
+        await service._reconnect_ray()
+
+    # After the failed reconnect a reader must still be able to acquire the lock.
+    async with service._ray_rwlock.read_lock():
+        pass
+
+
+@pytest.mark.asyncio
+async def test_async_ray_get_raises_when_ray_not_initialized():
+    service = _make_service()
+
+    fake_ref = MagicMock()
+    with (
+        patch("rock.admin.core.ray_service.ray.is_initialized", return_value=False),
+        patch("rock.admin.core.ray_service.ray.get") as mock_ray_get,
+    ):
+        with pytest.raises(InternalServerRockError):
+            await service.async_ray_get(fake_ref, timeout=1)
+
+    # Must short-circuit BEFORE touching ray.get; otherwise auto-init could spawn a
+    # local Ray cluster on the admin host.
+    mock_ray_get.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_async_ray_get_actor_raises_when_ray_not_initialized():
+    service = _make_service()
+
+    with (
+        patch("rock.admin.core.ray_service.ray.is_initialized", return_value=False),
+        patch("rock.admin.core.ray_service.ray.get_actor") as mock_get_actor,
+    ):
+        with pytest.raises(InternalServerRockError):
+            await service.async_ray_get_actor("any-actor", namespace="ns")
+
+    mock_get_actor.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_ray_logs_critical_when_all_attempts_exhausted():
+    service = _make_service(ray_reconnect_max_attempts=2)
+
+    with (
+        patch("rock.admin.core.ray_service.ray.shutdown"),
+        patch("rock.admin.core.ray_service.ray.init", side_effect=ConnectionError("down")),
+        patch("rock.admin.core.ray_service.logger") as mock_logger,
+    ):
+        await service._reconnect_ray()
+
+    assert mock_logger.critical.called, "expected logger.critical when ray reconnect exhausts all retries"
 
 
 @pytest.mark.need_ray
