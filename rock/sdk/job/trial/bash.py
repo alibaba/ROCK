@@ -16,47 +16,13 @@ from rock.sdk.sandbox.client import Sandbox
 
 logger = init_logger(__name__)
 
-
-def _render_wrapper(user_script: str, token: str | None = None) -> str:
-    """Render the BashJob wrapper script.
-
-    Structure: prologue (mkdir + touch + initial upload) → user script
-    (isolated in a single-quoted heredoc) → epilogue (final upload) → exit
-    with user's exit code.
-
-    When ``token`` is ``None`` a random 8-char hex is generated. Collision
-    probability is ~2^-32 and collisions also require the user script to
-    contain the terminator on its own line, which is not actively guarded
-    against — the risk is acceptable.
-    """
-    if token is None:
-        token = secrets.token_hex(4)  # 8-char hex
-    eof = f"__ROCK_USER_SCRIPT_EOF_{token}__"
-    return (
-        "#!/bin/bash\n"
-        "# rock bash-job wrapper (generated, do not edit)\n"
-        "# OSS credentials and paths come from session env; no secrets in this file.\n"
-        "set +e\n"
-        "\n"
-        "# -- prologue: prepare artifact dir and do an initial placeholder upload --\n"
-        'mkdir -p "$ROCK_ARTIFACT_DIR"\n'
-        'touch "$ROCK_ARTIFACT_DIR/.placeholder"\n'
-        'ossutil cp "$ROCK_ARTIFACT_DIR/" "oss://$OSS_BUCKET/$ROCK_OSS_PREFIX/" \\\n'
-        "    --recursive -f >/dev/null 2>&1 || true\n"
-        "\n"
-        "# -- user script: heredoc isolates user's trap/exit from the wrapper --\n"
-        f"bash <<'{eof}'\n"
-        f"{user_script}\n"
-        f"{eof}\n"
-        "_rock_user_rc=$?\n"
-        "\n"
-        "# -- epilogue: final upload (failure is logged but does not change exit code) --\n"
-        'ossutil cp "$ROCK_ARTIFACT_DIR/" "oss://$OSS_BUCKET/$ROCK_OSS_PREFIX/" \\\n'
-        "    --recursive -f \\\n"
-        '    || echo "[rock] oss upload failed (rc=$?), ignored" >&2\n'
-        "\n"
-        "exit $_rock_user_rc\n"
-    )
+_OSS_CREDENTIAL_FIELDS = (
+    "oss_access_key_id",
+    "oss_access_key_secret",
+    "oss_endpoint",
+    "oss_region",
+    "oss_bucket",
+)
 
 
 class BashTrial(AbstractTrial):
@@ -102,13 +68,8 @@ class BashTrial(AbstractTrial):
         mirror = self._config.environment.oss_mirror
         env = self._config.environment.env
 
-        for field_name, env_key in [
-            ("oss_access_key_id", "OSS_ACCESS_KEY_ID"),
-            ("oss_access_key_secret", "OSS_ACCESS_KEY_SECRET"),
-            ("oss_endpoint", "OSS_ENDPOINT"),
-            ("oss_region", "OSS_REGION"),
-            ("oss_bucket", "OSS_BUCKET"),
-        ]:
+        for field_name in _OSS_CREDENTIAL_FIELDS:
+            env_key = field_name.upper()
             v = getattr(mirror, field_name, None) or env.get(env_key) or os.environ.get(env_key)
             if v:
                 env[env_key] = v
@@ -117,17 +78,56 @@ class BashTrial(AbstractTrial):
             raise ValueError("oss_mirror: namespace is not set (sandbox did not return one)")
         if not self._config.experiment_id:
             raise ValueError("oss_mirror: experiment_id is not set (sandbox did not return one)")
-        if not env.get("OSS_BUCKET"):
-            raise ValueError("oss_mirror.enabled=True but OSS_BUCKET is not resolvable")
-        if not env.get("OSS_ENDPOINT"):
-            raise ValueError("oss_mirror.enabled=True but OSS_ENDPOINT is not resolvable")
-        if not env.get("OSS_REGION"):
-            raise ValueError("oss_mirror.enabled=True but OSS_REGION is not resolvable")
+        for env_key in ("OSS_BUCKET", "OSS_ENDPOINT", "OSS_REGION"):
+            if not env.get(env_key):
+                raise ValueError(f"oss_mirror.enabled=True but {env_key} is not resolvable")
 
         env["ROCK_ARTIFACT_DIR"] = env_vars.ROCK_BASH_JOB_ARTIFACT_DIR
         env[
             "ROCK_OSS_PREFIX"
         ] = f"artifacts/{self._config.namespace}/{self._config.experiment_id}/{self._config.job_name}"
+
+    @staticmethod
+    def _render_wrapper(user_script: str, token: str | None = None) -> str:
+        """Render the BashJob wrapper script.
+
+        Structure: prologue (mkdir + touch + initial upload) → user script
+        (isolated in a single-quoted heredoc) → epilogue (final upload) → exit
+        with user's exit code.
+
+        When ``token`` is ``None`` a random 8-char hex is generated. Collision
+        probability is ~2^-32 and collisions also require the user script to
+        contain the terminator on its own line, which is not actively guarded
+        against — the risk is acceptable.
+        """
+        if token is None:
+            token = secrets.token_hex(4)  # 8-char hex
+        eof = f"__ROCK_USER_SCRIPT_EOF_{token}__"
+        return (
+            "#!/bin/bash\n"
+            "# rock bash-job wrapper (generated, do not edit)\n"
+            "# OSS credentials and paths come from session env; no secrets in this file.\n"
+            "set +e\n"
+            "\n"
+            "# -- prologue: prepare artifact dir and do an initial placeholder upload --\n"
+            'mkdir -p "$ROCK_ARTIFACT_DIR"\n'
+            'touch "$ROCK_ARTIFACT_DIR/.placeholder"\n'
+            'ossutil cp "$ROCK_ARTIFACT_DIR/" "oss://$OSS_BUCKET/$ROCK_OSS_PREFIX/" \\\n'
+            "    --recursive -f >/dev/null 2>&1 || true\n"
+            "\n"
+            "# -- user script: heredoc isolates user's trap/exit from the wrapper --\n"
+            f"bash <<'{eof}'\n"
+            f"{user_script}\n"
+            f"{eof}\n"
+            "_rock_user_rc=$?\n"
+            "\n"
+            "# -- epilogue: final upload (failure is logged but does not change exit code) --\n"
+            'ossutil cp "$ROCK_ARTIFACT_DIR/" "oss://$OSS_BUCKET/$ROCK_OSS_PREFIX/" \\\n'
+            "    --recursive -f \\\n"
+            '    || echo "[rock] oss upload failed (rc=$?), ignored" >&2\n'
+            "\n"
+            "exit $_rock_user_rc\n"
+        )
 
     async def setup(self, sandbox: Sandbox) -> None:
         await self._upload_files(sandbox)
@@ -146,7 +146,7 @@ class BashTrial(AbstractTrial):
         if not self._ossutil_ready:
             logger.warning("ossutil unavailable, falling back to raw script (OSS mirror upload disabled for this run)")
             return script
-        return _render_wrapper(script)
+        return self._render_wrapper(script)
 
     async def collect(self, sandbox: Sandbox, output: str, exit_code: int) -> TrialResult:
         exception_info = None

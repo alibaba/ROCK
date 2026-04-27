@@ -301,9 +301,7 @@ class TestBashTrialOssMirror:
 
 class TestRenderWrapper:
     def test_wrapper_contains_prologue_and_epilogue(self):
-        from rock.sdk.job.trial.bash import _render_wrapper
-
-        wrapper = _render_wrapper("echo hi", token="deadbeef")
+        wrapper = BashTrial._render_wrapper("echo hi", token="deadbeef")
 
         # prologue
         assert 'mkdir -p "$ROCK_ARTIFACT_DIR"' in wrapper
@@ -325,9 +323,7 @@ class TestRenderWrapper:
 
     def test_wrapper_uses_oss_env_variables(self):
         """Wrapper reads paths/bucket from env only; no plaintext credentials."""
-        from rock.sdk.job.trial.bash import _render_wrapper
-
-        wrapper = _render_wrapper("echo hi", token="deadbeef")
+        wrapper = BashTrial._render_wrapper("echo hi", token="deadbeef")
 
         # env-var references present
         assert '"oss://$OSS_BUCKET/$ROCK_OSS_PREFIX/"' in wrapper
@@ -336,28 +332,24 @@ class TestRenderWrapper:
         assert "--access-key-secret" not in wrapper
 
     def test_wrapper_empty_user_script(self):
-        from rock.sdk.job.trial.bash import _render_wrapper
-
-        wrapper = _render_wrapper("", token="deadbeef")
+        wrapper = BashTrial._render_wrapper("", token="deadbeef")
         assert "__ROCK_USER_SCRIPT_EOF_deadbeef__" in wrapper
         # prologue/epilogue still present
         assert "ossutil cp" in wrapper
 
     def test_wrapper_preserves_user_script_verbatim(self):
         """Single-quoted heredoc keeps $VAR, backticks, $() unexpanded."""
-        from rock.sdk.job.trial.bash import _render_wrapper
+        from rock.sdk.job.trial.bash import BashTrial
 
         user = 'echo "$HOME $(date) `whoami`"'
-        wrapper = _render_wrapper(user, token="deadbeef")
+        wrapper = BashTrial._render_wrapper(user, token="deadbeef")
         assert user in wrapper
 
     def test_wrapper_auto_generates_token_when_omitted(self):
         """Without an explicit token, secrets.token_hex(4) is used."""
         import re as _re
 
-        from rock.sdk.job.trial.bash import _render_wrapper
-
-        wrapper = _render_wrapper("echo hi")
+        wrapper = BashTrial._render_wrapper("echo hi")
         match = _re.search(r"__ROCK_USER_SCRIPT_EOF_([0-9a-f]{8})__", wrapper)
         assert match is not None, "wrapper should contain auto-generated 8-char hex token"
 
