@@ -66,24 +66,23 @@ class BashTrial(AbstractTrial):
         super().__init__(config)
         self._ossutil_ready: bool = False
 
-    @property
-    def _oss_mirror(self):
-        return self._config.environment.oss_mirror
+    def _oss_mirror_enabled(self) -> bool:
+        mirror = self._config.environment.oss_mirror
+        return mirror is not None and mirror.enabled
 
     async def setup(self, sandbox: Sandbox) -> None:
         await self._upload_files(sandbox)
         if self._config.script_path:
             self._config.script = Path(self._config.script_path).read_text()
 
-        if self._oss_mirror is not None and self._oss_mirror.enabled:
+        if self._oss_mirror_enabled():
             self._ossutil_ready = await sandbox.fs.ensure_ossutil()
             if not self._ossutil_ready:
                 logger.warning("ossutil install failed, OSS mirror upload will be skipped")
 
     def build(self) -> str:
         script = self._config.script or ""
-        mirror = self._oss_mirror
-        if mirror is None or not mirror.enabled:
+        if not self._oss_mirror_enabled():
             return script
         if not self._ossutil_ready:
             logger.warning("ossutil unavailable, falling back to raw script (OSS mirror upload disabled for this run)")
