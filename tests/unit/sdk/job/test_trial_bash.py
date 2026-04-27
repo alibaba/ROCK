@@ -232,7 +232,9 @@ _MIRROR = OssMirrorConfig(enabled=True, oss_bucket="b", oss_endpoint="ep", oss_r
 
 
 class TestBashTrialOssMirror:
-    async def test_setup_installs_ossutil_and_creates_dir(self):
+    """OSS mirror integration (spec 2026-04-27) — setup only installs ossutil, collect does not upload."""
+
+    async def test_setup_installs_ossutil_when_enabled(self):
         cfg = BashJobConfig(
             script="echo",
             job_name="j",
@@ -242,53 +244,16 @@ class TestBashTrialOssMirror:
         )
         trial = BashTrial(cfg)
         sb = _oss_sandbox()
+
         await trial.setup(sb)
 
         sb.fs.ensure_ossutil.assert_called_once()
-        # Initial upload to create OSS path before script runs
-        setup_cp_calls = [c for c in sb.arun.call_args_list if "ossutil cp" in str(c)]
-        assert len(setup_cp_calls) == 1
+        assert trial._ossutil_ready is True
+        # setup must not trigger any ossutil cp — uploads happen inside the wrapper
+        cp_calls = [c for c in sb.arun.call_args_list if "ossutil cp" in str(c)]
+        assert cp_calls == []
 
-    async def test_setup_skips_when_no_mirror(self):
-        trial = BashTrial(BashJobConfig(script="echo"))
-        sb = _oss_sandbox()
-        await trial.setup(sb)
-        sb.fs.ensure_ossutil.assert_not_called()
-
-    async def test_collect_uploads(self):
-        cfg = BashJobConfig(
-            script="echo",
-            job_name="j",
-            namespace="ns",
-            experiment_id="exp",
-            environment=EnvironmentConfig(oss_mirror=_MIRROR),
-        )
-        trial = BashTrial(cfg)
-        sb = _oss_sandbox()
-        await trial.setup(sb)
-        await trial.collect(sb, "ok", 0)
-
-        # setup + collect each call ossutil cp once
-        arun_calls = [c for c in sb.arun.call_args_list if "ossutil cp" in str(c)]
-        assert len(arun_calls) == 2
-        assert all("oss://b/artifacts/ns/exp/j/" in str(c) for c in arun_calls)
-
-    async def test_upload_failure_does_not_fail_job(self):
-        cfg = BashJobConfig(
-            script="echo",
-            job_name="j",
-            namespace="ns",
-            experiment_id="exp",
-            environment=EnvironmentConfig(oss_mirror=_MIRROR),
-        )
-        trial = BashTrial(cfg)
-        sb = _oss_sandbox()
-        sb.arun = AsyncMock(return_value=MagicMock(exit_code=1, output="err"))
-        await trial.setup(sb)
-        result = await trial.collect(sb, "ok", 0)
-        assert result.exit_code == 0 and result.exception_info is None
-
-    async def test_skips_upload_when_ossutil_not_ready(self):
+    async def test_setup_marks_ossutil_not_ready_on_install_failure(self):
         cfg = BashJobConfig(
             script="echo",
             job_name="j",
@@ -299,10 +264,34 @@ class TestBashTrialOssMirror:
         trial = BashTrial(cfg)
         sb = _oss_sandbox()
         sb.fs.ensure_ossutil = AsyncMock(return_value=False)
+
+        await trial.setup(sb)
+
+        assert trial._ossutil_ready is False
+
+    async def test_setup_skips_when_no_mirror(self):
+        trial = BashTrial(BashJobConfig(script="echo"))
+        sb = _oss_sandbox()
+        await trial.setup(sb)
+        sb.fs.ensure_ossutil.assert_not_called()
+
+    async def test_collect_does_not_upload(self):
+        """collect no longer calls ossutil cp — uploads are wrapper-driven."""
+        cfg = BashJobConfig(
+            script="echo",
+            job_name="j",
+            namespace="ns",
+            experiment_id="exp",
+            environment=EnvironmentConfig(oss_mirror=_MIRROR),
+        )
+        trial = BashTrial(cfg)
+        sb = _oss_sandbox()
+
         await trial.setup(sb)
         await trial.collect(sb, "ok", 0)
-        ossutil_calls = [c for c in sb.arun.call_args_list if "ossutil cp" in str(c)]
-        assert len(ossutil_calls) == 0
+
+        cp_calls = [c for c in sb.arun.call_args_list if "ossutil cp" in str(c)]
+        assert cp_calls == []
 
 
 # ---------------------------------------------------------------------------
