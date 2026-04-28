@@ -149,6 +149,12 @@ ignore = [
     "E741", # Ambiguous variable name (e.g., single letter variables)
 ]
 
+# File-specific lint exemptions
+[tool.ruff.lint.per-file-ignores]
+# admin/main.py must set RAY_ENABLE_AUTO_CONNECT=0 before any rock.* import
+# transitively imports ray, so module-level imports cannot be at the top.
+"rock/admin/main.py" = ["E402"]
+
 # Import sorting configuration
 [tool.ruff.lint.isort]
 split-on-trailing-comma = true
