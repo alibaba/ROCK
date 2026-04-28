@@ -24,6 +24,8 @@ class RayConfig:
     ray_reconnect_request_threshold: int = field(default=10 * 1024 * 1024)
     ray_reconnect_check_interval_seconds: int = field(default=60 * 10)
     ray_reconnect_wait_timeout_seconds: int = field(default=30)
+    ray_reconnect_max_attempts: int = field(default=3)
+    ray_reconnect_retry_backoff_seconds: float = field(default=5.0)
 
     def __post_init__(self):
         if self.temp_dir:
