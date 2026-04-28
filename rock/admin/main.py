@@ -21,7 +21,7 @@ from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_s
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
 from rock.admin.gem.api import gem_router, set_env_service
 from rock.admin.scheduler.scheduler import SchedulerThread
-from rock.config import DatabaseConfig, RockConfig
+from rock.config import DatabaseConfig, RockConfig, SchedulerConfig
 from rock.logger import init_logger
 from rock.sandbox.gem_manager import GemManager
 from rock.sandbox.operator.factory import OperatorContext, OperatorFactory
@@ -51,6 +51,14 @@ async def lifespan(app: FastAPI):
         else env_vars.ROCK_CONFIG
     )
     rock_config = RockConfig.from_env(config_file_path)
+
+    # Override scheduler config from Nacos if available
+    if rock_config.nacos_provider:
+        nacos_config = await rock_config.nacos_provider.get_config()
+        if nacos_config and "scheduler" in nacos_config:
+            rock_config.scheduler = SchedulerConfig(**nacos_config["scheduler"])
+            logger.info(f"Overrode scheduler config from Nacos with {len(rock_config.scheduler.tasks)} tasks")
+
     env_vars.ROCK_ADMIN_ENV = args.env
     env_vars.ROCK_ADMIN_ROLE = args.role
 
@@ -128,6 +136,7 @@ async def lifespan(app: FastAPI):
         if rock_config.scheduler.enabled and is_primary_pod():
             scheduler_thread = SchedulerThread(
                 scheduler_config=rock_config.scheduler,
+                nacos_provider=rock_config.nacos_provider,
             )
             scheduler_thread.start()
             logger.info("Scheduler thread started on primary pod")
