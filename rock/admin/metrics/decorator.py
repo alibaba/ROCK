@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 import asyncio
 import functools
 import logging
 import time
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-from rock.admin.core.redis_key import alive_sandbox_key
 from rock.admin.metrics.constants import MetricsConstants
 from rock.admin.metrics.monitor import MetricsMonitor
-from rock.utils.providers import RedisProvider
+
+if TYPE_CHECKING:
+    from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 
 
 def _extract_sandbox_id(
@@ -40,14 +44,14 @@ def _extract_sandbox_id(
     return sandbox_id
 
 
-async def _get_user_info(redis_provider: RedisProvider, sandbox_id: str):
-    """Get user info from Redis"""
-    if redis_provider and sandbox_id != "unknown":
-        user_info = await redis_provider.json_get(alive_sandbox_key(sandbox_id), "$")
-        if user_info is not None and len(user_info) > 0:
-            user_id = user_info[0].get("user_id")
-            experiment_id = user_info[0].get("experiment_id")
-            namespace = user_info[0].get("namespace")
+async def _get_user_info(meta_store: SandboxMetaStore | None, sandbox_id: str):
+    """Get user info via meta_store (SandboxMetaStore.get)."""
+    if meta_store and sandbox_id != "unknown":
+        sandbox_info = await meta_store.get(sandbox_id)
+        if sandbox_info is not None:
+            user_id = sandbox_info.get("user_id")
+            experiment_id = sandbox_info.get("experiment_id")
+            namespace = sandbox_info.get("namespace")
             return (
                 user_id if user_id is not None else "default",
                 experiment_id if experiment_id is not None else "default",
@@ -173,8 +177,8 @@ def monitor_sandbox_operation(
                     args, kwargs, extract_sandbox_id, sandbox_id_position, sandbox_id_param
                 )
 
-                redis_provider: RedisProvider = getattr(self, "_redis_provider", None)
-                user_id, experiment_id, namespace = await _get_user_info(redis_provider, sandbox_id)
+                meta_store = getattr(self, "_meta_store", None)
+                user_id, experiment_id, namespace = await _get_user_info(meta_store, sandbox_id)
 
                 # Build attributes
                 attributes = _build_attributes(op_name, sandbox_id, f, user_id, experiment_id, namespace)
@@ -206,9 +210,9 @@ def monitor_sandbox_operation(
                     args, kwargs, extract_sandbox_id, sandbox_id_position, sandbox_id_param
                 )
 
-                redis_provider: RedisProvider = getattr(self, "_redis_provider", None)
+                meta_store = getattr(self, "_meta_store", None)
                 # For sync functions, we need to run the async function in a blocking way
-                user_id, experiment_id, namespace = asyncio.run(_get_user_info(redis_provider, sandbox_id))
+                user_id, experiment_id, namespace = asyncio.run(_get_user_info(meta_store, sandbox_id))
 
                 # Build attributes
                 attributes = _build_attributes(op_name, sandbox_id, f, user_id, experiment_id, namespace)
