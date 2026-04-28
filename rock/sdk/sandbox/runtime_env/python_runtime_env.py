@@ -74,6 +74,8 @@ class PythonRuntimeEnv(RuntimeEnv):
         version = runtime_env_config.version
         if version not in ("3.11", "3.12", "default"):
             raise ValueError(f"Unsupported Python version: {version}. Supported versions: 3.11, 3.12, default")
+        if not isinstance(runtime_env_config, PythonRuntimeEnvConfig):
+            runtime_env_config = PythonRuntimeEnvConfig.model_validate(runtime_env_config.model_dump())
 
         # Create base config with resolved version (extra="ignore" handles 'pip' and 'pip_index_url' fields)
         super().__init__(sandbox=sandbox, runtime_env_config=runtime_env_config)
