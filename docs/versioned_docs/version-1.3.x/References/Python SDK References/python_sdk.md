@@ -258,6 +258,101 @@ if __name__ == "__main__":
     main()
 ```
 
+## 4. Model Service SDK
+
+### 4.1 Overview
+
+The Model Service SDK provides interfaces for interacting with the Model Service, enabling LLM request/response handling for agent workflows. The `ModelClient` class is the primary interface for reading requests and writing responses to the model service log file.
+
+### 4.2 Basic Usage
+
+```python
+import asyncio
+from rock.sdk.model.client import ModelClient
+
+async def main():
+    # Create a ModelClient instance
+    client = ModelClient()
+
+    # Get the first request (index=0)
+    first_request = await client.anti_call_llm(index=0)
+    print(f"First request: {first_request}")
+
+    # Send a response and get the next request
+    llm_response = '{"content": "Hello, how can I help?"}'
+    next_request = await client.anti_call_llm(index=1, last_response=llm_response)
+    print(f"Next request: {next_request}")
+
+asyncio.run(main())
+```
+
+### 4.3 Timeout and Cancellation Support
+
+The `pop_request` and `wait_for_first_request` methods support timeout and cancellation to prevent indefinite blocking:
+
+#### Timeout Configuration
+
+```python
+import asyncio
+from rock.sdk.model.client import ModelClient
+
+async def main():
+    client = ModelClient()
+
+    try:
+        # Wait for first request with a 30-second timeout
+        await client.wait_for_first_request(timeout=30.0)
+
+        # Pop request with a 60-second timeout (default)
+        request = await client.pop_request(index=1)
+    except TimeoutError as e:
+        print(f"Operation timed out: {e}")
+
+asyncio.run(main())
+```
+
+#### Cancellation Handling
+
+```python
+import asyncio
+from rock.sdk.model.client import ModelClient
+
+async def main():
+    client = ModelClient()
+
+    async def get_request():
+        try:
+            request = await client.pop_request(index=1)
+            return request
+        except asyncio.CancelledError:
+            print("Request was cancelled")
+            raise
+
+    # Create a task that can be cancelled
+    task = asyncio.create_task(get_request())
+
+    # Cancel after 5 seconds
+    await asyncio.sleep(5)
+    task.cancel()
+
+asyncio.run(main())
+```
+
+### 4.4 Default Timeout
+
+The default timeout for polling operations is **60 seconds**. You can customize this:
+
+```python
+# Use default timeout (60 seconds)
+await client.pop_request(index=1)
+
+# Custom timeout (30 seconds)
+await client.pop_request(index=1, timeout=30.0)
+
+# No timeout (wait indefinitely - not recommended)
+await client.pop_request(index=1, timeout=None)
+```
+
 ## Related Documents
 - [Quick Start Guide](../../Getting%20Started/quickstart.md) - Learn how to quickly get started with the ROCK SDK
 - [API Documentation](../api.md) - View the underlying API interfaces encapsulated by the SDK

@@ -258,6 +258,101 @@ if __name__ == "__main__":
     main()
 ```
 
+## 4. Model Service SDK
+
+### 4.1 概述
+
+Model Service SDK 提供与 Model Service 交互的接口，支持 Agent 工作流中的 LLM 请求/响应处理。`ModelClient` 类是读取请求和写入响应到模型服务日志文件的主要接口。
+
+### 4.2 基本用法
+
+```python
+import asyncio
+from rock.sdk.model.client import ModelClient
+
+async def main():
+    # 创建 ModelClient 实例
+    client = ModelClient()
+
+    # 获取第一个请求 (index=0)
+    first_request = await client.anti_call_llm(index=0)
+    print(f"第一个请求: {first_request}")
+
+    # 发送响应并获取下一个请求
+    llm_response = '{"content": "你好，有什么可以帮你的？"}'
+    next_request = await client.anti_call_llm(index=1, last_response=llm_response)
+    print(f"下一个请求: {next_request}")
+
+asyncio.run(main())
+```
+
+### 4.3 超时与取消支持
+
+`pop_request` 和 `wait_for_first_request` 方法支持超时和取消，防止无限阻塞：
+
+#### 超时配置
+
+```python
+import asyncio
+from rock.sdk.model.client import ModelClient
+
+async def main():
+    client = ModelClient()
+
+    try:
+        # 等待第一个请求，超时时间为 30 秒
+        await client.wait_for_first_request(timeout=30.0)
+
+        # 弹出请求，超时时间为 60 秒（默认值）
+        request = await client.pop_request(index=1)
+    except TimeoutError as e:
+        print(f"操作超时: {e}")
+
+asyncio.run(main())
+```
+
+#### 取消处理
+
+```python
+import asyncio
+from rock.sdk.model.client import ModelClient
+
+async def main():
+    client = ModelClient()
+
+    async def get_request():
+        try:
+            request = await client.pop_request(index=1)
+            return request
+        except asyncio.CancelledError:
+            print("请求被取消")
+            raise
+
+    # 创建可取消的任务
+    task = asyncio.create_task(get_request())
+
+    # 5 秒后取消
+    await asyncio.sleep(5)
+    task.cancel()
+
+asyncio.run(main())
+```
+
+### 4.4 默认超时时间
+
+轮询操作的默认超时时间为 **60 秒**。您可以自定义此值：
+
+```python
+# 使用默认超时（60 秒）
+await client.pop_request(index=1)
+
+# 自定义超时（30 秒）
+await client.pop_request(index=1, timeout=30.0)
+
+# 无超时（无限等待 - 不推荐）
+await client.pop_request(index=1, timeout=None)
+```
+
 ## 相关文档
 - [快速开始指南](../../Getting%20Started/quickstart.md) - 了解如何快速开始使用 ROCK SDK
 - [API 文档](../api.md) - 查看 SDK 封装的底层 API 接口
