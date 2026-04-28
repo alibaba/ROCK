@@ -1,3 +1,3 @@
-from rock.sdk.envhub.config import EnvironmentConfig, OssMirrorConfig
+from rock.sdk.envhub.config import EnvironmentConfig, OssMirrorConfig, TrackingConfig
 
-__all__ = ["EnvironmentConfig", "OssMirrorConfig"]
+__all__ = ["EnvironmentConfig", "OssMirrorConfig", "TrackingConfig"]
