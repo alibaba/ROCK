@@ -177,6 +177,13 @@ class BashSession(Session):
         else:
             env = {}
         env.update({"PS1": self._ps1, "PS2": "", "PS0": ""})
+
+        # Set terminal environment variables only if specified
+        if self.request.term is not None:
+            env["TERM"] = self.request.term
+        if self.request.lang is not None:
+            env["LANG"] = self.request.lang
+
         if self.request.env is not None:
             env.update(self.request.env)
         logger.info(f"env:{env}")
@@ -190,6 +197,7 @@ class BashSession(Session):
             echo=False,
             env=env,  # type: ignore
             maxread=self.request.max_read_size,
+            dimensions=(self.request.lines, self.request.columns),
         )
         time.sleep(0.3)
         cmds = []
