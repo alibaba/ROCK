@@ -139,6 +139,11 @@ class SandboxMetaStore:
             if sandbox_id:
                 yield sandbox_id
 
+    async def iter_alive_sandbox_info(self) -> AsyncIterator[SandboxInfo]:
+        """Yield active sandbox info from the DB."""
+        for sandbox_info in await self._db.list_by_in("state", _ACTIVE_STATES):
+            yield sandbox_info
+
     @monitor_metastore_operation
     async def batch_get(self, sandbox_ids: list[str]) -> list[SandboxInfo]:
         """Fetch sandbox info for multiple IDs from the DB. Missing IDs are omitted."""
