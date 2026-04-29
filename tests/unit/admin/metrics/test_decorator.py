@@ -9,9 +9,10 @@ from rock.admin.metrics.decorator import (
     _get_user_info,
     _record_metrics,
     _update_sandbox_id_from_result,
+    monitor_sandbox_operation,
 )
 from rock.admin.metrics.monitor import MetricsMonitor
-from rock.utils.providers import RedisProvider
+from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 
 
 class SampleObject:
@@ -63,35 +64,23 @@ def test_extract_sandbox_id_prefers_container_name_over_sandbox_id():
     assert result == "container-name"
 
 
-@patch("rock.admin.metrics.decorator.alive_sandbox_key")
-def test_get_user_info_success(mock_alive_key):
-    mock_redis_provider = Mock(spec=RedisProvider)
+def test_get_user_info_success():
+    mock_meta_store = AsyncMock(spec=SandboxMetaStore)
+    mock_meta_store.get = AsyncMock(
+        return_value={"user_id": "user123", "experiment_id": "exp456", "namespace": "ns789"}
+    )
 
-    async def async_mock_return_value(*args, **kwargs):
-        return [{"user_id": "user123", "experiment_id": "exp456", "namespace": "ns789"}]
-
-    mock_alive_key.return_value = "alive:test-sandbox"
-    mock_redis_provider.json_get = AsyncMock(side_effect=async_mock_return_value)
-
-    # Run the async function in a blocking way
-    user_id, experiment_id, namespace = asyncio.run(_get_user_info(mock_redis_provider, "test-sandbox"))
+    user_id, experiment_id, namespace = asyncio.run(_get_user_info(mock_meta_store, "test-sandbox"))
     assert user_id == "user123"
     assert experiment_id == "exp456"
     assert namespace == "ns789"
 
 
-@patch("rock.admin.metrics.decorator.alive_sandbox_key")
-def test_get_user_info_no_data(mock_alive_key):
-    mock_redis_provider = Mock(spec=RedisProvider)
+def test_get_user_info_no_data():
+    mock_meta_store = AsyncMock(spec=SandboxMetaStore)
+    mock_meta_store.get = AsyncMock(return_value=None)
 
-    async def async_mock_return_value(*args, **kwargs):
-        return []
-
-    mock_alive_key.return_value = "alive:test-sandbox"
-    mock_redis_provider.json_get = AsyncMock(side_effect=async_mock_return_value)
-
-    # Run the async function in a blocking way
-    user_id, experiment_id, namespace = asyncio.run(_get_user_info(mock_redis_provider, "test-sandbox"))
+    user_id, experiment_id, namespace = asyncio.run(_get_user_info(mock_meta_store, "test-sandbox"))
     assert user_id == "default"
     assert experiment_id == "default"
     assert namespace == "default"
@@ -165,3 +154,35 @@ def test_record_metrics_failure():
     # rt should be 1000ms (1.0 - 0) * 1000
     mock_metrics_monitor.record_gauge_by_name.assert_called_once_with("test.rt", 1000.0, error_attrs)
     mock_metrics_monitor.record_counter_by_name.assert_any_call("test.total", 1, error_attrs)
+
+
+async def test_decorator_retrieves_user_info_from_meta_store(redis_provider, _memory_sandbox_table):
+    """monitor_sandbox_operation should read user info via self._meta_store.get(),
+    not self._redis_provider (which doesn't exist on SandboxManager/SandboxProxyService).
+    Before the fix, user_id/experiment_id/namespace were always 'default'.
+    """
+    meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=_memory_sandbox_table)
+
+    # Seed Redis with sandbox info containing user fields
+    sandbox_id = "test-sandbox-123"
+    await meta_store.create(sandbox_id, {"user_id": "u1", "experiment_id": "e1", "namespace": "n1"})
+
+    service = Mock()
+    service._meta_store = meta_store
+    service.metrics_monitor = Mock(spec=MetricsMonitor)
+
+    @monitor_sandbox_operation()
+    async def do_something(self, sandbox_id):
+        return "ok"
+
+    result = await do_something(service, sandbox_id)
+    assert result == "ok"
+
+    # Verify metrics recorded with real user info, not all-default
+    calls = service.metrics_monitor.record_counter_by_name.call_args_list
+    success_calls = [c for c in calls if c[0][0] == "request.success"]
+    assert len(success_calls) == 1
+    attrs = success_calls[0][0][2]
+    assert attrs["user_id"] == "u1"
+    assert attrs["experiment_id"] == "e1"
+    assert attrs["namespace"] == "n1"
