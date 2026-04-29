@@ -14,8 +14,8 @@ import * as os from 'os';
 
 const TEST_CONFIG = {
   baseUrl: process.env.ROCK_BASE_URL || 'http://11.166.8.116:8080',
-  image: 'reg.docker.alibaba-inc.com/yanan/python:3.11',
-  cluster: 'zb',
+  image: process.env.ROCK_TEST_IMAGE || 'reg.docker.alibaba-inc.com/yanan/python:3.11',
+  cluster: process.env.ROCK_TEST_CLUSTER || 'zb',
   startupTimeout: 120,
 };
 
