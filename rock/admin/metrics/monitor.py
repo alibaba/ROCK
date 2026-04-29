@@ -145,7 +145,7 @@ class MetricsMonitor:
     def _init_telemetry(self, export_interval_millis: int):
         if self._should_skip():
             return
-        if self.env == "dev":
+        if self.env in {"dev", "test"}:
             self.metric_reader = InMemoryMetricReader()
         else:
             self.otlp_exporter = OTLPMetricExporter(endpoint=self.endpoint)

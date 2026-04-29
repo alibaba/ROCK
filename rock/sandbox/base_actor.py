@@ -8,7 +8,7 @@ from opentelemetry import metrics
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.metrics import _Gauge
 from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader, PeriodicExportingMetricReader
 
 from rock import env_vars
 from rock.deployments.abstract import AbstractDeployment
@@ -87,11 +87,17 @@ class BaseActor:
         self.host = host
         logger.info(f"Initializing MetricsCollector with host={host}, port={port}, env={env}, role={role}")
         endpoint = self._metrics_endpoint or f"http://{host}:{port}/v1/metrics"
-        self.otlp_exporter = OTLPMetricExporter(endpoint=endpoint)
-        self.metric_reader = PeriodicExportingMetricReader(
-            self.otlp_exporter,
-            export_interval_millis=self._export_interval_millis,
-        )
+
+        # Use InMemoryMetricReader for dev/test environments to avoid OTLP collector connection errors
+        if env in {"dev", "test"}:
+            logger.info("Using InMemoryMetricReader for dev/test environment, skipping OTLP export")
+            self.metric_reader = InMemoryMetricReader()
+        else:
+            self.otlp_exporter = OTLPMetricExporter(endpoint=endpoint)
+            self.metric_reader = PeriodicExportingMetricReader(
+                self.otlp_exporter,
+                export_interval_millis=self._export_interval_millis,
+            )
         self.meter_provider = MeterProvider(metric_readers=[self.metric_reader])
         metrics.set_meter_provider(self.meter_provider)
         self.meter = metrics.get_meter("XRL_GATEWAY_CONFIG")
