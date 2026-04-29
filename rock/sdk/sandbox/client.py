@@ -390,6 +390,7 @@ class Sandbox(AbstractSandbox):
         response_limited_bytes_in_nohup: int | None = None,
         ignore_output: bool = False,
         output_file: str | None = None,
+        capture_exit_code: bool = False,
     ) -> Observation:
         """
         Asynchronously run a command in the sandbox environment.
@@ -455,6 +456,7 @@ class Sandbox(AbstractSandbox):
                 response_limited_bytes_in_nohup=response_limited_bytes_in_nohup,
                 ignore_output=ignore_output,
                 output_file=output_file,
+                capture_exit_code=capture_exit_code,
             )
 
     async def _arun_with_nohup(
@@ -466,6 +468,7 @@ class Sandbox(AbstractSandbox):
         response_limited_bytes_in_nohup: int | None,
         ignore_output: bool,
         output_file: str | None = None,
+        capture_exit_code: bool = False,
     ) -> Observation:
         """Execute command in nohup mode with process monitoring."""
         try:
@@ -489,9 +492,12 @@ class Sandbox(AbstractSandbox):
                     raise InternalServerRockError(error_msg)
 
             tmp_file = output_file if output_file else f"/tmp/tmp_{timestamp}.out"
+            exit_code_file = f"/tmp/tmp_{timestamp}.rc" if capture_exit_code else None
 
             # Start nohup process and get PID
-            pid, error_response = await self.start_nohup_process(cmd=cmd, tmp_file=tmp_file, session=session)
+            pid, error_response = await self.start_nohup_process(
+                cmd=cmd, tmp_file=tmp_file, session=session, exit_code_file=exit_code_file
+            )
 
             # If nohup command itself failed, return the error response
             if error_response is not None:
@@ -515,6 +521,7 @@ class Sandbox(AbstractSandbox):
                 message=message,
                 ignore_output=ignore_output,
                 response_limited_bytes_in_nohup=response_limited_bytes_in_nohup,
+                exit_code_file=exit_code_file,
             )
 
         except ReadTimeout:
@@ -524,7 +531,9 @@ class Sandbox(AbstractSandbox):
             error_msg = f"Failed to execute nohup command '{cmd}': {str(e)}"
             return Observation(output=error_msg, exit_code=1, failure_reason=error_msg)
 
-    async def start_nohup_process(self, cmd: str, tmp_file: str, session: str) -> tuple[int | None, Observation | None]:
+    async def start_nohup_process(
+        self, cmd: str, tmp_file: str, session: str, exit_code_file: str | None = None
+    ) -> tuple[int | None, Observation | None]:
         """
         Start a nohup process and extract its PID.
 
@@ -532,12 +541,19 @@ class Sandbox(AbstractSandbox):
             cmd: Command to execute in nohup
             tmp_file: Output file path for nohup
             session: Bash session name
+            exit_code_file: If provided, wrap cmd in a subshell to capture its exit code into this file.
 
         Returns:
             Tuple of (PID, error_observation). If successful, returns (pid, None).
             If failed, returns (None, error_observation) or (None, None) if PID extraction failed.
         """
-        nohup_command = f"nohup {cmd} < /dev/null > {tmp_file} 2>&1 & echo {PID_PREFIX}${{!}}{PID_SUFFIX};disown"
+        if exit_code_file:
+            nohup_command = (
+                f"( nohup {cmd} < /dev/null > {tmp_file} 2>&1; echo $? > {exit_code_file} )"
+                f" & echo {PID_PREFIX}${{!}}{PID_SUFFIX};disown"
+            )
+        else:
+            nohup_command = f"nohup {cmd} < /dev/null > {tmp_file} 2>&1 & echo {PID_PREFIX}${{!}}{PID_SUFFIX};disown"
 
         # todo:
         # Theoretically, the nohup command should return in a very short time, but the total time online is longer,
@@ -562,6 +578,7 @@ class Sandbox(AbstractSandbox):
         message: str,
         ignore_output: bool,
         response_limited_bytes_in_nohup: int | None,
+        exit_code_file: str | None = None,
     ) -> Observation:
         """
         Handle the output of a completed nohup process.
@@ -573,10 +590,27 @@ class Sandbox(AbstractSandbox):
             message: Status message from process monitoring
             ignore_output: Whether to ignore the actual output content
             response_limited_bytes_in_nohup: Maximum bytes to read from output
+            exit_code_file: If provided and success=True, read cmd's actual exit code from this file.
 
         Returns:
             Observation containing the result
         """
+        # Read actual exit code from .rc file when available (only on success; timeout skips this)
+        actual_exit_code = None
+        if success and exit_code_file:
+            try:
+                rc_result = await self._run_in_session(
+                    BashAction(session=session, command=f"cat {exit_code_file} 2>/dev/null", check="ignore")
+                )
+                raw = rc_result.output.strip()
+                if raw.isdigit():
+                    actual_exit_code = int(raw)
+            except Exception:
+                pass  # Silent fallback; does not affect main flow
+
+        exit_code = actual_exit_code if actual_exit_code is not None else (0 if success else 1)
+        failure_reason = "" if success else message
+
         if ignore_output:
             # Get file size to help user decide how to read it
             file_size = None
@@ -591,9 +625,7 @@ class Sandbox(AbstractSandbox):
                 pass
 
             detached_msg = self._build_nohup_detached_message(tmp_file, success, message, file_size)
-            if success:
-                return Observation(output=detached_msg, exit_code=0)
-            return Observation(output=detached_msg, exit_code=1, failure_reason=message)
+            return Observation(output=detached_msg, exit_code=exit_code, failure_reason=failure_reason)
 
         # Read output from file
         check_res_command = f"cat {tmp_file}"
@@ -601,11 +633,7 @@ class Sandbox(AbstractSandbox):
             check_res_command = f"head -c {response_limited_bytes_in_nohup} {tmp_file}"
 
         exec_result: Observation = await self._run_in_session(BashAction(session=session, command=check_res_command))
-
-        if success:
-            return Observation(output=exec_result.output, exit_code=0)
-        else:
-            return Observation(output=exec_result.output, exit_code=1, failure_reason=message)
+        return Observation(output=exec_result.output, exit_code=exit_code, failure_reason=failure_reason)
 
     async def write_file(self, request: WriteFileRequest) -> WriteFileResponse:
         content = request.content
