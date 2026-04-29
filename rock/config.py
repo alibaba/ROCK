@@ -358,6 +358,17 @@ class RockConfig:
         with open(config_file) as f:
             config = yaml.safe_load(f)
 
+        # Handle _base config inheritance
+        if "_base" in config:
+            base_path = Path(config.pop("_base"))
+            if not base_path.is_absolute():
+                base_path = config_file.parent / base_path
+            if not base_path.exists():
+                raise Exception(f"base config file {base_path} not found")
+            with open(base_path) as f:
+                base_config = yaml.safe_load(f)
+            config = cls._deep_merge(base_config, config)
+
         # Convert nested dictionaries to dataclass objects
         kwargs = {}
         if "ray" in config:
@@ -385,6 +396,65 @@ class RockConfig:
             kwargs["database"] = DatabaseConfig(**config["database"])
 
         return cls(**kwargs)
+
+    # ============================================================================
+    # Merging Rules:
+    # 1. Dictionary elements within the list are matched based on their `task_class`.
+    # 2. Matched elements: Regional configurations are deep-merged to override the base library (applied at the field level, not as a complete replacement).
+    # 3. Unmatched base tasks: Retained as-is.
+    # 4. Newly added regional tasks: Appended to the list.
+    # 5. To "disable" a specific base task within a region: Set `enabled: false`.
+    # ============================================================================
+
+    @staticmethod
+    def _deep_merge(base: dict, override: dict) -> dict:
+        """Deep merge override into base. Override values take precedence."""
+        result = base.copy()
+        for key, value in override.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = RockConfig._deep_merge(result[key], value)
+            elif key in result and isinstance(result[key], list) and isinstance(value, list):
+                result[key] = RockConfig._merge_lists(result[key], value)
+            else:
+                result[key] = value
+        return result
+
+    @staticmethod
+    def _merge_lists(base_list: list, override_list: list) -> list:
+        """Merge two lists. For lists of dicts with 'task_class' key, merge by that key."""
+        if not base_list or not override_list:
+            return override_list if override_list else base_list
+
+        # Check if both lists contain dicts with a common identity key
+        merge_key = None
+        for candidate in ("task_class", "name", "id"):
+            if all(isinstance(item, dict) and candidate in item for item in base_list) and all(
+                isinstance(item, dict) and candidate in item for item in override_list
+            ):
+                merge_key = candidate
+                break
+
+        if not merge_key:
+            # No merge key found, override replaces base entirely
+            return override_list
+
+        # Merge by key: base items are kept/overridden, new override items appended
+        override_map = {item[merge_key]: item for item in override_list}
+        result = []
+        seen = set()
+        for item in base_list:
+            key_val = item[merge_key]
+            if key_val in override_map:
+                # Deep merge the matching item
+                result.append(RockConfig._deep_merge(item, override_map[key_val]))
+            else:
+                result.append(item)
+            seen.add(key_val)
+        # Append new items from override that aren't in base
+        for item in override_list:
+            if item[merge_key] not in seen:
+                result.append(item)
+        return result
 
     def __post_init__(self) -> None:
         logger.info(f"init RockConfig: {self}")
