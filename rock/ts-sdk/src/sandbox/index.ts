@@ -10,6 +10,8 @@ export * from './network.js';
 export * from './process.js';
 export * from './remote_user.js';
 export * from './utils.js';
+export * from './logs.js';
+export * from './kmon.js';
 
 // Re-export types from their new locations
 export { SpeedupType } from './network.js';
