@@ -36,7 +36,6 @@ class BaseManager:
         )
         self._report_interval = 10
         self._check_job_interval = 180
-        self._sandbox_meta = {}
         self._setup_scheduler()
         self.deployment_manager = DeploymentManager(rock_config, enable_runtime_auto_clear)
 
@@ -130,7 +129,8 @@ class BaseManager:
         cnt = 0
         async for sandbox_id in self._meta_store.iter_alive_sandbox_ids():
             cnt += 1
-            image = self._sandbox_meta.get(sandbox_id, {}).get("image", "default")
+            sandbox_info = await self._meta_store.get(sandbox_id)
+            image = sandbox_info.get("image", "default") if sandbox_info else "default"
             meta[sandbox_id] = {"image": image}
         return cnt, meta
 

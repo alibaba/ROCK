@@ -157,8 +157,6 @@ class SandboxManager(BaseManager):
             await asyncio.sleep(1)
         await self.get_status(sandbox_id)
 
-        self._sandbox_meta[sandbox_id] = {"image": docker_deployment_config.image}
-
         return SandboxStartResponse(
             sandbox_id=sandbox_id,
             host_name=await self._ray_service.async_ray_get(sandbox_actor.host_name.remote()),
@@ -181,10 +179,6 @@ class SandboxManager(BaseManager):
             logger.error(f"ray get actor, actor {sandbox_id} not exist", exc_info=e)
             await self._meta_store.archive(sandbox_id, sandbox_info)
             return
-        try:
-            self._sandbox_meta.pop(sandbox_id)
-        except KeyError:
-            logger.debug(f"{sandbox_id} key not found")
         logger.info(f"sandbox {sandbox_id} stopped")
         await self._meta_store.archive(sandbox_id, sandbox_info)
 
