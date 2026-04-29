@@ -57,11 +57,11 @@ rocklet = [
     # Rocklet execution environment dependencies
     "fastapi",
     "uvicorn",
-    "pexpect",
-    "bashlex",
+    "pexpect; sys_platform != 'win32'",
+    "bashlex; sys_platform != 'win32'",
     "psutil",
-    "twisted",
-    "gem-llm>=0.1.0",
+    "twisted; sys_platform != 'win32'",
+    "gem-llm>=0.1.0; sys_platform != 'win32'",
     "numpy<=2.2.6",
 ]
 
