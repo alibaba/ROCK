@@ -79,3 +79,41 @@ async def test_prompt_command(local_runtime: Rocklet):
     with_prompt_command = await local_runtime.run_in_session(BashAction(command="echo hello", action_type="bash"))
     assert with_prompt_command.output.__contains__("ROCK")
     await local_runtime.close_session(CloseBashSessionRequest(session_type="bash"))
+
+
+# --- cgroup CPU sampling -----------------------------------------------------
+
+
+def test_sample_cpu_cores_first_call_returns_zero(monkeypatch, local_runtime: LocalSandboxRuntime):
+    """First call has no baseline; should return 0.0 even if cgroup is readable."""
+    monkeypatch.setattr("rock.rocklet.local_sandbox._read_cgroup_cpu_ns", lambda: 1_000_000_000)
+    assert local_runtime._sample_cpu_cores() == 0.0
+
+
+def test_sample_cpu_cores_returns_zero_when_cgroup_unreadable(monkeypatch, local_runtime: LocalSandboxRuntime):
+    monkeypatch.setattr("rock.rocklet.local_sandbox._read_cgroup_cpu_ns", lambda: None)
+    # Even with a prior baseline, an unreadable second sample yields 0.
+    local_runtime._cpu_prev_ns = 1_000_000_000
+    local_runtime._cpu_prev_ts = 100.0
+    assert local_runtime._sample_cpu_cores() == 0.0
+
+
+def test_sample_cpu_cores_computes_delta_average(monkeypatch, local_runtime: LocalSandboxRuntime):
+    """1.5 core-seconds consumed over 1 wall-clock second -> 1.5 cores average."""
+    # Seed prior reading: 0 ns at t=100s
+    local_runtime._cpu_prev_ns = 0
+    local_runtime._cpu_prev_ts = 100.0
+    # New reading: 1.5e9 ns (1.5 core-seconds) at t=101s
+    monkeypatch.setattr("rock.rocklet.local_sandbox._read_cgroup_cpu_ns", lambda: 1_500_000_000)
+    monkeypatch.setattr("rock.rocklet.local_sandbox.time.monotonic", lambda: 101.0)
+
+    assert local_runtime._sample_cpu_cores() == pytest.approx(1.5)
+
+
+def test_sample_cpu_cores_clamps_negative_delta_to_zero(monkeypatch, local_runtime: LocalSandboxRuntime):
+    """A non-monotonic kernel reading must not produce a negative core count."""
+    local_runtime._cpu_prev_ns = 2_000_000_000
+    local_runtime._cpu_prev_ts = 100.0
+    monkeypatch.setattr("rock.rocklet.local_sandbox._read_cgroup_cpu_ns", lambda: 1_000_000_000)
+    monkeypatch.setattr("rock.rocklet.local_sandbox.time.monotonic", lambda: 101.0)
+    assert local_runtime._sample_cpu_cores() == 0.0
