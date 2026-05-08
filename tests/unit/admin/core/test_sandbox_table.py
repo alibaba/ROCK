@@ -99,7 +99,6 @@ class TestSandboxTableWithSQLite:
 
 
 @pytest.mark.need_docker
-@pytest.mark.need_database
 class TestSandboxTableWithPostgres:
     """Integration tests for SandboxTable using a real PostgreSQL container."""
 

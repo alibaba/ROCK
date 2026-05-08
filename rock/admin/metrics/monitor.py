@@ -26,8 +26,10 @@ class MetricsMonitor:
         export_interval_millis: int = 10000,
         endpoint: str = "",
         user_defined_tags: dict = {},
+        metric_prefix: str = "",
     ):
         patch_view_instrument_match()
+        self.metric_prefix = metric_prefix
         self.user_defined_tags = user_defined_tags
         self._init_basic_attributes(host, port, pod, env, role)
         self.endpoint = endpoint or f"http://{self.host}:{self.port}/v1/metrics"
@@ -42,7 +44,11 @@ class MetricsMonitor:
 
     @classmethod
     def create(
-        cls, export_interval_millis: int = 20000, metrics_endpoint: str = "", user_defined_tags: dict = {}
+        cls,
+        export_interval_millis: int = 20000,
+        metrics_endpoint: str = "",
+        user_defined_tags: dict = {},
+        metric_prefix: str = "",
     ) -> "MetricsMonitor":
         host, port = get_uniagent_endpoint()
         pod = get_instance_id()
@@ -58,6 +64,7 @@ class MetricsMonitor:
             export_interval_millis=export_interval_millis,
             endpoint=metrics_endpoint,
             user_defined_tags=user_defined_tags,
+            metric_prefix=metric_prefix,
         )
 
     def _register_metrics(self):
@@ -95,6 +102,18 @@ class MetricsMonitor:
         self._register_gauge(MetricsConstants.TOTAL_MEM_RESOURCE, "Total memory resource in Ray cluster")
         self._register_gauge(MetricsConstants.AVAILABLE_CPU_RESOURCE, "Available CPU resource in Ray cluster")
         self._register_gauge(MetricsConstants.AVAILABLE_MEM_RESOURCE, "Available memory resource in Ray cluster")
+
+        # MetaStore metrics
+        self._register_counter(MetricsConstants.METASTORE_SUCCESS, "Number of successful meta_store operations")
+        self._register_counter(MetricsConstants.METASTORE_FAILURE, "Number of failed meta_store operations")
+        self._register_counter(MetricsConstants.METASTORE_TOTAL, "Number of total meta_store operations")
+        self._register_gauge(MetricsConstants.METASTORE_RT, "MetaStore operation response time", "ms")
+
+        # MetaStore DB-layer metrics
+        self._register_counter(MetricsConstants.METASTORE_DB_SUCCESS, "Number of successful DB operations")
+        self._register_counter(MetricsConstants.METASTORE_DB_FAILURE, "Number of failed DB operations")
+        self._register_counter(MetricsConstants.METASTORE_DB_TOTAL, "Number of total DB operations")
+        self._register_gauge(MetricsConstants.METASTORE_DB_RT, "DB operation response time", "ms")
 
     def _register_counter(self, name: str, description: str, unit: str = "1"):
         self.counters[name] = self.create_counter(name, description, unit)

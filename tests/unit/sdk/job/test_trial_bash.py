@@ -37,6 +37,52 @@ class TestBashTrialBuild:
         trial = BashTrial(cfg)
         assert trial.build() == ""
 
+    def test_build_without_oss_mirror_returns_raw(self):
+        """No oss_mirror -> user script is returned as-is."""
+        cfg = BashJobConfig(script="echo hi")
+        trial = BashTrial(cfg)
+        assert trial.build() == "echo hi"
+
+    def test_build_oss_disabled_returns_raw(self):
+        """oss_mirror.enabled=False -> raw script."""
+        cfg = BashJobConfig(
+            script="echo hi",
+            environment=EnvironmentConfig(oss_mirror=OssMirrorConfig(enabled=False)),
+        )
+        trial = BashTrial(cfg)
+        assert trial.build() == "echo hi"
+
+    def test_build_oss_enabled_and_ready_returns_wrapper(self):
+        """oss_mirror.enabled=True and ossutil_ready -> wrapper script."""
+        cfg = BashJobConfig(
+            script="echo hi",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=True, oss_bucket="b"),
+            ),
+        )
+        trial = BashTrial(cfg)
+        trial._ossutil_ready = True  # simulate successful setup
+
+        wrapper = trial.build()
+
+        assert wrapper.startswith("#!/bin/bash")
+        assert "echo hi" in wrapper
+        assert "ossutil cp" in wrapper
+        assert "__ROCK_USER_SCRIPT_EOF_" in wrapper
+
+    def test_build_oss_enabled_but_not_ready_falls_back(self):
+        """oss_mirror.enabled=True but ossutil install failed -> raw script."""
+        cfg = BashJobConfig(
+            script="echo hi",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=True, oss_bucket="b"),
+            ),
+        )
+        trial = BashTrial(cfg)
+        trial._ossutil_ready = False  # ensure_ossutil failed
+
+        assert trial.build() == "echo hi"
+
 
 # ---------------------------------------------------------------------------
 # BashTrial.setup()
@@ -186,7 +232,9 @@ _MIRROR = OssMirrorConfig(enabled=True, oss_bucket="b", oss_endpoint="ep", oss_r
 
 
 class TestBashTrialOssMirror:
-    async def test_setup_installs_ossutil_and_creates_dir(self):
+    """OSS mirror integration (spec 2026-04-27) — setup only installs ossutil, collect does not upload."""
+
+    async def test_setup_installs_ossutil_when_enabled(self):
         cfg = BashJobConfig(
             script="echo",
             job_name="j",
@@ -196,53 +244,16 @@ class TestBashTrialOssMirror:
         )
         trial = BashTrial(cfg)
         sb = _oss_sandbox()
+
         await trial.setup(sb)
 
         sb.fs.ensure_ossutil.assert_called_once()
-        # Initial upload to create OSS path before script runs
-        setup_cp_calls = [c for c in sb.arun.call_args_list if "ossutil cp" in str(c)]
-        assert len(setup_cp_calls) == 1
+        assert trial._ossutil_ready is True
+        # setup must not trigger any ossutil cp — uploads happen inside the wrapper
+        cp_calls = [c for c in sb.arun.call_args_list if "ossutil cp" in str(c)]
+        assert cp_calls == []
 
-    async def test_setup_skips_when_no_mirror(self):
-        trial = BashTrial(BashJobConfig(script="echo"))
-        sb = _oss_sandbox()
-        await trial.setup(sb)
-        sb.fs.ensure_ossutil.assert_not_called()
-
-    async def test_collect_uploads(self):
-        cfg = BashJobConfig(
-            script="echo",
-            job_name="j",
-            namespace="ns",
-            experiment_id="exp",
-            environment=EnvironmentConfig(oss_mirror=_MIRROR),
-        )
-        trial = BashTrial(cfg)
-        sb = _oss_sandbox()
-        await trial.setup(sb)
-        await trial.collect(sb, "ok", 0)
-
-        # setup + collect each call ossutil cp once
-        arun_calls = [c for c in sb.arun.call_args_list if "ossutil cp" in str(c)]
-        assert len(arun_calls) == 2
-        assert all("oss://b/artifacts/ns/exp/j/" in str(c) for c in arun_calls)
-
-    async def test_upload_failure_does_not_fail_job(self):
-        cfg = BashJobConfig(
-            script="echo",
-            job_name="j",
-            namespace="ns",
-            experiment_id="exp",
-            environment=EnvironmentConfig(oss_mirror=_MIRROR),
-        )
-        trial = BashTrial(cfg)
-        sb = _oss_sandbox()
-        sb.arun = AsyncMock(return_value=MagicMock(exit_code=1, output="err"))
-        await trial.setup(sb)
-        result = await trial.collect(sb, "ok", 0)
-        assert result.exit_code == 0 and result.exception_info is None
-
-    async def test_skips_upload_when_ossutil_not_ready(self):
+    async def test_setup_marks_ossutil_not_ready_on_install_failure(self):
         cfg = BashJobConfig(
             script="echo",
             job_name="j",
@@ -253,7 +264,287 @@ class TestBashTrialOssMirror:
         trial = BashTrial(cfg)
         sb = _oss_sandbox()
         sb.fs.ensure_ossutil = AsyncMock(return_value=False)
+
+        await trial.setup(sb)
+
+        assert trial._ossutil_ready is False
+
+    async def test_setup_skips_when_no_mirror(self):
+        trial = BashTrial(BashJobConfig(script="echo"))
+        sb = _oss_sandbox()
+        await trial.setup(sb)
+        sb.fs.ensure_ossutil.assert_not_called()
+
+    async def test_collect_does_not_upload(self):
+        """collect no longer calls ossutil cp — uploads are wrapper-driven."""
+        cfg = BashJobConfig(
+            script="echo",
+            job_name="j",
+            namespace="ns",
+            experiment_id="exp",
+            environment=EnvironmentConfig(oss_mirror=_MIRROR),
+        )
+        trial = BashTrial(cfg)
+        sb = _oss_sandbox()
+
         await trial.setup(sb)
         await trial.collect(sb, "ok", 0)
-        ossutil_calls = [c for c in sb.arun.call_args_list if "ossutil cp" in str(c)]
-        assert len(ossutil_calls) == 0
+
+        cp_calls = [c for c in sb.arun.call_args_list if "ossutil cp" in str(c)]
+        assert cp_calls == []
+
+
+# ---------------------------------------------------------------------------
+# Wrapper renderer (spec 2026-04-27)
+# ---------------------------------------------------------------------------
+
+
+class TestRenderWrapper:
+    def test_wrapper_contains_prologue_and_epilogue(self):
+        wrapper = BashTrial._render_wrapper("echo hi", token="deadbeef")
+
+        # prologue
+        assert 'mkdir -p "$ROCK_ARTIFACT_DIR"' in wrapper
+        assert 'touch "$ROCK_ARTIFACT_DIR/.placeholder"' in wrapper
+        # initial upload (silent on failure)
+        assert "|| true" in wrapper
+        # heredoc terminator appears twice (open + close)
+        assert wrapper.count("__ROCK_USER_SCRIPT_EOF_deadbeef__") == 2
+        # single-quoted terminator (disables parameter expansion)
+        assert "bash <<'__ROCK_USER_SCRIPT_EOF_deadbeef__'" in wrapper
+        # user script body
+        assert "echo hi" in wrapper
+        # capture user exit code
+        assert "_rock_user_rc=$?" in wrapper
+        # epilogue: final upload with -f
+        assert "ossutil cp" in wrapper
+        assert "--recursive -f" in wrapper
+        assert "exit $_rock_user_rc" in wrapper
+
+    def test_wrapper_uses_oss_env_variables(self):
+        """Wrapper reads paths/bucket from env only; no plaintext credentials."""
+        wrapper = BashTrial._render_wrapper("echo hi", token="deadbeef")
+
+        # env-var references present
+        assert '"oss://$OSS_BUCKET/$ROCK_OSS_PREFIX/"' in wrapper
+        # credential flags must not appear (no command-line leakage)
+        assert "--access-key-id" not in wrapper
+        assert "--access-key-secret" not in wrapper
+
+    def test_wrapper_empty_user_script(self):
+        wrapper = BashTrial._render_wrapper("", token="deadbeef")
+        assert "__ROCK_USER_SCRIPT_EOF_deadbeef__" in wrapper
+        # prologue/epilogue still present
+        assert "ossutil cp" in wrapper
+
+    def test_wrapper_preserves_user_script_verbatim(self):
+        """Single-quoted heredoc keeps $VAR, backticks, $() unexpanded."""
+        from rock.sdk.job.trial.bash import BashTrial
+
+        user = 'echo "$HOME $(date) `whoami`"'
+        wrapper = BashTrial._render_wrapper(user, token="deadbeef")
+        assert user in wrapper
+
+    def test_wrapper_auto_generates_token_when_omitted(self):
+        """Without an explicit token, secrets.token_hex(4) is used."""
+        import re as _re
+
+        wrapper = BashTrial._render_wrapper("echo hi")
+        match = _re.search(r"__ROCK_USER_SCRIPT_EOF_([0-9a-f]{8})__", wrapper)
+        assert match is not None, "wrapper should contain auto-generated 8-char hex token"
+
+
+# ---------------------------------------------------------------------------
+# on_sandbox_ready / _prepare_oss_session_env (spec 2026-04-27)
+# ---------------------------------------------------------------------------
+
+
+def _ready_sandbox(ns="ns", exp="exp"):
+    """Minimal sandbox mock for on_sandbox_ready: only namespace/experiment_id."""
+    sb = MagicMock()
+    sb._namespace = ns
+    sb._experiment_id = exp
+    return sb
+
+
+class TestBashTrialPrepareOssSessionEnv:
+    """BashTrial.on_sandbox_ready resolves OSS credentials, validates, and
+    writes derived ROCK_* keys into environment.env. JobExecutor._build_session_env
+    stays trial-agnostic."""
+
+    def _clear_oss(self, monkeypatch):
+        for k in list(__import__("os").environ):
+            if k.startswith("OSS"):
+                monkeypatch.delenv(k, raising=False)
+
+    async def test_oss_mirror_config_field_wins_over_env_and_host(self, monkeypatch):
+        """Priority: OssMirrorConfig field > environment.env > host os.environ."""
+        self._clear_oss(monkeypatch)
+        monkeypatch.setenv("OSS_ACCESS_KEY_ID", "host_id")
+
+        cfg = BashJobConfig(
+            script="echo",
+            job_name="j",
+            environment=EnvironmentConfig(
+                env={"OSS_ACCESS_KEY_ID": "env_id", "OSS_ENDPOINT": "env_ep", "OSS_REGION": "env_rg"},
+                oss_mirror=OssMirrorConfig(
+                    enabled=True,
+                    oss_bucket="cfg_bucket",
+                    oss_access_key_id="cfg_id",
+                ),
+            ),
+        )
+        trial = BashTrial(cfg)
+
+        await trial.on_sandbox_ready(_ready_sandbox())
+
+        assert cfg.environment.env["OSS_ACCESS_KEY_ID"] == "cfg_id"
+        assert cfg.environment.env["OSS_BUCKET"] == "cfg_bucket"
+        # environment.env fills slots the config did not supply
+        assert cfg.environment.env["OSS_ENDPOINT"] == "env_ep"
+        assert cfg.environment.env["OSS_REGION"] == "env_rg"
+
+    async def test_environment_env_can_supply_oss_credentials(self, monkeypatch):
+        """Issue-2 fix: OSS_* inside environment.env are usable as credentials."""
+        self._clear_oss(monkeypatch)
+
+        cfg = BashJobConfig(
+            script="echo",
+            job_name="j",
+            environment=EnvironmentConfig(
+                env={
+                    "OSS_ACCESS_KEY_ID": "ak",
+                    "OSS_ACCESS_KEY_SECRET": "sk",
+                    "OSS_ENDPOINT": "ep",
+                    "OSS_REGION": "rg",
+                    "OSS_BUCKET": "b",
+                },
+                oss_mirror=OssMirrorConfig(enabled=True),
+            ),
+        )
+        trial = BashTrial(cfg)
+
+        await trial.on_sandbox_ready(_ready_sandbox())
+
+        assert cfg.environment.env["OSS_ACCESS_KEY_ID"] == "ak"
+        assert cfg.environment.env["OSS_BUCKET"] == "b"
+
+    async def test_derived_rock_env_keys_present_when_enabled(self, monkeypatch):
+        self._clear_oss(monkeypatch)
+
+        cfg = BashJobConfig(
+            script="echo",
+            job_name="myjob",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=True, oss_bucket="b", oss_endpoint="ep", oss_region="rg"),
+            ),
+        )
+        trial = BashTrial(cfg)
+
+        await trial.on_sandbox_ready(_ready_sandbox(ns="ns1", exp="exp1"))
+
+        assert cfg.environment.env["ROCK_ARTIFACT_DIR"] == "/data/logs/user-defined"
+        assert cfg.environment.env["ROCK_OSS_PREFIX"] == "artifacts/ns1/exp1/myjob"
+
+    async def test_no_action_when_mirror_disabled(self, monkeypatch):
+        self._clear_oss(monkeypatch)
+
+        cfg = BashJobConfig(
+            script="echo",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=False, oss_bucket="b"),
+            ),
+        )
+        trial = BashTrial(cfg)
+
+        await trial.on_sandbox_ready(_ready_sandbox())
+
+        # No OSS_* / ROCK_* keys injected when mirror disabled
+        assert "OSS_BUCKET" not in cfg.environment.env
+        assert "ROCK_ARTIFACT_DIR" not in cfg.environment.env
+        assert "ROCK_OSS_PREFIX" not in cfg.environment.env
+
+    async def test_no_action_when_no_mirror(self, monkeypatch):
+        self._clear_oss(monkeypatch)
+
+        cfg = BashJobConfig(script="echo", environment=EnvironmentConfig())
+        trial = BashTrial(cfg)
+
+        await trial.on_sandbox_ready(_ready_sandbox())
+
+        assert "ROCK_ARTIFACT_DIR" not in cfg.environment.env
+
+    async def test_missing_namespace_raises(self, monkeypatch):
+        self._clear_oss(monkeypatch)
+
+        cfg = BashJobConfig(
+            script="echo",
+            job_name="j",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=True, oss_bucket="b", oss_endpoint="ep", oss_region="rg"),
+            ),
+        )
+        trial = BashTrial(cfg)
+
+        with pytest.raises(ValueError, match="namespace"):
+            await trial.on_sandbox_ready(_ready_sandbox(ns=None, exp="exp"))
+
+    async def test_missing_experiment_id_raises(self, monkeypatch):
+        self._clear_oss(monkeypatch)
+
+        cfg = BashJobConfig(
+            script="echo",
+            job_name="j",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=True, oss_bucket="b", oss_endpoint="ep", oss_region="rg"),
+            ),
+        )
+        trial = BashTrial(cfg)
+
+        with pytest.raises(ValueError, match="experiment_id"):
+            await trial.on_sandbox_ready(_ready_sandbox(ns="ns", exp=None))
+
+    async def test_missing_bucket_raises(self, monkeypatch):
+        self._clear_oss(monkeypatch)
+
+        cfg = BashJobConfig(
+            script="echo",
+            job_name="j",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=True, oss_endpoint="ep", oss_region="rg"),
+            ),
+        )
+        trial = BashTrial(cfg)
+
+        with pytest.raises(ValueError, match="OSS_BUCKET"):
+            await trial.on_sandbox_ready(_ready_sandbox())
+
+    async def test_missing_endpoint_raises(self, monkeypatch):
+        self._clear_oss(monkeypatch)
+
+        cfg = BashJobConfig(
+            script="echo",
+            job_name="j",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=True, oss_bucket="b", oss_region="rg"),
+            ),
+        )
+        trial = BashTrial(cfg)
+
+        with pytest.raises(ValueError, match="OSS_ENDPOINT"):
+            await trial.on_sandbox_ready(_ready_sandbox())
+
+    async def test_missing_region_raises(self, monkeypatch):
+        self._clear_oss(monkeypatch)
+
+        cfg = BashJobConfig(
+            script="echo",
+            job_name="j",
+            environment=EnvironmentConfig(
+                oss_mirror=OssMirrorConfig(enabled=True, oss_bucket="b", oss_endpoint="ep"),
+            ),
+        )
+        trial = BashTrial(cfg)
+
+        with pytest.raises(ValueError, match="OSS_REGION"):
+            await trial.on_sandbox_ready(_ready_sandbox())

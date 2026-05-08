@@ -21,7 +21,6 @@ from rock.config import DatabaseConfig
 
 
 @pytest.mark.need_docker
-@pytest.mark.need_database
 class TestBatchGetAfterDDL:
     """Reproduce and fix InvalidCachedStatementError on the sandboxes/batch code path."""
 

@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 authors = [{ name = "chatos@alibaba" }]
 requires-python = "<4.0,>=3.10"
 name = "rl-rock"
-version = "1.6.0"
+version = "1.7.0"
 description = "ROCK-Reinforcement Open Construction Kit"
 readme = "README.md"
 dependencies = [
@@ -173,5 +173,4 @@ markers = [
     "need_docker: need docker daemon running",
     "need_admin: need admin start",
     "need_admin_and_network: need install from network",
-    "need_database: need database Docker containers (PostgreSQL, Redis)"
 ]

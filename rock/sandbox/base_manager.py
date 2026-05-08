@@ -36,7 +36,6 @@ class BaseManager:
         )
         self._report_interval = 10
         self._check_job_interval = 180
-        self._sandbox_meta = {}
         self._setup_scheduler()
         self.deployment_manager = DeploymentManager(rock_config, enable_runtime_auto_clear)
 
@@ -128,10 +127,10 @@ class BaseManager:
     async def _collect_sandbox_meta(self) -> tuple[int, dict[str, dict[str, str]]]:
         meta: dict = {}
         cnt = 0
-        async for sandbox_id in self._meta_store.iter_alive_sandbox_ids():
+        async for sandbox_info in self._meta_store.iter_alive_sandbox_info():
             cnt += 1
-            image = self._sandbox_meta.get(sandbox_id, {}).get("image", "default")
-            meta[sandbox_id] = {"image": image}
+            image = sandbox_info.get("image", "default")
+            meta[sandbox_info.get("sandbox_id")] = {"image": image}
         return cnt, meta
 
     def stop_monitoring(self):

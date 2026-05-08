@@ -25,7 +25,6 @@ assert len(_LONG_IMAGE) > 128, f"Test image must exceed 128 chars, got {len(_LON
 
 
 @pytest.mark.need_docker
-@pytest.mark.need_database
 class TestImageVarcharLength:
     """ORM image column must accept long registry paths on real PostgreSQL."""
 

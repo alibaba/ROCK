@@ -374,7 +374,6 @@ def docker_repo(real_redis, real_db):
 
 
 @pytest.mark.need_docker
-@pytest.mark.need_database
 class TestSandboxMetaStoreWithDocker:
     """SandboxMetaStore verified against real Redis Stack + PostgreSQL.
 

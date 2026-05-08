@@ -21,3 +21,13 @@ class MetricsConstants:
     AVAILABLE_MEM_RESOURCE = "resource.mem.available"
 
     SANDBOX_PHASE_FAILURE = "sandbox.phase.failure"
+
+    METASTORE_TOTAL = "meta_store.total"
+    METASTORE_SUCCESS = "meta_store.success"
+    METASTORE_FAILURE = "meta_store.failure"
+    METASTORE_RT = "meta_store.rt"
+
+    METASTORE_DB_TOTAL = "meta_store.db.total"
+    METASTORE_DB_SUCCESS = "meta_store.db.success"
+    METASTORE_DB_FAILURE = "meta_store.db.failure"
+    METASTORE_DB_RT = "meta_store.db.rt"

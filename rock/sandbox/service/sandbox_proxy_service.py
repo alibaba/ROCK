@@ -203,13 +203,22 @@ class SandboxProxyService:
             raise
 
     async def websocket_proxy(
-        self, client_websocket, sandbox_id: str, target_path: str | None = None, port: int | None = None
+        self,
+        client_websocket,
+        sandbox_id: str,
+        target_path: str | None = None,
+        port: int | None = None,
+        forward_ws_headers: bool = True,
     ):
         target_url = await self.get_sandbox_websocket_url(sandbox_id, target_path, port=port)
 
         client_subprotocols = getattr(client_websocket, "subprotocols", []) or []
         upstream_subprotocols = client_subprotocols if client_subprotocols else ["binary", "base64"]
-        origin, additional_headers = build_upstream_ws_headers(client_websocket)
+        if forward_ws_headers:
+            origin, additional_headers = build_upstream_ws_headers(client_websocket)
+            logger.info(f"origin for upstream WebSocket: {origin}, additional_headers: {additional_headers}")
+        else:
+            origin, additional_headers = None, None
 
         try:
             async with websockets.connect(
@@ -810,7 +819,7 @@ class SandboxProxyService:
         self,
         sandbox_id: str,
         target_path: str,
-        body: dict | None,
+        body: bytes | None,
         headers: Headers,
         method: str = "POST",
         port: int | None = None,
@@ -854,7 +863,7 @@ class SandboxProxyService:
         target_url = f"http://{host_ip}:{port}/{target_path}{qs}"
 
         request_headers = filter_headers(headers)
-        payload = body or {}
+        request_kwargs: dict = {"content": body} if body else {}
 
         client = httpx.AsyncClient(timeout=httpx.Timeout(None))
 
@@ -863,9 +872,9 @@ class SandboxProxyService:
                 client.build_request(
                     method=method,
                     url=target_url,
-                    json=payload if payload else None,
                     headers=request_headers,
                     timeout=120,
+                    **request_kwargs,
                 ),
                 stream=True,
             )

@@ -6,7 +6,6 @@ from rock.utils.providers.redis_provider import RedisProvider
 
 
 @pytest.mark.need_docker
-@pytest.mark.need_database
 class TestRedisProviderWithDocker:
     """Integration tests for RedisProvider using a real Redis Stack container."""
 
