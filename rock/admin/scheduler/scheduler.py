@@ -4,6 +4,7 @@ import hashlib
 import json
 import threading
 import time
+from dataclasses import asdict
 from datetime import datetime, timedelta
 
 import pytz
@@ -13,9 +14,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from rock import env_vars
 from rock.admin.scheduler.task_base import BaseTask
-from rock.admin.scheduler.task_registry import TaskRegistry
 from rock.common.constants import SCHEDULER_LOG_NAME
-from rock.config import SchedulerConfig
+from rock.config import SchedulerConfig, TaskConfig
 from rock.logger import init_logger
 from rock.utils.providers import NacosConfigProvider
 
@@ -84,6 +84,8 @@ class TaskScheduler:
         self._nacos_provider = nacos_provider
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._last_scheduler_config_hash: str | None = None
+        self._task_hashes: dict[str, str] = {}
+        self._tasks_by_class: dict[str, BaseTask] = {}
 
     def _init_worker_cache(self) -> None:
         """Initialize the worker IP cache."""
@@ -123,26 +125,84 @@ class TaskScheduler:
         """Reload scheduler config by clearing and rebuilding all tasks."""
         self.scheduler_config = new_scheduler_config
         self._worker_cache.cache_ttl = new_scheduler_config.worker_cache_ttl
-        self._rebuild_tasks()
+        await self._rebuild_tasks()
 
-    def _rebuild_tasks(self) -> None:
-        """Clear all jobs and re-register from current config."""
-        self._scheduler.remove_all_jobs()
-        TaskRegistry.clear()
+    @staticmethod
+    def _compute_task_hash(task_config: TaskConfig) -> str:
+        raw = json.dumps(asdict(task_config), sort_keys=True)
+        return hashlib.md5(raw.encode()).hexdigest()
 
+    def _install_task(self, task_config: TaskConfig) -> None:
+        """Create, register, and schedule a single task."""
+        from rock.admin.scheduler.task_factory import TaskFactory
+
+        try:
+            task = TaskFactory.create_task(task_config)
+        except Exception as e:
+            logger.error(f"Failed to create task '{task_config.task_class}': {e}")
+            return
+
+        self._tasks_by_class[task_config.task_class] = task
+        self._task_hashes[task_config.task_class] = self._compute_task_hash(task_config)
+        self._scheduler.add_job(
+            self._run_task,
+            trigger="interval",
+            seconds=task.interval_seconds,
+            args=[task],
+            id=task.type,
+            name=task.type,
+            replace_existing=True,
+            next_run_time=datetime.now(self.local_tz) + timedelta(seconds=2),
+        )
+        logger.info(f"Installed task '{task.type}' with interval {task.interval_seconds}s")
+
+    async def _uninstall_task(self, task_class: str) -> None:
+        """Remove a single task from the scheduler and clean up its worker-side processes."""
+        task = self._tasks_by_class.pop(task_class, None)
+        self._task_hashes.pop(task_class, None)
+        if task is None:
+            return
+        try:
+            self._scheduler.remove_job(task.type)
+        except Exception as e:
+            logger.warning(f"Failed to remove scheduler job '{task.type}': {e}")
+        if self._worker_cache is not None:
+            worker_ips = self._worker_cache.get_alive_workers()
+            if worker_ips:
+                await task.cleanup(worker_ips)
+        logger.info(f"Uninstalled task '{task.type}'")
+
+    async def _rebuild_tasks(self) -> None:
+        """Apply config changes by diffing old vs new tasks; only touch the ones that changed."""
         if not self.scheduler_config.enabled:
+            for task_class in list(self._tasks_by_class):
+                await self._uninstall_task(task_class)
             logger.info("Scheduler disabled, all tasks removed")
             return
 
-        self._register_tasks()
-        self._add_jobs()
-        logger.info("Scheduler tasks rebuilt")
+        new_by_class: dict[str, TaskConfig] = {}
+        new_hashes: dict[str, str] = {}
+        for task_config in self.scheduler_config.tasks:
+            if not task_config.enabled or not task_config.task_class:
+                continue
+            new_by_class[task_config.task_class] = task_config
+            new_hashes[task_config.task_class] = self._compute_task_hash(task_config)
 
-    def _register_tasks(self) -> None:
-        """Register all tasks from configuration."""
-        from rock.admin.scheduler.task_factory import TaskFactory
+        old_keys = set(self._task_hashes)
+        new_keys = set(new_hashes)
+        removed = old_keys - new_keys
+        added = new_keys - old_keys
+        changed = {k for k in (old_keys & new_keys) if self._task_hashes[k] != new_hashes[k]}
 
-        TaskFactory.register_all_tasks(self.scheduler_config)
+        for task_class in removed | changed:
+            await self._uninstall_task(task_class)
+        for task_class in added | changed:
+            self._install_task(new_by_class[task_class])
+
+        if removed or added or changed:
+            logger.info(f"Scheduler tasks updated: removed={len(removed)}, added={len(added)}, changed={len(changed)}")
+        else:
+            logger.info("No task changes detected")
 
     async def _run_task(self, task: BaseTask) -> None:
         """Run a single task on alive workers."""
@@ -156,21 +216,6 @@ class TaskScheduler:
         except Exception as e:
             logger.error(f"Task '{task.type}' failed: {e}")
 
-    def _add_jobs(self) -> None:
-        """Add all registered tasks as scheduler jobs."""
-        for index, task in enumerate(TaskRegistry.get_all_tasks().values()):
-            self._scheduler.add_job(
-                self._run_task,
-                trigger="interval",
-                seconds=task.interval_seconds,
-                args=[task],
-                id=task.type,
-                name=task.type,
-                replace_existing=True,
-                next_run_time=datetime.now(self.local_tz) + timedelta(seconds=index * 60 + 2),
-            )
-            logger.info(f"Added job '{task.type}' with interval {task.interval_seconds}s")
-
     async def run(self) -> None:
         """Run the scheduler until stopped."""
         self._event_loop = asyncio.get_running_loop()
@@ -181,10 +226,8 @@ class TaskScheduler:
             self._nacos_provider.add_listener(self._on_nacos_config_changed)
             logger.info("Nacos dynamic config listener registered for scheduler")
 
-        self._register_tasks()
-
         self._scheduler = AsyncIOScheduler(timezone=self.local_tz)
-        self._add_jobs()
+        await self._rebuild_tasks()
 
         # Pre-cache worker IPs before starting
         self._worker_cache.refresh()

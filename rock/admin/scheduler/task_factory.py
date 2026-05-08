@@ -2,16 +2,11 @@
 import importlib
 
 from rock.admin.scheduler.task_base import BaseTask
-from rock.admin.scheduler.task_registry import TaskRegistry
-from rock.common.constants import SCHEDULER_LOG_NAME
-from rock.config import SchedulerConfig, TaskConfig
-from rock.logger import init_logger
-
-logger = init_logger("task_factory", file_name=SCHEDULER_LOG_NAME)
+from rock.config import TaskConfig
 
 
 class TaskFactory:
-    """Task factory - dynamically creates and registers tasks from config."""
+    """Task factory - dynamically creates tasks from config."""
 
     @staticmethod
     def _load_task_class(class_path: str) -> type[BaseTask]:
@@ -39,29 +34,5 @@ class TaskFactory:
         Returns:
             Task instance
         """
-        # Dynamically load task class
         task_class = cls._load_task_class(task_config.task_class)
-
-        # Create task instance with config params
-        task = task_class.from_config(task_config)
-
-        return task
-
-    @classmethod
-    def register_all_tasks(cls, scheduler_config: SchedulerConfig):
-        """Register all enabled tasks from config."""
-        for task_config in scheduler_config.tasks:
-            if not task_config.enabled:
-                logger.info(f"Task '{task_config.task_class}' is disabled, skipping")
-                continue
-
-            if not task_config.task_class:
-                logger.warning(f"Task '{task_config.task_class}' has no task_class, skipping")
-                continue
-
-            try:
-                task = cls.create_task(task_config)
-                TaskRegistry.register(task)
-                logger.info(f"Registered task '{task.type}' with interval {task.interval_seconds}s")
-            except Exception as e:
-                logger.error(f"Failed to create task '{task_config.task_class}': {e}")
+        return task_class.from_config(task_config)

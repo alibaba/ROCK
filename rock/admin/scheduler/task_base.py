@@ -171,6 +171,47 @@ class BaseTask(ABC):
         """Save task status to worker file."""
         await runtime.write_file(WriteFileRequest(path=self.status_file_path, content=status.to_json()))
 
+    async def _clear_task_status(self, runtime: RemoteSandboxRuntime) -> None:
+        """Remove the status file from worker."""
+        await runtime.execute(Command(command=f"rm -f {self.status_file_path}", shell=True))
+
+    async def cleanup_on_worker(self, ip: str) -> None:
+        """Stop any long-running process spawned by this task on a single worker.
+
+        For idempotent tasks this is a no-op (no daemon process to kill).
+        """
+        if self.idempotency == IdempotencyType.IDEMPOTENT:
+            return
+        runtime = self._get_runtime(ip)
+        status = await self.get_task_status(runtime)
+        if status is None or not status.pid:
+            return
+        if await runtime.check_pid_exists(status.pid):
+            kill_cmd = f"pkill -9 -P {status.pid}; kill -9 {status.pid}"
+            await runtime.execute(Command(command=kill_cmd, shell=True))
+            logger.info(f"[{self.type}] killed pid {status.pid} on worker[{ip}]")
+        await self._clear_task_status(runtime)
+
+    async def cleanup(self, worker_ips: list[str], max_concurrency: int = 50) -> None:
+        """Cleanup task across all workers, parallel and best-effort.
+
+        Idempotent tasks return immediately. For non-idempotent tasks, kills the
+        recorded daemon process and clears the status file on each worker. Failures
+        on individual workers are logged but do not propagate.
+        """
+        if self.idempotency == IdempotencyType.IDEMPOTENT:
+            return
+        semaphore = asyncio.Semaphore(max_concurrency)
+
+        async def cleanup_with_limit(ip: str) -> None:
+            async with semaphore:
+                try:
+                    await self.cleanup_on_worker(ip)
+                except Exception as e:
+                    logger.warning(f"[{self.type}] cleanup failed on worker[{ip}]: {e}")
+
+        await asyncio.gather(*[cleanup_with_limit(ip) for ip in worker_ips])
+
     async def should_run(self, runtime: RemoteSandboxRuntime) -> bool:
         """Determine if the task should be run."""
         if self.idempotency == IdempotencyType.IDEMPOTENT:
