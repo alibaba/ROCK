@@ -11,6 +11,7 @@ from rock.admin.core.db_provider import DatabaseProvider
 from rock.admin.core.schema import SandboxRecord
 from rock.admin.metrics.decorator import monitor_metastore_operation
 from rock.admin.metrics.monitor import MetricsMonitor
+from rock.config import RockConfig
 from rock.logger import init_logger
 
 if TYPE_CHECKING:
@@ -36,9 +37,14 @@ class SandboxTable:
       including ``spec`` and ``status``.
     """
 
-    def __init__(self, db_provider: DatabaseProvider) -> None:
+    def __init__(self, db_provider: DatabaseProvider, rock_config: RockConfig | None = None) -> None:
         self._db = db_provider
-        self.metrics_monitor = MetricsMonitor.create(metric_prefix="meta_store.db")
+        self.metrics_monitor = MetricsMonitor.create(
+            export_interval_millis=20_000,
+            metrics_endpoint=rock_config.runtime.metrics_endpoint if rock_config else "",
+            user_defined_tags=rock_config.runtime.user_defined_tags if rock_config else {},
+            metric_prefix="meta_store.db",
+        )
 
     @monitor_metastore_operation
     async def create(
