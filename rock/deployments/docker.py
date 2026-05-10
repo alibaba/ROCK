@@ -32,7 +32,7 @@ from rock.utils import (
     ENV_POOL,
     DockerUtil,
     ImageUtil,
-    Timer,
+    StageTimer,
     find_free_port,
     get_executor,
     release_port,
@@ -259,7 +259,7 @@ class DockerDeployment(AbstractDeployment):
         logger.info(f"Pulling image {self._config.image!r}")
 
         try:
-            with Timer(description=f"[{self._config.image}] Image pull"):
+            with StageTimer("startup_timing", f"[{self._container_name}] [{self._config.image}] Image pull", logger):
                 # Parse registry from image name
                 registry, _ = ImageUtil.parse_registry_and_others(self._config.image)
 
@@ -429,8 +429,9 @@ class DockerDeployment(AbstractDeployment):
 
     async def start(self):
         """Starts the runtime."""
-        if not self.sandbox_validator.check_availability():
-            raise Exception("Docker is not available")
+        with StageTimer("startup_timing", f"[{self._container_name}] Check availability", logger):
+            if not self.sandbox_validator.check_availability():
+                raise Exception("Docker is not available")
 
         storage_opt_supported = DockerUtil.detect_storage_opt_support()
         # Resolve effective rootfs quota: downgrade to None if storage-opt is not supported.
@@ -490,12 +491,14 @@ class DockerDeployment(AbstractDeployment):
 
         # Kata DinD: prepare disk image and add volume mount + env var
         if self._config.use_kata_runtime:
-            self._prepare_kata_disk()
+            with StageTimer("startup_timing", f"[{self._container_name}] Kata disk prepare", logger):
+                self._prepare_kata_disk()
             disk_path = self._get_kata_disk_image_path()
             volume_args.extend(["-v", f"{disk_path}:/docker-disk.img"])
             env_arg.extend(["-e", "ROCK_KATA_RUNTIME=true"])
 
-        time.sleep(random.randint(0, 5))
+        with StageTimer("startup_timing", f"[{self._container_name}] Random sleep", logger):
+            time.sleep(random.randint(0, 5))
         runtime_args = self._build_runtime_args()
         cmds = [
             "docker",
@@ -528,14 +531,15 @@ class DockerDeployment(AbstractDeployment):
         )
         logger.info(f"Command: {cmd_str!r}")
         # shell=True required for && etc.
-        with Timer(description=f"[{self._config.image}] Container start"):
+        with StageTimer("startup_timing", f"[{self._container_name}] Docker run", logger):
             self._container_process = await loop.run_in_executor(executor, self._docker_run, cmds)
-            await loop.run_in_executor(executor, self._hooks.on_custom_step, DeploymentHookStep.STARTING_RUNTIME)
-            logger.info(f"Starting runtime at {self._config.port}")
-            self._runtime = RemoteSandboxRuntime.from_config(
-                RemoteSandboxRuntimeConfig(port=self._config.port, timeout=self._runtime_timeout)
-            )
-            self._runtime.set_executor(executor)
+        await loop.run_in_executor(executor, self._hooks.on_custom_step, DeploymentHookStep.STARTING_RUNTIME)
+        logger.info(f"Starting runtime at {self._config.port}")
+        self._runtime = RemoteSandboxRuntime.from_config(
+            RemoteSandboxRuntimeConfig(port=self._config.port, timeout=self._runtime_timeout)
+        )
+        self._runtime.set_executor(executor)
+        with StageTimer("startup_timing", f"[{self._container_name}] Wait until alive", logger):
             await self._wait_until_alive(timeout=self._config.startup_timeout)
         if self._config.enable_auto_clear:
             self._check_stop_task = asyncio.create_task(self._check_stop())

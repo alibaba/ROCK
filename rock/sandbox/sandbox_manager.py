@@ -37,6 +37,7 @@ from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
+from rock.utils import StageTimer
 from rock.utils.crypto_utils import AESEncryption
 from rock.utils.format import convert_to_gb, parse_size_to_bytes
 from rock.utils.system import get_iso8601_timestamp
@@ -112,7 +113,8 @@ class SandboxManager(BaseManager):
     ) -> SandboxStartResponse:
         await self._check_sandbox_exists_in_redis(config)
         self.validate_sandbox_spec(self.rock_config.runtime, config)
-        docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(config)
+        with StageTimer("startup_timing", f"[{config.image}] Init config", logger):
+            docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(config)
 
         sandbox_id = docker_deployment_config.container_name
         if self.rock_config.runtime.use_standard_spec_only:
@@ -123,15 +125,17 @@ class SandboxManager(BaseManager):
             )
             docker_deployment_config.cpus = self.rock_config.runtime.standard_spec.cpus
             docker_deployment_config.memory = self.rock_config.runtime.standard_spec.memory
-        sandbox_info: SandboxInfo = await self._operator.submit(docker_deployment_config, user_info)
+        with StageTimer("startup_timing", f"[{sandbox_id}] Operator submit", logger):
+            sandbox_info: SandboxInfo = await self._operator.submit(docker_deployment_config, user_info)
         await self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)
         timeout_info = SandboxTimeoutHelper.make_timeout_info(docker_deployment_config.auto_clear_time)
-        await self._meta_store.create(
-            sandbox_id,
-            sandbox_info,
-            timeout_info=timeout_info,
-            deployment_config=docker_deployment_config,
-        )
+        with StageTimer("startup_timing", f"[{sandbox_id}] Meta store create", logger):
+            await self._meta_store.create(
+                sandbox_id,
+                sandbox_info,
+                timeout_info=timeout_info,
+                deployment_config=docker_deployment_config,
+            )
         return SandboxStartResponse(
             sandbox_id=sandbox_id,
             host_name=sandbox_info.get("host_name"),
@@ -148,13 +152,15 @@ class SandboxManager(BaseManager):
 
         sandbox_actor: SandboxActor = await deployment.creator_actor(actor_name)
 
-        await self._ray_service.async_ray_get(sandbox_actor.start.remote())
+        with StageTimer("startup_timing", f"[{sandbox_id}] Actor start", logger):
+            await self._ray_service.async_ray_get(sandbox_actor.start.remote())
         logger.info(f"sandbox {sandbox_id} is started")
 
-        while not await self._is_actor_alive(sandbox_id):
-            logger.debug(f"wait actor for sandbox alive, sandbox_id: {sandbox_id}")
-            # TODO: timeout check
-            await asyncio.sleep(1)
+        with StageTimer("startup_timing", f"[{sandbox_id}] Wait actor alive", logger):
+            while not await self._is_actor_alive(sandbox_id):
+                logger.debug(f"wait actor for sandbox alive, sandbox_id: {sandbox_id}")
+                # TODO: timeout check
+                await asyncio.sleep(1)
         await self.get_status(sandbox_id)
 
         return SandboxStartResponse(

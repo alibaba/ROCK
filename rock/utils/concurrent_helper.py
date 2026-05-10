@@ -97,6 +97,25 @@ class Timer:
         return False
 
 
+class StageTimer:
+    """Context manager that logs elapsed time for a named stage."""
+
+    def __init__(self, phase: str, description: str, logger):
+        self._phase = phase
+        self._description = description
+        self._logger = logger
+        self._start_time = 0.0
+
+    def __enter__(self):
+        self._start_time = time.perf_counter()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        duration = time.perf_counter() - self._start_time
+        self._logger.info(f"[{self._phase}] {self._description} took {duration:.3f} s")
+        return False
+
+
 class AsyncSafeDict(Generic[K, V]):
     """Thread-safe async dictionary"""
 
