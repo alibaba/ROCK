@@ -82,17 +82,13 @@ def ray_operator(ray_service, runtime_config):
 
 
 @pytest.fixture
-async def db_provider():
+async def _memory_sandbox_table():
     provider = DatabaseProvider(db_config=DatabaseConfig(url="sqlite+aiosqlite:///:memory:"))
     await provider.init()
     await provider.create_tables()
-    yield provider
+    table = SandboxTable(provider)
+    yield table
     await provider.close()
-
-
-@pytest.fixture
-async def _memory_sandbox_table(db_provider):
-    return SandboxTable(db_provider)
 
 
 @pytest.fixture
