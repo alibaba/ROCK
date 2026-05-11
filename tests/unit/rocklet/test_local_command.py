@@ -1,7 +1,7 @@
 import pytest
 
 from rock.rocklet.exceptions import BashIncorrectSyntaxError
-from rock.rocklet.platforms.linux import _check_bash_command, _split_bash_command
+from rock.rocklet.linux import _check_bash_command, _split_bash_command
 
 
 def test_split_bash_command_normal():

@@ -3,7 +3,7 @@ from .envs.request import EnvCloseRequest, EnvMakeRequest, EnvResetRequest, EnvS
 from .envs.response import EnvCloseResponse, EnvListResponse, EnvMakeResponse, EnvResetResponse, EnvStepResponse
 from .response import BaseResponse, ResponseStatus, RockResponse
 from .sandbox.base import AbstractSandbox, _ExceptionTransfer
-from .sandbox.config import LocalSandboxRuntimeConfig, RemoteSandboxRuntimeConfig, SandboxRuntimeConfig
+from .sandbox.config import RemoteSandboxRuntimeConfig, RockletConfig, SandboxRuntimeConfig
 from .sandbox.request import (
     Action,
     BashAction,
@@ -80,7 +80,7 @@ __all__ = [
     "UploadResponse",
     "FileUploadResponse",
     "CloseResponse",
-    "LocalSandboxRuntimeConfig",
+    "RockletConfig",
     "RemoteSandboxRuntimeConfig",
     "SandboxResponse",
     "SandboxRuntimeConfig",

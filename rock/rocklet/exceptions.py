@@ -71,4 +71,4 @@ class DockerPullError(DeploymentStartupError):
 
 
 class UnsupportedPlatformError(RockletException, NotImplementedError):
-    """Raised when the current OS has no PlatformAdapter implementation."""
+    """Raised when the current OS has no Rocklet subclass implementation."""

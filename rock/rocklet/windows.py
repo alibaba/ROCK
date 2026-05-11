@@ -1,8 +1,8 @@
-"""Windows platform adapter for Rocklet.
+"""Windows Rocklet for the local sandbox runtime.
 
 Hosts the PowerShellSession implementation (built on subprocess + a background
-reader thread) and the WindowsPlatformAdapter that the central dispatcher
-returns for sys.platform == 'win32'.
+reader thread) and the WindowsRocklet that the central dispatcher returns for
+sys.platform == 'win32'.
 """
 
 import asyncio
@@ -13,6 +13,8 @@ import shutil
 import subprocess
 import threading
 import time
+
+import psutil
 
 from rock.actions import (
     BashObservation,
@@ -31,9 +33,9 @@ from rock.rocklet.exceptions import (
 )
 from rock.utils import get_executor
 
-from .base import PlatformAdapter, Session
+from .rocklet import Rocklet, Session
 
-logger = init_logger("rock.actions.local.windows")
+logger = init_logger(__name__)
 
 
 def _strip_control_chars(s: str) -> str:
@@ -112,13 +114,32 @@ class PowerShellSession(Session):
         ps_cmd = self._find_powershell()
         logger.info(f"Starting PowerShell session with: {ps_cmd}")
 
+        # Force PowerShell to use UTF-8 for stdin/stdout encoding from the very
+        # first byte. Required on non-UTF-8 Windows locales (e.g. zh-CN/GBK):
+        # without this, PowerShell writes its output in the system code page
+        # while subprocess.Popen below decodes as UTF-8, producing mojibake
+        # (e.g. "目录" -> "Ŀ¼") that then crashes the GBK-encoded console
+        # logger with UnicodeEncodeError.
+        #
+        # `-Command` runs the setup expression at startup, then `-NoExit` drops
+        # PowerShell into interactive mode for stdin-driven commands. Doing this
+        # at startup (instead of via _send_line after spawn) is essential because
+        # PowerShell caches its [Console].Out TextWriter at process init — late
+        # OutputEncoding mutations don't affect already-cached writers used by
+        # built-in formatters (Get-ChildItem, Format-Table, etc.).
+        ps_setup = (
+            "chcp 65001 > $null; "
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+            "$OutputEncoding = [System.Text.Encoding]::UTF8"
+        )
         self._process = subprocess.Popen(
-            [ps_cmd, "-NoLogo", "-NoProfile", "-NoExit"],
+            [ps_cmd, "-NoLogo", "-NoProfile", "-NoExit", "-Command", ps_setup],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             encoding="utf-8",
+            errors="replace",
             bufsize=1,
             env=env,
         )
@@ -252,11 +273,16 @@ class PowerShellSession(Session):
         raise NotImplementedError("Interactive mode is not supported for PowerShell sessions")
 
 
-class WindowsPlatformAdapter(PlatformAdapter):
-    """Adapter for sys.platform == 'win32'."""
+class WindowsRocklet(Rocklet):
+    """Rocklet implementation for sys.platform == 'win32'."""
 
-    name = "windows"
-    disk_root_path = "C:\\"
-
-    def build_bash_session(self, request: CreateBashSessionRequest) -> Session:
+    def _build_bash_session(self, request: CreateBashSessionRequest) -> Session:
         return PowerShellSession(request)
+
+    async def get_statistics(self) -> dict:
+        return {
+            "cpu": psutil.cpu_percent(),
+            "mem": psutil.virtual_memory().percent,
+            "disk": psutil.disk_usage("C:\\").percent,
+            "net": psutil.net_io_counters().bytes_recv + psutil.net_io_counters().bytes_sent,
+        }

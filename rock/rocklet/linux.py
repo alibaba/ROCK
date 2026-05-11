@@ -1,8 +1,8 @@
-"""Linux/macOS platform adapter for Rocklet.
+"""Linux/macOS Rocklet for the local sandbox runtime.
 
 Hosts the BashSession implementation (built on pexpect + bashlex) and the
-LinuxPlatformAdapter that the central dispatcher returns for
-sys.platform in {'linux', 'darwin'}.
+LinuxRocklet that the central dispatcher returns for sys.platform in
+{'linux', 'darwin'}.
 """
 
 import asyncio
@@ -15,6 +15,7 @@ from copy import deepcopy
 import bashlex
 import bashlex.ast
 import pexpect
+import psutil
 
 from rock.actions import (
     BashObservation,
@@ -34,9 +35,9 @@ from rock.rocklet.exceptions import (
 )
 from rock.utils import get_executor
 
-from .base import PlatformAdapter, Session
+from .rocklet import Rocklet, Session
 
-logger = init_logger("rock.actions.local.linux")
+logger = init_logger(__name__)
 
 
 def _strip_control_chars(s: str) -> str:
@@ -338,11 +339,16 @@ class BashSession(Session):
         self.shell.interact()
 
 
-class LinuxPlatformAdapter(PlatformAdapter):
-    """Adapter for sys.platform in {'linux', 'darwin'}."""
+class LinuxRocklet(Rocklet):
+    """Rocklet implementation for sys.platform in {'linux', 'darwin'}."""
 
-    name = "linux"
-    disk_root_path = "/"
-
-    def build_bash_session(self, request: CreateBashSessionRequest) -> Session:
+    def _build_bash_session(self, request: CreateBashSessionRequest) -> Session:
         return BashSession(request)
+
+    async def get_statistics(self) -> dict:
+        return {
+            "cpu": psutil.cpu_percent(),
+            "mem": psutil.virtual_memory().percent,
+            "disk": psutil.disk_usage("/").percent,
+            "net": psutil.net_io_counters().bytes_recv + psutil.net_io_counters().bytes_sent,
+        }

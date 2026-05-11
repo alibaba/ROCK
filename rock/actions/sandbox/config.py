@@ -5,18 +5,18 @@ from pydantic import BaseModel, ConfigDict
 from rock.actions import AbstractSandbox
 
 
-class LocalSandboxRuntimeConfig(BaseModel):
-    """Configuration for local sandbox runtime execution."""
+class RockletConfig(BaseModel):
+    """Configuration for Rocklet (local sandbox runtime)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    type: Literal["local"] = "local"
+    type: Literal["rocklet"] = "rocklet"
     """Runtime type discriminator for serialization/deserialization and CLI parsing. Should not be modified."""
 
     def get_sandbox_runtime(self) -> AbstractSandbox:
-        from rock.rocklet.local_sandbox import LocalSandboxRuntime
+        from rock.rocklet.rocklet import Rocklet
 
-        return LocalSandboxRuntime.from_config(self)
+        return Rocklet.from_config(self)
 
 
 class RemoteSandboxRuntimeConfig(BaseModel):
@@ -41,4 +41,4 @@ class RemoteSandboxRuntimeConfig(BaseModel):
 
 
 # Union type for all supported sandbox runtime configurations
-SandboxRuntimeConfig = LocalSandboxRuntimeConfig | RemoteSandboxRuntimeConfig
+SandboxRuntimeConfig = RockletConfig | RemoteSandboxRuntimeConfig
