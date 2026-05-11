@@ -52,7 +52,7 @@ rock admin start --env local-proxy --role proxy --port 9001
 ## 4. Run the Demo
 
 ```bash
-cd examples/agents/openclaw
+cd examples/install-agents/openclaw
 python openclaw_demo.py
 ```
 

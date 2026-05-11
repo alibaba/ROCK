@@ -1,6 +1,10 @@
-# Rock Agent (Experimental)
+# Install Agent in Sandbox (Experimental)
 
-RockAgent is the core Agent implementation in the ROCK framework, directly inheriting from the `Agent` abstract base class. It provides complete Agent lifecycle management, including environment initialization, ModelService integration, command execution, and more.
+> This is the reference for **install-agent**, one of ROCK's two parallel ways to use agents. Its core API is `sandbox.agent.install()` and `sandbox.agent.run(prompt)`, used to install and run an agent inside a single sandbox.
+>
+> The other way is to run an agent evaluation/task via Job — see [Use Job to Run Agent](./job.md). The two ways use distinct config schemas.
+
+RockAgent is the ROCK framework's mechanism for installing a custom agent inside a sandbox. It manages the full agent lifecycle — environment initialization, ModelService integration, command execution, and so on.
 
 Using `sandbox.agent.install()` and `sandbox.agent.run(prompt)`, you can install and run Agents in the Sandbox environment provided by Rock.
 
@@ -284,7 +288,23 @@ model_service_config:
 ### Using YAML Configuration File (Recommended)
 
 ```python
-# prepare a rock_agent_config.yaml
-await sandbox.agent.install(config="rock_agent_config.yaml")
-await sandbox.agent.run(prompt="hello")
+import asyncio
+from rock.sdk.sandbox import Sandbox, SandboxConfig
+
+async def main():
+    sandbox = Sandbox(SandboxConfig())
+    await sandbox.start()
+    try:
+        # rock_agent_config.yaml matches the examples in "Quick Start" above
+        await sandbox.agent.install(config="rock_agent_config.yaml")
+        result = await sandbox.agent.run(prompt="hello")
+        print(result)
+    finally:
+        await sandbox.stop()
+
+asyncio.run(main())
 ```
+
+More ready-to-run examples are in `examples/install-agents/` (Claude Code, IFlowCli, Cursor CLI, Qwen Code, SWE-agent, OpenClaw, etc.).
+
+To run an agent evaluation/benchmark task via Job (a different code path with its own config schema), see [Use Job to Run Agent](./job.md).

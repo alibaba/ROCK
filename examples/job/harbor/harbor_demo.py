@@ -1,13 +1,11 @@
-"""Harbor benchmark demo using ROCK Job SDK (new path).
+"""Harbor benchmark demo using ROCK Job SDK.
 
 Uses ``rock.sdk.job.Job`` with ``HarborJobConfig`` — the recommended path
 with full feature parity (G1-G7 fixed) and scatter / multiple trial types.
 
-For the legacy path (``rock.sdk.bench.Job``), see ``harbor_demo_legacy.py``.
-
 Usage:
-    python examples/harbor/harbor_demo.py -c examples/harbor/swe.intern.yaml
-    python examples/harbor/harbor_demo.py -c examples/harbor/tb_job_config.yaml -t mailman
+    python examples/job/harbor/harbor_demo.py -c examples/job/harbor/swe.intern.yaml
+    python examples/job/harbor/harbor_demo.py -c examples/job/harbor/tb_job_config.yaml -t mailman
 
 Required environment variables (OSS_* are auto-forwarded into the sandbox):
     OSS_ACCESS_KEY_ID       Alibaba Cloud OSS access key ID
@@ -20,7 +18,7 @@ Required environment variables (OSS_* are auto-forwarded into the sandbox):
 Recommended setup:
     1. Copy .env.example to .env and fill in your credentials
     2. source .env
-    3. python examples/harbor/harbor_demo.py -c ...
+    3. python examples/job/harbor/harbor_demo.py -c ...
 """
 
 import argparse
