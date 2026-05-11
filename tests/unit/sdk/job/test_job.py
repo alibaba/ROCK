@@ -90,6 +90,39 @@ class TestJobSubmitWait:
 
 
 # ---------------------------------------------------------------------------
+# sandbox_ids property
+# ---------------------------------------------------------------------------
+
+
+class TestJobSandboxIds:
+    async def test_sandbox_ids_empty_before_submit(self):
+        job = Job(BashJobConfig(script="echo hi", job_name="test"))
+        assert job.sandbox_ids == []
+
+    async def test_sandbox_ids_after_submit(self):
+        mock_sandbox = _make_mock_sandbox()
+        mock_sandbox.sandbox_id = "sb-one"
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            job = Job(BashJobConfig(script="echo hi", job_name="test"))
+            await job.submit()
+
+        assert job.sandbox_ids == ["sb-one"]
+
+    async def test_sandbox_ids_multi_trials(self):
+        mocks = [_make_mock_sandbox() for _ in range(2)]
+        mocks[0].sandbox_id = "sb-a"
+        mocks[1].sandbox_id = "sb-b"
+        with patch("rock.sdk.job.executor.Sandbox", side_effect=mocks):
+            job = Job(
+                BashJobConfig(script="echo hi", job_name="test"),
+                operator=ScatterOperator(size=2),
+            )
+            await job.submit()
+
+        assert sorted(job.sandbox_ids) == ["sb-a", "sb-b"]
+
+
+# ---------------------------------------------------------------------------
 # cancel()
 # ---------------------------------------------------------------------------
 

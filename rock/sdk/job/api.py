@@ -51,6 +51,13 @@ class Job:
         """Non-blocking submit: operator generates trials, executor starts them."""
         self._job_client = await self._executor.submit(self._operator, self._config)
 
+    @property
+    def sandbox_ids(self) -> list[str]:
+        """Sandbox IDs of all submitted trials; empty before submit()."""
+        if not self._job_client:
+            return []
+        return [tc.sandbox.sandbox_id for tc in self._job_client.trials]
+
     async def wait(self) -> JobResult:
         """Wait for completion, build JobResult."""
         if not self._job_client:
