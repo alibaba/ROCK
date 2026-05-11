@@ -9,9 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from rock.admin.core.db_provider import DatabaseProvider
 from rock.admin.core.schema import SandboxRecord
-from rock.admin.metrics.decorator import monitor_metastore_operation
-from rock.admin.metrics.monitor import MetricsMonitor
-from rock.config import RockConfig
 from rock.logger import init_logger
 
 if TYPE_CHECKING:
@@ -37,16 +34,9 @@ class SandboxTable:
       including ``spec`` and ``status``.
     """
 
-    def __init__(self, db_provider: DatabaseProvider, rock_config: RockConfig | None = None) -> None:
+    def __init__(self, db_provider: DatabaseProvider) -> None:
         self._db = db_provider
-        self.metrics_monitor = MetricsMonitor.create(
-            export_interval_millis=20_000,
-            metrics_endpoint=rock_config.runtime.metrics_endpoint if rock_config else "",
-            user_defined_tags=rock_config.runtime.user_defined_tags if rock_config else {},
-            metric_prefix="meta_store.db",
-        )
 
-    @monitor_metastore_operation
     async def create(
         self,
         sandbox_id: str,
@@ -76,7 +66,6 @@ class SandboxTable:
             session.add(record)
             await session.commit()
 
-    @monitor_metastore_operation
     async def get(self, sandbox_id: str) -> dict | None:
         """Return a sandbox row as a plain dict, or ``None`` if not found."""
         async with AsyncSession(self._db.engine) as session:
@@ -85,7 +74,6 @@ class SandboxTable:
                 return None
             return record.to_dict()
 
-    @monitor_metastore_operation
     async def update(self, sandbox_id: str, info: SandboxInfo) -> None:
         """Partial update of scalar columns; always overwrites ``status`` with *info*."""
         filtered = _pick_columns(info)
@@ -100,7 +88,6 @@ class SandboxTable:
                 setattr(record, key, value)
             await session.commit()
 
-    @monitor_metastore_operation
     async def delete(self, sandbox_id: str) -> None:
         """Hard-delete a sandbox record."""
         async with AsyncSession(self._db.engine) as session:
@@ -109,7 +96,6 @@ class SandboxTable:
                 await session.delete(record)
                 await session.commit()
 
-    @monitor_metastore_operation
     async def list_by(self, column: str, value: str | int | float | bool) -> list[dict]:
         """Equality query on a single column. Only columns in ``SandboxRecord.LIST_BY_ALLOWLIST`` are permitted."""
         if column not in SandboxRecord.LIST_BY_ALLOWLIST:
@@ -120,7 +106,6 @@ class SandboxTable:
             result = await session.execute(stmt)
             return [r.to_dict() for r in result.scalars().all()]
 
-    @monitor_metastore_operation
     async def list_by_in(self, column: str, values: list[str | int | float | bool]) -> list[dict]:
         """IN query on a single column. Only columns in ``SandboxRecord.LIST_BY_ALLOWLIST`` are permitted."""
         if column not in SandboxRecord.LIST_BY_ALLOWLIST:

@@ -82,17 +82,13 @@ def ray_operator(ray_service, runtime_config):
 
 
 @pytest.fixture
-async def db_provider():
+async def _memory_sandbox_table():
     provider = DatabaseProvider(db_config=DatabaseConfig(url="sqlite+aiosqlite:///:memory:"))
     await provider.init()
     await provider.create_tables()
-    yield provider
+    table = SandboxTable(provider)
+    yield table
     await provider.close()
-
-
-@pytest.fixture
-async def _memory_sandbox_table(db_provider, rock_config):
-    return SandboxTable(db_provider, rock_config=rock_config)
 
 
 @pytest.fixture
@@ -104,7 +100,7 @@ async def sandbox_manager(
     ray_operator,
     _memory_sandbox_table: SandboxTable,
 ):
-    meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=_memory_sandbox_table, rock_config=rock_config)
+    meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=_memory_sandbox_table)
     sandbox_manager = SandboxManager(
         rock_config,
         meta_store=meta_store,
@@ -120,7 +116,7 @@ async def sandbox_manager(
 async def sandbox_proxy_service(
     rock_config: RockConfig, redis_provider: RedisProvider, _memory_sandbox_table: SandboxTable
 ):
-    meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=_memory_sandbox_table, rock_config=rock_config)
+    meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=_memory_sandbox_table)
     sandbox_proxy_service = SandboxProxyService(rock_config, meta_store=meta_store)
     return sandbox_proxy_service
 

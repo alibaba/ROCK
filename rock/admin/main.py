@@ -25,7 +25,6 @@ from rock.config import DatabaseConfig, RockConfig
 from rock.logger import init_logger
 from rock.sandbox.gem_manager import GemManager
 from rock.sandbox.operator.factory import OperatorContext, OperatorFactory
-from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sandbox.service.warmup_service import WarmupService
 from rock.utils import EAGLE_EYE_TRACE_ID, sandbox_id_ctx_var, trace_id_ctx_var
@@ -78,8 +77,11 @@ async def lifespan(app: FastAPI):
     await db_provider.init()
     if not rock_config.database.url:
         await db_provider.create_tables()
-    sandbox_table = SandboxTable(db_provider, rock_config=rock_config)
-    meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=sandbox_table, rock_config=rock_config)
+    sandbox_table = SandboxTable(db_provider)
+
+    from rock.sandbox.sandbox_meta_store import SandboxMetaStore
+
+    meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=sandbox_table)
 
     # init scheduler thread
     scheduler_thread = None
