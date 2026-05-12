@@ -56,14 +56,11 @@ def _configure_proxy_integrations(app: FastAPI, config: ModelServiceConfig) -> N
     """Wire up record/replay integrations and attach them to ``app.state``.
 
     - Replay mode (``replay_traj_path`` set): load the trajectory into a
-      ``SequentialCursor`` and stash it as ``app.state.replay_cursor``.
-    - Forward/record mode (default): if ``traj_enabled`` is True, attach a
-      ``TrajectoryRecorder`` instance as ``app.state.recorder``. The proxy
-      handler invokes it explicitly after each forwarded call.
-
-    Replay and record are mutually exclusive — in replay mode we don't record,
-    since replayed responses round-tripping back into the source file would
-    inflate metrics and corrupt the trajectory.
+      ``SequentialCursor`` and stash it as ``app.state.replay_cursor``. No
+      recorder is attached — replaying back into the source file would corrupt it.
+    - Forward mode (default): attach a ``TrajectoryRecorder`` instance as
+      ``app.state.recorder``. The proxy handler invokes it explicitly after
+      each forwarded call.
     """
     if config.replay_traj_path:
         from rock.sdk.model.server.integrations.traj_replayer import SequentialCursor
@@ -72,12 +69,11 @@ def _configure_proxy_integrations(app: FastAPI, config: ModelServiceConfig) -> N
         logger.info(f"replay cursor loaded, traj_path={config.replay_traj_path}")
         return
 
-    if config.traj_enabled:
-        from rock.sdk.model.server.integrations.traj_recorder import TrajectoryRecorder
+    from rock.sdk.model.server.integrations.traj_recorder import TrajectoryRecorder
 
-        traj_path = config.traj_file or TRAJ_FILE
-        app.state.recorder = TrajectoryRecorder(traj_file=traj_path)
-        logger.info(f"trajectory recorder attached, traj_file={traj_path}")
+    traj_path = config.traj_file or TRAJ_FILE
+    app.state.recorder = TrajectoryRecorder(traj_file=traj_path)
+    logger.info(f"trajectory recorder attached, traj_file={traj_path}")
 
 
 def main(
@@ -134,7 +130,6 @@ def create_config_from_args(args) -> ModelServiceConfig:
         logger.info(f"num_retries set from command line: {args.num_retries}")
     if getattr(args, "traj_file", None):
         config.replay_traj_path = args.traj_file
-        config.traj_enabled = False
         logger.info(f"replay mode enabled via --traj-file: {args.traj_file}")
 
     return config

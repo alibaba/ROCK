@@ -54,9 +54,6 @@ class ModelServiceConfig(BaseModel):
     num_retries: int = Field(default=6)
     """Number of retries for retryable failures (passed through to litellm)."""
 
-    traj_enabled: bool = Field(default=True)
-    """When True, write each chat/completions call as a JSONL trajectory line."""
-
     traj_file: str | None = Field(default=None)
     """Override default trajectory file path. None → uses TRAJ_FILE (LOG_DIR/LLMTraj.jsonl)."""
 

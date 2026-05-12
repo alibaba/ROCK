@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import time
-import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -35,6 +34,12 @@ from rock.logger import init_logger
 from rock.sdk.model.server.config import ModelServiceConfig
 from rock.sdk.model.server.integrations.traj_recorder import TrajectoryRecorder
 from rock.sdk.model.server.integrations.traj_replayer import SequentialCursor, TrajectoryExhausted
+from rock.sdk.model.server.sse_utils import (
+    SSE_DONE,
+    completion_to_chunk_dict,
+    encode_sse_event,
+    parse_sse_data_chunks,
+)
 
 logger = init_logger(__name__)
 
@@ -84,56 +89,10 @@ def _filter_headers(headers) -> dict[str, str]:
     return out
 
 
-def _completion_to_chunk(response: dict, *, model: str) -> dict:
-    """Convert a recorded ``chat.completion`` response into a single
-    ``chat.completion.chunk`` shape (move ``message`` → ``delta``). Used only by
-    the replay streaming path."""
-    choices_in = response.get("choices") or []
-    choices_out = []
-    for choice in choices_in:
-        delta = dict(choice.get("message") or {})
-        choices_out.append(
-            {
-                "index": choice.get("index", 0),
-                "delta": delta,
-                "finish_reason": choice.get("finish_reason"),
-                "logprobs": choice.get("logprobs"),
-            }
-        )
-    return {
-        "id": response.get("id") or f"chatcmpl-{uuid.uuid4()}",
-        "object": "chat.completion.chunk",
-        "created": response.get("created") or int(time.time()),
-        "model": response.get("model") or model,
-        "choices": choices_out,
-    }
-
-
 async def _replay_sse_iter(response: dict, *, model: str) -> AsyncIterator[bytes]:
     """Emit a recorded response as one SSE chunk + ``[DONE]``."""
-    chunk = _completion_to_chunk(response, model=model)
-    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode()
-    yield b"data: [DONE]\n\n"
-
-
-def _parse_sse_chunks_into_state(buffer: bytes, state: ChatCompletionStreamState) -> bytes:
-    """Pull complete SSE events out of ``buffer`` and feed each ``data:`` line
-    (other than ``[DONE]``) to the openai stream-state aggregator. Returns the
-    leftover bytes that did not yet form a complete event."""
-    while b"\n\n" in buffer:
-        event, buffer = buffer.split(b"\n\n", 1)
-        for raw_line in event.split(b"\n"):
-            line = raw_line.decode("utf-8", errors="replace").strip()
-            if not line.startswith("data:"):
-                continue
-            payload = line[len("data:") :].strip()
-            if not payload or payload == "[DONE]":
-                continue
-            try:
-                state.handle_chunk(ChatCompletionChunk.model_validate(json.loads(payload)))
-            except Exception as exc:  # parser error: forward continues, traj will be partial
-                logger.debug(f"[record] chunk parse failed (forward continues): {exc}")
-    return buffer
+    yield encode_sse_event(completion_to_chunk_dict(response, model=model))
+    yield SSE_DONE
 
 
 async def _forward_stream_and_record(
@@ -158,7 +117,12 @@ async def _forward_stream_and_record(
                 upstream_status = r.status_code
                 async for chunk in r.aiter_bytes():
                     yield chunk
-                    parse_buffer = _parse_sse_chunks_into_state(parse_buffer + chunk, state)
+                    chunk_dicts, parse_buffer = parse_sse_data_chunks(parse_buffer + chunk)
+                    for chunk_dict in chunk_dicts:
+                        try:
+                            state.handle_chunk(ChatCompletionChunk.model_validate(chunk_dict))
+                        except Exception as exc:  # parser error: forward continues, traj will be partial
+                            logger.debug(f"[record] chunk parse failed (forward continues): {exc}")
     except httpx.RequestError as exc:
         # Connection died mid-stream. The bytes already sent reach the client;
         # we still try to record what we got.

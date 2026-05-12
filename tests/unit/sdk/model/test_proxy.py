@@ -439,7 +439,6 @@ def test_config_default_host_and_port():
 
 def test_config_default_traj_and_replay():
     config = ModelServiceConfig()
-    assert config.traj_enabled is True
     assert config.traj_file is None
     assert config.replay_traj_path is None
 
@@ -450,14 +449,12 @@ async def test_config_loads_traj_and_replay_from_file(tmp_path):
     conf_file.write_text(
         yaml.dump(
             {
-                "traj_enabled": False,
                 "traj_file": "/tmp/my-traj.jsonl",
                 "replay_traj_path": "/tmp/in.jsonl",
             }
         )
     )
     config = ModelServiceConfig.from_file(str(conf_file))
-    assert config.traj_enabled is False
     assert config.traj_file == "/tmp/my-traj.jsonl"
     assert config.replay_traj_path == "/tmp/in.jsonl"
 
@@ -504,7 +501,6 @@ def test_cli_traj_file_enables_replay():
     )
     config = create_config_from_args(args)
     assert config.replay_traj_path == "/tmp/in.jsonl"
-    assert config.traj_enabled is False
 
 
 # ---------- Metrics singleton + legacy record_traj (still used by local mode) ----------
