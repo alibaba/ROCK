@@ -17,6 +17,8 @@ class ModelService:
         proxy_base_url: str | None = None,
         retryable_status_codes: str | None = None,
         request_timeout: int | None = None,
+        recording_file: str | None = None,
+        replay_file: str | None = None,
     ) -> subprocess.Popen:
         """start sandbox service"""
         current_file = Path(__file__).resolve()
@@ -38,6 +40,10 @@ class ModelService:
             cmd.extend(["--retryable-status-codes", retryable_status_codes])
         if request_timeout:
             cmd.extend(["--request-timeout", str(request_timeout)])
+        if recording_file:
+            cmd.extend(["--recording-file", recording_file])
+        if replay_file:
+            cmd.extend(["--replay-file", replay_file])
         process = subprocess.Popen(cmd, cwd=str(service_dir))
         return process
 
@@ -51,6 +57,8 @@ class ModelService:
         proxy_base_url: str | None = None,
         retryable_status_codes: str | None = None,
         request_timeout: int | None = None,
+        recording_file: str | None = None,
+        replay_file: str | None = None,
     ) -> str:
         process = self.start_sandbox_service(
             model_service_type=model_service_type,
@@ -60,6 +68,8 @@ class ModelService:
             proxy_base_url=proxy_base_url,
             retryable_status_codes=retryable_status_codes,
             request_timeout=request_timeout,
+            recording_file=recording_file,
+            replay_file=replay_file,
         )
         pid = process.pid
 

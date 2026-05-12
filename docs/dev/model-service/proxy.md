@@ -11,10 +11,9 @@
 设计目标是让 SWE-agent / mini-swe-agent / OpenHands 等 agent 框架在录制 → 回放之间无感切换：
 agent 不变，只换 base URL。
 
-下文所有命令以 `python -m rock.sdk.model.server.main` 启动。注意 `rock model-service start`
-子命令目前**还没**对外暴露 `--recording-file` / `--replay-file`（CLI argparse 在
-[rock/cli/command/model_service.py](../../../rock/cli/command/model_service.py) 单独定义），
-所以涉及录制/回放的场景必须走 `python -m` 入口。
+下文所有命令以 `rock model-service start` 启动；该子命令最终会 `subprocess` 拉起
+`rock.sdk.model.server.main`，两者支持的 flag 一致。直接调试时也可以用
+`python -m rock.sdk.model.server.main` 跳过 PID 文件管理。
 
 ---
 
@@ -27,7 +26,7 @@ agent 不变，只换 base URL。
 export OPENAI_API_KEY="sk-..."
 export ROCK_MODEL_SERVICE_DATA_DIR=/tmp/rock-traj
 
-python -m rock.sdk.model.server.main \
+rock model-service start \
     --type proxy \
     --proxy-base-url https://api.openai.com/v1 \
     --port 8080
@@ -58,7 +57,7 @@ curl -N -X POST http://127.0.0.1:8080/v1/chat/completions \
 显式指定写到别的路径：
 
 ```bash
-python -m rock.sdk.model.server.main \
+rock model-service start \
     --type proxy \
     --proxy-base-url https://api.openai.com/v1 \
     --recording-file /tmp/my-session.jsonl \
@@ -73,7 +72,7 @@ python -m rock.sdk.model.server.main \
 agent 把 base URL 换成 `http://127.0.0.1:8081/v1` 即可重放：
 
 ```bash
-python -m rock.sdk.model.server.main \
+rock model-service start \
     --type proxy \
     --replay-file /tmp/rock-traj/LLMTraj.jsonl \
     --port 8081
@@ -101,7 +100,7 @@ python -m rock.sdk.model.server.main \
   连接中断不会重试（已发出去的字节无法收回）。
 
 ```bash
-python -m rock.sdk.model.server.main \
+rock model-service start \
     --type proxy \
     --proxy-base-url https://api.openai.com/v1 \
     --retryable-status-codes 429,500,502,503 \
@@ -129,7 +128,7 @@ recording_file: /tmp/rock-traj/multi.jsonl
 启动：
 
 ```bash
-python -m rock.sdk.model.server.main \
+rock model-service start \
     --type proxy \
     --config-file routes.yaml \
     --port 8080
