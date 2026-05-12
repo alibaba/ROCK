@@ -52,33 +52,34 @@ def create_app(config: ModelServiceConfig) -> FastAPI:
     return app
 
 
-def _configure_litellm_for_proxy(config: ModelServiceConfig) -> None:
-    """Wire up litellm record/replay integrations for the proxy mode.
+def _configure_proxy_integrations(app: FastAPI, config: ModelServiceConfig) -> None:
+    """Wire up record/replay integrations for the proxy mode.
 
-    - When ``replay_traj_path`` is set, register ``TrajectoryReplayer`` as a
-      custom provider so requests routed to ``traj-replay/<model>`` return
-      recorded responses without hitting any upstream.
-    - When recording is enabled (default), register ``TrajectoryRecorder`` as
-      a litellm callback so every chat/completions call appends a JSONL line.
+    - When ``replay_traj_path`` is set, load the trajectory into a
+      ``SequentialCursor`` and attach it to ``app.state.replay_cursor``. The
+      proxy handler serves recorded responses directly from this cursor; we
+      do NOT register anything with litellm (replay path bypasses litellm
+      entirely so cursor-exhausted errors aren't swallowed by retry logic).
+    - Otherwise (record/forward mode), if ``traj_enabled`` is True, register
+      ``TrajectoryRecorder`` as a ``litellm.callbacks`` entry so every
+      chat/completions call appends a JSONL line.
 
     Replay and record are mutually exclusive: in replay mode we don't record,
-    since replayed responses re-traversing the recorder would inflate metrics
-    and overwrite the source-of-truth file.
+    since replayed responses round-tripping back into the source file would
+    inflate metrics and corrupt the trajectory.
     """
-    import litellm
-
-    from rock.sdk.model.server.integrations.traj_recorder import TrajectoryRecorder
-    from rock.sdk.model.server.integrations.traj_replayer import TrajectoryReplayer
-
     if config.replay_traj_path:
-        replayer = TrajectoryReplayer(config.replay_traj_path)
-        litellm.custom_provider_map = [
-            {"provider": "traj-replay", "custom_handler": replayer},
-        ]
-        logger.info(f"litellm replay handler registered, traj_path={config.replay_traj_path}")
+        from rock.sdk.model.server.integrations.traj_replayer import SequentialCursor
+
+        app.state.replay_cursor = SequentialCursor.load(config.replay_traj_path)
+        logger.info(f"replay cursor loaded, traj_path={config.replay_traj_path}")
         return
 
     if config.traj_enabled:
+        import litellm
+
+        from rock.sdk.model.server.integrations.traj_recorder import TrajectoryRecorder
+
         traj_path = config.traj_file or TRAJ_FILE
         recorder = TrajectoryRecorder(traj_file=traj_path)
         litellm.callbacks.append(recorder)
@@ -96,7 +97,7 @@ def main(
         asyncio.run(init_local_api())
         app.include_router(local_router, prefix="", tags=["local"])
     else:
-        _configure_litellm_for_proxy(config)
+        _configure_proxy_integrations(app, config)
         app.include_router(proxy_router, prefix="", tags=["proxy"])
 
     logger.info(f"Starting LLM Service on {config.host}:{config.port}, type: {model_servie_type}")

@@ -1,18 +1,27 @@
-"""OpenAI-compatible chat/completions proxy backed by the litellm SDK.
+"""OpenAI-compatible chat/completions proxy.
 
-The proxy ``/v1/chat/completions`` handler routes a request to the configured
-upstream LLM (or to the in-process traj-replay handler when ``replay_traj_path``
-is set), forwards header/body, and applies retry via litellm's ``num_retries``.
+Two paths share this handler:
 
-Trajectory recording is wired up at startup in
-``rock.sdk.model.server.main`` by registering ``TrajectoryRecorder`` as a
-``litellm.callbacks`` entry — this handler does not carry a ``@record_traj``
-decorator anymore.
+1. **Record / forward mode** (default) — ``litellm.acompletion`` is called with
+   the user-supplied model/messages, the upstream is selected from
+   ``proxy_base_url`` / ``proxy_rules``, retries come from litellm's
+   ``num_retries``, and the recorded JSONL trajectory is written by a
+   ``litellm.callbacks`` entry registered at startup (see
+   ``rock.sdk.model.server.main``).
+
+2. **Replay mode** (``replay_traj_path`` set) — the request is served directly
+   from the next record in ``app.state.replay_cursor`` without going through
+   litellm at all. We have a complete OpenAI-shape response on disk, so there's
+   no value in routing through CustomLLM/CustomStreamWrapper just to translate
+   formats. Streaming emits the recorded response as a single SSE chunk +
+   ``[DONE]``, mirroring litellm's own ``MockResponseIterator`` strategy.
 """
 
 from __future__ import annotations
 
 import json
+import time
+import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -23,6 +32,7 @@ from litellm.exceptions import APIError, AuthenticationError, BadRequestError, R
 
 from rock.logger import init_logger
 from rock.sdk.model.server.config import ModelServiceConfig
+from rock.sdk.model.server.integrations.traj_replayer import SequentialCursor, TrajectoryExhausted
 
 logger = init_logger(__name__)
 
@@ -35,6 +45,7 @@ proxy_router = APIRouter()
 #     so the client's values would be wrong or misleading
 #   - transfer-encoding / connection: true RFC 7230 hop-by-hop headers, scoped to
 #     the client↔proxy connection only
+#   - authorization: extracted into api_key kwarg, see _extract_bearer_token
 _HEADERS_NOT_TO_FORWARD = frozenset(
     {"host", "content-length", "content-type", "transfer-encoding", "connection", "authorization"}
 )
@@ -121,43 +132,97 @@ async def _sse_iter(stream: AsyncIterator[Any]) -> AsyncIterator[bytes]:
         yield b"data: [DONE]\n\n"
 
 
+def _completion_to_chunk(response: dict, *, model: str) -> dict:
+    """Convert a recorded ``chat.completion`` response into a single
+    ``chat.completion.chunk`` shape (move ``message`` → ``delta``).
+
+    Mirrors what litellm's ``convert_model_response_to_streaming`` does for its
+    own non-streaming providers — preserves ``finish_reason``, ``tool_calls``
+    and any other fields verbatim by simply renaming the wrapper key.
+    """
+    choices_in = response.get("choices") or []
+    choices_out = []
+    for choice in choices_in:
+        delta = dict(choice.get("message") or {})
+        choices_out.append(
+            {
+                "index": choice.get("index", 0),
+                "delta": delta,
+                "finish_reason": choice.get("finish_reason"),
+                "logprobs": choice.get("logprobs"),
+            }
+        )
+    return {
+        "id": response.get("id") or f"chatcmpl-{uuid.uuid4()}",
+        "object": "chat.completion.chunk",
+        "created": response.get("created") or int(time.time()),
+        "model": response.get("model") or model,
+        "choices": choices_out,
+    }
+
+
+async def _replay_sse_iter(response: dict, *, model: str) -> AsyncIterator[bytes]:
+    """Emit a recorded response as a single SSE chunk + ``[DONE]``.
+
+    The whole recorded answer goes out in one chunk — same strategy as
+    litellm's ``MockResponseIterator``. Most agents accumulate SSE into a
+    final string anyway; faking finer-grained streaming would just add code
+    without buying anyone anything.
+    """
+    chunk = _completion_to_chunk(response, model=model)
+    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode()
+    yield b"data: [DONE]\n\n"
+
+
 @proxy_router.post("/v1/chat/completions")
 async def chat_completions(body: dict[str, Any], request: Request):
     """OpenAI-compatible chat completions proxy endpoint.
 
-    Routes via ``proxy_base_url`` / ``proxy_rules``, forwards Authorization-style
-    headers, supports streaming, retries via litellm. In replay mode the request
-    is dispatched to the registered ``traj-replay`` CustomLLM provider instead
-    of being forwarded upstream.
+    In replay mode (``replay_traj_path`` set), serves the next record from
+    ``app.state.replay_cursor`` directly — no litellm involvement. Otherwise
+    forwards to the configured upstream via ``litellm.acompletion``.
     """
     config: ModelServiceConfig = request.app.state.model_service_config
-
     model_name = body.get("model", "")
+    is_stream = bool(body.get("stream"))
 
-    # 1. Route selection
+    # ---- Replay mode: short-circuit, never touch litellm ----
     if config.replay_traj_path:
-        litellm_model = f"traj-replay/{model_name or 'replay'}"
-        api_base: str | None = None
-        logger.info(f"[replay] dispatching '{model_name}' to traj-replay handler")
-    else:
-        api_base = get_base_url(model_name, config)
-        # custom_openai is litellm's catch-all for OpenAI-compatible third-party endpoints
-        # (DashScope, ModelScope, Groq, Mistral, ...). Unlike `openai/`, it does NOT do
-        # model-name lookup, so arbitrary upstream model names like "glm-5" / "qwen-turbo"
-        # work without "This model isn't mapped yet" errors.
-        litellm_model = f"custom_openai/{model_name}" if model_name else "custom_openai/default"
-        logger.info(f"Routing model '{model_name}' to {api_base}")
+        cursor: SequentialCursor = request.app.state.replay_cursor
+        try:
+            record = await cursor.next(expected_model=model_name)
+        except TrajectoryExhausted as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
 
-    # 2. Extract Bearer token (litellm needs api_key explicitly, not via headers)
+        response_dict = record.get("response")
+        if not isinstance(response_dict, dict):
+            raise HTTPException(
+                status_code=500,
+                detail=f"replay record at step {cursor.position - 1} has no usable response dict",
+            )
+        logger.info(f"[replay] step {cursor.position}/{cursor.total} served for model={model_name!r}")
+
+        if is_stream:
+            return StreamingResponse(
+                _replay_sse_iter(response_dict, model=model_name),
+                media_type="text/event-stream",
+            )
+        return JSONResponse(status_code=200, content=response_dict)
+
+    # ---- Forward / record mode: go through litellm ----
+    api_base = get_base_url(model_name, config)
+    # custom_openai is litellm's catch-all for OpenAI-compatible third-party endpoints
+    # (DashScope, ModelScope, Groq, Mistral, ...). Unlike `openai/`, it does NOT do
+    # model-name lookup, so arbitrary upstream model names like "glm-5" / "qwen-turbo"
+    # work without "This model isn't mapped yet" errors.
+    litellm_model = f"custom_openai/{model_name}" if model_name else "custom_openai/default"
+    logger.info(f"Routing model '{model_name}' to {api_base}")
+
     api_key = _extract_bearer_token(request.headers)
-
-    # 3. Header forwarding (drop Authorization since we pass it via api_key, plus hop-by-hop)
     extra_headers = _filter_headers(request.headers)
 
-    # 4. Build call kwargs (transparent passthrough of body fields)
     call_kwargs = dict(body)
-    call_kwargs.pop("model", None)  # avoid duplicate kwargs
-    is_stream = bool(call_kwargs.get("stream"))
+    call_kwargs.pop("model", None)
 
     try:
         response = await litellm.acompletion(
@@ -167,10 +232,8 @@ async def chat_completions(body: dict[str, Any], request: Request):
             extra_headers=extra_headers,
             timeout=config.request_timeout,
             num_retries=config.num_retries,
-            # Suppress litellm's "model isn't mapped yet" cost-calc exception for
-            # arbitrary upstream models (glm-5, qwen-turbo, ...) that aren't in
-            # litellm's pricing table. We don't care about cost tracking here, so
-            # zero rates make the calc succeed cleanly with response_cost=0.
+            # Zero-cost rates suppress "model isn't mapped yet" from litellm's
+            # post-call cost calculator for arbitrary upstream model names.
             input_cost_per_token=0,
             output_cost_per_token=0,
             **call_kwargs,
@@ -182,13 +245,8 @@ async def chat_completions(body: dict[str, Any], request: Request):
         logger.error(f"Unexpected proxy error: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
 
-    # 4. Streaming vs non-streaming response
     if is_stream:
         return StreamingResponse(_sse_iter(response), media_type="text/event-stream")
 
-    # litellm returns a ModelResponse pydantic; expose the OpenAI-shape dict.
-    if hasattr(response, "model_dump"):
-        body_out = response.model_dump()
-    else:
-        body_out = response  # already a dict (replay path can short-circuit)
+    body_out = response.model_dump() if hasattr(response, "model_dump") else response
     return JSONResponse(status_code=200, content=body_out)

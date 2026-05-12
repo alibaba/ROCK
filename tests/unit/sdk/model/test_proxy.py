@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -176,27 +177,133 @@ async def test_chat_completions_litellm_error_returns_proxy_schema():
 
 
 @pytest.mark.asyncio
-async def test_chat_completions_replay_mode_uses_traj_replay_provider():
-    """In replay mode the proxy targets traj-replay/<model> instead of a real upstream."""
+async def test_replay_mode_returns_recorded_response_without_calling_litellm(tmp_path):
+    """In replay mode the proxy serves the next record directly from app.state.replay_cursor;
+    litellm.acompletion must never be invoked."""
+    from rock.sdk.model.server.integrations.traj_replayer import SequentialCursor
+
+    record = {
+        "model": "gpt-3.5-turbo",
+        "response": {
+            "id": "rec-1",
+            "object": "chat.completion",
+            "model": "gpt-3.5-turbo",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "recorded reply"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+        },
+    }
+    traj = tmp_path / "t.jsonl"
+    traj.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
     config = ModelServiceConfig()
-    config.replay_traj_path = "/tmp/does-not-matter-for-this-test"
+    config.replay_traj_path = str(traj)
 
     local_app = FastAPI()
     local_app.state.model_service_config = config
+    local_app.state.replay_cursor = SequentialCursor.load(traj)
     local_app.include_router(proxy_router)
 
     with patch(ACOMPLETION_PATCH, new_callable=AsyncMock) as mock_acompletion:
-        mock_acompletion.return_value = _fake_model_response()
-
         transport = ASGITransport(app=local_app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             payload = {"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}]}
             response = await ac.post("/v1/chat/completions", json=payload)
 
-        assert response.status_code == 200
-        call_kwargs = mock_acompletion.call_args.kwargs
-        assert call_kwargs["model"] == "traj-replay/gpt-3.5-turbo"
-        assert call_kwargs["api_base"] is None
+    assert response.status_code == 200
+    body = response.json()
+    assert body["choices"][0]["message"]["content"] == "recorded reply"
+    mock_acompletion.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_replay_mode_streaming_emits_recorded_response_as_sse(tmp_path):
+    """Replay + stream=True emits one SSE chunk (content moved into delta) plus [DONE]."""
+    from rock.sdk.model.server.integrations.traj_replayer import SequentialCursor
+
+    record = {
+        "model": "gpt-3.5-turbo",
+        "response": {
+            "id": "rec-stream",
+            "object": "chat.completion",
+            "model": "gpt-3.5-turbo",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "streamed reply"},
+                    "finish_reason": "tool_calls",
+                }
+            ],
+        },
+    }
+    traj = tmp_path / "t.jsonl"
+    traj.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    config = ModelServiceConfig()
+    config.replay_traj_path = str(traj)
+
+    local_app = FastAPI()
+    local_app.state.model_service_config = config
+    local_app.state.replay_cursor = SequentialCursor.load(traj)
+    local_app.include_router(proxy_router)
+
+    transport = ASGITransport(app=local_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.post(
+            "/v1/chat/completions",
+            json={"model": "gpt-3.5-turbo", "stream": True, "messages": [{"role": "user", "content": "hi"}]},
+        )
+
+    assert response.status_code == 200
+    body = response.text
+    assert "data: [DONE]" in body
+    # The SSE chunk shape is chat.completion.chunk with message → delta, finish_reason preserved
+    assert '"object": "chat.completion.chunk"' in body
+    assert '"delta": {"role": "assistant", "content": "streamed reply"}' in body
+    assert '"finish_reason": "tool_calls"' in body
+
+
+@pytest.mark.asyncio
+async def test_replay_mode_returns_404_when_cursor_exhausted(tmp_path):
+    """Cursor used up → 404 with a clear message; no litellm retries involved."""
+    from rock.sdk.model.server.integrations.traj_replayer import SequentialCursor
+
+    record = {
+        "model": "gpt-3.5-turbo",
+        "response": {
+            "id": "only",
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": "x"}, "finish_reason": "stop"}],
+        },
+    }
+    traj = tmp_path / "t.jsonl"
+    traj.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    config = ModelServiceConfig()
+    config.replay_traj_path = str(traj)
+
+    local_app = FastAPI()
+    local_app.state.model_service_config = config
+    local_app.state.replay_cursor = SequentialCursor.load(traj)
+    local_app.include_router(proxy_router)
+
+    transport = ASGITransport(app=local_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        await ac.post(
+            "/v1/chat/completions",
+            json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}]},
+        )
+        second = await ac.post(
+            "/v1/chat/completions",
+            json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "again"}]},
+        )
+
+    assert second.status_code == 404
+    assert "exhausted" in second.json()["detail"]
 
 
 @pytest.mark.asyncio
