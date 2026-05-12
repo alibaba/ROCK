@@ -53,27 +53,29 @@ def create_app(config: ModelServiceConfig) -> FastAPI:
 
 
 def _configure_proxy_integrations(app: FastAPI, config: ModelServiceConfig) -> None:
-    """Wire up record/replay integrations and attach them to ``app.state``.
+    """Attach the appropriate backend to ``app.state.backend``.
 
-    - Replay mode (``replay_traj_path`` set): load the trajectory into a
-      ``SequentialCursor`` and stash it as ``app.state.replay_cursor``. No
-      recorder is attached — replaying back into the source file would corrupt it.
-    - Forward mode (default): attach a ``TrajectoryRecorder`` instance as
-      ``app.state.recorder``. The proxy handler invokes it explicitly after
-      each forwarded call.
+    - Replay mode (``replay_traj_path`` set): ``_ReplayBackend`` wrapping a
+      ``SequentialCursor``; no recorder — replaying back into the source file
+      would corrupt it.
+    - Forward mode (default): ``_ForwardBackend`` with a ``TrajectoryRecorder``.
     """
+    from rock.sdk.model.server.api.proxy import _ForwardBackend, _ReplayBackend
+
     if config.replay_traj_path:
         from rock.sdk.model.server.integrations.traj_replayer import SequentialCursor
 
-        app.state.replay_cursor = SequentialCursor.load(config.replay_traj_path)
-        logger.info(f"replay cursor loaded, traj_path={config.replay_traj_path}")
+        cursor = SequentialCursor.load(config.replay_traj_path)
+        app.state.backend = _ReplayBackend(cursor)
+        logger.info(f"replay backend attached, traj_path={config.replay_traj_path}")
         return
 
     from rock.sdk.model.server.integrations.traj_recorder import TrajectoryRecorder
 
     traj_path = config.traj_file or TRAJ_FILE
-    app.state.recorder = TrajectoryRecorder(traj_file=traj_path)
-    logger.info(f"trajectory recorder attached, traj_file={traj_path}")
+    recorder = TrajectoryRecorder(traj_file=traj_path)
+    app.state.backend = _ForwardBackend(config, recorder=recorder)
+    logger.info(f"forward backend attached, traj_file={traj_path}")
 
 
 def main(

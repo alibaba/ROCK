@@ -1,8 +1,8 @@
 """OpenAI-compatible chat/completions proxy with trajectory record/replay.
 
-Two paths share this handler:
+Two backends share the ``/v1/chat/completions`` route:
 
-1. **Forward / record mode** (default) — body bytes are POSTed verbatim to the
+1. **_ForwardBackend** (default) — body bytes are POSTed verbatim to the
    configured upstream via plain ``httpx``. The upstream response is forwarded
    byte-for-byte back to the client (raw JSON for non-stream, raw SSE bytes
    for stream). On the side we run a parser (``ChatCompletionChunk`` +
@@ -12,9 +12,10 @@ Two paths share this handler:
    returns (provider-specific ``reasoning_content``, ``citations``, ...) is
    passed through untouched.
 
-2. **Replay mode** (``replay_traj_path`` set) — the request is served directly
-   from the next record in ``app.state.replay_cursor`` without any upstream
-   call. Streaming emits the recorded response as one SSE chunk + ``[DONE]``.
+2. **_ReplayBackend** (``replay_traj_path`` set) — the request is served
+   directly from the next record in the ``SequentialCursor`` without any
+   upstream call. Streaming emits the recorded response as one SSE chunk +
+   ``[DONE]``.
 """
 
 from __future__ import annotations
@@ -158,16 +159,134 @@ async def _forward_stream_and_record(
     )
 
 
+class _ReplayBackend:
+    """Serves requests from a pre-recorded trajectory; no upstream calls made."""
+
+    def __init__(self, cursor: SequentialCursor) -> None:
+        self._cursor = cursor
+
+    async def serve(self, *, model_name: str, is_stream: bool, **_: Any) -> Response:
+        try:
+            record = await self._cursor.next(expected_model=model_name)
+        except TrajectoryExhausted as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+
+        response_dict = record.get("response")
+        if not isinstance(response_dict, dict):
+            raise HTTPException(
+                status_code=500,
+                detail=f"replay record at step {self._cursor.position - 1} has no usable response dict",
+            )
+        logger.info(f"[replay] step {self._cursor.position}/{self._cursor.total} served for model={model_name!r}")
+
+        if is_stream:
+            return StreamingResponse(
+                _replay_sse_iter(response_dict, model=model_name),
+                media_type="text/event-stream",
+            )
+        return JSONResponse(status_code=200, content=response_dict)
+
+
+class _ForwardBackend:
+    """Forwards requests byte-for-byte to the upstream and optionally records the trajectory."""
+
+    def __init__(self, config: ModelServiceConfig, recorder: TrajectoryRecorder | None = None) -> None:
+        self._config = config
+        self._recorder = recorder
+
+    async def serve(
+        self,
+        *,
+        model_name: str,
+        is_stream: bool,
+        body_bytes: bytes,
+        fwd_headers: dict[str, str],
+        request_dict: dict[str, Any],
+        **_: Any,
+    ) -> Response:
+        upstream_url = f"{get_base_url(model_name, self._config)}/chat/completions"
+        logger.info(f"Routing model {model_name!r} to {upstream_url}")
+
+        if is_stream:
+            return StreamingResponse(
+                _forward_stream_and_record(
+                    upstream_url=upstream_url,
+                    body_bytes=body_bytes,
+                    fwd_headers=fwd_headers,
+                    timeout=self._config.request_timeout,
+                    request_dict=request_dict,
+                    recorder=self._recorder,
+                ),
+                media_type="text/event-stream",
+            )
+
+        # Non-stream: single POST, return upstream's status + body verbatim, record on the side.
+        start = time.time()
+        try:
+            async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
+                r = await client.post(upstream_url, content=body_bytes, headers=fwd_headers)
+        except httpx.TimeoutException as exc:
+            if self._recorder is not None:
+                await self._recorder.record(
+                    request=request_dict,
+                    response=None,
+                    status="failure",
+                    start_time=start,
+                    end_time=time.time(),
+                    error=f"timeout: {exc}",
+                )
+            raise HTTPException(status_code=504, detail=f"Upstream timed out: {exc}")
+        except httpx.RequestError as exc:
+            if self._recorder is not None:
+                await self._recorder.record(
+                    request=request_dict,
+                    response=None,
+                    status="failure",
+                    start_time=start,
+                    end_time=time.time(),
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+            raise HTTPException(status_code=502, detail=f"Upstream request failed: {exc}")
+
+        response_text = r.text  # bytes already read by httpx; .text decodes once
+        response_dict: dict | None = None
+        try:
+            parsed = json.loads(response_text) if response_text else None
+            if isinstance(parsed, dict):
+                response_dict = parsed
+        except json.JSONDecodeError:
+            pass
+
+        if self._recorder is not None:
+            await self._recorder.record(
+                request=request_dict,
+                response=response_dict,
+                status="success" if r.status_code < 400 else "failure",
+                start_time=start,
+                end_time=time.time(),
+                error=None if r.status_code < 400 else f"upstream_status={r.status_code}",
+            )
+
+        # Forward bytes verbatim — preserves any provider-specific fields untouched.
+        media_type = r.headers.get("content-type", "application/json")
+        return Response(content=response_text, status_code=r.status_code, media_type=media_type)
+
+
+_CompletionBackend = _ReplayBackend | _ForwardBackend
+
+
+def _get_backend(request: Request) -> _CompletionBackend:
+    """Typed accessor for the backend attached at startup by ``_configure_proxy_integrations``."""
+    return request.app.state.backend
+
+
 @proxy_router.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     """OpenAI-compatible chat completions proxy endpoint.
 
-    Reads the body as raw bytes (no parsing on the forward path) and either
-    serves it from the replay cursor or forwards it to the configured upstream.
+    Reads the body as raw bytes (no parsing on the forward path) and delegates
+    to the backend attached at startup (replay or forward).
     """
-    config: ModelServiceConfig = request.app.state.model_service_config
-    recorder: TrajectoryRecorder | None = getattr(request.app.state, "recorder", None)
-
     body_bytes = await request.body()
     try:
         request_dict = json.loads(body_bytes) if body_bytes else {}
@@ -178,95 +297,13 @@ async def chat_completions(request: Request):
 
     model_name = request_dict.get("model", "")
     is_stream = bool(request_dict.get("stream"))
-
-    # ---- Replay mode: short-circuit, no upstream call ----
-    if config.replay_traj_path:
-        cursor: SequentialCursor = request.app.state.replay_cursor
-        try:
-            record = await cursor.next(expected_model=model_name)
-        except TrajectoryExhausted as exc:
-            raise HTTPException(status_code=404, detail=str(exc))
-
-        response_dict = record.get("response")
-        if not isinstance(response_dict, dict):
-            raise HTTPException(
-                status_code=500,
-                detail=f"replay record at step {cursor.position - 1} has no usable response dict",
-            )
-        logger.info(f"[replay] step {cursor.position}/{cursor.total} served for model={model_name!r}")
-
-        if is_stream:
-            return StreamingResponse(
-                _replay_sse_iter(response_dict, model=model_name),
-                media_type="text/event-stream",
-            )
-        return JSONResponse(status_code=200, content=response_dict)
-
-    # ---- Forward / record mode: byte-passthrough via httpx ----
-    upstream_url = f"{get_base_url(model_name, config)}/chat/completions"
     fwd_headers = _filter_headers(request.headers)
-    logger.info(f"Routing model {model_name!r} to {upstream_url}")
 
-    if is_stream:
-        return StreamingResponse(
-            _forward_stream_and_record(
-                upstream_url=upstream_url,
-                body_bytes=body_bytes,
-                fwd_headers=fwd_headers,
-                timeout=config.request_timeout,
-                request_dict=request_dict,
-                recorder=recorder,
-            ),
-            media_type="text/event-stream",
-        )
-
-    # Non-stream: single POST, return upstream's status + body verbatim, record on the side.
-    start = time.time()
-    try:
-        async with httpx.AsyncClient(timeout=config.request_timeout) as client:
-            r = await client.post(upstream_url, content=body_bytes, headers=fwd_headers)
-    except httpx.TimeoutException as exc:
-        if recorder is not None:
-            await recorder.record(
-                request=request_dict,
-                response=None,
-                status="failure",
-                start_time=start,
-                end_time=time.time(),
-                error=f"timeout: {exc}",
-            )
-        raise HTTPException(status_code=504, detail=f"Upstream timed out: {exc}")
-    except httpx.RequestError as exc:
-        if recorder is not None:
-            await recorder.record(
-                request=request_dict,
-                response=None,
-                status="failure",
-                start_time=start,
-                end_time=time.time(),
-                error=f"{type(exc).__name__}: {exc}",
-            )
-        raise HTTPException(status_code=502, detail=f"Upstream request failed: {exc}")
-
-    response_text = r.text  # bytes already read by httpx; .text decodes once
-    response_dict: dict | None = None
-    try:
-        parsed = json.loads(response_text) if response_text else None
-        if isinstance(parsed, dict):
-            response_dict = parsed
-    except json.JSONDecodeError:
-        pass
-
-    if recorder is not None:
-        await recorder.record(
-            request=request_dict,
-            response=response_dict,
-            status="success" if r.status_code < 400 else "failure",
-            start_time=start,
-            end_time=time.time(),
-            error=None if r.status_code < 400 else f"upstream_status={r.status_code}",
-        )
-
-    # Forward bytes verbatim — preserves any provider-specific fields untouched.
-    media_type = r.headers.get("content-type", "application/json")
-    return Response(content=response_text, status_code=r.status_code, media_type=media_type)
+    backend = _get_backend(request)
+    return await backend.serve(
+        model_name=model_name,
+        is_stream=is_stream,
+        body_bytes=body_bytes,
+        fwd_headers=fwd_headers,
+        request_dict=request_dict,
+    )

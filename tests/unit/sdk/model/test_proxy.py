@@ -27,12 +27,16 @@ from rock.sdk.model.server.utils import (
 )
 
 
-def _build_app(config: ModelServiceConfig, *, replay_cursor=None) -> FastAPI:
+def _build_app(config: ModelServiceConfig, *, replay_cursor=None, recorder=None) -> FastAPI:
     """Build a FastAPI app with the proxy router and the given config attached."""
+    from rock.sdk.model.server.api.proxy import _ForwardBackend, _ReplayBackend
+
     app = FastAPI()
     app.state.model_service_config = config
     if replay_cursor is not None:
-        app.state.replay_cursor = replay_cursor
+        app.state.backend = _ReplayBackend(replay_cursor)
+    else:
+        app.state.backend = _ForwardBackend(config, recorder=recorder)
     app.include_router(proxy_router)
     return app
 
@@ -264,19 +268,16 @@ async def test_forward_502_on_upstream_connection_failure():
 
 @pytest.mark.asyncio
 async def test_forward_invokes_recorder_on_success(tmp_path):
-    """When app.state.recorder is set, success calls write a JSONL line with the
-    request and the upstream response verbatim."""
+    """When a recorder is attached to the backend, success calls write a JSONL line."""
     from rock.sdk.model.server.integrations.traj_recorder import TrajectoryRecorder
 
     upstream_payload = _success_response_json(content="recorded reply")
+    traj_file = tmp_path / "traj.jsonl"
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=upstream_payload)
 
     config = ModelServiceConfig()
-    app = _build_app(config)
-    traj_file = tmp_path / "traj.jsonl"
-    app.state.recorder = TrajectoryRecorder(traj_file=traj_file)
 
     with (
         _patch_httpx_with_handler(handler),
@@ -284,8 +285,8 @@ async def test_forward_invokes_recorder_on_success(tmp_path):
             "rock.sdk.model.server.integrations.traj_recorder._get_or_create_metrics_monitor", return_value=MagicMock()
         ),
     ):
-        # Re-create the recorder so it picks up the patched monitor.
-        app.state.recorder = TrajectoryRecorder(traj_file=traj_file)
+        recorder = TrajectoryRecorder(traj_file=traj_file)
+        app = _build_app(config, recorder=recorder)
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             await ac.post(
