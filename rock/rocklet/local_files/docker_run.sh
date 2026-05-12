@@ -30,11 +30,19 @@ is_nix() {
 
 # Kata DinD: set up loop device and mount disk image for Docker storage
 setup_kata_dind() {
-    mkdir -p /var/lib/docker
+    local docker_root="/var/lib/docker"
+    if [ -f /etc/docker/daemon.json ]; then
+        local custom_root
+        custom_root=$(grep -o '"data-root"[[:space:]]*:[[:space:]]*"[^"]*"' /etc/docker/daemon.json | sed 's/.*"data-root"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
+        if [ -n "$custom_root" ]; then
+            docker_root="$custom_root"
+        fi
+    fi
+    mkdir -p "$docker_root"
     for i in $(seq 0 7); do
         mknod -m 660 /dev/loop$i b 7 $i 2>/dev/null || true
     done
-    mount -o loop /docker-disk.img /var/lib/docker
+    mount -o loop /docker-disk.img "$docker_root"
     mount -o remount,rw /sys/fs/cgroup
     mount -o remount,rw /proc/sys
 }
