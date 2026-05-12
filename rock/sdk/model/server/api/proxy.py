@@ -30,8 +30,6 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from openai.lib.streaming.chat import ChatCompletionStreamState
-from openai.types.chat import ChatCompletionChunk
 
 from rock.logger import init_logger
 from rock.sdk.model.server.config import ModelServiceConfig
@@ -60,11 +58,6 @@ _HEADERS_NOT_TO_FORWARD = frozenset({"host", "content-length", "transfer-encodin
 _RETRY_MAX_ATTEMPTS = 6
 _RETRY_DELAY_SECONDS = 2.0
 _RETRY_BACKOFF = 2.0
-_RETRY_EXCEPTIONS: tuple[type[Exception], ...] = (
-    httpx.TimeoutException,
-    httpx.ConnectError,
-    httpx.HTTPStatusError,
-)
 
 
 async def _send_with_retry(
@@ -172,6 +165,11 @@ async def _forward_stream_and_record(
     Retry on connection errors and whitelisted statuses happens BEFORE any byte
     is yielded; mid-stream connection drops are not retried (would corrupt the
     client transmission)."""
+    # openai SDK is used purely as a stream-aggregation parser — keep the import
+    # local so module load doesn't pull it in for callers that never stream.
+    from openai.lib.streaming.chat import ChatCompletionStreamState
+    from openai.types.chat import ChatCompletionChunk
+
     state = ChatCompletionStreamState()
     start = time.time()
     parse_buffer = b""
