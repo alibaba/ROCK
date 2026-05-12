@@ -106,30 +106,6 @@ async def _send_with_retry(
     raise last_exc  # pragma: no cover  # unreachable
 
 
-def get_base_url(model_name: str, config: ModelServiceConfig) -> str:
-    """Pick the upstream base URL by model name.
-
-    ``proxy_base_url`` takes precedence; falls back to ``proxy_rules[model]`` and
-    then ``proxy_rules["default"]``. Trailing slashes are stripped so the caller
-    can append ``/chat/completions`` directly.
-    """
-    if config.proxy_base_url:
-        return config.proxy_base_url.rstrip("/")
-
-    if not model_name:
-        raise HTTPException(status_code=400, detail="Model name is required for routing.")
-
-    rules = config.proxy_rules
-    base_url = rules.get(model_name) or rules.get("default")
-    if not base_url:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Model '{model_name}' is not configured and no 'default' rule found.",
-        )
-
-    return base_url.rstrip("/")
-
-
 def _filter_headers(headers) -> dict[str, str]:
     """Drop headers that are scoped to the client↔proxy hop or rebuilt by httpx.
     ``Authorization`` is forwarded verbatim — proxy stays stateless about which
@@ -277,6 +253,29 @@ class ForwardBackend:
         self._config = config
         self._recorder = recorder
 
+    def _resolve_base_url(self, model_name: str) -> str:
+        """Pick the upstream base URL by model name.
+
+        ``proxy_base_url`` takes precedence; falls back to ``proxy_rules[model]`` and
+        then ``proxy_rules["default"]``. Trailing slashes are stripped so the caller
+        can append ``/chat/completions`` directly.
+        """
+        if self._config.proxy_base_url:
+            return self._config.proxy_base_url.rstrip("/")
+
+        if not model_name:
+            raise HTTPException(status_code=400, detail="Model name is required for routing.")
+
+        rules = self._config.proxy_rules
+        base_url = rules.get(model_name) or rules.get("default")
+        if not base_url:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model '{model_name}' is not configured and no 'default' rule found.",
+            )
+
+        return base_url.rstrip("/")
+
     async def serve(
         self,
         *,
@@ -287,7 +286,7 @@ class ForwardBackend:
         request_dict: dict[str, Any],
         **_: Any,
     ) -> Response:
-        upstream_url = f"{get_base_url(model_name, self._config)}/chat/completions"
+        upstream_url = f"{self._resolve_base_url(model_name)}/chat/completions"
         logger.info(f"Routing model {model_name!r} to {upstream_url}")
 
         if is_stream:
