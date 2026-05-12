@@ -118,100 +118,6 @@ def _filter_headers(headers) -> dict[str, str]:
     return out
 
 
-async def _forward_stream_and_record(
-    *,
-    upstream_url: str,
-    body_bytes: bytes,
-    fwd_headers: dict[str, str],
-    timeout: float,
-    request_dict: dict[str, Any],
-    recorder: TrajectoryRecorder | None,
-    retryable_codes: list[int],
-) -> AsyncIterator[bytes]:
-    """SSE bytes are forwarded verbatim; chunks are parsed in parallel and
-    aggregated into the final ChatCompletion that the recorder writes to JSONL.
-
-    Retry on connection errors and whitelisted statuses happens BEFORE any byte
-    is yielded; mid-stream connection drops are not retried (would corrupt the
-    client transmission)."""
-    # openai SDK is used purely as a stream-aggregation parser — keep the import
-    # local so module load doesn't pull it in for callers that never stream.
-    from openai.lib.streaming.chat import ChatCompletionStreamState
-    from openai.types.chat import ChatCompletionChunk
-
-    state = ChatCompletionStreamState()
-    start = time.time()
-    parse_buffer = b""
-    upstream_status = 0
-
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            resp = await _send_with_retry(
-                client,
-                upstream_url,
-                body_bytes=body_bytes,
-                headers=fwd_headers,
-                retryable_codes=retryable_codes,
-            )
-        except (httpx.TimeoutException, httpx.ConnectError) as exc:
-            if recorder is not None:
-                await recorder.record(
-                    request=request_dict,
-                    response=None,
-                    status="failure",
-                    start_time=start,
-                    end_time=time.time(),
-                    error=f"{type(exc).__name__}: {exc}",
-                )
-            return
-
-        try:
-            upstream_status = resp.status_code
-            async for chunk in resp.aiter_bytes():
-                yield chunk
-                chunk_dicts, parse_buffer = parse_sse_data_chunks(parse_buffer + chunk)
-                for chunk_dict in chunk_dicts:
-                    try:
-                        state.handle_chunk(ChatCompletionChunk.model_validate(chunk_dict))
-                    except Exception as exc:  # parser error: forward continues, traj will be partial
-                        logger.debug(f"[record] chunk parse failed (forward continues): {exc}")
-        except httpx.RequestError as exc:
-            # Connection died mid-stream — bytes already sent reach the client;
-            # record what we got and return.
-            if recorder is not None:
-                await recorder.record(
-                    request=request_dict,
-                    response=None,
-                    status="failure",
-                    start_time=start,
-                    end_time=time.time(),
-                    error=f"{type(exc).__name__}: {exc}",
-                )
-            return
-        finally:
-            await resp.aclose()
-
-    if recorder is None:
-        return
-
-    status = "success" if upstream_status < 400 else "failure"
-    final_dict: dict | None = None
-    if status == "success":
-        try:
-            final_dict = state.get_final_completion().model_dump()
-        except Exception as exc:
-            logger.warning(f"[record] stream aggregation failed: {exc}")
-
-    await recorder.record(
-        request=request_dict,
-        response=final_dict,
-        status=status,
-        start_time=start,
-        end_time=time.time(),
-        error=None if status == "success" else f"upstream_status={upstream_status}",
-    )
-
-
 class ReplayBackend:
     """Serves requests from a pre-recorded trajectory; no upstream calls made."""
 
@@ -291,14 +197,11 @@ class ForwardBackend:
 
         if is_stream:
             return StreamingResponse(
-                _forward_stream_and_record(
+                self._stream_and_record(
                     upstream_url=upstream_url,
                     body_bytes=body_bytes,
                     fwd_headers=fwd_headers,
-                    timeout=self._config.request_timeout,
                     request_dict=request_dict,
-                    recorder=self._recorder,
-                    retryable_codes=self._config.retryable_status_codes,
                 ),
                 media_type="text/event-stream",
             )
@@ -365,6 +268,97 @@ class ForwardBackend:
 
         # Forward bytes verbatim — preserves any provider-specific fields untouched.
         return Response(content=response_bytes, status_code=status_code, media_type=content_type)
+
+    async def _stream_and_record(
+        self,
+        *,
+        upstream_url: str,
+        body_bytes: bytes,
+        fwd_headers: dict[str, str],
+        request_dict: dict[str, Any],
+    ) -> AsyncIterator[bytes]:
+        """SSE bytes are forwarded verbatim; chunks are parsed in parallel and
+        aggregated into the final ChatCompletion that the recorder writes to JSONL.
+
+        Retry on connection errors and whitelisted statuses happens BEFORE any byte
+        is yielded; mid-stream connection drops are not retried (would corrupt the
+        client transmission)."""
+        # openai SDK is used purely as a stream-aggregation parser — keep the import
+        # local so module load doesn't pull it in for callers that never stream.
+        from openai.lib.streaming.chat import ChatCompletionStreamState
+        from openai.types.chat import ChatCompletionChunk
+
+        state = ChatCompletionStreamState()
+        start = time.time()
+        parse_buffer = b""
+        upstream_status = 0
+
+        async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
+            try:
+                resp = await _send_with_retry(
+                    client,
+                    upstream_url,
+                    body_bytes=body_bytes,
+                    headers=fwd_headers,
+                    retryable_codes=self._config.retryable_status_codes,
+                )
+            except (httpx.TimeoutException, httpx.ConnectError) as exc:
+                if self._recorder is not None:
+                    await self._recorder.record(
+                        request=request_dict,
+                        response=None,
+                        status="failure",
+                        start_time=start,
+                        end_time=time.time(),
+                        error=f"{type(exc).__name__}: {exc}",
+                    )
+                return
+
+            try:
+                upstream_status = resp.status_code
+                async for chunk in resp.aiter_bytes():
+                    yield chunk
+                    chunk_dicts, parse_buffer = parse_sse_data_chunks(parse_buffer + chunk)
+                    for chunk_dict in chunk_dicts:
+                        try:
+                            state.handle_chunk(ChatCompletionChunk.model_validate(chunk_dict))
+                        except Exception as exc:  # parser error: forward continues, traj will be partial
+                            logger.debug(f"[record] chunk parse failed (forward continues): {exc}")
+            except httpx.RequestError as exc:
+                # Connection died mid-stream — bytes already sent reach the client;
+                # record what we got and return.
+                if self._recorder is not None:
+                    await self._recorder.record(
+                        request=request_dict,
+                        response=None,
+                        status="failure",
+                        start_time=start,
+                        end_time=time.time(),
+                        error=f"{type(exc).__name__}: {exc}",
+                    )
+                return
+            finally:
+                await resp.aclose()
+
+        if self._recorder is None:
+            return
+
+        status = "success" if upstream_status < 400 else "failure"
+        final_dict: dict | None = None
+        if status == "success":
+            try:
+                final_dict = state.get_final_completion().model_dump()
+            except Exception as exc:
+                logger.warning(f"[record] stream aggregation failed: {exc}")
+
+        await self._recorder.record(
+            request=request_dict,
+            response=final_dict,
+            status=status,
+            start_time=start,
+            end_time=time.time(),
+            error=None if status == "success" else f"upstream_status={upstream_status}",
+        )
 
 
 CompletionBackend = ReplayBackend | ForwardBackend
