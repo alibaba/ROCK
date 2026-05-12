@@ -39,11 +39,6 @@ setup_kata_dind() {
     mount -o remount,rw /proc/sys
 }
 
-if [ "${ROCK_KATA_RUNTIME}" = "true" ]; then
-    echo "Kata runtime detected, setting up DinD disk..."
-    setup_kata_dind
-fi
-
 # Run rocklet
 if [ "$(is_nix)" = "true" ]; then
     # NixOS
@@ -51,12 +46,19 @@ if [ "$(is_nix)" = "true" ]; then
     ln -sf $(ls -d /nix/store/*glibc*/lib64 2>/dev/null | head -1) /lib64
     mkdir -p /bin
     ln -sf $(ls -d /nix/store/*bash*/bin/bash 2>/dev/null | head -1) /bin/bash
+    ln -sf $(ls -d /nix/store/*util-linux*/bin/mount 2>/dev/null | head -1) /bin/mount
+    export PATH="/bin:${PATH}"
     GCC_LIB=$(ls -d /nix/store/*gcc*lib/lib 2>/dev/null | head -1)
     ZLIB_LIB=$(ls -d /nix/store/*zlib*/lib 2>/dev/null | head -1)
     NIX_LIBS=""
     [ -n "$GCC_LIB" ] && NIX_LIBS="${GCC_LIB}:"
     [ -n "$ZLIB_LIB" ] && NIX_LIBS="${NIX_LIBS}${ZLIB_LIB}:"
     [ -n "$NIX_LIBS" ] && export LD_LIBRARY_PATH="${NIX_LIBS}${LD_LIBRARY_PATH}"
+fi
+
+if [ "${ROCK_KATA_RUNTIME}" = "true" ]; then
+    echo "Kata runtime detected, setting up DinD disk..."
+    setup_kata_dind
 fi
 
 if [ "$(is_musl)" = "true" ]; then
