@@ -58,7 +58,7 @@ async def test_chat_completions_routing_success():
         assert mock_acompletion.called
         call_kwargs = mock_acompletion.call_args.kwargs
         assert call_kwargs["api_base"] == "https://api.openai.com/v1"
-        assert call_kwargs["model"] == "openai/gpt-3.5-turbo"
+        assert call_kwargs["model"] == "custom_openai/gpt-3.5-turbo"
         assert call_kwargs["messages"] == [{"role": "user", "content": "hello"}]
 
 
@@ -200,8 +200,10 @@ async def test_chat_completions_replay_mode_uses_traj_replay_provider():
 
 
 @pytest.mark.asyncio
-async def test_chat_completions_strips_hop_by_hop_headers():
-    """host / content-length / transfer-encoding etc. are not forwarded."""
+async def test_chat_completions_extracts_bearer_token_and_strips_framing_headers():
+    """Bearer token goes to api_key kwarg; host / content-length / transfer-encoding /
+    Authorization are not forwarded as extra_headers (litellm regenerates Authorization
+    from api_key, so passing it both ways would conflict). Custom X-* headers pass through."""
     captured = {}
 
     async def capture(*args, **kwargs):
@@ -218,10 +220,12 @@ async def test_chat_completions_strips_hop_by_hop_headers():
                 headers={"Authorization": "Bearer abc", "X-Trace": "t1"},
             )
 
+    assert captured["api_key"] == "abc"
+
     forwarded = captured["extra_headers"]
     forwarded_lower = {k.lower() for k in forwarded}
-    assert "authorization" in forwarded_lower
     assert "x-trace" in forwarded_lower
+    assert "authorization" not in forwarded_lower
     assert "host" not in forwarded_lower
     assert "content-length" not in forwarded_lower
     assert "content-type" not in forwarded_lower

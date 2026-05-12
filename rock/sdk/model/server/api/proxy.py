@@ -35,7 +35,26 @@ proxy_router = APIRouter()
 #     so the client's values would be wrong or misleading
 #   - transfer-encoding / connection: true RFC 7230 hop-by-hop headers, scoped to
 #     the client↔proxy connection only
-_HEADERS_NOT_TO_FORWARD = frozenset({"host", "content-length", "content-type", "transfer-encoding", "connection"})
+_HEADERS_NOT_TO_FORWARD = frozenset(
+    {"host", "content-length", "content-type", "transfer-encoding", "connection", "authorization"}
+)
+
+
+def _extract_bearer_token(headers) -> str | None:
+    """Pull the Bearer token out of the Authorization header.
+
+    litellm's OpenAI client needs the API key as an explicit ``api_key=`` kwarg —
+    setting Authorization in extra_headers does not work because litellm always
+    regenerates that header from ``api_key`` (or env vars). So we extract it here
+    and let the proxy stay stateless about which key the client is using.
+    """
+    auth = headers.get("authorization") or headers.get("Authorization")
+    if not auth:
+        return None
+    parts = auth.split(None, 1)
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        return parts[1].strip()
+    return auth.strip()
 
 
 def get_base_url(model_name: str, config: ModelServiceConfig) -> str:
@@ -122,14 +141,20 @@ async def chat_completions(body: dict[str, Any], request: Request):
         logger.info(f"[replay] dispatching '{model_name}' to traj-replay handler")
     else:
         api_base = get_base_url(model_name, config)
-        # Tell litellm to treat the upstream as an OpenAI-compatible server.
-        litellm_model = f"openai/{model_name}" if model_name else "openai/default"
+        # custom_openai is litellm's catch-all for OpenAI-compatible third-party endpoints
+        # (DashScope, ModelScope, Groq, Mistral, ...). Unlike `openai/`, it does NOT do
+        # model-name lookup, so arbitrary upstream model names like "glm-5" / "qwen-turbo"
+        # work without "This model isn't mapped yet" errors.
+        litellm_model = f"custom_openai/{model_name}" if model_name else "custom_openai/default"
         logger.info(f"Routing model '{model_name}' to {api_base}")
 
-    # 2. Header forwarding (preserve Authorization, drop hop-by-hop)
+    # 2. Extract Bearer token (litellm needs api_key explicitly, not via headers)
+    api_key = _extract_bearer_token(request.headers)
+
+    # 3. Header forwarding (drop Authorization since we pass it via api_key, plus hop-by-hop)
     extra_headers = _filter_headers(request.headers)
 
-    # 3. Build call kwargs (transparent passthrough of body fields)
+    # 4. Build call kwargs (transparent passthrough of body fields)
     call_kwargs = dict(body)
     call_kwargs.pop("model", None)  # avoid duplicate kwargs
     is_stream = bool(call_kwargs.get("stream"))
@@ -138,9 +163,16 @@ async def chat_completions(body: dict[str, Any], request: Request):
         response = await litellm.acompletion(
             model=litellm_model,
             api_base=api_base,
+            api_key=api_key,
             extra_headers=extra_headers,
             timeout=config.request_timeout,
             num_retries=config.num_retries,
+            # Suppress litellm's "model isn't mapped yet" cost-calc exception for
+            # arbitrary upstream models (glm-5, qwen-turbo, ...) that aren't in
+            # litellm's pricing table. We don't care about cost tracking here, so
+            # zero rates make the calc succeed cleanly with response_cost=0.
+            input_cost_per_token=0,
+            output_cost_per_token=0,
             **call_kwargs,
         )
     except (RateLimitError, APIError, BadRequestError, AuthenticationError, Timeout) as exc:
