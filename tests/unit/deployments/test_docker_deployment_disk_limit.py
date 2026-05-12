@@ -241,5 +241,6 @@ class TestDockerDeploymentStartDiskLimit:
             mock_sub.run.return_value = ok
             deployment._try_set_log_dir_quota("/var/log/rock/test-container")
 
-        # xfs_quota succeeded → effective value preserved
+        # xfs_quota succeeded → effective value preserved and prjid recorded
         assert deployment.effective_disk_limit_log == "5g"
+        assert deployment.log_dir_xfs_prjid is not None

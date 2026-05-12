@@ -43,6 +43,8 @@ from rock.utils import (
 
 __all__ = ["DockerDeployment", "DockerDeploymentConfig"]
 CHECK_CLEAR_INTERVAL_SECONDS = 300
+XFS_PRJID_MIN = (1 << 31)                      # low project IDs are reserved for Docker
+XFS_PRJID_RANGE = (1 << 32) - XFS_PRJID_MIN   # use remaining 32-bit space: [XFS_PRJID_MIN, 2^32)
 
 
 logger = init_logger(__name__)
@@ -87,6 +89,8 @@ class DockerDeployment(AbstractDeployment):
             raise Exception(f"Invalid ROCK_WORKER_ENV_TYPE: {env_vars.ROCK_WORKER_ENV_TYPE}")
 
         self.sandbox_validator: DockerSandboxValidator | None = DockerSandboxValidator()
+        self.log_dir_xfs_prjid: int | None = None
+        self.log_dir_xfs_mountpoint: str | None = None
 
     def add_hook(self, hook: DeploymentHook):
         self._hooks.add_hook(hook)
@@ -207,6 +211,37 @@ class DockerDeployment(AbstractDeployment):
             if os.path.exists(disk_path):
                 os.remove(disk_path)
             raise
+
+    def _cleanup_log_dir_xfs_quota(self) -> None:
+        """Remove XFS project quota for the sandbox log directory on exit."""
+        if self.log_dir_xfs_prjid is None or self.log_dir_xfs_mountpoint is None:
+            return
+        if not self._container_name:
+            return
+
+        log_file_path = f"{env_vars.ROCK_LOGGING_PATH}/{self._container_name}"
+        project_id = self.log_dir_xfs_prjid
+        mount_point = self.log_dir_xfs_mountpoint
+        try:
+            clear_limit_cmd = f"limit -p bhard=0 bsoft=0 {project_id}"
+            clear_project_cmd = f"project -C -p {shlex.quote(log_file_path)} {project_id}"
+            for cmd in (clear_limit_cmd, clear_project_cmd):
+                result = subprocess.run(
+                    ["xfs_quota", "-x", "-c", cmd, mount_point],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode != 0:
+                    logger.warning(
+                        f"xfs_quota cleanup failed for {log_file_path!r} cmd={cmd!r}: {result.stderr.strip() or result.stdout.strip()}"
+                    )
+            logger.info(f"Cleaned up XFS project quota (prjid={project_id}) for {log_file_path!r}")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup XFS project quota for {log_file_path!r}: {e}")
+        finally:
+            self.log_dir_xfs_prjid = None
+            self.log_dir_xfs_mountpoint = None
 
     def _cleanup_kata_disk(self) -> None:
         """Remove the kata disk image file from the host.
@@ -389,7 +424,7 @@ class DockerDeployment(AbstractDeployment):
             return
 
         # Derive a deterministic project id from container name; reserve low ids.
-        project_id = (int(hashlib.sha1(self.container_name.encode("utf-8")).hexdigest()[:8], 16) % 900000) + 100000
+        project_id = (int(hashlib.sha1(self.container_name.encode("utf-8")).hexdigest()[:8], 16) % XFS_PRJID_RANGE) + XFS_PRJID_MIN
         try:
             findmnt_result = subprocess.run(
                 ["findmnt", "-T", log_file_path, "-o", "TARGET", "--noheadings"],
@@ -422,6 +457,8 @@ class DockerDeployment(AbstractDeployment):
                     )
                     self._effective_disk_limit_log = None
                     return
+            self.log_dir_xfs_prjid = project_id
+            self.log_dir_xfs_mountpoint = mount_point
             logger.info(f"Set XFS project quota {self._effective_disk_limit_log} for log path {log_file_path!r}")
         except Exception as e:
             logger.warning(f"Failed to set XFS project quota for {log_file_path!r}: {e}")
@@ -620,6 +657,7 @@ class DockerDeployment(AbstractDeployment):
 
             self._container_process = None
             self._cleanup_kata_disk()
+            self._cleanup_log_dir_xfs_quota()
             self._container_name = None
 
         if self._config and self._config.remove_images and DockerUtil.is_image_available(self._config.image):
