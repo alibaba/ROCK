@@ -12,7 +12,7 @@ Two backends share the ``/v1/chat/completions`` route:
    returns (provider-specific ``reasoning_content``, ``citations``, ...) is
    passed through untouched.
 
-2. **ReplayBackend** (``replay_traj_file`` set) — the request is served
+2. **ReplayBackend** (``replay_file`` set) — the request is served
    directly from the next record in the ``SequentialCursor`` without any
    upstream call. Streaming emits the recorded response as one SSE chunk +
    ``[DONE]``.

@@ -51,12 +51,13 @@ class ModelServiceConfig(BaseModel):
     request_timeout: int = Field(default=120)
     """Request timeout in seconds."""
 
-    traj_file: str | None = Field(default=None)
-    """Override default trajectory file path. None → uses TRAJ_FILE (LOG_DIR/LLMTraj.jsonl)."""
+    recording_file: str | None = Field(default=None)
+    """Recording mode output: where ForwardBackend writes the trajectory JSONL.
+    None → uses TRAJ_FILE (LOG_DIR/LLMTraj.jsonl)."""
 
-    replay_traj_file: str | None = Field(default=None)
-    """Path to a .jsonl trajectory file for replay mode.
-    When set, requests are served from recorded responses instead of a real upstream."""
+    replay_file: str | None = Field(default=None)
+    """Replay mode input: a .jsonl trajectory file. When set, ReplayBackend serves
+    requests from recorded responses instead of calling a real upstream."""
 
     @classmethod
     def from_file(cls, config_path: str | None = None):

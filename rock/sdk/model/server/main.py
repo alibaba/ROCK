@@ -55,27 +55,28 @@ def create_app(config: ModelServiceConfig) -> FastAPI:
 def _configure_proxy_integrations(app: FastAPI, config: ModelServiceConfig) -> None:
     """Attach the appropriate backend to ``app.state.backend``.
 
-    - Replay mode (``replay_traj_file`` set): ``ReplayBackend`` wrapping a
+    - Replay mode (``replay_file`` set): ``ReplayBackend`` wrapping a
       ``SequentialCursor``; no recorder — replaying back into the source file
       would corrupt it.
-    - Forward mode (default): ``ForwardBackend`` with a ``TrajectoryRecorder``.
+    - Forward mode (default): ``ForwardBackend`` with a ``TrajectoryRecorder``
+      writing to ``recording_file`` (or ``TRAJ_FILE`` if unset).
     """
     from rock.sdk.model.server.api.proxy import ForwardBackend, ReplayBackend
 
-    if config.replay_traj_file:
+    if config.replay_file:
         from rock.sdk.model.server.traj import SequentialCursor
 
-        cursor = SequentialCursor.load(config.replay_traj_file)
+        cursor = SequentialCursor.load(config.replay_file)
         app.state.backend = ReplayBackend(cursor)
-        logger.info(f"replay backend attached, traj_path={config.replay_traj_file}")
+        logger.info(f"replay backend attached, replay_file={config.replay_file}")
         return
 
     from rock.sdk.model.server.traj import TrajectoryRecorder
 
-    traj_path = config.traj_file or TRAJ_FILE
-    recorder = TrajectoryRecorder(traj_file=traj_path)
+    recording_path = config.recording_file or TRAJ_FILE
+    recorder = TrajectoryRecorder(traj_file=recording_path)
     app.state.backend = ForwardBackend(config, recorder=recorder)
-    logger.info(f"forward backend attached, traj_file={traj_path}")
+    logger.info(f"forward backend attached, recording_file={recording_path}")
 
 
 def main(
@@ -127,9 +128,12 @@ def create_config_from_args(args) -> ModelServiceConfig:
     if args.request_timeout:
         config.request_timeout = args.request_timeout
         logger.info(f"request_timeout set from command line: {args.request_timeout}s")
-    if args.traj_file:
-        config.replay_traj_file = args.traj_file
-        logger.info(f"replay mode enabled via --traj-file: {args.traj_file}")
+    if args.recording_file:
+        config.recording_file = args.recording_file
+        logger.info(f"recording_file set from command line: {args.recording_file}")
+    if args.replay_file:
+        config.replay_file = args.replay_file
+        logger.info(f"replay mode enabled via --replay-file: {args.replay_file}")
 
     return config
 
@@ -173,7 +177,13 @@ if __name__ == "__main__":
         "--request-timeout", type=int, default=None, help="Request timeout in seconds. Overrides config file."
     )
     parser.add_argument(
-        "--traj-file",
+        "--recording-file",
+        type=str,
+        default=None,
+        help="Forward mode: where to write the trajectory JSONL. Defaults to TRAJ_FILE.",
+    )
+    parser.add_argument(
+        "--replay-file",
         type=str,
         default=None,
         help="Replay mode: path to a recorded .jsonl traj file. Disables real LLM upstreams.",

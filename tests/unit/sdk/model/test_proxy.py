@@ -439,7 +439,7 @@ async def test_replay_returns_recorded_response_no_upstream_call(tmp_path):
     traj.write_text(json.dumps(record) + "\n", encoding="utf-8")
 
     config = ModelServiceConfig()
-    config.replay_traj_file = str(traj)
+    config.replay_file = str(traj)
     app = _build_app(config, replay_cursor=SequentialCursor.load(traj))
 
     transport = ASGITransport(app=app)
@@ -474,7 +474,7 @@ async def test_replay_streaming_emits_recorded_response_as_sse(tmp_path):
     traj.write_text(json.dumps(record) + "\n", encoding="utf-8")
 
     config = ModelServiceConfig()
-    config.replay_traj_file = str(traj)
+    config.replay_file = str(traj)
     app = _build_app(config, replay_cursor=SequentialCursor.load(traj))
 
     transport = ASGITransport(app=app)
@@ -504,7 +504,7 @@ async def test_replay_returns_404_when_cursor_exhausted(tmp_path):
     traj.write_text(json.dumps(record) + "\n", encoding="utf-8")
 
     config = ModelServiceConfig()
-    config.replay_traj_file = str(traj)
+    config.replay_file = str(traj)
     app = _build_app(config, replay_cursor=SequentialCursor.load(traj))
 
     transport = ASGITransport(app=app)
@@ -550,26 +550,26 @@ def test_config_default_host_and_port():
     assert config.port == 8080
 
 
-def test_config_default_traj_and_replay():
+def test_config_default_recording_and_replay():
     config = ModelServiceConfig()
-    assert config.traj_file is None
-    assert config.replay_traj_file is None
+    assert config.recording_file is None
+    assert config.replay_file is None
 
 
 @pytest.mark.asyncio
-async def test_config_loads_traj_and_replay_from_file(tmp_path):
+async def test_config_loads_recording_and_replay_from_file(tmp_path):
     conf_file = tmp_path / "proxy.yml"
     conf_file.write_text(
         yaml.dump(
             {
-                "traj_file": "/tmp/my-traj.jsonl",
-                "replay_traj_file": "/tmp/in.jsonl",
+                "recording_file": "/tmp/my-traj.jsonl",
+                "replay_file": "/tmp/in.jsonl",
             }
         )
     )
     config = ModelServiceConfig.from_file(str(conf_file))
-    assert config.traj_file == "/tmp/my-traj.jsonl"
-    assert config.replay_traj_file == "/tmp/in.jsonl"
+    assert config.recording_file == "/tmp/my-traj.jsonl"
+    assert config.replay_file == "/tmp/in.jsonl"
 
 
 def test_cli_args_override_config_file(tmp_path):
@@ -591,8 +591,8 @@ def test_cli_args_override_config_file(tmp_path):
         proxy_base_url="https://cli-url.example.com/v1",
         retryable_status_codes=None,
         request_timeout=30,
-        num_retries=None,
-        traj_file=None,
+        recording_file=None,
+        replay_file=None,
     )
     config = create_config_from_args(args)
     assert config.host == "0.0.0.0"
@@ -601,7 +601,7 @@ def test_cli_args_override_config_file(tmp_path):
     assert config.request_timeout == 30
 
 
-def test_cli_traj_file_enables_replay():
+def test_cli_replay_file_enables_replay():
     args = argparse.Namespace(
         config_file=None,
         host=None,
@@ -609,11 +609,11 @@ def test_cli_traj_file_enables_replay():
         proxy_base_url=None,
         retryable_status_codes=None,
         request_timeout=None,
-        num_retries=None,
-        traj_file="/tmp/in.jsonl",
+        recording_file=None,
+        replay_file="/tmp/in.jsonl",
     )
     config = create_config_from_args(args)
-    assert config.replay_traj_file == "/tmp/in.jsonl"
+    assert config.replay_file == "/tmp/in.jsonl"
 
 
 # ---------- Metrics singleton + legacy record_traj (still used by local mode) ----------
