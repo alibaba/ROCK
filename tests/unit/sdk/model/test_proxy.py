@@ -17,8 +17,8 @@ from httpx import ASGITransport, AsyncClient
 
 from rock.sdk.model.server.api.proxy import proxy_router
 from rock.sdk.model.server.config import ModelServiceConfig
-from rock.sdk.model.server.integrations.traj_replayer import SequentialCursor
 from rock.sdk.model.server.main import create_config_from_args, lifespan
+from rock.sdk.model.server.traj import SequentialCursor
 from rock.sdk.model.server.utils import (
     MODEL_SERVICE_REQUEST_COUNT,
     MODEL_SERVICE_REQUEST_RT,
@@ -386,7 +386,7 @@ async def test_forward_stream_retries_on_retryable_status_then_succeeds(monkeypa
 @pytest.mark.asyncio
 async def test_forward_invokes_recorder_on_success(tmp_path):
     """When a recorder is attached to the backend, success calls write a JSONL line."""
-    from rock.sdk.model.server.integrations.traj_recorder import TrajectoryRecorder
+    from rock.sdk.model.server.traj import TrajectoryRecorder
 
     upstream_payload = _success_response_json(content="recorded reply")
     traj_file = tmp_path / "traj.jsonl"
@@ -396,12 +396,7 @@ async def test_forward_invokes_recorder_on_success(tmp_path):
 
     config = ModelServiceConfig()
 
-    with (
-        _patch_httpx_with_handler(handler),
-        patch(
-            "rock.sdk.model.server.integrations.traj_recorder._get_or_create_metrics_monitor", return_value=MagicMock()
-        ),
-    ):
+    with _patch_httpx_with_handler(handler):
         recorder = TrajectoryRecorder(traj_file=traj_file)
         app = _build_app(config, recorder=recorder)
         transport = ASGITransport(app=app)

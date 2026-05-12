@@ -33,14 +33,13 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from rock.logger import init_logger
 from rock.sdk.model.server.config import ModelServiceConfig
-from rock.sdk.model.server.integrations.traj_recorder import TrajectoryRecorder
-from rock.sdk.model.server.integrations.traj_replayer import SequentialCursor, TrajectoryExhausted
-from rock.sdk.model.server.sse_utils import (
+from rock.sdk.model.server.sse import (
     SSE_DONE,
     completion_to_chunk_dict,
     encode_sse_event,
     parse_sse_data_chunks,
 )
+from rock.sdk.model.server.traj import SequentialCursor, TrajectoryExhausted, TrajectoryRecorder
 
 logger = init_logger(__name__)
 

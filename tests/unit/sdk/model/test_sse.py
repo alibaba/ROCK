@@ -2,7 +2,7 @@
 
 import json
 
-from rock.sdk.model.server.sse_utils import (
+from rock.sdk.model.server.sse import (
     SSE_DONE,
     completion_to_chunk_dict,
     encode_sse_event,

@@ -5,14 +5,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from rock.sdk.model.server.integrations.traj_recorder import TrajectoryRecorder
+from rock.sdk.model.server.traj import TrajectoryRecorder
 
 
 @pytest.fixture
 def mock_monitor():
     monitor = MagicMock()
     with patch(
-        "rock.sdk.model.server.integrations.traj_recorder._get_or_create_metrics_monitor",
+        "rock.sdk.model.server.traj._get_or_create_metrics_monitor",
         return_value=monitor,
     ):
         yield monitor

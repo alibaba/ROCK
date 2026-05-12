@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from rock.sdk.model.server.integrations.traj_replayer import SequentialCursor, TrajectoryExhausted
+from rock.sdk.model.server.traj import SequentialCursor, TrajectoryExhausted
 
 
 def _record(*, msg: str, model: str = "gpt-3.5-turbo", call_id: str = "x") -> dict:

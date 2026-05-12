@@ -63,14 +63,14 @@ def _configure_proxy_integrations(app: FastAPI, config: ModelServiceConfig) -> N
     from rock.sdk.model.server.api.proxy import ForwardBackend, ReplayBackend
 
     if config.replay_traj_file:
-        from rock.sdk.model.server.integrations.traj_replayer import SequentialCursor
+        from rock.sdk.model.server.traj import SequentialCursor
 
         cursor = SequentialCursor.load(config.replay_traj_file)
         app.state.backend = ReplayBackend(cursor)
         logger.info(f"replay backend attached, traj_path={config.replay_traj_file}")
         return
 
-    from rock.sdk.model.server.integrations.traj_recorder import TrajectoryRecorder
+    from rock.sdk.model.server.traj import TrajectoryRecorder
 
     traj_path = config.traj_file or TRAJ_FILE
     recorder = TrajectoryRecorder(traj_file=traj_path)

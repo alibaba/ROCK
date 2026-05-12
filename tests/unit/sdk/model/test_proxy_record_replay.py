@@ -23,9 +23,8 @@ from fastapi.testclient import TestClient
 
 from rock.sdk.model.server.api.proxy import ForwardBackend, ReplayBackend, proxy_router
 from rock.sdk.model.server.config import ModelServiceConfig
-from rock.sdk.model.server.integrations.traj_recorder import TrajectoryRecorder
-from rock.sdk.model.server.integrations.traj_replayer import SequentialCursor
-from rock.sdk.model.server.sse_utils import parse_sse_data_chunks
+from rock.sdk.model.server.sse import parse_sse_data_chunks
+from rock.sdk.model.server.traj import SequentialCursor, TrajectoryRecorder
 from rock.utils.system import find_free_port
 
 # ---------------------------------------------------------------------------
