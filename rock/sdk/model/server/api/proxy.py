@@ -1,13 +1,28 @@
+"""OpenAI-compatible chat/completions proxy backed by the litellm SDK.
+
+The proxy ``/v1/chat/completions`` handler routes a request to the configured
+upstream LLM (or to the in-process traj-replay handler when ``replay_traj_path``
+is set), forwards header/body, and applies retry via litellm's ``num_retries``.
+
+Trajectory recording is wired up at startup in
+``rock.sdk.model.server.main`` by registering ``TrajectoryRecorder`` as a
+``litellm.callbacks`` entry — this handler does not carry a ``@record_traj``
+decorator anymore.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import AsyncIterator
 from typing import Any
 
-import httpx
+import litellm
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from litellm.exceptions import APIError, AuthenticationError, BadRequestError, RateLimitError, Timeout
 
 from rock.logger import init_logger
 from rock.sdk.model.server.config import ModelServiceConfig
-from rock.sdk.model.server.utils import record_traj
-from rock.utils import retry_async
 
 logger = init_logger(__name__)
 
@@ -15,40 +30,21 @@ logger = init_logger(__name__)
 proxy_router = APIRouter()
 
 
-# Global HTTP client with a persistent connection pool
-http_client = httpx.AsyncClient()
-
-
-@retry_async(
-    max_attempts=6,
-    delay_seconds=2.0,
-    backoff=2.0,  # Exponential backoff (2s, 4s, 8s, 16s, 32s).
-    jitter=True,  # Adds randomness to prevent "thundering herd" effect on the backend.
-    exceptions=(httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError),
-)
-async def perform_llm_request(url: str, body: dict, headers: dict, config: ModelServiceConfig):
-    """
-    Forwards the request and triggers retry ONLY if the status code
-    is in the explicit retryable whitelist.
-    """
-    response = await http_client.post(url, json=body, headers=headers, timeout=config.request_timeout)
-    status_code = response.status_code
-
-    # Check against the explicit whitelist
-    if status_code in config.retryable_status_codes:
-        logger.warning(f"Retryable error detected: {status_code}. Triggering retry for {url}...")
-        response.raise_for_status()
-
-    return response
+# Headers we never forward upstream:
+#   - host / content-length / content-type: litellm rewrites the body and re-targets,
+#     so the client's values would be wrong or misleading
+#   - transfer-encoding / connection: true RFC 7230 hop-by-hop headers, scoped to
+#     the client↔proxy connection only
+_HEADERS_NOT_TO_FORWARD = frozenset({"host", "content-length", "content-type", "transfer-encoding", "connection"})
 
 
 def get_base_url(model_name: str, config: ModelServiceConfig) -> str:
-    """
-    Selects the target backend URL based on model name matching.
+    """Pick the upstream base URL by model name.
 
-    If proxy_base_url is configured, it takes precedence over proxy_rules.
+    ``proxy_base_url`` takes precedence; falls back to ``proxy_rules[model]`` and
+    then ``proxy_rules["default"]``. Trailing slashes are stripped so the caller
+    can append ``/chat/completions`` directly.
     """
-    # If direct proxy base URL is configured, return it directly (bypass model name matching)
     if config.proxy_base_url:
         return config.proxy_base_url.rstrip("/")
 
@@ -59,67 +55,108 @@ def get_base_url(model_name: str, config: ModelServiceConfig) -> str:
     base_url = rules.get(model_name) or rules.get("default")
     if not base_url:
         raise HTTPException(
-            status_code=400, detail=f"Model '{model_name}' is not configured and no 'default' rule found."
+            status_code=400,
+            detail=f"Model '{model_name}' is not configured and no 'default' rule found.",
         )
 
     return base_url.rstrip("/")
 
 
-@proxy_router.post("/v1/chat/completions")
-@record_traj
-async def chat_completions(body: dict[str, Any], request: Request):
-    """
-    OpenAI-compatible chat completions proxy endpoint.
-    Handles routing, header transparent forwarding, and automatic retries.
-    """
-    config = request.app.state.model_service_config
-
-    # Step 1: Model Routing
-    model_name = body.get("model", "")
-    base_url = get_base_url(model_name, config)
-    target_url = f"{base_url}/chat/completions"
-    logger.info(f"Routing model '{model_name}' to URL: {target_url}")
-
-    # Step 2: Header Cleaning
-    # Preserve 'Authorization' for authentication while removing hop-by-hop transport headers.
-    forwarded_headers = {}
-    for key, value in request.headers.items():
-        if key.lower() in ["host", "content-length", "content-type", "transfer-encoding"]:
+def _filter_headers(headers) -> dict[str, str]:
+    forwarded = {}
+    for key, value in headers.items():
+        if key.lower() in _HEADERS_NOT_TO_FORWARD:
             continue
-        forwarded_headers[key] = value
+        forwarded[key] = value
+    return forwarded
 
-    # Step 3: Strategy Enforcement
-    # Force non-streaming mode for the MVP phase to ensure stability.
-    if body.get("stream") is True:
-        raise HTTPException(
-            status_code=400,
-            detail="Streaming requests (stream=True) are not supported in the current version. Please set stream=False or omit the stream parameter.",
-        )
-    body["stream"] = False
+
+def _format_error_response(exc: Exception) -> JSONResponse:
+    """Render a litellm exception as the legacy ``{error:{message,type,code}}`` JSON.
+
+    Agent-side logic keys off message substrings (e.g. "context length exceeded",
+    "content violation"), so we keep the message verbatim from the upstream.
+    """
+    status_code = getattr(exc, "status_code", None) or 502
+    message = str(exc)
+    error_type = type(exc).__name__
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "error": {
+                "message": f"LLM backend error: {message}",
+                "type": error_type,
+                "code": status_code,
+            }
+        },
+    )
+
+
+async def _sse_iter(stream: AsyncIterator[Any]) -> AsyncIterator[bytes]:
+    """Convert a litellm async chunk stream into Server-Sent Events bytes."""
+    try:
+        async for chunk in stream:
+            payload = chunk.model_dump() if hasattr(chunk, "model_dump") else chunk
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode()
+    finally:
+        yield b"data: [DONE]\n\n"
+
+
+@proxy_router.post("/v1/chat/completions")
+async def chat_completions(body: dict[str, Any], request: Request):
+    """OpenAI-compatible chat completions proxy endpoint.
+
+    Routes via ``proxy_base_url`` / ``proxy_rules``, forwards Authorization-style
+    headers, supports streaming, retries via litellm. In replay mode the request
+    is dispatched to the registered ``traj-replay`` CustomLLM provider instead
+    of being forwarded upstream.
+    """
+    config: ModelServiceConfig = request.app.state.model_service_config
+
+    model_name = body.get("model", "")
+
+    # 1. Route selection
+    if config.replay_traj_path:
+        litellm_model = f"traj-replay/{model_name or 'replay'}"
+        api_base: str | None = None
+        logger.info(f"[replay] dispatching '{model_name}' to traj-replay handler")
+    else:
+        api_base = get_base_url(model_name, config)
+        # Tell litellm to treat the upstream as an OpenAI-compatible server.
+        litellm_model = f"openai/{model_name}" if model_name else "openai/default"
+        logger.info(f"Routing model '{model_name}' to {api_base}")
+
+    # 2. Header forwarding (preserve Authorization, drop hop-by-hop)
+    extra_headers = _filter_headers(request.headers)
+
+    # 3. Build call kwargs (transparent passthrough of body fields)
+    call_kwargs = dict(body)
+    call_kwargs.pop("model", None)  # avoid duplicate kwargs
+    is_stream = bool(call_kwargs.get("stream"))
 
     try:
-        # Step 4: Execute Request with Retry Logic
-        response = await perform_llm_request(target_url, body, forwarded_headers, config)
-        return JSONResponse(status_code=response.status_code, content=response.json())
-
-    except httpx.HTTPStatusError as e:
-        # Forward the raw backend error message to the client.
-        # This allows the Agent-side logic to detect keywords like 'context length exceeded'
-        # or 'content violation' and raise appropriate exceptions.
-        error_text = e.response.text if e.response else "No error details"
-        status_code = e.response.status_code if e.response else 502
-        logger.error(f"Final failure after retries. Status: {status_code}, Response: {error_text}")
-        return JSONResponse(
-            status_code=status_code,
-            content={
-                "error": {
-                    "message": f"LLM backend error: {error_text}",
-                    "type": "proxy_retry_failed",
-                    "code": status_code,
-                }
-            },
+        response = await litellm.acompletion(
+            model=litellm_model,
+            api_base=api_base,
+            extra_headers=extra_headers,
+            timeout=config.request_timeout,
+            num_retries=config.num_retries,
+            **call_kwargs,
         )
-    except Exception as e:
-        logger.error(f"Unexpected proxy error: {str(e)}")
-        # Raise standard 500 for non-HTTP related errors or system errors
-        raise HTTPException(status_code=500, detail=str(e))
+    except (RateLimitError, APIError, BadRequestError, AuthenticationError, Timeout) as exc:
+        logger.warning(f"litellm error for model '{model_name}': {exc}")
+        return _format_error_response(exc)
+    except Exception as exc:  # pragma: no cover - last-resort safety net
+        logger.error(f"Unexpected proxy error: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    # 4. Streaming vs non-streaming response
+    if is_stream:
+        return StreamingResponse(_sse_iter(response), media_type="text/event-stream")
+
+    # litellm returns a ModelResponse pydantic; expose the OpenAI-shape dict.
+    if hasattr(response, "model_dump"):
+        body_out = response.model_dump()
+    else:
+        body_out = response  # already a dict (replay path can short-circuit)
+    return JSONResponse(status_code=200, content=body_out)

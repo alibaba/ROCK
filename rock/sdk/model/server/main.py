@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from rock.logger import init_logger
 from rock.sdk.model.server.api.local import init_local_api, local_router
 from rock.sdk.model.server.api.proxy import proxy_router
-from rock.sdk.model.server.config import ModelServiceConfig
+from rock.sdk.model.server.config import TRAJ_FILE, ModelServiceConfig
 
 # Configure logging
 logger = init_logger(__name__)
@@ -52,6 +52,39 @@ def create_app(config: ModelServiceConfig) -> FastAPI:
     return app
 
 
+def _configure_litellm_for_proxy(config: ModelServiceConfig) -> None:
+    """Wire up litellm record/replay integrations for the proxy mode.
+
+    - When ``replay_traj_path`` is set, register ``TrajectoryReplayer`` as a
+      custom provider so requests routed to ``traj-replay/<model>`` return
+      recorded responses without hitting any upstream.
+    - When recording is enabled (default), register ``TrajectoryRecorder`` as
+      a litellm callback so every chat/completions call appends a JSONL line.
+
+    Replay and record are mutually exclusive: in replay mode we don't record,
+    since replayed responses re-traversing the recorder would inflate metrics
+    and overwrite the source-of-truth file.
+    """
+    import litellm
+
+    from rock.sdk.model.server.integrations.traj_recorder import TrajectoryRecorder
+    from rock.sdk.model.server.integrations.traj_replayer import TrajectoryReplayer
+
+    if config.replay_traj_path:
+        replayer = TrajectoryReplayer(config.replay_traj_path)
+        litellm.custom_provider_map = [
+            {"provider": "traj-replay", "custom_handler": replayer},
+        ]
+        logger.info(f"litellm replay handler registered, traj_path={config.replay_traj_path}")
+        return
+
+    if config.traj_enabled:
+        traj_path = config.traj_file or TRAJ_FILE
+        recorder = TrajectoryRecorder(traj_file=traj_path)
+        litellm.callbacks.append(recorder)
+        logger.info(f"litellm trajectory recorder registered, traj_file={traj_path}")
+
+
 def main(
     model_servie_type: str,
     config: ModelServiceConfig,
@@ -63,6 +96,7 @@ def main(
         asyncio.run(init_local_api())
         app.include_router(local_router, prefix="", tags=["local"])
     else:
+        _configure_litellm_for_proxy(config)
         app.include_router(proxy_router, prefix="", tags=["proxy"])
 
     logger.info(f"Starting LLM Service on {config.host}:{config.port}, type: {model_servie_type}")
@@ -100,6 +134,13 @@ def create_config_from_args(args) -> ModelServiceConfig:
     if args.request_timeout:
         config.request_timeout = args.request_timeout
         logger.info(f"request_timeout set from command line: {args.request_timeout}s")
+    if getattr(args, "num_retries", None) is not None:
+        config.num_retries = args.num_retries
+        logger.info(f"num_retries set from command line: {args.num_retries}")
+    if getattr(args, "traj_file", None):
+        config.replay_traj_path = args.traj_file
+        config.traj_enabled = False
+        logger.info(f"replay mode enabled via --traj-file: {args.traj_file}")
 
     return config
 
@@ -141,6 +182,18 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--request-timeout", type=int, default=None, help="Request timeout in seconds. Overrides config file."
+    )
+    parser.add_argument(
+        "--num-retries",
+        type=int,
+        default=None,
+        help="Number of retries for retryable failures (passed through to litellm). Overrides config file.",
+    )
+    parser.add_argument(
+        "--traj-file",
+        type=str,
+        default=None,
+        help="Replay mode: path to a recorded .jsonl traj file or directory. Disables real LLM upstreams.",
     )
     args = parser.parse_args()
 
