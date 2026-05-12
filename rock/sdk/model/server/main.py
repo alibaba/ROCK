@@ -53,18 +53,15 @@ def create_app(config: ModelServiceConfig) -> FastAPI:
 
 
 def _configure_proxy_integrations(app: FastAPI, config: ModelServiceConfig) -> None:
-    """Wire up record/replay integrations for the proxy mode.
+    """Wire up record/replay integrations and attach them to ``app.state``.
 
-    - When ``replay_traj_path`` is set, load the trajectory into a
-      ``SequentialCursor`` and attach it to ``app.state.replay_cursor``. The
-      proxy handler serves recorded responses directly from this cursor; we
-      do NOT register anything with litellm (replay path bypasses litellm
-      entirely so cursor-exhausted errors aren't swallowed by retry logic).
-    - Otherwise (record/forward mode), if ``traj_enabled`` is True, register
-      ``TrajectoryRecorder`` as a ``litellm.callbacks`` entry so every
-      chat/completions call appends a JSONL line.
+    - Replay mode (``replay_traj_path`` set): load the trajectory into a
+      ``SequentialCursor`` and stash it as ``app.state.replay_cursor``.
+    - Forward/record mode (default): if ``traj_enabled`` is True, attach a
+      ``TrajectoryRecorder`` instance as ``app.state.recorder``. The proxy
+      handler invokes it explicitly after each forwarded call.
 
-    Replay and record are mutually exclusive: in replay mode we don't record,
+    Replay and record are mutually exclusive — in replay mode we don't record,
     since replayed responses round-tripping back into the source file would
     inflate metrics and corrupt the trajectory.
     """
@@ -76,14 +73,11 @@ def _configure_proxy_integrations(app: FastAPI, config: ModelServiceConfig) -> N
         return
 
     if config.traj_enabled:
-        import litellm
-
         from rock.sdk.model.server.integrations.traj_recorder import TrajectoryRecorder
 
         traj_path = config.traj_file or TRAJ_FILE
-        recorder = TrajectoryRecorder(traj_file=traj_path)
-        litellm.callbacks.append(recorder)
-        logger.info(f"litellm trajectory recorder registered, traj_file={traj_path}")
+        app.state.recorder = TrajectoryRecorder(traj_file=traj_path)
+        logger.info(f"trajectory recorder attached, traj_file={traj_path}")
 
 
 def main(

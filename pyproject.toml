@@ -86,7 +86,13 @@ model-service = [
     "psutil",
     "swebench",
     "alibabacloud_cr20181201==2.0.5",
-    "litellm>=1.50.0",
+    # openai SDK is used as a TYPE/parser library only — for ChatCompletionChunk
+    # validation and ChatCompletionStreamState (the official stream chunk aggregator).
+    # We do NOT use AsyncOpenAI as an HTTP client; transport is plain httpx so the
+    # proxy can forward upstream bytes verbatim, including any provider-specific
+    # fields (reasoning_content, citations, ...) without re-encoding OpenAI protocol.
+    "openai>=1.50.0",
+    "httpx",
 ]
 
 
