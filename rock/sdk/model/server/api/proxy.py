@@ -142,12 +142,6 @@ def _filter_headers(headers) -> dict[str, str]:
     return out
 
 
-async def _replay_sse_iter(response: dict, *, model: str) -> AsyncIterator[bytes]:
-    """Emit a recorded response as one SSE chunk + ``[DONE]``."""
-    yield encode_sse_event(completion_to_chunk_dict(response, model=model))
-    yield SSE_DONE
-
-
 async def _forward_stream_and_record(
     *,
     upstream_url: str,
@@ -264,10 +258,16 @@ class ReplayBackend:
 
         if is_stream:
             return StreamingResponse(
-                _replay_sse_iter(response_dict, model=model_name),
+                self._sse_iter(response_dict, model=model_name),
                 media_type="text/event-stream",
             )
         return JSONResponse(status_code=200, content=response_dict)
+
+    @staticmethod
+    async def _sse_iter(response: dict, *, model: str) -> AsyncIterator[bytes]:
+        """Emit a recorded response as one SSE chunk + ``[DONE]``."""
+        yield encode_sse_event(completion_to_chunk_dict(response, model=model))
+        yield SSE_DONE
 
 
 class ForwardBackend:
