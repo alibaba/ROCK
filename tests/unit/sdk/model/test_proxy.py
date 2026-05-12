@@ -247,7 +247,10 @@ async def test_forward_authorization_header_passes_through():
 
 
 @pytest.mark.asyncio
-async def test_forward_502_on_upstream_connection_failure():
+async def test_forward_502_on_upstream_connection_failure(monkeypatch):
+    """ConnectError → 502. Retry disabled here to keep the test fast."""
+    monkeypatch.setattr("rock.sdk.model.server.api.proxy._RETRY_MAX_ATTEMPTS", 1)
+
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("upstream is down")
 
@@ -261,6 +264,120 @@ async def test_forward_502_on_upstream_connection_failure():
             )
 
     assert r.status_code == 502
+
+
+# ---------- Forward path: retry ----------
+
+
+@pytest.mark.asyncio
+async def test_forward_retries_on_retryable_status_then_succeeds(monkeypatch):
+    """A 429 is retried; the next attempt's 200 is returned to the client."""
+    monkeypatch.setattr("rock.sdk.model.server.api.proxy._RETRY_DELAY_SECONDS", 0.0)
+
+    attempts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
+        if len(attempts) < 3:
+            return httpx.Response(429, json={"error": "rate limited"})
+        return httpx.Response(200, json=_success_response_json(content="finally"))
+
+    app = _build_app(ModelServiceConfig())  # default retryable_status_codes = [429, 500]
+    with _patch_httpx_with_handler(handler):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post(
+                "/v1/chat/completions",
+                json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}]},
+            )
+
+    assert r.status_code == 200
+    assert r.json()["choices"][0]["message"]["content"] == "finally"
+    assert len(attempts) == 3
+
+
+@pytest.mark.asyncio
+async def test_forward_returns_last_response_when_retries_exhausted(monkeypatch):
+    """All attempts return 429 → the final 429 body+status is forwarded verbatim."""
+    monkeypatch.setattr("rock.sdk.model.server.api.proxy._RETRY_MAX_ATTEMPTS", 3)
+    monkeypatch.setattr("rock.sdk.model.server.api.proxy._RETRY_DELAY_SECONDS", 0.0)
+
+    attempts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
+        return httpx.Response(429, json={"error": "still rate limited"})
+
+    app = _build_app(ModelServiceConfig())
+    with _patch_httpx_with_handler(handler):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post(
+                "/v1/chat/completions",
+                json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}]},
+            )
+
+    assert r.status_code == 429
+    assert r.json() == {"error": "still rate limited"}
+    assert len(attempts) == 3
+
+
+@pytest.mark.asyncio
+async def test_forward_does_not_retry_non_whitelisted_status(monkeypatch):
+    """400 is not in retryable_status_codes → forwarded immediately, no retry."""
+    monkeypatch.setattr("rock.sdk.model.server.api.proxy._RETRY_DELAY_SECONDS", 0.0)
+
+    attempts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
+        return httpx.Response(400, json={"error": "bad request"})
+
+    app = _build_app(ModelServiceConfig())
+    with _patch_httpx_with_handler(handler):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post(
+                "/v1/chat/completions",
+                json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}]},
+            )
+
+    assert r.status_code == 400
+    assert len(attempts) == 1
+
+
+@pytest.mark.asyncio
+async def test_forward_stream_retries_on_retryable_status_then_succeeds(monkeypatch):
+    """Streaming: 500 on first attempt, then 200 SSE on second — client sees only the 200 body."""
+    monkeypatch.setattr("rock.sdk.model.server.api.proxy._RETRY_DELAY_SECONDS", 0.0)
+
+    attempts = []
+    sse_body = (
+        b'data: {"id":"x","object":"chat.completion.chunk","choices":[{"index":0,'
+        b'"delta":{"content":"hello"},"finish_reason":null}]}\n\n'
+        b"data: [DONE]\n\n"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
+        if len(attempts) < 2:
+            return httpx.Response(500, json={"error": "internal"})
+        return httpx.Response(200, content=sse_body, headers={"content-type": "text/event-stream"})
+
+    app = _build_app(ModelServiceConfig())
+    with _patch_httpx_with_handler(handler):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post(
+                "/v1/chat/completions",
+                json={"model": "gpt-3.5-turbo", "stream": True, "messages": [{"role": "user", "content": "hi"}]},
+            )
+
+    body = r.text
+    assert "hello" in body
+    assert "[DONE]" in body
+    assert "internal" not in body  # the 500 attempt is not leaked to client
+    assert len(attempts) == 2
 
 
 # ---------- Forward path: recording ----------

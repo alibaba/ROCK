@@ -20,7 +20,9 @@ Two backends share the ``/v1/chat/completions`` route:
 
 from __future__ import annotations
 
+import asyncio
 import json
+import random
 import time
 from collections.abc import AsyncIterator
 from typing import Any
@@ -52,6 +54,64 @@ proxy_router = APIRouter()
 #   - host / content-length: rebuilt by httpx for the upstream request
 #   - transfer-encoding / connection: RFC 7230 hop-by-hop, scoped to one connection
 _HEADERS_NOT_TO_FORWARD = frozenset({"host", "content-length", "transfer-encoding", "connection"})
+
+# Retry knobs for upstream POST. Read at call-time so tests can monkeypatch them.
+# Default: up to 6 attempts with exponential backoff (2s → 4s → 8s → 16s → 32s, jittered).
+_RETRY_MAX_ATTEMPTS = 6
+_RETRY_DELAY_SECONDS = 2.0
+_RETRY_BACKOFF = 2.0
+_RETRY_EXCEPTIONS: tuple[type[Exception], ...] = (
+    httpx.TimeoutException,
+    httpx.ConnectError,
+    httpx.HTTPStatusError,
+)
+
+
+async def _send_with_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    body_bytes: bytes,
+    headers: dict[str, str],
+    retryable_codes: list[int],
+) -> httpx.Response:
+    """POST with retry on connection errors and whitelisted statuses, returning
+    an open streaming response.
+
+    Always uses ``stream=True`` so the same path serves both stream and non-stream
+    callers — non-stream just calls ``await resp.aread()`` to materialize the body.
+    Assumes a failed upstream returns its error body before any byte is yielded
+    to downstream (so retry can still discard it cleanly).
+
+    Caller MUST ``await resp.aclose()`` after consuming.
+    """
+    last_exc: Exception | None = None
+    delay = _RETRY_DELAY_SECONDS
+    for attempt in range(1, _RETRY_MAX_ATTEMPTS + 1):
+        try:
+            resp = await client.send(
+                client.build_request("POST", url, content=body_bytes, headers=headers),
+                stream=True,
+            )
+        except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            last_exc = exc
+            if attempt >= _RETRY_MAX_ATTEMPTS:
+                raise
+            logger.warning(f"connect failed (attempt {attempt}/{_RETRY_MAX_ATTEMPTS}): {exc}")
+            await asyncio.sleep(random.uniform(0, delay * 2))
+            delay *= _RETRY_BACKOFF
+            continue
+
+        if resp.status_code in retryable_codes and attempt < _RETRY_MAX_ATTEMPTS:
+            await resp.aclose()
+            logger.warning(f"upstream status {resp.status_code}, retry {attempt}/{_RETRY_MAX_ATTEMPTS}")
+            await asyncio.sleep(random.uniform(0, delay * 2))
+            delay *= _RETRY_BACKOFF
+            continue
+
+        return resp
+
+    raise last_exc  # pragma: no cover  # unreachable
 
 
 def get_base_url(model_name: str, config: ModelServiceConfig) -> str:
@@ -104,39 +164,65 @@ async def _forward_stream_and_record(
     timeout: float,
     request_dict: dict[str, Any],
     recorder: TrajectoryRecorder | None,
+    retryable_codes: list[int],
 ) -> AsyncIterator[bytes]:
     """SSE bytes are forwarded verbatim; chunks are parsed in parallel and
-    aggregated into the final ChatCompletion that the recorder writes to JSONL."""
+    aggregated into the final ChatCompletion that the recorder writes to JSONL.
+
+    Retry on connection errors and whitelisted statuses happens BEFORE any byte
+    is yielded; mid-stream connection drops are not retried (would corrupt the
+    client transmission)."""
     state = ChatCompletionStreamState()
     start = time.time()
     parse_buffer = b""
     upstream_status = 0
 
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream("POST", upstream_url, content=body_bytes, headers=fwd_headers) as r:
-                upstream_status = r.status_code
-                async for chunk in r.aiter_bytes():
-                    yield chunk
-                    chunk_dicts, parse_buffer = parse_sse_data_chunks(parse_buffer + chunk)
-                    for chunk_dict in chunk_dicts:
-                        try:
-                            state.handle_chunk(ChatCompletionChunk.model_validate(chunk_dict))
-                        except Exception as exc:  # parser error: forward continues, traj will be partial
-                            logger.debug(f"[record] chunk parse failed (forward continues): {exc}")
-    except httpx.RequestError as exc:
-        # Connection died mid-stream. The bytes already sent reach the client;
-        # we still try to record what we got.
-        if recorder is not None:
-            await recorder.record(
-                request=request_dict,
-                response=None,
-                status="failure",
-                start_time=start,
-                end_time=time.time(),
-                error=f"{type(exc).__name__}: {exc}",
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        try:
+            resp = await _send_with_retry(
+                client,
+                upstream_url,
+                body_bytes=body_bytes,
+                headers=fwd_headers,
+                retryable_codes=retryable_codes,
             )
-        return
+        except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            if recorder is not None:
+                await recorder.record(
+                    request=request_dict,
+                    response=None,
+                    status="failure",
+                    start_time=start,
+                    end_time=time.time(),
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+            return
+
+        try:
+            upstream_status = resp.status_code
+            async for chunk in resp.aiter_bytes():
+                yield chunk
+                chunk_dicts, parse_buffer = parse_sse_data_chunks(parse_buffer + chunk)
+                for chunk_dict in chunk_dicts:
+                    try:
+                        state.handle_chunk(ChatCompletionChunk.model_validate(chunk_dict))
+                    except Exception as exc:  # parser error: forward continues, traj will be partial
+                        logger.debug(f"[record] chunk parse failed (forward continues): {exc}")
+        except httpx.RequestError as exc:
+            # Connection died mid-stream — bytes already sent reach the client;
+            # record what we got and return.
+            if recorder is not None:
+                await recorder.record(
+                    request=request_dict,
+                    response=None,
+                    status="failure",
+                    start_time=start,
+                    end_time=time.time(),
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+            return
+        finally:
+            await resp.aclose()
 
     if recorder is None:
         return
@@ -216,39 +302,53 @@ class ForwardBackend:
                     timeout=self._config.request_timeout,
                     request_dict=request_dict,
                     recorder=self._recorder,
+                    retryable_codes=self._config.retryable_status_codes,
                 ),
                 media_type="text/event-stream",
             )
 
-        # Non-stream: single POST, return upstream's status + body verbatim, record on the side.
+        # Non-stream: same retry path as stream (open with stream=True), then aread() the body.
         start = time.time()
-        try:
-            async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
-                r = await client.post(upstream_url, content=body_bytes, headers=fwd_headers)
-        except httpx.TimeoutException as exc:
-            if self._recorder is not None:
-                await self._recorder.record(
-                    request=request_dict,
-                    response=None,
-                    status="failure",
-                    start_time=start,
-                    end_time=time.time(),
-                    error=f"timeout: {exc}",
+        async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
+            try:
+                resp = await _send_with_retry(
+                    client,
+                    upstream_url,
+                    body_bytes=body_bytes,
+                    headers=fwd_headers,
+                    retryable_codes=self._config.retryable_status_codes,
                 )
-            raise HTTPException(status_code=504, detail=f"Upstream timed out: {exc}")
-        except httpx.RequestError as exc:
-            if self._recorder is not None:
-                await self._recorder.record(
-                    request=request_dict,
-                    response=None,
-                    status="failure",
-                    start_time=start,
-                    end_time=time.time(),
-                    error=f"{type(exc).__name__}: {exc}",
-                )
-            raise HTTPException(status_code=502, detail=f"Upstream request failed: {exc}")
+            except httpx.TimeoutException as exc:
+                if self._recorder is not None:
+                    await self._recorder.record(
+                        request=request_dict,
+                        response=None,
+                        status="failure",
+                        start_time=start,
+                        end_time=time.time(),
+                        error=f"timeout: {exc}",
+                    )
+                raise HTTPException(status_code=504, detail=f"Upstream timed out: {exc}")
+            except httpx.RequestError as exc:
+                if self._recorder is not None:
+                    await self._recorder.record(
+                        request=request_dict,
+                        response=None,
+                        status="failure",
+                        start_time=start,
+                        end_time=time.time(),
+                        error=f"{type(exc).__name__}: {exc}",
+                    )
+                raise HTTPException(status_code=502, detail=f"Upstream request failed: {exc}")
 
-        response_text = r.text  # bytes already read by httpx; .text decodes once
+            try:
+                response_bytes = await resp.aread()
+                status_code = resp.status_code
+                content_type = resp.headers.get("content-type", "application/json")
+            finally:
+                await resp.aclose()
+
+        response_text = response_bytes.decode("utf-8", errors="replace")
         response_dict: dict | None = None
         try:
             parsed = json.loads(response_text) if response_text else None
@@ -261,15 +361,14 @@ class ForwardBackend:
             await self._recorder.record(
                 request=request_dict,
                 response=response_dict,
-                status="success" if r.status_code < 400 else "failure",
+                status="success" if status_code < 400 else "failure",
                 start_time=start,
                 end_time=time.time(),
-                error=None if r.status_code < 400 else f"upstream_status={r.status_code}",
+                error=None if status_code < 400 else f"upstream_status={status_code}",
             )
 
         # Forward bytes verbatim — preserves any provider-specific fields untouched.
-        media_type = r.headers.get("content-type", "application/json")
-        return Response(content=response_text, status_code=r.status_code, media_type=media_type)
+        return Response(content=response_bytes, status_code=status_code, media_type=content_type)
 
 
 CompletionBackend = ReplayBackend | ForwardBackend
