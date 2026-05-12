@@ -51,14 +51,11 @@ class ModelServiceConfig(BaseModel):
     request_timeout: int = Field(default=120)
     """Request timeout in seconds."""
 
-    num_retries: int = Field(default=6)
-    """Number of retries for retryable failures (passed through to litellm)."""
-
     traj_file: str | None = Field(default=None)
     """Override default trajectory file path. None → uses TRAJ_FILE (LOG_DIR/LLMTraj.jsonl)."""
 
     replay_traj_path: str | None = Field(default=None)
-    """Path to a .jsonl trajectory file or a directory of .jsonl files for replay mode.
+    """Path to a .jsonl trajectory file for replay mode.
     When set, requests are served from recorded responses instead of a real upstream."""
 
     @classmethod

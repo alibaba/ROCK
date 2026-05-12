@@ -125,9 +125,6 @@ def create_config_from_args(args) -> ModelServiceConfig:
     if args.request_timeout:
         config.request_timeout = args.request_timeout
         logger.info(f"request_timeout set from command line: {args.request_timeout}s")
-    if getattr(args, "num_retries", None) is not None:
-        config.num_retries = args.num_retries
-        logger.info(f"num_retries set from command line: {args.num_retries}")
     if getattr(args, "traj_file", None):
         config.replay_traj_path = args.traj_file
         logger.info(f"replay mode enabled via --traj-file: {args.traj_file}")
@@ -174,16 +171,10 @@ if __name__ == "__main__":
         "--request-timeout", type=int, default=None, help="Request timeout in seconds. Overrides config file."
     )
     parser.add_argument(
-        "--num-retries",
-        type=int,
-        default=None,
-        help="Number of retries for retryable failures (passed through to litellm). Overrides config file.",
-    )
-    parser.add_argument(
         "--traj-file",
         type=str,
         default=None,
-        help="Replay mode: path to a recorded .jsonl traj file or directory. Disables real LLM upstreams.",
+        help="Replay mode: path to a recorded .jsonl traj file. Disables real LLM upstreams.",
     )
     args = parser.parse_args()
 

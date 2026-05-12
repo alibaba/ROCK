@@ -26,13 +26,7 @@ def _get_or_create_metrics_monitor() -> MetricsMonitor:
 
 
 def _write_traj(data: dict):
-    """Write traj data to file in JSONL format.
-
-    Used by the legacy ``@record_traj`` decorator on the ``local`` model-service
-    flow. The proxy flow now persists trajectories via
-    :class:`rock.sdk.model.server.integrations.traj_recorder.TrajectoryRecorder`
-    instead, which uses litellm's StandardLoggingPayload schema.
-    """
+    """Write traj data to file in JSONL format."""
     from rock import env_vars
 
     append = env_vars.ROCK_MODEL_SERVICE_TRAJ_APPEND_MODE
@@ -44,12 +38,7 @@ def _write_traj(data: dict):
 
 
 def record_traj(func: Callable):
-    """Decorator to record chat completions input/output as traj.
-
-    Kept for the ``local`` model-service mode (rock/sdk/model/server/api/local.py).
-    The ``proxy`` mode no longer uses this decorator — it relies on the
-    TrajectoryRecorder litellm callback for richer payloads.
-    """
+    """Decorator to record chat completions input/output as traj (local mode only)."""
 
     @wraps(func)
     async def wrapper(*args, **kwargs):
