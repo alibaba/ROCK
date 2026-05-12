@@ -65,11 +65,18 @@ def completion_to_chunk_dict(response: dict, *, model: str) -> dict:
     Only ``message`` → ``delta`` is renamed; every other field (including
     provider-specific extras like ``reasoning_content`` inside the message)
     flows through unchanged. ``id`` / ``created`` are synthesized when missing.
+
+    ``tool_calls`` items get a positional ``index`` injected if missing — the
+    OpenAI streaming spec requires it on chunk deltas (a recorded non-stream
+    ``message.tool_calls`` carries no ``index``, but downstream stream parsers
+    e.g. the openai SDK will reject the chunk without one).
     """
     choices_in = response.get("choices") or []
     choices_out = []
     for choice in choices_in:
         delta = dict(choice.get("message") or {})
+        if "tool_calls" in delta and delta["tool_calls"]:
+            delta["tool_calls"] = [{"index": tc.get("index", i), **tc} for i, tc in enumerate(delta["tool_calls"])]
         choices_out.append(
             {
                 "index": choice.get("index", 0),

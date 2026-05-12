@@ -101,7 +101,8 @@ def test_completion_to_chunk_renames_message_to_delta():
 
 
 def test_completion_to_chunk_preserves_provider_specific_message_fields():
-    """reasoning_content / tool_calls / etc inside message are kept verbatim in delta."""
+    """reasoning_content kept verbatim; tool_calls get a positional index injected
+    (required by the OpenAI streaming spec — see test below)."""
     response = {
         "choices": [
             {
@@ -119,8 +120,58 @@ def test_completion_to_chunk_preserves_provider_specific_message_fields():
     chunk = completion_to_chunk_dict(response, model="glm-5")
 
     assert chunk["choices"][0]["delta"]["reasoning_content"] == "step-by-step thinking"
-    assert chunk["choices"][0]["delta"]["tool_calls"] == [{"id": "t1", "type": "function"}]
+    assert chunk["choices"][0]["delta"]["tool_calls"] == [{"index": 0, "id": "t1", "type": "function"}]
     assert chunk["choices"][0]["finish_reason"] == "tool_calls"
+
+
+def test_completion_to_chunk_injects_tool_call_index_for_openai_sdk_compat():
+    """A recorded non-stream message has tool_calls without 'index'; the OpenAI
+    streaming spec requires it on chunk deltas, and the openai SDK's
+    ChatCompletionChunk.model_validate() rejects the chunk otherwise. We inject
+    a positional index so replay-stream output is parseable by strict clients."""
+    response = {
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {"id": "a", "type": "function", "function": {"name": "f1", "arguments": "{}"}},
+                        {"id": "b", "type": "function", "function": {"name": "f2", "arguments": "{}"}},
+                    ],
+                },
+                "finish_reason": "tool_calls",
+            }
+        ],
+    }
+    chunk = completion_to_chunk_dict(response, model="m")
+    tcs = chunk["choices"][0]["delta"]["tool_calls"]
+    assert [tc["index"] for tc in tcs] == [0, 1]
+
+    # End-to-end: openai SDK accepts the chunk
+    from openai.types.chat import ChatCompletionChunk
+
+    ChatCompletionChunk.model_validate(chunk)  # must not raise
+
+
+def test_completion_to_chunk_preserves_explicit_tool_call_index():
+    """If the recorded tool_calls already have 'index', we don't overwrite it."""
+    response = {
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {"index": 5, "id": "a", "type": "function", "function": {"name": "f", "arguments": "{}"}},
+                    ],
+                },
+                "finish_reason": "tool_calls",
+            }
+        ],
+    }
+    chunk = completion_to_chunk_dict(response, model="m")
+    assert chunk["choices"][0]["delta"]["tool_calls"][0]["index"] == 5
 
 
 def test_completion_to_chunk_synthesizes_id_and_created_when_missing():
