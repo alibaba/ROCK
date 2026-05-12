@@ -557,19 +557,34 @@ def test_config_default_recording_and_replay():
 
 
 @pytest.mark.asyncio
-async def test_config_loads_recording_and_replay_from_file(tmp_path):
+async def test_config_loads_recording_file_from_yaml(tmp_path):
     conf_file = tmp_path / "proxy.yml"
-    conf_file.write_text(
-        yaml.dump(
-            {
-                "recording_file": "/tmp/my-traj.jsonl",
-                "replay_file": "/tmp/in.jsonl",
-            }
-        )
-    )
+    conf_file.write_text(yaml.dump({"recording_file": "/tmp/my-traj.jsonl"}))
     config = ModelServiceConfig.from_file(str(conf_file))
     assert config.recording_file == "/tmp/my-traj.jsonl"
+    assert config.replay_file is None
+
+
+@pytest.mark.asyncio
+async def test_config_loads_replay_file_from_yaml(tmp_path):
+    conf_file = tmp_path / "proxy.yml"
+    conf_file.write_text(yaml.dump({"replay_file": "/tmp/in.jsonl"}))
+    config = ModelServiceConfig.from_file(str(conf_file))
     assert config.replay_file == "/tmp/in.jsonl"
+    assert config.recording_file is None
+
+
+def test_config_recording_and_replay_are_mutually_exclusive():
+    """Setting both at construction time fails Pydantic validation."""
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        ModelServiceConfig(recording_file="/tmp/a.jsonl", replay_file="/tmp/b.jsonl")
+
+
+def test_config_recording_replay_mutex_fires_on_assignment():
+    """validate_assignment=True so CLI-style field-by-field overrides also trip the mutex."""
+    config = ModelServiceConfig(recording_file="/tmp/a.jsonl")
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        config.replay_file = "/tmp/b.jsonl"
 
 
 def test_cli_args_override_config_file(tmp_path):

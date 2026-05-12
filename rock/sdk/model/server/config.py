@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from rock import env_vars
 
@@ -26,6 +26,10 @@ SESSION_END_MARKER = "SESSION_END"
 
 class ModelServiceConfig(BaseModel):
     """Configuration for the LLM Model Service."""
+
+    # validate_assignment=True so the recording/replay mutex below also fires when
+    # CLI overrides are applied field-by-field (not only at construction time).
+    model_config = ConfigDict(validate_assignment=True)
 
     host: str = "0.0.0.0"
     """Server host address."""
@@ -58,6 +62,15 @@ class ModelServiceConfig(BaseModel):
     replay_file: str | None = Field(default=None)
     """Replay mode input: a .jsonl trajectory file. When set, ReplayBackend serves
     requests from recorded responses instead of calling a real upstream."""
+
+    @model_validator(mode="after")
+    def _recording_replay_mutually_exclusive(self):
+        if self.recording_file and self.replay_file:
+            raise ValueError(
+                "recording_file and replay_file are mutually exclusive — "
+                "set one (recording mode) or the other (replay mode), not both."
+            )
+        return self
 
     @classmethod
     def from_file(cls, config_path: str | None = None):
