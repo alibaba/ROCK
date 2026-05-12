@@ -54,7 +54,7 @@ class ModelServiceConfig(BaseModel):
     traj_file: str | None = Field(default=None)
     """Override default trajectory file path. None → uses TRAJ_FILE (LOG_DIR/LLMTraj.jsonl)."""
 
-    replay_traj_path: str | None = Field(default=None)
+    replay_traj_file: str | None = Field(default=None)
     """Path to a .jsonl trajectory file for replay mode.
     When set, requests are served from recorded responses instead of a real upstream."""
 

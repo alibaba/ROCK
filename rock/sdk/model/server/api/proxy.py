@@ -2,7 +2,7 @@
 
 Two backends share the ``/v1/chat/completions`` route:
 
-1. **_ForwardBackend** (default) — body bytes are POSTed verbatim to the
+1. **ForwardBackend** (default) — body bytes are POSTed verbatim to the
    configured upstream via plain ``httpx``. The upstream response is forwarded
    byte-for-byte back to the client (raw JSON for non-stream, raw SSE bytes
    for stream). On the side we run a parser (``ChatCompletionChunk`` +
@@ -12,7 +12,7 @@ Two backends share the ``/v1/chat/completions`` route:
    returns (provider-specific ``reasoning_content``, ``citations``, ...) is
    passed through untouched.
 
-2. **_ReplayBackend** (``replay_traj_path`` set) — the request is served
+2. **ReplayBackend** (``replay_traj_file`` set) — the request is served
    directly from the next record in the ``SequentialCursor`` without any
    upstream call. Streaming emits the recorded response as one SSE chunk +
    ``[DONE]``.
@@ -159,7 +159,7 @@ async def _forward_stream_and_record(
     )
 
 
-class _ReplayBackend:
+class ReplayBackend:
     """Serves requests from a pre-recorded trajectory; no upstream calls made."""
 
     def __init__(self, cursor: SequentialCursor) -> None:
@@ -187,7 +187,7 @@ class _ReplayBackend:
         return JSONResponse(status_code=200, content=response_dict)
 
 
-class _ForwardBackend:
+class ForwardBackend:
     """Forwards requests byte-for-byte to the upstream and optionally records the trajectory."""
 
     def __init__(self, config: ModelServiceConfig, recorder: TrajectoryRecorder | None = None) -> None:
@@ -272,10 +272,10 @@ class _ForwardBackend:
         return Response(content=response_text, status_code=r.status_code, media_type=media_type)
 
 
-_CompletionBackend = _ReplayBackend | _ForwardBackend
+CompletionBackend = ReplayBackend | ForwardBackend
 
 
-def _get_backend(request: Request) -> _CompletionBackend:
+def _get_backend(request: Request) -> CompletionBackend:
     """Typed accessor for the backend attached at startup by ``_configure_proxy_integrations``."""
     return request.app.state.backend
 

@@ -29,14 +29,14 @@ from rock.sdk.model.server.utils import (
 
 def _build_app(config: ModelServiceConfig, *, replay_cursor=None, recorder=None) -> FastAPI:
     """Build a FastAPI app with the proxy router and the given config attached."""
-    from rock.sdk.model.server.api.proxy import _ForwardBackend, _ReplayBackend
+    from rock.sdk.model.server.api.proxy import ForwardBackend, ReplayBackend
 
     app = FastAPI()
     app.state.model_service_config = config
     if replay_cursor is not None:
-        app.state.backend = _ReplayBackend(replay_cursor)
+        app.state.backend = ReplayBackend(replay_cursor)
     else:
-        app.state.backend = _ForwardBackend(config, recorder=recorder)
+        app.state.backend = ForwardBackend(config, recorder=recorder)
     app.include_router(proxy_router)
     return app
 
@@ -327,7 +327,7 @@ async def test_replay_returns_recorded_response_no_upstream_call(tmp_path):
     traj.write_text(json.dumps(record) + "\n", encoding="utf-8")
 
     config = ModelServiceConfig()
-    config.replay_traj_path = str(traj)
+    config.replay_traj_file = str(traj)
     app = _build_app(config, replay_cursor=SequentialCursor.load(traj))
 
     transport = ASGITransport(app=app)
@@ -362,7 +362,7 @@ async def test_replay_streaming_emits_recorded_response_as_sse(tmp_path):
     traj.write_text(json.dumps(record) + "\n", encoding="utf-8")
 
     config = ModelServiceConfig()
-    config.replay_traj_path = str(traj)
+    config.replay_traj_file = str(traj)
     app = _build_app(config, replay_cursor=SequentialCursor.load(traj))
 
     transport = ASGITransport(app=app)
@@ -392,7 +392,7 @@ async def test_replay_returns_404_when_cursor_exhausted(tmp_path):
     traj.write_text(json.dumps(record) + "\n", encoding="utf-8")
 
     config = ModelServiceConfig()
-    config.replay_traj_path = str(traj)
+    config.replay_traj_file = str(traj)
     app = _build_app(config, replay_cursor=SequentialCursor.load(traj))
 
     transport = ASGITransport(app=app)
@@ -441,7 +441,7 @@ def test_config_default_host_and_port():
 def test_config_default_traj_and_replay():
     config = ModelServiceConfig()
     assert config.traj_file is None
-    assert config.replay_traj_path is None
+    assert config.replay_traj_file is None
 
 
 @pytest.mark.asyncio
@@ -451,13 +451,13 @@ async def test_config_loads_traj_and_replay_from_file(tmp_path):
         yaml.dump(
             {
                 "traj_file": "/tmp/my-traj.jsonl",
-                "replay_traj_path": "/tmp/in.jsonl",
+                "replay_traj_file": "/tmp/in.jsonl",
             }
         )
     )
     config = ModelServiceConfig.from_file(str(conf_file))
     assert config.traj_file == "/tmp/my-traj.jsonl"
-    assert config.replay_traj_path == "/tmp/in.jsonl"
+    assert config.replay_traj_file == "/tmp/in.jsonl"
 
 
 def test_cli_args_override_config_file(tmp_path):
@@ -501,7 +501,7 @@ def test_cli_traj_file_enables_replay():
         traj_file="/tmp/in.jsonl",
     )
     config = create_config_from_args(args)
-    assert config.replay_traj_path == "/tmp/in.jsonl"
+    assert config.replay_traj_file == "/tmp/in.jsonl"
 
 
 # ---------- Metrics singleton + legacy record_traj (still used by local mode) ----------

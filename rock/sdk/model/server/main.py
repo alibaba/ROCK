@@ -55,26 +55,26 @@ def create_app(config: ModelServiceConfig) -> FastAPI:
 def _configure_proxy_integrations(app: FastAPI, config: ModelServiceConfig) -> None:
     """Attach the appropriate backend to ``app.state.backend``.
 
-    - Replay mode (``replay_traj_path`` set): ``_ReplayBackend`` wrapping a
+    - Replay mode (``replay_traj_file`` set): ``ReplayBackend`` wrapping a
       ``SequentialCursor``; no recorder — replaying back into the source file
       would corrupt it.
-    - Forward mode (default): ``_ForwardBackend`` with a ``TrajectoryRecorder``.
+    - Forward mode (default): ``ForwardBackend`` with a ``TrajectoryRecorder``.
     """
-    from rock.sdk.model.server.api.proxy import _ForwardBackend, _ReplayBackend
+    from rock.sdk.model.server.api.proxy import ForwardBackend, ReplayBackend
 
-    if config.replay_traj_path:
+    if config.replay_traj_file:
         from rock.sdk.model.server.integrations.traj_replayer import SequentialCursor
 
-        cursor = SequentialCursor.load(config.replay_traj_path)
-        app.state.backend = _ReplayBackend(cursor)
-        logger.info(f"replay backend attached, traj_path={config.replay_traj_path}")
+        cursor = SequentialCursor.load(config.replay_traj_file)
+        app.state.backend = ReplayBackend(cursor)
+        logger.info(f"replay backend attached, traj_path={config.replay_traj_file}")
         return
 
     from rock.sdk.model.server.integrations.traj_recorder import TrajectoryRecorder
 
     traj_path = config.traj_file or TRAJ_FILE
     recorder = TrajectoryRecorder(traj_file=traj_path)
-    app.state.backend = _ForwardBackend(config, recorder=recorder)
+    app.state.backend = ForwardBackend(config, recorder=recorder)
     logger.info(f"forward backend attached, traj_file={traj_path}")
 
 
@@ -127,8 +127,8 @@ def create_config_from_args(args) -> ModelServiceConfig:
     if args.request_timeout:
         config.request_timeout = args.request_timeout
         logger.info(f"request_timeout set from command line: {args.request_timeout}s")
-    if getattr(args, "traj_file", None):
-        config.replay_traj_path = args.traj_file
+    if args.traj_file:
+        config.replay_traj_file = args.traj_file
         logger.info(f"replay mode enabled via --traj-file: {args.traj_file}")
 
     return config
