@@ -41,7 +41,7 @@ class TestSandboxTableMetrics:
     async def test_create_records_db_metrics(self, table, mock_monitor):
         await table.create(SANDBOX_ID, SANDBOX_INFO)
 
-        attrs = {"operation": "create", "method": "create", "sandbox_id": SANDBOX_ID}
+        attrs = {"operation": "create"}
         mock_monitor.record_counter_by_name.assert_any_call(f"{PREFIX}.success", 1, attrs)
         mock_monitor.record_counter_by_name.assert_any_call(f"{PREFIX}.total", 1, attrs)
         rt_call = mock_monitor.record_gauge_by_name.call_args
@@ -54,7 +54,7 @@ class TestSandboxTableMetrics:
 
         await table.get(SANDBOX_ID)
 
-        attrs = {"operation": "get", "method": "get", "sandbox_id": SANDBOX_ID}
+        attrs = {"operation": "get"}
         mock_monitor.record_counter_by_name.assert_any_call(f"{PREFIX}.success", 1, attrs)
         mock_monitor.record_gauge_by_name.assert_called_once()
 
@@ -72,6 +72,6 @@ class TestSandboxTableMetrics:
         results = await table.list_by("user_id", "user-1")
 
         assert len(results) == 1
-        attrs = {"operation": "list_by", "method": "list_by", "sandbox_id": "user_id"}
+        attrs = {"operation": "list_by"}
         mock_monitor.record_counter_by_name.assert_any_call(f"{PREFIX}.success", 1, attrs)
         mock_monitor.record_counter_by_name.assert_any_call(f"{PREFIX}.total", 1, attrs)
