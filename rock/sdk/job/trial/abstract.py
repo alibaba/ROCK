@@ -44,6 +44,18 @@ def _build_proxy_start_cmd(proxy: ProxyConfig, env: dict[str, str]) -> str:
     return " ".join(parts)
 
 
+async def _detect_and_rewrite_proxy_url(proxy: ProxyConfig, env: dict[str, str], sandbox: Sandbox) -> str:
+    """Detect the outer sandbox's eth0 IP and rewrite ``env['OPENAI_BASE_URL']``
+    to the proxy URL. Returns the resolved proxy URL.
+    """
+    obs = await sandbox.arun("hostname -I 2>/dev/null | awk '{print $1}'")
+    host_ip = obs.output.strip() or "127.0.0.1"
+    proxy_url = f"http://{host_ip}:{proxy.port}/v1"
+    env["OPENAI_BASE_URL"] = proxy_url
+    logger.info(f"Proxy ready at {proxy_url}")
+    return proxy_url
+
+
 class AbstractTrial(ABC):
     """Trial base: three-phase interface (setup/build/collect).
 
@@ -128,15 +140,9 @@ class AbstractTrial(ABC):
         await sandbox.model_service.install()
         await sandbox.model_service.start()
 
-        # After the proxy starts, detect the outer sandbox's eth0 IP and rewrite
-        # env['OPENAI_BASE_URL'] to the proxy URL. This way the harbor yaml that
-        # gets serialized later contains the proxy URL, so the agent inside the
-        # inner docker container also goes through the proxy instead of upstream.
-        obs = await sandbox.arun("hostname -I 2>/dev/null | awk '{print $1}'")
-        host_ip = obs.output.strip() or "127.0.0.1"
-        proxy_url = f"http://{host_ip}:{proxy.port}/v1"
-        env["OPENAI_BASE_URL"] = proxy_url
-        logger.info(f"Proxy ready at {proxy_url}")
+        # Rewrite env['OPENAI_BASE_URL'] to the proxy URL so that the harbor yaml
+        # (serialized later) and the bash session env carry the proxy address.
+        await _detect_and_rewrite_proxy_url(proxy, env, sandbox)
 
     async def setup(self, sandbox: Sandbox) -> None:
         """Pre-execution: start proxy (if enabled) and upload files.
