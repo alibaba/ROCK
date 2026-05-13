@@ -118,11 +118,10 @@ class AbstractTrial(ABC):
                     f"{env_vars.ROCK_JOB_PROXY_REPLAY_FILE}: {resp.message}"
                 )
 
-        pip_install_cmd = f"pip install {shlex.quote(proxy.model_service_package)}"
         ms_config = ModelServiceConfig(
             enabled=True,
             type="proxy",
-            install_cmd=pip_install_cmd,
+            install_cmd=f"pip install {shlex.quote(proxy.model_service_package)}",
             start_cmd=_build_proxy_start_cmd(proxy, env),
         )
         sandbox.model_service = ModelService(sandbox, ms_config)
