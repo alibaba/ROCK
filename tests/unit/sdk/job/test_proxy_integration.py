@@ -52,7 +52,7 @@ class TestProxyConfigValidators:
         assert c.enabled is False
         assert c.host == "0.0.0.0"
         assert c.port == 28080
-        assert c.pip_packages == ["rl-rock[model-service]"]
+        assert c.model_service_package == "rl-rock[model-service]"
 
 
 class TestEnvironmentConfigProxyField:
@@ -106,7 +106,7 @@ class TestBuildProxyStartCmd:
         assert "--replay-file" not in cmd
 
     def test_sandbox_replay_file_constant(self):
-        assert SANDBOX_REPLAY_FILE == "/data/logs/user-defined/_rock_replay.jsonl"
+        assert SANDBOX_REPLAY_FILE == "/data/logs/user-defined/rock-job-proxy-replay.jsonl"
 
 
 class TestSetupProxy:

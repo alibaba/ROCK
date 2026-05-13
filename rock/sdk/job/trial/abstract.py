@@ -10,10 +10,10 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from rock import env_vars
 from rock.logger import init_logger
 from rock.sdk.envhub.config import ProxyConfig
 from rock.sdk.sandbox.model_service.base import ModelService, ModelServiceConfig
-from rock.sdk.sandbox.runtime_env import PythonRuntimeEnvConfig
 
 if TYPE_CHECKING:
     from rock.sdk.job.config import JobConfig
@@ -23,9 +23,9 @@ if TYPE_CHECKING:
 logger = init_logger(__name__)
 
 
-# Fixed sandbox-side path where the replay file is uploaded. SDK-internal contract,
-# not exposed to users.
-SANDBOX_REPLAY_FILE = "/data/logs/user-defined/_rock_replay.jsonl"
+# Sandbox-side path where the replay file is uploaded. Override via
+# ``ROCK_JOB_PROXY_REPLAY_FILE`` env var.
+SANDBOX_REPLAY_FILE = env_vars.ROCK_JOB_PROXY_REPLAY_FILE
 
 
 def _build_proxy_start_cmd(proxy: ProxyConfig, env: dict[str, str]) -> str:
@@ -123,11 +123,10 @@ class AbstractTrial(ABC):
                     f"{SANDBOX_REPLAY_FILE}: {resp.message}"
                 )
 
-        pip_install_cmd = "pip install " + " ".join(shlex.quote(p) for p in proxy.pip_packages)
+        pip_install_cmd = f"pip install {shlex.quote(proxy.model_service_package)}"
         ms_config = ModelServiceConfig(
             enabled=True,
             type="proxy",
-            runtime_env_config=PythonRuntimeEnvConfig(),
             install_cmd=pip_install_cmd,
             start_cmd=_build_proxy_start_cmd(proxy, env),
         )

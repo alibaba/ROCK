@@ -56,10 +56,10 @@ class ProxyConfig(BaseModel):
     """Avoid common ports like 8080 to reduce collision risk with other services
     in the sandbox."""
 
-    pip_packages: list[str] = Field(default_factory=lambda: ["rl-rock[model-service]"])
-    """Packages installed inside the sandbox to provide the proxy. Must include
-    the ``[model-service]`` extra. To pin a custom wheel, use PEP 508 syntax,
-    e.g. ``["rl-rock[model-service] @ http://.../rl_rock-X.Y.Z-py3-none-any.whl"]``.
+    model_service_package: str = "rl-rock[model-service]"
+    """Package spec for installing the proxy. Must include the ``[model-service]``
+    extra. Use PEP 508 syntax to pin a specific wheel, e.g.
+    ``"rl-rock[model-service] @ http://.../rl_rock-X.Y.Z-py3-none-any.whl"``.
     """
 
     @model_validator(mode="after")
