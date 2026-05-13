@@ -4,7 +4,6 @@ Covers:
 - ProxyConfig mutex validator (recording_file vs replay_file)
 - _build_proxy_start_cmd argument assembly (record / replay / default recording path)
 - _setup_proxy behaviors (no-op / OPENAI_BASE_URL check / replay upload ordering)
-- _wrap_with_proxy_bootstrap bash export rendering
 """
 
 from __future__ import annotations
@@ -18,7 +17,6 @@ from rock import env_vars
 from rock.sdk.envhub import EnvironmentConfig
 from rock.sdk.envhub.config import ProxyConfig
 from rock.sdk.job.config import BashJobConfig
-from rock.sdk.job.trial.abstract import _build_proxy_start_cmd
 from rock.sdk.job.trial.bash import BashTrial
 
 # ---------------------------------------------------------------------------
@@ -73,12 +71,20 @@ class TestEnvironmentConfigProxyField:
         EnvironmentConfig(proxy=ProxyConfig(enabled=True))
 
 
+def _make_trial(*, proxy=None, env=None):
+    """Create a BashTrial wired with the given proxy and env for testing helpers."""
+    environment = EnvironmentConfig(proxy=proxy, env=env or {})
+    cfg = BashJobConfig(script="echo", environment=environment)
+    return BashTrial(cfg)
+
+
 class TestBuildProxyStartCmd:
     def test_record_mode_with_explicit_path(self):
-        cmd = _build_proxy_start_cmd(
-            ProxyConfig(enabled=True, recording_file="/data/logs/x.jsonl", port=28080),
+        trial = _make_trial(
+            proxy=ProxyConfig(enabled=True, recording_file="/data/logs/x.jsonl", port=28080),
             env={"OPENAI_BASE_URL": "https://upstream.example.com/v1"},
         )
+        cmd = trial._build_proxy_start_cmd()
         assert "rock model-service start --type proxy" in cmd
         assert "--host 0.0.0.0" in cmd
         assert "--port 28080" in cmd
@@ -87,21 +93,21 @@ class TestBuildProxyStartCmd:
         assert "--replay-file" not in cmd
 
     def test_replay_mode_uses_sandbox_replay_path(self):
-        cmd = _build_proxy_start_cmd(
-            ProxyConfig(enabled=True, replay_file="/local/r.jsonl"),
+        trial = _make_trial(
+            proxy=ProxyConfig(enabled=True, replay_file="/local/r.jsonl"),
             env={"OPENAI_BASE_URL": "https://upstream.example.com/v1"},
         )
+        cmd = trial._build_proxy_start_cmd()
         assert "--replay-file" in cmd
         assert env_vars.ROCK_JOB_PROXY_REPLAY_FILE in cmd
         assert "--recording-file" not in cmd
 
     def test_record_mode_omits_recording_flag_when_unset(self):
-        """In recording mode, if the user did not pass recording_file we omit
-        the --recording-file flag so model-service falls back to its default."""
-        cmd = _build_proxy_start_cmd(
-            ProxyConfig(enabled=True),
+        trial = _make_trial(
+            proxy=ProxyConfig(enabled=True),
             env={"OPENAI_BASE_URL": "https://x/v1"},
         )
+        cmd = trial._build_proxy_start_cmd()
         assert "--type proxy" in cmd
         assert "--recording-file" not in cmd
         assert "--replay-file" not in cmd
