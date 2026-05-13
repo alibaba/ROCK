@@ -51,6 +51,7 @@ class HarborTrial(AbstractTrial):
     _config: HarborJobConfig
 
     async def setup(self, sandbox) -> None:
+        await self._setup_proxy(sandbox)
         await self._upload_files(sandbox)
         # Write Harbor YAML config to sandbox
         yaml_content = self._config.to_harbor_yaml()

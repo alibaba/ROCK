@@ -101,6 +101,7 @@ class JobExecutor:
 
         await trial.setup(sandbox)
         script_content = trial.build()
+        script_content = self._wrap_with_proxy_bootstrap(script_content, config)
 
         prefix = self._job_tmp_prefix(config)
         script_path = f"{prefix}.sh"
@@ -164,3 +165,26 @@ class JobExecutor:
         oss_env = {k: v for k, v in os.environ.items() if k.startswith("OSS")}
         merged = {**oss_env, **config.environment.env}
         return merged or None
+
+    @staticmethod
+    def _wrap_with_proxy_bootstrap(script: str, config: JobConfig) -> str:
+        """When proxy is enabled, prepend a bash snippet to the build script that
+        detects the outer sandbox's eth0 IP at runtime and exports OPENAI_BASE_URL.
+
+        Detection: ``hostname -I`` and take the first IP. Works for both:
+        - Flat sandbox: the eth0 IP loops back to the proxy's listen socket.
+        - docker-in-docker: inner containers reach the outer eth0 via the docker0
+          gateway; the outer kernel routes it back to the local socket.
+
+        Falls back to 127.0.0.1 when ``hostname`` is missing or returns empty
+        (works in non-docker setups).
+        """
+        proxy = config.environment.proxy
+        if proxy is None or not proxy.enabled:
+            return script
+        export_block = (
+            "_ROCK_HOST_IP=\"$(hostname -I 2>/dev/null | awk '{print $1}')\"\n"
+            '[ -z "$_ROCK_HOST_IP" ] && _ROCK_HOST_IP="127.0.0.1"\n'
+            f'export OPENAI_BASE_URL="http://${{_ROCK_HOST_IP}}:{proxy.port}/v1"\n'
+        )
+        return export_block + script
