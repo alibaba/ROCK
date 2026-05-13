@@ -59,12 +59,51 @@ class SandboxConfig:
 
 
 @dataclass
+class OssAccountConfig:
+    endpoint: str = ""
+    bucket: str = ""
+    access_key_id: str = ""
+    access_key_secret: str = ""
+    role_arn: str = ""
+    region: str = ""
+    """Region used to construct the STS AcsClient for this account. Falls back
+    to env_vars.ROCK_OSS_BUCKET_REGION when empty, to preserve legacy behavior."""
+
+
+@dataclass
 class OssConfig:
     endpoint: str = ""
     bucket: str = ""
     access_key_id: str = ""
     access_key_secret: str = ""
     role_arn: str = ""
+    region: str = ""
+    """Region for the legacy STS AcsClient. Empty falls back to
+    env_vars.ROCK_OSS_BUCKET_REGION, YAML-level values always win over env."""
+
+    primary: OssAccountConfig = field(default_factory=OssAccountConfig)
+    """Primary account used by SDK >= 1.8 (`/get_token_v2` endpoint) and by
+    all host-side archival (OssArchiver, landed in PR-1). An empty
+    `primary.bucket` disables v2 STS and archival, leaving legacy path
+    fully operational."""
+
+    transfer_prefix: str = "rock-transfer/"
+    """Prefix under the PRIMARY bucket for ephemeral host↔container file
+    transfers ({timestamp}-{filename} objects). The legacy bucket keeps
+    its pre-existing flat layout (no prefix) for backward compatibility —
+    xrl-sandbox has a 3-day lifecycle rule at bucket root (configured
+    in the Aliyun OSS console, not in repo) that we do not disturb.
+
+    Note: this field lives in admin-side RockConfig and is NOT what the
+    SDK reads. The SDK reads ROCK_OSS_TRANSFER_PREFIX directly from the
+    process env. xrl package is no longer maintained, so internal users
+    must export this env var themselves when upgrading to SDK >= 1.8."""
+
+    def __post_init__(self):
+        # Allow YAML to pass a dict for `primary` (dataclass deserialization
+        # from yaml.safe_load returns dicts, not nested dataclasses).
+        if isinstance(self.primary, dict):
+            self.primary = OssAccountConfig(**self.primary)
 
 
 @dataclass

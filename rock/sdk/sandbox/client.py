@@ -68,6 +68,9 @@ class RunMode(str, Enum):
     NOHUP = "nohup"
 
 
+_OSS_STS_API_PATH = "/get_token_v2"
+
+
 class Sandbox(AbstractSandbox):
     config: SandboxConfig
     _url: str
@@ -839,7 +842,7 @@ class Sandbox(AbstractSandbox):
                 return UploadResponse(success=False, message="Failed to upload file, please setup oss bucket first")
         timestamp = str(time.time_ns())
         file_name = file_path.split("/")[-1]
-        tmp_obj_name = f"{timestamp}-{file_name}"
+        tmp_obj_name = self._build_transfer_object_name(file_name, timestamp)
         oss2.resumable_upload(self._oss_bucket, tmp_obj_name, file_path)
         url = self._oss_bucket.sign_url("GET", tmp_obj_name, 600, slash_safe=True)
         try:
@@ -877,11 +880,8 @@ class Sandbox(AbstractSandbox):
 
         Returns:
             dict: STS credentials with keys: AccessKeyId, AccessKeySecret, SecurityToken, Expiration
-
-        Raises:
-            Exception: If HTTP request fails or response is invalid
         """
-        url = f"{self._url}/get_token"
+        url = f"{self._url}{_OSS_STS_API_PATH}"
         headers = self._build_headers()
         response = await HttpUtils.get(url, headers)
         if response["status"] != "Success":
@@ -890,6 +890,19 @@ class Sandbox(AbstractSandbox):
         credentials = response["result"]
         self._oss_token_expire_time = credentials["Expiration"]
         return credentials
+
+    @staticmethod
+    def _build_transfer_object_name(file_name: str, timestamp: str) -> str:
+        """Construct the OSS object key for an ephemeral host↔container transfer.
+
+        Single source of truth for the transfer-object naming convention so that
+        upload (client._upload_via_oss) and download (file_system.download_via_oss)
+        cannot drift. Honors ROCK_OSS_TRANSFER_PREFIX:
+        - empty / unset    -> "<timestamp>-<file>"             (legacy flat layout, xrl-sandbox)
+        - "rock-transfer/" -> "rock-transfer/<timestamp>-<file>"  (chatos-rock)
+        """
+        prefix = (env_vars.ROCK_OSS_TRANSFER_PREFIX or "").strip("/")
+        return f"{prefix}/{timestamp}-{file_name}" if prefix else f"{timestamp}-{file_name}"
 
     async def _setup_oss(self) -> OssSetupResponse:
         try:

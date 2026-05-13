@@ -257,7 +257,7 @@ class LinuxFileSystem(FileSystem):
 
             # Upload from sandbox to OSS via ossutil
             file_name = remote_path.split("/")[-1]
-            tmp_obj_name = f"{timestamp}-{file_name}"
+            tmp_obj_name = self.sandbox._build_transfer_object_name(file_name, timestamp)
             oss_url = f"oss://{bucket_name}/{tmp_obj_name}"
 
             # Build ossutil command with bash -c wrapper (required for nohup mode)

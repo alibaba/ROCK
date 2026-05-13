@@ -71,10 +71,20 @@ class SandboxProxyService:
             ),
         )
 
+        legacy_region = self.oss_config.region or env_vars.ROCK_OSS_BUCKET_REGION
         self.sts_client = client.AcsClient(
             self.oss_config.access_key_id,
             self.oss_config.access_key_secret,
-            env_vars.ROCK_OSS_BUCKET_REGION,
+            legacy_region,
+        )
+        # Lazy-failure tolerant: if primary credentials are empty (not yet
+        # deployed), AcsClient instantiation still succeeds; only the
+        # AssumeRole call fails, surfacing as None from gen_oss_sts_token_v2.
+        primary_region = self.oss_config.primary.region or env_vars.ROCK_OSS_BUCKET_REGION
+        self._primary_sts_client = client.AcsClient(
+            self.oss_config.primary.access_key_id,
+            self.oss_config.primary.access_key_secret,
+            primary_region,
         )
 
         self._batch_get_status_max_count = rock_config.proxy_service.batch_get_status_max_count
@@ -645,22 +655,54 @@ class SandboxProxyService:
         port = service_status.get_mapped_port(Port.PROXY)
         return f"http://{host_ip}:{port}"
 
-    def gen_oss_sts_token(self):
-        role_arn = self.oss_config.role_arn
+    def gen_oss_sts_token(self) -> dict | None:
+        """Legacy STS generator. Returns credentials scoped to the legacy account
+        (xrl-sandbox). Called by GET /sandbox_proxy/get_token for backward
+        compatibility with SDK < 1.8 clients."""
+        logger.warning(
+            "DEPRECATION: /sandbox_proxy/get_token (legacy STS) is invoked; "
+            "please upgrade SDK to >= 1.8 which uses /get_token_v2 (primary account)."
+        )
+        return self._assume_role(
+            sts_client=self.sts_client,
+            role_arn=self.oss_config.role_arn,
+            session_name="rock-sandbox-legacy",
+        )
+
+    def gen_oss_sts_token_v2(self) -> dict | None:
+        """Primary-account STS generator. Returns credentials scoped to the
+        primary account (chatos-rock). Called by GET /sandbox_proxy/get_token_v2
+        for SDK >= 1.8 clients."""
+        if not self.oss_config.primary.role_arn:
+            logger.warning("oss.primary.role_arn not configured; v2 STS unavailable")
+            return None
+        return self._assume_role(
+            sts_client=self._primary_sts_client,
+            role_arn=self.oss_config.primary.role_arn,
+            session_name="rock-sandbox-primary",
+        )
+
+    def _assume_role(
+        self,
+        *,
+        sts_client,
+        role_arn: str,
+        session_name: str,
+        duration_seconds: int = 900,
+    ) -> dict | None:
         request = CommonRequest(product="Sts", version="2015-04-01", action_name="AssumeRole")
         request.set_method("POST")
         request.set_protocol_type("https")
         request.add_query_param("RoleArn", role_arn)
-        request.add_query_param("RoleSessionName", "sessiontest")
-        # at least 900s
-        request.add_query_param("DurationSeconds", "900")
+        request.add_query_param("RoleSessionName", session_name)
+        request.add_query_param("DurationSeconds", str(duration_seconds))
         request.set_accept_format("JSON")
         try:
-            body = self.sts_client.do_action_with_exception(request)
+            body = sts_client.do_action_with_exception(request)
             token = json.loads(oss2.to_unicode(body))
             return token["Credentials"]
         except Exception:
-            logger.error("generate oss sts token failed")
+            logger.error(f"generate oss sts token failed (session={session_name})", exc_info=True)
             return None
 
     async def get_sandbox_websocket_url(

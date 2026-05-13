@@ -36,6 +36,10 @@ if TYPE_CHECKING:
     ROCK_OSS_BUCKET_ENDPOINT: str | None = None
     ROCK_OSS_BUCKET_NAME: str | None = None
     ROCK_OSS_BUCKET_REGION: str | None = None
+    ROCK_OSS_TRANSFER_PREFIX: str | None = None
+    """Optional key prefix for host↔container transfer objects under the
+    bucket identified by ROCK_OSS_BUCKET_NAME. Empty = flat layout (legacy
+    bucket). New SDK clusters set this to "rock-transfer/"."""
 
     ROCK_PIP_INDEX_URL: str | None = "https://mirrors.aliyun.com/pypi/simple/"
     ROCK_MONITOR_ENABLE: bool = False
@@ -89,6 +93,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_RAY_NAMESPACE": lambda: os.getenv("ROCK_RAY_NAMESPACE", "xrl-sandbox"),
     "ROCK_SANDBOX_EXPIRE_TIME_KEY": lambda: os.getenv("ROCK_SANDBOX_EXPIRE_TIME_KEY", "expire_time"),
     "ROCK_SANDBOX_AUTO_CLEAR_TIME_KEY": lambda: os.getenv("ROCK_SANDBOX_AUTO_CLEAR_TIME_KEY", "auto_clear_time"),
+    "ROCK_OSS_TRANSFER_PREFIX": lambda: os.getenv("ROCK_OSS_TRANSFER_PREFIX"),
     "ROCK_OSS_ENABLE": lambda: os.getenv("ROCK_OSS_ENABLE", "false").lower() == "true",
     "ROCK_OSS_BUCKET_ENDPOINT": lambda: os.getenv("ROCK_OSS_BUCKET_ENDPOINT"),
     "ROCK_OSS_BUCKET_NAME": lambda: os.getenv("ROCK_OSS_BUCKET_NAME"),
