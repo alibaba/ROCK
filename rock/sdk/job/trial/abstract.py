@@ -23,11 +23,6 @@ if TYPE_CHECKING:
 logger = init_logger(__name__)
 
 
-# Sandbox-side path where the replay file is uploaded. Override via
-# ``ROCK_JOB_PROXY_REPLAY_FILE`` env var.
-SANDBOX_REPLAY_FILE = env_vars.ROCK_JOB_PROXY_REPLAY_FILE
-
-
 def _build_proxy_start_cmd(proxy: ProxyConfig, env: dict[str, str]) -> str:
     """Build the ``rock model-service start ...`` command line.
 
@@ -43,7 +38,7 @@ def _build_proxy_start_cmd(proxy: ProxyConfig, env: dict[str, str]) -> str:
         f"--proxy-base-url {shlex.quote(upstream)}",
     ]
     if proxy.replay_file:
-        parts.append(f"--replay-file {shlex.quote(SANDBOX_REPLAY_FILE)}")
+        parts.append(f"--replay-file {shlex.quote(env_vars.ROCK_JOB_PROXY_REPLAY_FILE)}")
     elif proxy.recording_file:
         parts.append(f"--recording-file {shlex.quote(proxy.recording_file)}")
     return " ".join(parts)
@@ -115,12 +110,12 @@ class AbstractTrial(ABC):
         if proxy.replay_file:
             resp = await sandbox.upload_by_path(
                 file_path=proxy.replay_file,
-                target_path=SANDBOX_REPLAY_FILE,
+                target_path=env_vars.ROCK_JOB_PROXY_REPLAY_FILE,
             )
             if not resp.success:
                 raise RuntimeError(
                     f"Failed to upload proxy replay file {proxy.replay_file} -> "
-                    f"{SANDBOX_REPLAY_FILE}: {resp.message}"
+                    f"{env_vars.ROCK_JOB_PROXY_REPLAY_FILE}: {resp.message}"
                 )
 
         pip_install_cmd = f"pip install {shlex.quote(proxy.model_service_package)}"

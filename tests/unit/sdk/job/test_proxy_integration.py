@@ -14,10 +14,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import ValidationError
 
+from rock import env_vars
 from rock.sdk.envhub import EnvironmentConfig
 from rock.sdk.envhub.config import ProxyConfig
 from rock.sdk.job.config import BashJobConfig
-from rock.sdk.job.trial.abstract import SANDBOX_REPLAY_FILE, _build_proxy_start_cmd
+from rock.sdk.job.trial.abstract import _build_proxy_start_cmd
 from rock.sdk.job.trial.bash import BashTrial
 
 # ---------------------------------------------------------------------------
@@ -91,7 +92,7 @@ class TestBuildProxyStartCmd:
             env={"OPENAI_BASE_URL": "https://upstream.example.com/v1"},
         )
         assert "--replay-file" in cmd
-        assert SANDBOX_REPLAY_FILE in cmd
+        assert env_vars.ROCK_JOB_PROXY_REPLAY_FILE in cmd
         assert "--recording-file" not in cmd
 
     def test_record_mode_omits_recording_flag_when_unset(self):
@@ -106,7 +107,7 @@ class TestBuildProxyStartCmd:
         assert "--replay-file" not in cmd
 
     def test_sandbox_replay_file_constant(self):
-        assert SANDBOX_REPLAY_FILE == "/data/logs/user-defined/rock-job-proxy-replay.jsonl"
+        assert env_vars.ROCK_JOB_PROXY_REPLAY_FILE == "/data/logs/user-defined/rock-job-proxy-replay.jsonl"
 
 
 class TestSetupProxy:
@@ -179,7 +180,7 @@ class TestSetupProxy:
         # Upload must happen.
         sandbox.upload_by_path.assert_awaited_once_with(
             file_path="/local/r.jsonl",
-            target_path=SANDBOX_REPLAY_FILE,
+            target_path=env_vars.ROCK_JOB_PROXY_REPLAY_FILE,
         )
         # ModelService is installed and started.
         fake_ms_instance.install.assert_awaited_once()
