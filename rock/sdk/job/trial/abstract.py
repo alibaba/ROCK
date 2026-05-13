@@ -144,9 +144,14 @@ class AbstractTrial(ABC):
         env["OPENAI_BASE_URL"] = proxy_url
         logger.info(f"Proxy ready at {proxy_url}")
 
-    @abstractmethod
     async def setup(self, sandbox: Sandbox) -> None:
-        """Pre-execution: prepare sandbox environment (upload files, write configs)."""
+        """Pre-execution: start proxy (if enabled) and upload files.
+
+        Subclasses should call ``await super().setup(sandbox)`` first, then add
+        their own setup logic.
+        """
+        await self._setup_proxy(sandbox)
+        await self._upload_files(sandbox)
 
     @abstractmethod
     def build(self) -> str:
