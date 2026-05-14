@@ -1,6 +1,5 @@
 from collections import Counter as CollectionsCounter
 
-from opentelemetry import metrics
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.metrics import Counter, _Gauge
 from opentelemetry.sdk.metrics import MeterProvider
@@ -154,8 +153,7 @@ class MetricsMonitor:
                 export_interval_millis=export_interval_millis,
             )
         self.meter_provider = MeterProvider(metric_readers=[self.metric_reader])
-        metrics.set_meter_provider(self.meter_provider)
-        self.meter = metrics.get_meter(MetricsConstants.METRICS_METER_NAME)
+        self.meter = self.meter_provider.get_meter(MetricsConstants.METRICS_METER_NAME)
         logger.info("init telemetry success")
 
     def create_counter(self, name: str, description: str, unit: str = "1") -> Counter:
