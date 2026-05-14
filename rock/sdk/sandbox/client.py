@@ -3,6 +3,7 @@ import logging
 import math
 import mimetypes
 import os
+import shlex
 import time
 import uuid
 import warnings
@@ -842,6 +843,15 @@ class Sandbox(AbstractSandbox):
         oss2.resumable_upload(self._oss_bucket, tmp_obj_name, file_path)
         url = self._oss_bucket.sign_url("GET", tmp_obj_name, 600, slash_safe=True)
         try:
+            # wget -O does not create missing parent dirs; mkdir -p first to
+            # match the multipart upload path (rocklet /upload mkdirs server-side).
+            parent_dir = str(Path(target_path).parent)
+            await self.arun(
+                cmd=f"mkdir -p {shlex.quote(parent_dir)}",
+                wait_timeout=10,
+                mode=RunMode.NORMAL,
+            )
+
             download_cmd = f"wget -c -O {target_path} '{url}'"
             await self.arun(cmd=download_cmd, wait_timeout=600, mode=RunMode.NOHUP)
             check_file_session = f"bash-{timestamp}"
