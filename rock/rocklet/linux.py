@@ -34,6 +34,7 @@ from rock.rocklet.exceptions import (
     SessionNotInitializedError,
 )
 from rock.utils import get_executor
+from rock.utils.cgroup_stats import cpu_percent as cgroup_cpu_percent
 
 from .rocklet import Rocklet, Session
 
@@ -347,7 +348,7 @@ class LinuxRocklet(Rocklet):
 
     async def get_statistics(self) -> dict:
         return {
-            "cpu": psutil.cpu_percent(),
+            "cpu": cgroup_cpu_percent(),
             "mem": psutil.virtual_memory().percent,
             "disk": psutil.disk_usage("/").percent,
             "net": psutil.net_io_counters().bytes_recv + psutil.net_io_counters().bytes_sent,
