@@ -26,6 +26,7 @@ async def test_small_file_triggers_async_persistence(tmp_path):
         response = await sandbox.upload_by_path(str(f), "/sandbox/small.txt")
 
     assert response.success is True
+    sandbox._oss.ensure_setup.assert_awaited()
     sandbox._oss.schedule_async_persistence.assert_awaited_once_with(str(f), "/sandbox/small.txt")
 
 

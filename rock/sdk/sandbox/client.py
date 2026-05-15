@@ -752,7 +752,9 @@ class Sandbox(AbstractSandbox):
             return UploadResponse(success=False, message=f"Failed to execute command: upload response: {response}")
         # Admin /upload succeeded; opportunistically persist to OSS in background.
         # Skipped silently when OSS is not configured/available.
-        if self._oss.is_available:
+        # ensure_setup is idempotent and short-circuits when OSS is unavailable,
+        # so small-file-only flows still get a chance to bootstrap OSS persistence.
+        if await self._oss.ensure_setup() and self._oss.is_available:
             await self._oss.schedule_async_persistence(path_str, target_path)
         return UploadResponse(success=True, message=f"Successfully uploaded file {filename} to {target_path}")
 
