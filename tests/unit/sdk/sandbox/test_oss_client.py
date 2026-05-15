@@ -1,6 +1,7 @@
 """Tests for OssClient — encapsulates all OSS operations for Sandbox."""
 
 import re
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -184,4 +185,16 @@ class TestIsTokenExpired:
     def test_past_expiration_is_expired(self):
         client = OssClient(_make_sandbox())
         client._token_expire_time = "2000-01-01T00:00:00Z"
+        assert client._is_token_expired() is True
+
+    def test_within_5min_buffer_is_expired(self):
+        client = OssClient(_make_sandbox())
+        # 未来 1 分钟（< 5 分钟 buffer）
+        near_future = (datetime.now(timezone.utc) + timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        client._token_expire_time = near_future
+        assert client._is_token_expired() is True
+
+    def test_attribute_error_is_treated_as_expired(self):
+        client = OssClient(_make_sandbox())
+        client._token_expire_time = 12345  # int, no .replace method → AttributeError
         assert client._is_token_expired() is True

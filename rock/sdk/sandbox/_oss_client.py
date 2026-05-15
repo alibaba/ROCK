@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -98,12 +98,11 @@ class OssClient:
         return credentials
 
     def _is_token_expired(self) -> bool:
-        """Whether cached token is missing or expired (per Expiration field)."""
-        if not self._token_expire_time:
-            return True
+        """Whether cached token is missing, malformed, or within 5min of expiration."""
         try:
-            # Aliyun STS Expiration format: "2026-12-31T00:00:00Z"
-            exp = datetime.strptime(self._token_expire_time, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-        except ValueError:
+            expire_time = datetime.fromisoformat(self._token_expire_time.replace("Z", "+00:00"))
+            current_time = datetime.now(timezone.utc)
+            effective_expire_time = expire_time - timedelta(minutes=5)
+            return current_time >= effective_expire_time
+        except (ValueError, AttributeError):
             return True
-        return datetime.now(timezone.utc) >= exp
