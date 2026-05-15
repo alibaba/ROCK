@@ -189,6 +189,11 @@ gh pr create --title "feat: add my feature" --body "fixes #123"
 
 ## Development Workflow with Claude Code
 
+### Change Discipline — 核心原则
+
+- **加功能时不重构，重构时不加功能** — 每次变更只做一件事。添加新功能时，保持原有代码结构不变，只在必要位置插入新逻辑；重构时不夹带行为变更。
+- 这意味着：不要为了加一个 bug fix 而顺手提取新方法、重命名变量、调整调用链。如果觉得结构需要优化，单独提一个重构 PR。
+
 ### Recommended Skills
 
 在使用 Claude Code 进行开发时，建议按以下流程使用 skills：

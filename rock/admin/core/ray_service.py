@@ -72,13 +72,25 @@ class RayService:
                 start_time = time.time()
                 logger.info(f"current time {start_time}, Reconnect ray cluster")
                 ray.shutdown()
-                ray.init(
-                    address=self._config.address,
-                    runtime_env=self._config.runtime_env,
-                    namespace=self._config.namespace,
-                    resources=self._config.resources,
-                    _temp_dir=self._config.temp_dir,
+                loop = asyncio.get_running_loop()
+                await asyncio.wait_for(
+                    loop.run_in_executor(
+                        self._executor,
+                        lambda: (
+                            ray.init(
+                                address=self._config.address,
+                                runtime_env=self._config.runtime_env,
+                                namespace=self._config.namespace,
+                                resources=self._config.resources,
+                                _temp_dir=self._config.temp_dir,
+                            )
+                        ),
+                    ),
+                    timeout=self._config.ray_init_timeout_seconds,
                 )
+                res = ray.cluster_resources()
+                if res is None or res == {}:
+                    raise Exception("ray cluster resources is empty")
                 self._ray_request_count = 0
                 end_time = time.time()
                 self._ray_establish_time = end_time
@@ -86,7 +98,44 @@ class RayService:
                     f"current time {end_time}, Reconnect ray cluster successfully, duration {end_time - start_time}s"
                 )
         except InternalServerRockError as e:
-            logger.warning("Reconnect ray cluster timeout, skip reconnectting", exc_info=e)
+            logger.warning("Reconnect ray cluster timeout, skip reconnecting", exc_info=e)
+        except Exception as e:
+            logger.error("Reconnect ray cluster failed, attempting recovery", exc_info=e)
+            await self._retry_ray_init()
+
+    async def _retry_ray_init(self):
+        """Retry ray.init() up to ray_init_max_retries times after a failed reconnect."""
+        loop = asyncio.get_running_loop()
+
+        try:
+            logger.info("Recovery attempt once")
+            ray.shutdown()
+            await asyncio.wait_for(
+                loop.run_in_executor(
+                    self._executor,
+                    lambda: (
+                        ray.init(
+                            address=self._config.address,
+                            runtime_env=self._config.runtime_env,
+                            namespace=self._config.namespace,
+                            resources=self._config.resources,
+                            _temp_dir=self._config.temp_dir,
+                        ),
+                        ray.cluster_resources(),
+                    ),
+                ),
+                timeout=self._config.ray_init_timeout_seconds,
+            )
+            self._ray_request_count = 0
+            self._ray_establish_time = time.time()
+            logger.info("Recovered ray connection on attempt")
+            return
+        except Exception as retry_error:
+            logger.error(
+                "Recovery attempt failed",
+                exc_info=retry_error,
+            )
+        logger.error("All recovery attempts exhausted, will retry on next scheduled reconnect")
 
     async def async_ray_get(self, ray_future: ray.ObjectRef, timeout: int = 60):
         """

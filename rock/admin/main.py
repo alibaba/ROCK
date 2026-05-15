@@ -1,3 +1,13 @@
+import os
+
+# Disable Ray auto-init to prevent local cluster startup when remote connection is lost.
+# Without this, a failed ray.init() leaves Ray in shutdown state, and subsequent .remote()
+# calls trigger auto-init which starts a full local Ray cluster on the admin machine,
+# causing OOM when multiple concurrent requests each spawn their own cluster.
+# Must be set before any `import ray` happens transitively via the rock.* imports below.
+# E402 is exempted for this file in pyproject.toml [tool.ruff.lint.per-file-ignores].
+os.environ["RAY_ENABLE_AUTO_CONNECT"] = "0"
+
 import argparse
 import json
 import logging
