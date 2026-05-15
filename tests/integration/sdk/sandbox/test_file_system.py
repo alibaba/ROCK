@@ -104,9 +104,9 @@ async def test_download_file(sandbox_instance: Sandbox, monkeypatch):
         )
 
         assert not response.success, "Download should fail when OSS is disabled"
-        assert "not enabled" in response.message.lower(), (
-            f"Error message should mention OSS disabled: {response.message}"
-        )
+        assert (
+            "not enabled" in response.message.lower()
+        ), f"Error message should mention OSS disabled: {response.message}"
         logger.info("✓ OSS disabled error handling works correctly")
 
         # Setup mocks for remaining tests
@@ -123,7 +123,7 @@ async def test_download_file(sandbox_instance: Sandbox, monkeypatch):
                 "Expiration": "2026-03-15T00:00:00Z",
             }
 
-        monkeypatch.setattr(sandbox_instance, "_get_oss_sts_credentials", mock_get_sts_credentials)
+        monkeypatch.setattr(sandbox_instance._oss, "_get_sts_credentials", mock_get_sts_credentials)
 
         original_arun = sandbox_instance.arun
 
