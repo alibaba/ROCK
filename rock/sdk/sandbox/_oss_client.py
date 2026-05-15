@@ -293,3 +293,8 @@ class OssClient:
             return DownloadFileResponse(success=False, message=f"Downloaded file not found at: {local}")
 
         return DownloadFileResponse(success=True, message=f"Successfully downloaded {remote_path} to {local}")
+
+    async def close(self) -> None:
+        """Wait for any pending OSS tasks (placeholder; full impl in async-persistence task)."""
+        # Phase D 会替换为：await asyncio.wait_for(asyncio.gather(*self._pending_persistence_tasks, ...), 5.0)
+        pass

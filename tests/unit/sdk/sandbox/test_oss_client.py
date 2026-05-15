@@ -410,3 +410,9 @@ class TestDownloadViaOss:
         response = await client.download_via_oss("/sandbox/foo.txt", tmp_path / "foo.txt")
         assert response.success is False
         assert "not found" in response.message.lower()
+
+
+class TestClose:
+    async def test_close_with_no_pending_tasks_is_noop(self):
+        client = OssClient(_make_sandbox())
+        await client.close()  # 不抛异常即可
