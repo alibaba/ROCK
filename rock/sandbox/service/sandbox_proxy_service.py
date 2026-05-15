@@ -71,11 +71,22 @@ class SandboxProxyService:
             ),
         )
 
-        self.sts_client = client.AcsClient(
-            self.oss_config.access_key_id,
-            self.oss_config.access_key_secret,
-            env_vars.ROCK_OSS_BUCKET_REGION,
-        )
+        # Replace single self.sts_client with a dict keyed by account name,
+        # so /get_token?account=legacy|primary maps to the right credentials.
+        legacy_region = self.oss_config.region or env_vars.ROCK_OSS_BUCKET_REGION
+        primary_region = self.oss_config.primary.region or env_vars.ROCK_OSS_BUCKET_REGION
+        self._sts_clients = {
+            "legacy": client.AcsClient(
+                self.oss_config.access_key_id,
+                self.oss_config.access_key_secret,
+                legacy_region,
+            ),
+            "primary": client.AcsClient(
+                self.oss_config.primary.access_key_id,
+                self.oss_config.primary.access_key_secret,
+                primary_region,
+            ),
+        }
 
         self._batch_get_status_max_count = rock_config.proxy_service.batch_get_status_max_count
         self._validate_oss_config_or_warn()
@@ -668,30 +679,60 @@ class SandboxProxyService:
         port = service_status.get_mapped_port(Port.PROXY)
         return f"http://{host_ip}:{port}"
 
-    def gen_oss_sts_token(self):
-        role_arn = self.oss_config.role_arn
+    def gen_oss_sts_token(self, account: str = "legacy") -> dict | None:  # CHANGED: account param, default "legacy" preserves BC
+        """Generate STS credentials and OSS config for the given account.
+        Args:
+            account: "legacy" (xrl-sandbox, BC for SDK < 1.8) or
+                     "primary" (chatos-rock, SDK >= 1.8).
+        Returns:
+            Dict with STS credentials (AccessKeyId, AccessKeySecret, SecurityToken, Expiration) PLUS account-scoped OSS config:
+            Endpoint, Bucket, Region, Prefix. None on failure or when the requested account is unconfigured.
+        """
+        if account not in self._sts_clients:
+            logger.error(f"unknown OSS account: {account!r}")
+            return None
+
+        if account == "primary":
+            primary = self.oss_config.primary
+            role_arn = primary.role_arn
+            session_name = "rock-sandbox-primary"
+            endpoint = primary.endpoint or None
+            bucket = primary.bucket or None
+            region = primary.region or env_vars.ROCK_OSS_BUCKET_REGION or None
+            prefix = self.oss_config.transfer_prefix or None
+        else:  # legacy
+            role_arn = self.oss_config.role_arn
+            session_name = "rock-sandbox-legacy"
+            endpoint = env_vars.ROCK_OSS_BUCKET_ENDPOINT or self.oss_config.endpoint or None
+            bucket = env_vars.ROCK_OSS_BUCKET_NAME or self.oss_config.bucket or None
+            region = env_vars.ROCK_OSS_BUCKET_REGION or None
+            prefix = env_vars.ROCK_OSS_TRANSFER_PREFIX or None
+
+        if not role_arn:
+            logger.warning(f"oss role_arn not configured for account={account!r}")
+            return None
+
         request = CommonRequest(product="Sts", version="2015-04-01", action_name="AssumeRole")
         request.set_method("POST")
         request.set_protocol_type("https")
         request.add_query_param("RoleArn", role_arn)
-        request.add_query_param("RoleSessionName", "sessiontest")
+        request.add_query_param("RoleSessionName", session_name)
         # at least 900s
         request.add_query_param("DurationSeconds", "900")
         request.set_accept_format("JSON")
         try:
-            body = self.sts_client.do_action_with_exception(request)
-            token = json.loads(oss2.to_unicode(body))
-            credentials = token["Credentials"]
+            body = self._sts_clients[account].do_action_with_exception(request)
+            credentials = json.loads(oss2.to_unicode(body))["Credentials"]
         except Exception:
-            logger.error("generate oss sts token failed")
+            logger.error(f"generate oss sts token failed (account={account})", exc_info=True)
             return None
 
         return {
             **credentials,
-            # env > YAML, matches client-side Layer 1 priority
-            "Endpoint": env_vars.ROCK_OSS_BUCKET_ENDPOINT or self.oss_config.endpoint or None,
-            "Bucket": env_vars.ROCK_OSS_BUCKET_NAME or self.oss_config.bucket or None,
-            "Region": env_vars.ROCK_OSS_BUCKET_REGION or None,
+            "Endpoint": endpoint,
+            "Bucket": bucket,
+            "Region": region,
+            "Prefix": prefix,  # transfer-object key prefix, scoped per account
         }
 
     async def get_sandbox_websocket_url(

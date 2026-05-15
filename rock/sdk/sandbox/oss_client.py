@@ -36,6 +36,7 @@ class OssClientConfig:
     bucket: str
     region: str
     enabled_via_env: bool  # True = Layer 1 (gated by ROCK_OSS_ENABLE); False = Layer 2
+    prefix: str = ""  # Transfer-object key prefix (Layer 1 from env; Layer 2 from server response)
 
 
 class OssClient:
@@ -49,13 +50,22 @@ class OssClient:
         self._pending_persistence_tasks: set[asyncio.Task] = set()
 
     @staticmethod
-    def _compute_object_name(sandbox_id: str, local_path: str, sandbox_path: str) -> str:
+    def _compute_object_name(
+        sandbox_id: str,
+        local_path: str,
+        sandbox_path: str,
+        prefix: str | None = None,  # NEW: server-pushed transfer prefix (e.g. "rock-transfer/")
+    ) -> str:
         # Prefer sandbox basename: the OSS object mirrors a sandbox-side file,
         # so naming it after the sandbox path keeps OSS-side names meaningful
         # even when local destinations differ (e.g. download to a renamed file).
         payload = f"{sandbox_id}|{local_path}|{sandbox_path}"
         digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
         filename = Path(sandbox_path).name or Path(local_path).name
+        # Honor server-pushed Prefix so chatos-rock's rock-transfer/ lifecycle catches the object.
+        clean_prefix = (prefix or "").strip("/")
+        if clean_prefix:
+            return f"{clean_prefix}/{digest}-{filename}"
         return f"{digest}-{filename}"
 
     @staticmethod
@@ -70,6 +80,7 @@ class OssClient:
                 bucket=env_bucket,
                 region=env_region,
                 enabled_via_env=True,
+                prefix=env_vars.ROCK_OSS_TRANSFER_PREFIX or "",  # NEW: env can carry prefix too
             )
 
         # Layer 2: server response (fallback default)
@@ -82,6 +93,7 @@ class OssClient:
                 bucket=resp_bucket,
                 region=resp_region,
                 enabled_via_env=False,
+                prefix=sts_response.get("Prefix") or "",  # NEW: pull prefix from server
             )
 
         # Layer 3: OSS unavailable
@@ -96,7 +108,7 @@ class OssClient:
 
         Side effect: caches Expiration in self._token_expire_time.
         """
-        url = f"{self._sandbox._url}/get_token"
+        url = f"{self._sandbox._url}/get_token?account=primary"
         headers = self._sandbox._build_headers()
         response = await HttpUtils.get(url, headers)
         if response["status"] != "Success":
@@ -183,6 +195,7 @@ class OssClient:
             sandbox_id=self._sandbox.sandbox_id,
             local_path=file_path,
             sandbox_path=target_path,
+            prefix=self._client_config.prefix if self._client_config else None,  # NEW
         )
 
         try:
@@ -260,6 +273,7 @@ class OssClient:
             sandbox_id=self._sandbox.sandbox_id,
             local_path=str(local_path),
             sandbox_path=remote_path,
+            prefix=self._client_config.prefix if self._client_config else None,
         )
         oss_url = f"oss://{self._client_config.bucket}/{oss_object_name}"
 
@@ -309,6 +323,7 @@ class OssClient:
             sandbox_id=self._sandbox.sandbox_id,
             local_path=local_path,
             sandbox_path=sandbox_path,
+            prefix=self._client_config.prefix if self._client_config else None,
         )
         task = asyncio.create_task(self._persist_to_oss(local_path, oss_object_name))
         self._pending_persistence_tasks.add(task)

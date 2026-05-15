@@ -490,3 +490,35 @@ class TestCloseAwaitsPendingTasks:
         with patch("asyncio.to_thread", new=hang):
             await client.schedule_async_persistence("/local/foo.json", "/sandbox/foo.json")
             await client.close(timeout=0.05)
+
+
+# prefix propagation
+def test_compute_object_name_with_prefix():
+    name = OssClient._compute_object_name(
+        sandbox_id="sb-1",
+        local_path="/tmp/x",
+        sandbox_path="/data/x",
+        prefix="rock-transfer/",
+    )
+    assert name.startswith("rock-transfer/")
+    assert name.endswith("-x")
+
+
+def test_compute_object_name_strips_slashes_in_prefix():
+    name = OssClient._compute_object_name(
+        sandbox_id="sb-1",
+        local_path="/tmp/x",
+        sandbox_path="/data/x",
+        prefix="/rock-transfer//",
+    )
+    assert name.startswith("rock-transfer/")
+    assert "//" not in name
+
+
+def test_compute_object_name_no_prefix_keeps_legacy_layout():
+    name = OssClient._compute_object_name(
+        sandbox_id="sb-1",
+        local_path="/tmp/x",
+        sandbox_path="/data/x",
+    )
+    assert "/" not in name  # flat layout
