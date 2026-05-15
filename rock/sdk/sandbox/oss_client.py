@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import shlex
-import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -18,8 +17,7 @@ from typing import TYPE_CHECKING
 import oss2
 
 from rock import env_vars
-from rock.actions.sandbox.request import BashAction, Command, CreateBashSessionRequest
-from rock.actions.sandbox.response import CommandResponse, DownloadFileResponse, Observation, UploadResponse
+from rock.actions.sandbox.response import DownloadFileResponse, UploadResponse
 from rock.logger import init_logger
 from rock.utils.http import HttpUtils
 
@@ -202,10 +200,10 @@ class OssClient:
             await self._sandbox.arun(cmd=download_cmd, wait_timeout=600, mode=RunMode.NOHUP)
 
             # Verify target exists in sandbox
-            check_session = f"oss-verify-{oss_object_name}-{time.time_ns()}"
-            await self._sandbox.create_session(CreateBashSessionRequest(session=check_session))
-            check: Observation = await self._sandbox._run_in_session(
-                action=BashAction(command=f"test -f {target_path}", session=check_session)
+            check = await self._sandbox.arun(
+                cmd=f"test -f {target_path}",
+                wait_timeout=10,
+                mode=RunMode.NORMAL,
             )
             if check.exit_code != 0:
                 return UploadResponse(
@@ -235,7 +233,11 @@ class OssClient:
             return DownloadFileResponse(success=False, message="OSS is not available")
 
         # Verify source file exists in sandbox (must be regular file)
-        check: CommandResponse = await self._sandbox.execute(Command(command=["test", "-f", remote_path]))
+        check = await self._sandbox.arun(
+            cmd=f"test -f {shlex.quote(remote_path)}",
+            wait_timeout=10,
+            mode=RunMode.NORMAL,
+        )
         if check.exit_code != 0:
             return DownloadFileResponse(
                 success=False,

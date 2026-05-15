@@ -359,8 +359,6 @@ class TestUploadViaOss:
         sandbox = _make_sandbox()
         sandbox.sandbox_id = "sb-123"
         sandbox.arun = AsyncMock(return_value=MagicMock(exit_code=0))
-        sandbox.create_session = AsyncMock()
-        sandbox._run_in_session = AsyncMock(return_value=MagicMock(exit_code=0))
 
         client = OssClient(sandbox)
         client._bucket = MagicMock()
@@ -381,9 +379,13 @@ class TestUploadViaOss:
     async def test_sandbox_verification_fail_returns_failure(self):
         sandbox = _make_sandbox()
         sandbox.sandbox_id = "sb-123"
-        sandbox.arun = AsyncMock(return_value=MagicMock(exit_code=0))
-        sandbox.create_session = AsyncMock()
-        sandbox._run_in_session = AsyncMock(return_value=MagicMock(exit_code=1))  # test -f 失败
+
+        async def arun_side_effect(cmd, **kwargs):
+            # mkdir/wget 成功；test -f（最后的 verify 步骤）失败
+            exit_code = 1 if cmd.startswith("test -f") else 0
+            return MagicMock(exit_code=exit_code)
+
+        sandbox.arun = AsyncMock(side_effect=arun_side_effect)
 
         client = OssClient(sandbox)
         client._bucket = MagicMock()
@@ -420,7 +422,7 @@ class TestDownloadViaOss:
     async def test_remote_file_not_found_returns_failure(self, tmp_path):
         sandbox = _make_sandbox()
         sandbox.sandbox_id = "sb-1"
-        sandbox.execute = AsyncMock(return_value=MagicMock(exit_code=1))  # test -f 失败
+        sandbox.arun = AsyncMock(return_value=MagicMock(exit_code=1))  # test -f 失败
 
         client = OssClient(sandbox)
         client._bucket = MagicMock()
