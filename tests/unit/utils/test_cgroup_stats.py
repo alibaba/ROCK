@@ -11,12 +11,14 @@ import rock.utils.cgroup_stats as cgroup_stats
 def _reset_global_state():
     """Reset module-level caches between tests."""
     cgroup_stats._cgroup_version = None
-    cgroup_stats._last_cpu_usage.clear()
-    cgroup_stats._last_cpu_time.clear()
+    cgroup_stats._cpu_quota = None
+    cgroup_stats._last_cpu_usage = None
+    cgroup_stats._last_cpu_time = None
     yield
     cgroup_stats._cgroup_version = None
-    cgroup_stats._last_cpu_usage.clear()
-    cgroup_stats._last_cpu_time.clear()
+    cgroup_stats._cpu_quota = None
+    cgroup_stats._last_cpu_usage = None
+    cgroup_stats._last_cpu_time = None
 
 
 def _mock_path_exists(mapping: dict[str, bool]):
