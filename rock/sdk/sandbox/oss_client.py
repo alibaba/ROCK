@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 import oss2
 
 from rock import env_vars
+from rock.actions.sandbox.request import Command
 from rock.actions.sandbox.response import DownloadFileResponse, UploadResponse
 from rock.logger import init_logger
 from rock.utils.http import HttpUtils
@@ -199,12 +200,10 @@ class OssClient:
             download_cmd = f"wget -c -O {target_path} '{url}'"
             await self._sandbox.arun(cmd=download_cmd, wait_timeout=600, mode=RunMode.NOHUP)
 
-            # Verify target exists in sandbox
-            check = await self._sandbox.arun(
-                cmd=f"test -f {target_path}",
-                wait_timeout=10,
-                mode=RunMode.NORMAL,
-            )
+            # Verify target exists in sandbox. Use execute() instead of arun(),
+            # because arun() raises on non-zero exit codes; here exit_code=1
+            # (file missing) is a normal branch we need to inspect.
+            check = await self._sandbox.execute(Command(command=["test", "-f", target_path]))
             if check.exit_code != 0:
                 return UploadResponse(
                     success=False,
@@ -232,12 +231,10 @@ class OssClient:
         if self._bucket is None or self._client_config is None:
             return DownloadFileResponse(success=False, message="OSS is not available")
 
-        # Verify source file exists in sandbox (must be regular file)
-        check = await self._sandbox.arun(
-            cmd=f"test -f {shlex.quote(remote_path)}",
-            wait_timeout=10,
-            mode=RunMode.NORMAL,
-        )
+        # Verify source file exists in sandbox (must be regular file).
+        # Use execute() instead of arun(): arun() raises on non-zero exit
+        # codes, but exit_code=1 (file missing) is the branch we want to act on.
+        check = await self._sandbox.execute(Command(command=["test", "-f", remote_path]))
         if check.exit_code != 0:
             return DownloadFileResponse(
                 success=False,
