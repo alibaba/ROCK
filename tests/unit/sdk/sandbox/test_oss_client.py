@@ -1,7 +1,9 @@
 """Tests for OssClient — encapsulates all OSS operations for Sandbox."""
 
 import asyncio
+import logging
 import re
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,6 +12,22 @@ import pytest
 from rock import env_vars
 from rock.actions.sandbox.response import DownloadFileResponse, UploadResponse
 from rock.sdk.sandbox._oss_client import OssClient, OssClientConfig
+
+
+@contextmanager
+def _capture_on(caplog, logger_name: str, level: int = logging.WARNING):
+    """Attach caplog.handler directly to the target logger.
+
+    rock 的 init_logger 默认 propagate=False，导致 caplog（默认挂在 root）抓不到。
+    这里把 caplog.handler 挂到目标 logger 本身，绕过 propagate 限制。
+    """
+    target = logging.getLogger(logger_name)
+    target.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(level, logger=logger_name):
+            yield
+    finally:
+        target.removeHandler(caplog.handler)
 
 
 def _make_sandbox(base_url="http://admin:8080", headers=None):
@@ -443,8 +461,6 @@ class TestScheduleAsyncPersistence:
         assert len(client._pending_persistence_tasks) == 0
 
     async def test_failure_logs_warning_does_not_raise(self, caplog):
-        import logging
-
         sandbox = _make_sandbox()
         sandbox.sandbox_id = "sb-1"
         client = OssClient(sandbox)
@@ -452,18 +468,10 @@ class TestScheduleAsyncPersistence:
 
         with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
             mock_to_thread.side_effect = Exception("oss boom")
-            with caplog.at_level(logging.WARNING):
-                # 注意：rock logger 默认 propagate=False，需要 monkeypatch
-                from rock.sdk.sandbox import _oss_client as oss_mod
-
-                propagate_before = oss_mod.logger.propagate
-                oss_mod.logger.propagate = True
-                try:
-                    key = await client.schedule_async_persistence("/local/foo.json", "/sandbox/foo.json")
-                    # 等任务跑完（应该不抛异常）
-                    await asyncio.gather(*client._pending_persistence_tasks, return_exceptions=True)
-                finally:
-                    oss_mod.logger.propagate = propagate_before
+            with _capture_on(caplog, "rock.sdk.sandbox._oss_client"):
+                key = await client.schedule_async_persistence("/local/foo.json", "/sandbox/foo.json")
+                # 等任务跑完（应该不抛异常）
+                await asyncio.gather(*client._pending_persistence_tasks, return_exceptions=True)
 
         assert key is not None
         assert any(
@@ -491,8 +499,6 @@ class TestCloseAwaitsPendingTasks:
             assert completion_marker.is_set()
 
     async def test_close_timeout_logs_warning(self, caplog):
-        import logging
-
         sandbox = _make_sandbox()
         sandbox.sandbox_id = "sb-1"
         client = OssClient(sandbox)
@@ -501,21 +507,13 @@ class TestCloseAwaitsPendingTasks:
         async def hang(*args, **kwargs):
             await asyncio.sleep(100)
 
-        # rock logger 默认 propagate=False
-        from rock.sdk.sandbox import _oss_client as oss_mod
-
-        propagate_before = oss_mod.logger.propagate
-        oss_mod.logger.propagate = True
-        try:
-            with (
-                patch("asyncio.to_thread", new=hang),
-                patch("rock.sdk.sandbox._oss_client._OSS_CLOSE_TIMEOUT_SECONDS", 0.05),
-                caplog.at_level(logging.WARNING),
-            ):
-                await client.schedule_async_persistence("/local/foo.json", "/sandbox/foo.json")
-                await client.close()
-        finally:
-            oss_mod.logger.propagate = propagate_before
+        with (
+            patch("asyncio.to_thread", new=hang),
+            patch("rock.sdk.sandbox._oss_client._OSS_CLOSE_TIMEOUT_SECONDS", 0.05),
+            _capture_on(caplog, "rock.sdk.sandbox._oss_client"),
+        ):
+            await client.schedule_async_persistence("/local/foo.json", "/sandbox/foo.json")
+            await client.close()
 
         assert any(
             "did not finish" in r.message for r in caplog.records
