@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import shlex
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,6 +17,8 @@ from typing import TYPE_CHECKING
 import oss2
 
 from rock import env_vars
+from rock.actions.sandbox.request import BashAction, CreateBashSessionRequest
+from rock.actions.sandbox.response import Observation, UploadResponse
 from rock.logger import init_logger
 from rock.utils.http import HttpUtils
 
@@ -156,3 +159,63 @@ class OssClient:
             logger.warning("Failed to initialize OSS bucket: %s", e)
             self._bucket = None
             return False
+
+    async def upload_via_oss(self, file_path: str, target_path: str) -> UploadResponse:
+        """Upload a local file to sandbox via OSS as intermediary (large file path).
+
+        Steps:
+            1. Compute deterministic OSS object name
+            2. Resumable upload local file to OSS
+            3. Sign a temporary GET URL
+            4. Inside sandbox: mkdir -p parent + wget the signed URL
+            5. Verify target file exists in sandbox
+        """
+        from rock.sdk.sandbox.client import RunMode  # late import to avoid circular
+
+        if self._bucket is None:
+            return UploadResponse(success=False, message="OSS bucket not set up")
+
+        file_name = Path(file_path).name
+        oss_object_name = self._compute_object_name(
+            sandbox_id=self._sandbox.sandbox_id,
+            local_path=file_path,
+            sandbox_path=target_path,
+        )
+
+        try:
+            oss2.resumable_upload(self._bucket, oss_object_name, file_path)
+            url = self._bucket.sign_url("GET", oss_object_name, 600, slash_safe=True)
+
+            # mkdir -p target parent (wget -O does not auto-create dirs in NOHUP mode)
+            parent_dir = str(Path(target_path).parent)
+            await self._sandbox.arun(
+                cmd=f"mkdir -p {shlex.quote(parent_dir)}",
+                wait_timeout=10,
+                mode=RunMode.NORMAL,
+            )
+
+            # wget the signed URL
+            download_cmd = f"wget -c -O {target_path} '{url}'"
+            await self._sandbox.arun(cmd=download_cmd, wait_timeout=600, mode=RunMode.NOHUP)
+
+            # Verify target exists in sandbox
+            check_session = f"oss-verify-{oss_object_name}"
+            await self._sandbox.create_session(CreateBashSessionRequest(session=check_session))
+            check: Observation = await self._sandbox._run_in_session(
+                action=BashAction(command=f"test -f {target_path}", session=check_session)
+            )
+            if check.exit_code != 0:
+                return UploadResponse(
+                    success=False,
+                    message=f"Failed to upload file {file_name}, sandbox download phase failed",
+                )
+            return UploadResponse(
+                success=True,
+                message=f"Successfully uploaded file {file_name} to {target_path}",
+            )
+        except Exception as e:
+            logger.warning("upload_via_oss failed: %s", e)
+            return UploadResponse(
+                success=False,
+                message=f"Failed to upload file {file_name} to {target_path}: {e}",
+            )

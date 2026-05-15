@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from rock import env_vars
+from rock.actions.sandbox.response import UploadResponse
 from rock.sdk.sandbox._oss_client import OssClient, OssClientConfig
 
 
@@ -332,3 +333,56 @@ class TestSetup:
 
         assert ok is True
         mock_http.get.assert_not_called()  # 没有再调 /get_token
+
+
+class TestUploadViaOss:
+    async def test_success(self):
+        sandbox = _make_sandbox()
+        sandbox.sandbox_id = "sb-123"
+        sandbox.arun = AsyncMock(return_value=MagicMock(exit_code=0))
+        sandbox.create_session = AsyncMock()
+        sandbox._run_in_session = AsyncMock(return_value=MagicMock(exit_code=0))
+
+        client = OssClient(sandbox)
+        client._bucket = MagicMock()
+        client._bucket.sign_url = MagicMock(return_value="https://oss/signed?...")
+
+        with patch("rock.sdk.sandbox._oss_client.oss2.resumable_upload") as mock_upload:
+            response = await client.upload_via_oss("/local/foo.json", "/sandbox/dst/foo.json")
+
+        assert isinstance(response, UploadResponse)
+        assert response.success is True
+        # 验证 OSS 对象命名采用新约定：sha256-filename
+        expected_obj = OssClient._compute_object_name("sb-123", "/local/foo.json", "/sandbox/dst/foo.json")
+        mock_upload.assert_called_once()
+        # resumable_upload(bucket, obj_name, file_path)
+        assert mock_upload.call_args.args[1] == expected_obj
+        assert mock_upload.call_args.args[2] == "/local/foo.json"
+
+    async def test_sandbox_verification_fail_returns_failure(self):
+        sandbox = _make_sandbox()
+        sandbox.sandbox_id = "sb-123"
+        sandbox.arun = AsyncMock(return_value=MagicMock(exit_code=0))
+        sandbox.create_session = AsyncMock()
+        sandbox._run_in_session = AsyncMock(return_value=MagicMock(exit_code=1))  # test -f 失败
+
+        client = OssClient(sandbox)
+        client._bucket = MagicMock()
+        client._bucket.sign_url = MagicMock(return_value="url")
+
+        with patch("rock.sdk.sandbox._oss_client.oss2.resumable_upload"):
+            response = await client.upload_via_oss("/local/foo.json", "/sandbox/dst/foo.json")
+
+        assert response.success is False
+        assert "sandbox download phase failed" in response.message
+
+    async def test_oss_upload_exception_returns_failure(self):
+        sandbox = _make_sandbox()
+        sandbox.sandbox_id = "sb-123"
+        client = OssClient(sandbox)
+        client._bucket = MagicMock()
+
+        with patch("rock.sdk.sandbox._oss_client.oss2.resumable_upload", side_effect=Exception("oss boom")):
+            response = await client.upload_via_oss("/local/foo.json", "/sandbox/dst/foo.json")
+
+        assert response.success is False
