@@ -179,7 +179,7 @@ class TestK8sOperator:
 
     @pytest.mark.asyncio
     async def test_get_status_not_found_in_redis(self, k8s_operator, mock_provider, redis_provider):
-        """Test get_status raises error when sandbox not found in Redis."""
+        """Test get_status returns None when sandbox not found in Redis."""
         k8s_operator.set_redis_provider(redis_provider)
 
         # Mock provider returns sandbox info
@@ -192,9 +192,9 @@ class TestK8sOperator:
         }
         mock_provider.get_status = AsyncMock(return_value=SandboxInfo(**mock_sandbox_info))
 
-        # Sandbox not in Redis (no data stored)
-        with pytest.raises(Exception, match="Sandbox test-sandbox not found in Redis"):
-            await k8s_operator.get_status("test-sandbox")
+        # Sandbox not in Redis (no data stored) → returns None
+        result = await k8s_operator.get_status("test-sandbox")
+        assert result is None
 
 
 class TestMergeSandboxInfo:
