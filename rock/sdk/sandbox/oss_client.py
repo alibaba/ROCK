@@ -36,7 +36,7 @@ class OssClientConfig:
     endpoint: str
     bucket: str
     region: str
-    enabled_via_env: bool  # True = Layer 1 (受 ROCK_OSS_ENABLE 控制); False = Layer 2
+    enabled_via_env: bool  # True = Layer 1 (gated by ROCK_OSS_ENABLE); False = Layer 2
 
 
 class OssClient:
@@ -115,7 +115,7 @@ class OssClient:
 
     @property
     def is_available(self) -> bool:
-        """OSS 是否可用：bucket 已成功初始化。"""
+        """Whether OSS is available: bucket has been successfully initialized."""
         return self._bucket is not None
 
     async def ensure_setup(self) -> bool:
@@ -138,7 +138,7 @@ class OssClient:
         if config is None:
             return False
 
-        # Layer 1 还要看 ROCK_OSS_ENABLE
+        # Layer 1 also requires ROCK_OSS_ENABLE
         if config.enabled_via_env and not env_vars.ROCK_OSS_ENABLE:
             return False
 

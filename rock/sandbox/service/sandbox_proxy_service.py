@@ -81,7 +81,7 @@ class SandboxProxyService:
         self._validate_oss_config_or_warn()
 
     def _validate_oss_config_or_warn(self) -> None:
-        # 用与 gen_oss_sts_token 一致的解析顺序：env > YAML
+        # Same resolution order as gen_oss_sts_token: env > YAML
         endpoint = env_vars.ROCK_OSS_BUCKET_ENDPOINT or self.oss_config.endpoint
         bucket = env_vars.ROCK_OSS_BUCKET_NAME or self.oss_config.bucket
         region = env_vars.ROCK_OSS_BUCKET_REGION
@@ -688,7 +688,7 @@ class SandboxProxyService:
 
         return {
             **credentials,
-            # env > YAML, 与 client Layer 1 优先级一致
+            # env > YAML, matches client-side Layer 1 priority
             "Endpoint": env_vars.ROCK_OSS_BUCKET_ENDPOINT or self.oss_config.endpoint or None,
             "Bucket": env_vars.ROCK_OSS_BUCKET_NAME or self.oss_config.bucket or None,
             "Region": env_vars.ROCK_OSS_BUCKET_REGION or None,
