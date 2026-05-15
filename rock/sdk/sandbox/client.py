@@ -834,10 +834,6 @@ class Sandbox(AbstractSandbox):
         timestamp = str(time.time_ns())
         return f"bash-{timestamp}"
 
-    async def _get_oss_sts_credentials(self) -> dict:
-        """Deprecated: use self._oss._get_sts_credentials() directly."""
-        return await self._oss._get_sts_credentials()
-
     def _add_user_defined_tag_into_headers(self, headers: dict):
         if self.config.user_id:
             headers["X-User-Id"] = self.config.user_id
