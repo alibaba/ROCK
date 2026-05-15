@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import shlex
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -199,7 +200,7 @@ class OssClient:
             await self._sandbox.arun(cmd=download_cmd, wait_timeout=600, mode=RunMode.NOHUP)
 
             # Verify target exists in sandbox
-            check_session = f"oss-verify-{oss_object_name}"
+            check_session = f"oss-verify-{oss_object_name}-{time.time_ns()}"
             await self._sandbox.create_session(CreateBashSessionRequest(session=check_session))
             check: Observation = await self._sandbox._run_in_session(
                 action=BashAction(command=f"test -f {target_path}", session=check_session)
