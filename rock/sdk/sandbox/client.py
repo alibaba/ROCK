@@ -718,6 +718,13 @@ class Sandbox(AbstractSandbox):
             await self._oss.ensure_setup()
             if self._oss.is_available:
                 return await self._oss.upload_via_oss(path_str, target_path)
+            # OSS 显式请求但不可用 → 报错（BC：保留旧版行为）
+            if upload_mode == UploadMode.OSS:
+                return UploadResponse(
+                    success=False,
+                    message="Failed to upload file, please setup oss bucket first",
+                )
+            # 否则 fall through 到 admin /upload（auto/默认大文件，自然降级）
         url = f"{self._url}/upload"
         headers = self._build_headers()
 
