@@ -658,10 +658,17 @@ class SandboxProxyService:
         try:
             body = self.sts_client.do_action_with_exception(request)
             token = json.loads(oss2.to_unicode(body))
-            return token["Credentials"]
+            credentials = token["Credentials"]
         except Exception:
             logger.error("generate oss sts token failed")
             return None
+
+        return {
+            **credentials,
+            "Endpoint": self.oss_config.endpoint or None,
+            "Bucket": self.oss_config.bucket or None,
+            "Region": env_vars.ROCK_OSS_BUCKET_REGION or None,
+        }
 
     async def get_sandbox_websocket_url(
         self, sandbox_id: str, target_path: str | None = None, port: int | None = None

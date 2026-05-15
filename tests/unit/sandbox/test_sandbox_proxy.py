@@ -1,8 +1,10 @@
 import uuid
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from rock.actions.sandbox.response import State
+from rock.config import OssConfig
 from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
@@ -84,3 +86,62 @@ async def test_list_sandbox(sandbox_manager: SandboxManager, sandbox_proxy_servi
     assert len(result.items) == 0
     await sandbox_manager.stop(sandbox_id1)
     await sandbox_manager.stop(sandbox_id2)
+
+
+class TestGenOssStsToken:
+    @pytest.fixture
+    def sandbox_proxy_service(self):
+        # Build a minimal SandboxProxyService without going through __init__
+        # (which requires real Redis / metrics / RAM-Acs client setup).
+        service = SandboxProxyService.__new__(SandboxProxyService)
+        service.oss_config = OssConfig(role_arn="test_role_arn")
+        service.sts_client = MagicMock()
+        return service
+
+    def test_success_returns_dict_with_extra_fields(self, sandbox_proxy_service):
+        sandbox_proxy_service.oss_config.endpoint = "ep"
+        sandbox_proxy_service.oss_config.bucket = "bk"
+
+        fake_token_body = (
+            b'{"Credentials": {"AccessKeyId":"ak","AccessKeySecret":"sk",'
+            b'"SecurityToken":"tok","Expiration":"2099-01-01T00:00:00Z"}}'
+        )
+        with (
+            patch.object(sandbox_proxy_service.sts_client, "do_action_with_exception", return_value=fake_token_body),
+            patch("rock.sandbox.service.sandbox_proxy_service.env_vars") as mock_env,
+        ):
+            mock_env.ROCK_OSS_BUCKET_REGION = "rg"
+            result = sandbox_proxy_service.gen_oss_sts_token()
+
+        assert result["AccessKeyId"] == "ak"
+        assert result["Endpoint"] == "ep"
+        assert result["Bucket"] == "bk"
+        assert result["Region"] == "rg"
+
+    def test_sts_failure_returns_none(self, sandbox_proxy_service):
+        with patch.object(
+            sandbox_proxy_service.sts_client, "do_action_with_exception", side_effect=Exception("sts fail")
+        ):
+            result = sandbox_proxy_service.gen_oss_sts_token()
+        assert result is None
+
+    def test_partial_oss_config_returns_creds_with_none_extras(self, sandbox_proxy_service):
+        # endpoint 没配，但 STS 仍工作
+        sandbox_proxy_service.oss_config.endpoint = ""
+        sandbox_proxy_service.oss_config.bucket = "bk"
+
+        fake_token_body = (
+            b'{"Credentials": {"AccessKeyId":"ak","AccessKeySecret":"sk",'
+            b'"SecurityToken":"tok","Expiration":"2099-01-01T00:00:00Z"}}'
+        )
+        with (
+            patch.object(sandbox_proxy_service.sts_client, "do_action_with_exception", return_value=fake_token_body),
+            patch("rock.sandbox.service.sandbox_proxy_service.env_vars") as mock_env,
+        ):
+            mock_env.ROCK_OSS_BUCKET_REGION = ""
+            result = sandbox_proxy_service.gen_oss_sts_token()
+
+        assert result["AccessKeyId"] == "ak"  # STS 仍正常返回
+        assert result["Endpoint"] is None
+        assert result["Bucket"] == "bk"
+        assert result["Region"] is None
