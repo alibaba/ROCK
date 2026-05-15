@@ -74,9 +74,11 @@ class RayOperator(AbstractOperator):
             logger.info(f"sandbox {sandbox_id} is submitted")
             return sandbox_info
 
-    async def get_status(self, sandbox_id: str) -> SandboxInfo:
+    async def get_status(self, sandbox_id: str) -> SandboxInfo | None:
         if self.use_rocklet():
             sandbox_info: SandboxInfo = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
+            if sandbox_info is None:
+                return None
             host_ip = sandbox_info.get("host_ip")
             remote_status = await self.get_remote_status(sandbox_id, host_ip)
             is_alive = await self._check_alive_status(sandbox_id, host_ip, remote_status)

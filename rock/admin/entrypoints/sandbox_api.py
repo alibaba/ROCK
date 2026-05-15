@@ -158,14 +158,16 @@ async def get_sandbox_statistics(sandbox_id: str):
 
 @sandbox_router.get("/get_status")
 @handle_exceptions(error_message="get sandbox status failed")
-async def get_status(sandbox_id: str):
+async def get_status(sandbox_id: str, include_all_states: bool = False):
     # TODO: do judgement inside operator
     if (
         sandbox_manager.rock_config.nacos_provider is not None
         and await sandbox_manager.rock_config.nacos_provider.get_switch_status(GET_STATUS_SWITCH)
     ):
-        return RockResponse(result=await sandbox_manager.get_status_v2(sandbox_id))
-    return RockResponse(result=await sandbox_manager.get_status(sandbox_id))
+        return RockResponse(
+            result=await sandbox_manager.get_status_v2(sandbox_id, include_all_states=include_all_states)
+        )
+    return RockResponse(result=await sandbox_manager.get_status(sandbox_id, include_all_states=include_all_states))
 
 
 @sandbox_router.post("/execute")

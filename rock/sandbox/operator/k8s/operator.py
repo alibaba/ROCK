@@ -89,7 +89,7 @@ class K8sOperator(AbstractOperator):
         """
         return await self._provider.submit(config, user_info)
 
-    async def get_status(self, sandbox_id: str) -> SandboxInfo:
+    async def get_status(self, sandbox_id: str) -> SandboxInfo | None:
         """Get sandbox status with user info from Redis.
 
         This method first gets status from provider (IP, port_mapping, is_alive),
@@ -110,7 +110,7 @@ class K8sOperator(AbstractOperator):
             if redis_info:
                 return _merge_sandbox_info(redis_info, sandbox_info)
             else:
-                raise Exception(f"Sandbox {sandbox_id} not found in Redis")
+                return None
         return sandbox_info
 
     async def stop(self, sandbox_id: str) -> bool:

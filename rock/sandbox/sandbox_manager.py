@@ -214,16 +214,24 @@ class SandboxManager(BaseManager):
             return result
 
     @monitor_sandbox_operation()
-    async def get_status(self, sandbox_id) -> SandboxStatusResponse:
-        sandbox_info: SandboxInfo = await self._operator.get_status(sandbox_id=sandbox_id)
-        is_alive = sandbox_info.get("state") == State.RUNNING
-        if sandbox_info.get("state") == State.STOPPED:
-            raise BadRequestRockError(f"Sandbox {sandbox_id} is already stopped")
-        self._update_sandbox_alive_info(sandbox_info, is_alive)
-        current = await self._meta_store.get(sandbox_id)
-        if current is None or current.get("state") != sandbox_info.get("state"):
-            await self._meta_store.update(sandbox_id, sandbox_info)
-        await self._refresh_timeout(sandbox_id)
+    async def get_status(self, sandbox_id, include_all_states: bool = False) -> SandboxStatusResponse:
+        is_alive = False
+
+        sandbox_info: SandboxInfo | None = await self._operator.get_status(sandbox_id=sandbox_id)
+        if sandbox_info is not None:
+            is_alive = sandbox_info.get("state") == State.RUNNING
+            self._update_sandbox_alive_info(sandbox_info, is_alive)
+            if sandbox_info.get("state") in (State.PENDING, State.RUNNING):
+                current = await self._meta_store.get(sandbox_id)
+                if current is None or current.get("state") != sandbox_info.get("state"):
+                    await self._meta_store.update(sandbox_id, sandbox_info)
+                await self._refresh_timeout(sandbox_id)
+        elif include_all_states:
+            sandbox_info = await self._meta_store.get(sandbox_id, check_db=True)
+
+        if sandbox_info is None:
+            raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
+
         return SandboxStatusResponse(
             sandbox_id=sandbox_id,
             status=sandbox_info.get("phases"),
@@ -242,6 +250,12 @@ class SandboxManager(BaseManager):
             memory=sandbox_info.get("memory"),
             disk_limit_rootfs=sandbox_info.get("disk_limit_rootfs"),
             disk_limit_log=sandbox_info.get("disk_limit_log"),
+            lifecycle_info={
+                "current_state": sandbox_info.get("state"),
+                "start_time": sandbox_info.get("start_time"),
+                "stop_time": sandbox_info.get("stop_time"),
+                "create_time": sandbox_info.get("create_time"),
+            },
         )
 
     async def build_sandbox_info_from_redis(self, sandbox_id: str, deployment_info: SandboxInfo) -> SandboxInfo | None:
@@ -265,12 +279,12 @@ class SandboxManager(BaseManager):
             if sandbox_info.get("start_time") is None:
                 sandbox_info["start_time"] = get_iso8601_timestamp()
 
-    async def get_status_v2(self, sandbox_id) -> SandboxStatusResponse:
+    async def get_status_v2(self, sandbox_id, include_all_states: bool = False) -> SandboxStatusResponse:
         """
         Deprecated: Use get_status(sandbox_id, use_rocklet=True) instead.
         This method is kept for backward compatibility.
         """
-        return await self.get_status(sandbox_id)
+        return await self.get_status(sandbox_id, include_all_states=include_all_states)
 
     async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
         return await self._proxy_service.create_session(request)

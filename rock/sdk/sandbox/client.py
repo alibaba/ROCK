@@ -227,8 +227,8 @@ class Sandbox(AbstractSandbox):
             logging.warning(f"Failed to get is alive, {str(e)}")
             raise Exception(f"Failed to get is alive: {str(e)}")
 
-    async def get_status(self) -> SandboxStatusResponse:
-        url = f"{self._url}/get_status?sandbox_id={self.sandbox_id}"
+    async def get_status(self, include_all_states: bool = False) -> SandboxStatusResponse:
+        url = f"{self._url}/get_status?sandbox_id={self.sandbox_id}&include_all_states={include_all_states}"
         headers = self._build_headers()
         response = await HttpUtils.get(url, headers)
         logging.debug(f"Get status response: {response}")

@@ -115,11 +115,15 @@ class SandboxMetaStore:
         await self._redis.json_delete(timeout_sandbox_key(sandbox_id))
 
     @monitor_metastore_operation
-    async def get(self, sandbox_id: str) -> SandboxInfo | None:
+    async def get(self, sandbox_id: str, check_db: bool = False) -> SandboxInfo | None:
         """Read sandbox info from the Redis alive key."""
         result = await self._redis.json_get(alive_sandbox_key(sandbox_id), "$")
         if result and len(result) > 0:
             return result[0]
+        if check_db:
+            result = await self._db.get(sandbox_id)
+            if result:
+                return result
         return None
 
     async def exists(self, sandbox_id: str) -> bool:

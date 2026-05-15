@@ -18,7 +18,7 @@ class AbstractOperator(ABC):
         ...
 
     @abstractmethod
-    async def get_status(self, sandbox_id: str) -> SandboxInfo:
+    async def get_status(self, sandbox_id: str) -> SandboxInfo | None:
         ...
 
     @abstractmethod
