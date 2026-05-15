@@ -3,19 +3,15 @@ import logging
 import math
 import mimetypes
 import os
-import shlex
 import time
 import uuid
 import warnings
-from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 
-import oss2
 from httpx import ReadTimeout
 from typing_extensions import deprecated
 
-from rock import env_vars
 from rock.actions import (
     AbstractSandbox,
     Action,
@@ -30,7 +26,6 @@ from rock.actions import (
     ExecuteBashSessionResponse,
     IsAliveResponse,
     Observation,
-    OssSetupResponse,
     ReadFileRequest,
     ReadFileResponse,
     SandboxResponse,
@@ -49,6 +44,7 @@ from rock.sdk.common.exceptions import (
     InvalidParameterRockException,
     raise_for_code,
 )
+from rock.sdk.sandbox._oss_client import OssClient
 from rock.sdk.sandbox.agent.rock_agent import RockAgent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
 from rock.sdk.sandbox.deploy import Deploy
@@ -75,7 +71,6 @@ class Sandbox(AbstractSandbox):
     _sandbox_id: str | None = None
     _host_name: str | None = None
     _host_ip: str | None = None
-    _oss_bucket: oss2.Bucket | None = None
     _cluster: str | None = None
     _namespace: str | None = None
     _experiment_id: str | None = None
@@ -99,7 +94,6 @@ class Sandbox(AbstractSandbox):
         else:
             self._route_key = self.config.route_key
 
-        self._oss_token_expire_time = self._generate_utc_iso_time()
         self._cluster = self.config.cluster
         self.remote_user = LinuxRemoteUser(self)
         self.process = Process(self)
@@ -108,6 +102,7 @@ class Sandbox(AbstractSandbox):
         self.runtime_envs = {}
         self.deploy = Deploy(self)
         self.agent = RockAgent(self)
+        self._oss = OssClient(self)
 
     @property
     def sandbox_id(self) -> str:
@@ -718,11 +713,11 @@ class Sandbox(AbstractSandbox):
         if not file_path.exists():
             return UploadResponse(success=False, message=f"File not found: {file_path}")
         if upload_mode == UploadMode.OSS or (
-            upload_mode != UploadMode.DIRECT
-            and env_vars.ROCK_OSS_ENABLE
-            and os.path.getsize(file_path) > 1024 * 1024 * 1
+            upload_mode != UploadMode.DIRECT and os.path.getsize(file_path) > 1024 * 1024 * 1
         ):
-            return await self._upload_via_oss(path_str, target_path)
+            await self._oss.ensure_setup()
+            if self._oss.is_available:
+                return await self._oss.upload_via_oss(path_str, target_path)
         url = f"{self._url}/upload"
         headers = self._build_headers()
 
@@ -832,83 +827,9 @@ class Sandbox(AbstractSandbox):
         timestamp = str(time.time_ns())
         return f"bash-{timestamp}"
 
-    async def _upload_via_oss(self, file_path: str | Path, target_path: str):
-        if self._oss_bucket is None or self._is_token_expired():
-            setup_response: OssSetupResponse = await self._setup_oss()
-            if not setup_response.success:
-                return UploadResponse(success=False, message="Failed to upload file, please setup oss bucket first")
-        timestamp = str(time.time_ns())
-        file_name = file_path.split("/")[-1]
-        tmp_obj_name = f"{timestamp}-{file_name}"
-        oss2.resumable_upload(self._oss_bucket, tmp_obj_name, file_path)
-        url = self._oss_bucket.sign_url("GET", tmp_obj_name, 600, slash_safe=True)
-        try:
-            # wget -O does not create missing parent dirs; mkdir -p first to
-            # match the multipart upload path (rocklet /upload mkdirs server-side).
-            parent_dir = str(Path(target_path).parent)
-            await self.arun(
-                cmd=f"mkdir -p {shlex.quote(parent_dir)}",
-                wait_timeout=10,
-                mode=RunMode.NORMAL,
-            )
-
-            download_cmd = f"wget -c -O {target_path} '{url}'"
-            await self.arun(cmd=download_cmd, wait_timeout=600, mode=RunMode.NOHUP)
-            check_file_session = f"bash-{timestamp}"
-            await self.create_session(CreateBashSessionRequest(session=check_file_session))
-            check_file_cmd = f"test -f {target_path}"
-            check_response: Observation = await self._run_in_session(
-                action=BashAction(command=check_file_cmd, session=check_file_session)
-            )
-            if not check_response.exit_code == 0:
-                return UploadResponse(
-                    success=False, message=f"Failed to upload file {file_name}, sandbox download phase failed"
-                )
-            else:
-                return UploadResponse(success=True, message=f"Successfully uploaded file {file_name} to {target_path}")
-        except Exception:
-            return UploadResponse(success=False, message=f"Failed to upload file {file_name} to {target_path}")
-
     async def _get_oss_sts_credentials(self) -> dict:
-        """Get OSS STS credentials from sandbox and update token expiration time.
-
-        Side effects:
-            Updates self._oss_token_expire_time for token expiration checking
-
-        Returns:
-            dict: STS credentials with keys: AccessKeyId, AccessKeySecret, SecurityToken, Expiration
-
-        Raises:
-            Exception: If HTTP request fails or response is invalid
-        """
-        url = f"{self._url}/get_token"
-        headers = self._build_headers()
-        response = await HttpUtils.get(url, headers)
-        if response["status"] != "Success":
-            raise Exception(f"Failed to get OSS STS token: {response.get('message', 'Unknown error')}")
-
-        credentials = response["result"]
-        self._oss_token_expire_time = credentials["Expiration"]
-        return credentials
-
-    async def _setup_oss(self) -> OssSetupResponse:
-        try:
-            credentials = await self._get_oss_sts_credentials()
-            auth = oss2.StsAuth(
-                credentials["AccessKeyId"],
-                credentials["AccessKeySecret"],
-                credentials["SecurityToken"],
-            )
-
-            self._oss_bucket = oss2.Bucket(
-                auth=auth,
-                endpoint=env_vars.ROCK_OSS_BUCKET_ENDPOINT,
-                bucket_name=env_vars.ROCK_OSS_BUCKET_NAME,
-                region=env_vars.ROCK_OSS_BUCKET_REGION,
-            )
-        except Exception as e:
-            return OssSetupResponse(success=False, message=f"Failed to setup oss bucket: {e}")
-        return OssSetupResponse(success=True, message="Successfully setup oss bucket")
+        """Deprecated: use self._oss._get_sts_credentials() directly."""
+        return await self._oss._get_sts_credentials()
 
     def _add_user_defined_tag_into_headers(self, headers: dict):
         if self.config.user_id:
@@ -917,22 +838,6 @@ class Sandbox(AbstractSandbox):
             headers["X-Experiment-Id"] = self.config.experiment_id
         if self.config.namespace:
             headers["X-Namespace"] = self.config.namespace
-
-    def _is_token_expired(self) -> bool:
-        try:
-            expire_time = datetime.fromisoformat(self._oss_token_expire_time.replace("Z", "+00:00"))
-            current_time = datetime.now(timezone.utc)
-
-            buffer_time = timedelta(minutes=5)
-            effective_expire_time = expire_time - buffer_time
-
-            return current_time >= effective_expire_time
-
-        except (ValueError, AttributeError):
-            return True
-
-    def _generate_utc_iso_time(self):
-        return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     async def close_session(self, request: CloseSessionRequest) -> CloseSessionResponse:
         url = f"{self._url}/close_session"
@@ -975,11 +880,9 @@ class Sandbox(AbstractSandbox):
             f"_sandbox_id={self._sandbox_id!r}, "
             f"_host_name={self._host_name!r}, "
             f"_host_ip={self._host_ip!r}, "
-            f"_oss_bucket={self._oss_bucket!r}, "
             f"_cluster={self._cluster!r}, "
             f"_pod_name={self._pod_name!r}, "
-            f"_ip={self._ip!r}, "
-            f"_oss_token_expire_time={self._oss_token_expire_time!r}"
+            f"_ip={self._ip!r}"
             f")"
         )
 
