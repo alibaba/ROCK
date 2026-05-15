@@ -49,12 +49,12 @@ class TestComputeObjectName:
         b = OssClient._compute_object_name("sb-1", "/local/x", "/sandbox/y")
         assert a != b
 
-    def test_filename_is_basename_of_local_path(self):
+    def test_filename_is_basename_of_sandbox_path(self):
         name = OssClient._compute_object_name("sb-1", "/dir1/dir2/foo.txt", "/other/bar.txt")
-        assert name.endswith("-foo.txt")
+        assert name.endswith("-bar.txt")
 
-    def test_filename_falls_back_to_sandbox_path_basename_when_local_empty(self):
-        name = OssClient._compute_object_name("sb-1", "", "/sandbox/baz.txt")
+    def test_filename_falls_back_to_local_path_basename_when_sandbox_empty(self):
+        name = OssClient._compute_object_name("sb-1", "/local/baz.txt", "")
         assert name.endswith("-baz.txt")
 
 

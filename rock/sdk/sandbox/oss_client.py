@@ -52,9 +52,12 @@ class OssClient:
 
     @staticmethod
     def _compute_object_name(sandbox_id: str, local_path: str, sandbox_path: str) -> str:
+        # Prefer sandbox basename: the OSS object mirrors a sandbox-side file,
+        # so naming it after the sandbox path keeps OSS-side names meaningful
+        # even when local destinations differ (e.g. download to a renamed file).
         payload = f"{sandbox_id}|{local_path}|{sandbox_path}"
         digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-        filename = Path(local_path).name or Path(sandbox_path).name
+        filename = Path(sandbox_path).name or Path(local_path).name
         return f"{digest}-{filename}"
 
     @staticmethod
