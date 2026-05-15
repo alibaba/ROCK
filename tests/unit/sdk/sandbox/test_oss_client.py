@@ -469,3 +469,54 @@ class TestScheduleAsyncPersistence:
         assert any(
             "OSS persistence failed" in r.message for r in caplog.records
         ), f"Expected warning, got: {[r.message for r in caplog.records]}"
+
+
+class TestCloseAwaitsPendingTasks:
+    async def test_close_awaits_completion(self):
+        sandbox = _make_sandbox()
+        sandbox.sandbox_id = "sb-1"
+        client = OssClient(sandbox)
+        client._bucket = MagicMock()
+
+        completion_marker = asyncio.Event()
+
+        async def slow_upload(*args, **kwargs):
+            await asyncio.sleep(0.1)
+            completion_marker.set()
+
+        with patch("asyncio.to_thread", new=slow_upload):
+            await client.schedule_async_persistence("/local/foo.json", "/sandbox/foo.json")
+            assert not completion_marker.is_set()
+            await client.close()
+            assert completion_marker.is_set()
+
+    async def test_close_timeout_logs_warning(self, caplog):
+        import logging
+
+        sandbox = _make_sandbox()
+        sandbox.sandbox_id = "sb-1"
+        client = OssClient(sandbox)
+        client._bucket = MagicMock()
+
+        async def hang(*args, **kwargs):
+            await asyncio.sleep(100)
+
+        # rock logger 默认 propagate=False
+        from rock.sdk.sandbox import _oss_client as oss_mod
+
+        propagate_before = oss_mod.logger.propagate
+        oss_mod.logger.propagate = True
+        try:
+            with (
+                patch("asyncio.to_thread", new=hang),
+                patch("rock.sdk.sandbox._oss_client._OSS_CLOSE_TIMEOUT_SECONDS", 0.05),
+                caplog.at_level(logging.WARNING),
+            ):
+                await client.schedule_async_persistence("/local/foo.json", "/sandbox/foo.json")
+                await client.close()
+        finally:
+            oss_mod.logger.propagate = propagate_before
+
+        assert any(
+            "did not finish" in r.message for r in caplog.records
+        ), f"Expected timeout warning, got: {[r.message for r in caplog.records]}"

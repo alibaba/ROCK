@@ -28,6 +28,8 @@ if TYPE_CHECKING:
 
 logger = init_logger(__name__)
 
+_OSS_CLOSE_TIMEOUT_SECONDS = 5.0
+
 
 @dataclass
 class OssClientConfig:
@@ -324,6 +326,17 @@ class OssClient:
             logger.warning("OSS persistence failed for %s: %s", oss_object_name, e)
 
     async def close(self) -> None:
-        """Wait for any pending OSS tasks (placeholder; full impl in async-persistence task)."""
-        # Phase D 会替换为：await asyncio.wait_for(asyncio.gather(*self._pending_persistence_tasks, ...), 5.0)
-        pass
+        """Wait for pending persistence tasks (with timeout)."""
+        if not self._pending_persistence_tasks:
+            return
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*self._pending_persistence_tasks, return_exceptions=True),
+                timeout=_OSS_CLOSE_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "OSS persistence tasks did not finish within %ss on close (%d pending)",
+                _OSS_CLOSE_TIMEOUT_SECONDS,
+                len(self._pending_persistence_tasks),
+            )
