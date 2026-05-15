@@ -44,6 +44,11 @@ class DeploymentManager:
             docker_deployment_config.remove_container = self.rock_config.sandbox_config.remove_container_enabled
         else:
             docker_deployment_config.remove_container = docker_deployment_config.auto_delete_seconds == 0
+
+        sandbox_cfg = self.rock_config.sandbox_config
+        if docker_deployment_config.sandbox_log_cleanup_policy is None:
+            docker_deployment_config.sandbox_log_cleanup_policy = sandbox_cfg.sandbox_log_cleanup_policy_default
+
         return docker_deployment_config
 
     def get_deployment(self, config: DeploymentConfig) -> AbstractDeployment:

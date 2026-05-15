@@ -60,6 +60,11 @@ def test_oss_config_defaults():
     assert isinstance(cfg.primary, OssAccountConfig)
     assert cfg.primary.bucket == ""
     assert cfg.primary.region == ""
+    # PR-1 archive fields
+    assert cfg.archive_prefix == "rock-archives/"
+    assert cfg.archive_ttl_days == 30
+    assert cfg.keep_days_before_archive == 3
+    assert cfg.archive_max_attempts == 3
 
 
 def test_oss_config_primary_dict_coerced():
@@ -81,3 +86,37 @@ def test_oss_config_primary_dict_coerced():
     # legacy 顶层字段未提供时仍为默认空,确认 primary 不会污染 legacy
     assert cfg.bucket == ""
 
+
+def test_oss_config_archive_fields_overridable():
+    from rock.config import OssConfig
+
+    cfg = OssConfig(
+        archive_prefix="custom-prefix/",
+        archive_ttl_days=7,
+        keep_days_before_archive=1,
+        archive_max_attempts=5,
+    )
+    assert cfg.archive_prefix == "custom-prefix/"
+    assert cfg.archive_ttl_days == 7
+    assert cfg.keep_days_before_archive == 1
+    assert cfg.archive_max_attempts == 5
+
+
+def test_sandbox_config_default_policy():
+    from rock.config import SandboxConfig
+    from rock.deployments.log_cleanup import LogCleanupPolicy
+
+    cfg = SandboxConfig()
+    assert cfg.sandbox_log_cleanup_policy_default == LogCleanupPolicy.KEEP_THEN_ARCHIVE
+
+
+def test_sandbox_config_policy_string_coercion():
+    """YAML deserialization passes string; __post_init__ must coerce to enum."""
+    from rock.config import SandboxConfig
+    from rock.deployments.log_cleanup import LogCleanupPolicy
+
+    cfg = SandboxConfig(sandbox_log_cleanup_policy_default="keep")
+    assert cfg.sandbox_log_cleanup_policy_default == LogCleanupPolicy.KEEP
+
+    cfg2 = SandboxConfig(sandbox_log_cleanup_policy_default="clean_directly")
+    assert cfg2.sandbox_log_cleanup_policy_default == LogCleanupPolicy.CLEAN_DIRECTLY

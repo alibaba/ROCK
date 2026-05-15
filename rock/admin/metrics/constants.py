@@ -31,3 +31,15 @@ class MetricsConstants:
     METASTORE_DB_SUCCESS = "meta_store.db.success"
     METASTORE_DB_FAILURE = "meta_store.db.failure"
     METASTORE_DB_RT = "meta_store.db.rt"
+
+    # Disk governance: deferred sandbox log archival
+    SANDBOX_LOG_ARCHIVE_TOTAL = "sandbox.log.archive.total"
+    SANDBOX_LOG_ARCHIVE_SUCCESS = "sandbox.log.archive.success"
+    SANDBOX_LOG_ARCHIVE_FAILURE = "sandbox.log.archive.failure"
+    SANDBOX_LOG_ARCHIVE_SIZE = "sandbox.log.archive.size_bytes"
+    SANDBOX_LOG_ARCHIVE_PENDING = "sandbox.log.archive.pending"
+    """Counter: per scheduler tick, number of dirs whose archive failed
+    but attempts < max (will retry next tick)."""
+
+    SANDBOX_LOG_ARCHIVE_FAILED_PERSIST = "sandbox.log.archive.failed_persist"
+    """Counter: dirs that exceeded archive_max_attempts. Dir is left on disk"""

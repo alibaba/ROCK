@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from rock.admin.proto.request import SandboxStartRequest
 from rock.config import RuntimeConfig
 from rock.deployments.abstract import AbstractDeployment
+from rock.deployments.log_cleanup import LogCleanupPolicy
 from rock.utils import REQUEST_TIMEOUT_SECONDS
 
 
@@ -138,6 +139,16 @@ class DockerDeploymentConfig(DeploymentConfig):
 
     extended_params: dict[str, str] = Field(default_factory=dict)
     """Generic extension field for storing custom string key-value pairs."""
+
+    sandbox_log_cleanup_policy: LogCleanupPolicy | None = None
+    """Per-sandbox policy for ${ROCK_LOGGING_PATH}/<container_name>/.
+    None = follow cluster default
+        (sandbox_config.sandbox_log_cleanup_policy_default).
+
+    Note: this controls ONLY the per-sandbox UUID dir. Host-side logs
+    (/data/logs/*.log) are NOT affected — they are managed by
+    logrotate.
+    """
 
     @model_validator(mode="before")
     def validate_platform_args(cls, data: dict) -> dict:

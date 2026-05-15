@@ -6,6 +6,7 @@ from .sandbox.base import AbstractSandbox, _ExceptionTransfer
 from .sandbox.config import RemoteSandboxRuntimeConfig, RockletConfig, SandboxRuntimeConfig
 from .sandbox.request import (
     Action,
+    ArchiveLogDirRequest,
     BashAction,
     CloseBashSessionRequest,
     CloseSessionRequest,
@@ -18,6 +19,7 @@ from .sandbox.request import (
     WriteFileRequest,
 )
 from .sandbox.response import (
+    ArchiveLogDirResponse,
     BashObservation,
     CloseBashSessionResponse,
     CloseResponse,
@@ -66,6 +68,8 @@ __all__ = [
     "ReadFileRequest",
     "UploadMode",
     "UploadRequest",
+    "ArchiveLogDirRequest",
+    "ArchiveLogDirResponse",
     "IsAliveResponse",
     "SandboxStatusResponse",
     "CommandResponse",

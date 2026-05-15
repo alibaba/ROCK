@@ -14,6 +14,8 @@ from typing_extensions import Self
 
 from rock.actions import (
     AbstractSandbox,
+    ArchiveLogDirRequest,
+    ArchiveLogDirResponse,
     CloseResponse,
     CloseSessionResponse,
     CommandResponse,
@@ -212,6 +214,17 @@ class RemoteSandboxRuntime(AbstractSandbox):
         """Writes a file"""
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self._request, "write_file", request, WriteFileResponse)
+
+    async def archive_log_dir(self, request: ArchiveLogDirRequest) -> ArchiveLogDirResponse:
+        """Trigger worker-side tar+upload+cleanup of a sandbox log dir.
+
+        Used by SandboxLogArchiveTask scheduler task; the worker resolves
+        OSS primary AK/SK from its own RockConfig.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor, self._request, "archive_log_dir", request, ArchiveLogDirResponse
+        )
 
     async def get_statistics(self) -> dict:
         loop = asyncio.get_running_loop()

@@ -3,6 +3,7 @@ import warnings
 from pydantic import BaseModel, Field, field_validator
 
 from rock import env_vars
+from rock.deployments.log_cleanup import LogCleanupPolicy
 
 
 class BaseConfig(BaseModel):
@@ -45,6 +46,10 @@ class SandboxConfig(BaseConfig):
     use_kata_runtime: bool = False
     sandbox_id: str | None = None
     auto_delete_seconds: int | None = None
+    sandbox_log_cleanup_policy: LogCleanupPolicy | None = None
+    """Override cluster default for sandbox log dir cleanup on stop.
+    None = follow cluster (sandbox_config.sandbox_log_cleanup_policy_default).
+    """
 
     @field_validator("auto_delete_seconds")
     @classmethod

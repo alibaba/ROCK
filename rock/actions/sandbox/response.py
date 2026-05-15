@@ -63,6 +63,25 @@ class WriteFileResponse(BaseModel):
     message: str = ""
 
 
+class ArchiveLogDirResponse(BaseModel):
+    """Response from the rocklet `/archive_log_dir` endpoint.
+
+    Outcome is one of:
+      - archived: upload succeeded, dir removed on worker
+      - failed_pending: upload failed, attempts bumped (< max), dir kept
+      - failed_persist: upload failed, attempts ≥ max, dir kept (will be
+        purged by FileCleanupTask via mtime)
+      - too_young: should not happen if admin filters age first; defensive
+      - skipped_no_sentinel: dir has no sentinel; admin treats as no-op
+    """
+
+    outcome: Literal["archived", "failed_pending", "failed_persist", "too_young", "skipped_no_sentinel"]
+    attempts: int = 0
+    """Current attempts value on the sentinel after this call."""
+
+    message: str = ""
+
+
 class OssSetupResponse(BaseModel):
     success: bool = False
     message: str = ""

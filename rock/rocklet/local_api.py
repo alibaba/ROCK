@@ -7,6 +7,8 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, UploadFile, WebSocket, WebSocketDisconnect
 
 from rock.actions import (
+    ArchiveLogDirRequest,
+    ArchiveLogDirResponse,
     CloseResponse,
     EnvCloseRequest,
     EnvCloseResponse,
@@ -26,9 +28,11 @@ from rock.admin.proto.request import SandboxCreateSessionRequest as CreateSessio
 from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.common.port_validation import validate_port_forward_port
+from rock.deployments.log_cleanup_sentinel import bump_attempts, read_sentinel
 from rock.logger import init_logger
 from rock.rocklet.rocklet import Rocklet
 from rock.utils import get_executor
+from rock.utils.oss_archiver import OssArchiver
 
 logger = init_logger(__name__)
 
@@ -114,6 +118,56 @@ async def upload(
 async def close():
     await rocklet.close()
     return CloseResponse()
+
+
+@local_router.post("/archive_log_dir")
+async def archive_log_dir(request: ArchiveLogDirRequest) -> ArchiveLogDirResponse:
+    """Worker-side handler for SandboxLogArchiveTask.
+
+    The admin scheduler decides WHICH dirs are due (by reading sentinel
+    `stopped_at` via the `/execute` shell `find`); this endpoint handles
+    everything else local to the worker:
+      1. tar+gzip the dir, upload to OSS primary bucket
+      2. on success: shutil.rmtree
+      3. on failure: bump sentinel.attempts; degrade to KEEP once
+         attempts >= max_attempts (FileCleanupTask is the eventual janitor)
+    """
+    log_dir = Path(request.log_dir)
+    if not log_dir.is_dir():
+        return ArchiveLogDirResponse(outcome="skipped_no_sentinel", message=f"dir not found: {log_dir}")
+
+    state = read_sentinel(log_dir)
+    if state is None:
+        return ArchiveLogDirResponse(outcome="skipped_no_sentinel", message=f"no sentinel in {log_dir}")
+
+    oss_key = OssArchiver.build_sandbox_log_key(request.container_name)
+    loop = asyncio.get_running_loop()
+    ok = await loop.run_in_executor(
+        get_executor(),
+        OssArchiver.try_upload_dir_sync,
+        str(log_dir),
+        oss_key,
+    )
+    if ok:
+        shutil.rmtree(log_dir, ignore_errors=True)
+        return ArchiveLogDirResponse(outcome="archived", attempts=state.attempts, message=f"uploaded to {oss_key}")
+
+    new_attempts = bump_attempts(log_dir)
+    if new_attempts < request.max_attempts:
+        return ArchiveLogDirResponse(
+            outcome="failed_pending",
+            attempts=new_attempts,
+            message=f"upload failed; will retry (attempts={new_attempts}/{request.max_attempts})",
+        )
+
+    logger.warning(
+        f"[archive_log_dir] giving up after {new_attempts} attempts: {log_dir} (FileCleanupTask will purge by mtime)"
+    )
+    return ArchiveLogDirResponse(
+        outcome="failed_persist",
+        attempts=new_attempts,
+        message=f"max attempts reached ({new_attempts}/{request.max_attempts}); preserved for FileCleanupTask",
+    )
 
 
 @local_router.post("/env/make")

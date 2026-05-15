@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 
@@ -8,6 +9,19 @@ from rock import env_vars
 from rock.logger import init_logger
 from rock.utils.database import is_absolute_db_path
 from rock.utils.providers import NacosConfigProvider
+
+if TYPE_CHECKING:
+    from rock.deployments.log_cleanup import LogCleanupPolicy
+
+
+def _default_log_cleanup_policy() -> "LogCleanupPolicy":
+    # Lazy import to avoid the cycle:
+    # rock.config -> rock.deployments.log_cleanup -> rock.deployments.__init__
+    # -> rock.deployments.config -> rock.config
+    from rock.deployments.log_cleanup import LogCleanupPolicy
+
+    return LogCleanupPolicy.KEEP_THEN_ARCHIVE
+
 
 logger = init_logger(__name__)
 
@@ -56,6 +70,16 @@ class SandboxConfig:
     actor_resource_num: float = 0.0
     gateway_num: int = 1
     remove_container_enabled: bool = True
+    sandbox_log_cleanup_policy_default: "LogCleanupPolicy" = field(default_factory=_default_log_cleanup_policy)
+    """Cluster-wide default for DockerDeploymentConfig.sandbox_log_cleanup_policy.
+    Default KEEP_THEN_ARCHIVE is fail-safe: when oss.primary.bucket is empty,
+    the archive returns False and the SandboxLogArchiveTask preserves the dir."""
+
+    def __post_init__(self):
+        from rock.deployments.log_cleanup import LogCleanupPolicy
+
+        if isinstance(self.sandbox_log_cleanup_policy_default, str):
+            self.sandbox_log_cleanup_policy_default = LogCleanupPolicy(self.sandbox_log_cleanup_policy_default)
 
 
 @dataclass
@@ -98,6 +122,31 @@ class OssConfig:
     SDK reads. The SDK reads ROCK_OSS_TRANSFER_PREFIX directly from the
     process env. xrl package is no longer maintained, so internal users
     must export this env var themselves when upgrading to SDK >= 1.8."""
+
+    archive_prefix: str = "rock-archives/"
+    """OSS object key prefix for ALL archives produced by ROCK
+    (sandbox logs, future: build results, etc.). Lives under the
+    PRIMARY bucket so a single bucket-side lifecycle rule on this
+    prefix can target all archives without touching transfer
+    objects under `transfer_prefix`."""
+
+    archive_ttl_days: int = 30
+    """OSS-side lifecycle expiration days for archives. The OPS
+    bucket lifecycle rule on `archive_prefix` should match this
+    value. ROCK does NOT enforce TTL itself; it only writes
+    `x-oss-meta-ttl-days: <value>` so OPS can audit."""
+
+    keep_days_before_archive: int = 3
+    """Days to wait after sandbox stop before archiving. The
+    SandboxLogArchiveTask skips dirs whose sentinel `stopped_at`
+    is younger than this. Default 3 days gives product/users a
+    short investigation window without bloating disk."""
+
+    archive_max_attempts: int = 3
+    """Max retry attempts for a single sandbox dir before giving up
+    archival and degrading to KEEP. After max attempts, the
+    `sandbox.log.archive.failed_persist` counter is emitted; the
+    dir is left on disk for FileCleanupTask to purge by mtime."""
 
     def __post_init__(self):
         # Allow YAML to pass a dict for `primary` (dataclass deserialization

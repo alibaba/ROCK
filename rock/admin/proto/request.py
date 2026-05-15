@@ -12,6 +12,7 @@ from rock.actions import (
     ReadFileRequest,
     WriteFileRequest,
 )
+from rock.deployments.log_cleanup import LogCleanupPolicy
 
 
 class SandboxStartRequest(BaseModel):
@@ -39,6 +40,10 @@ class SandboxStartRequest(BaseModel):
     """Whether to use kata container runtime (io.containerd.kata.v2) instead of --privileged mode."""
     auto_delete_seconds: int | None = None
     """The time for automatic container deletion, with the unit being seconds."""
+    sandbox_log_cleanup_policy: LogCleanupPolicy | None = None
+    """Override cluster default for sandbox log dir cleanup on stop.
+    None = follow cluster (sandbox_config.sandbox_log_cleanup_policy_default).
+    """
 
 
 class SandboxCommand(Command):

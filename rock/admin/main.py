@@ -62,6 +62,11 @@ async def lifespan(app: FastAPI):
     env_vars.ROCK_ADMIN_ENV = args.env
     env_vars.ROCK_ADMIN_ROLE = args.role
 
+    # disk governance startup checks (WARN only, non-blocking)
+    from rock.admin.startup_checks import check_oss_consistency_with_log_policy
+
+    check_oss_consistency_with_log_policy(rock_config)
+
     # init redis provider (fallback to fakeredis if no host configured)
     if args.env in ["local", "test", "dev"] or not rock_config.redis.host:
         from fakeredis import aioredis

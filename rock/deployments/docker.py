@@ -4,6 +4,7 @@ import hashlib
 import os
 import random
 import shlex
+import shutil
 import subprocess
 import time
 import uuid
@@ -21,6 +22,7 @@ from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Port, Status
 from rock.deployments.docker_client import TempAuthDockerClient, TempAuthDockerClientError
 from rock.deployments.hooks.abstract import CombinedDeploymentHook, DeploymentHook
+from rock.deployments.log_cleanup import LogCleanupPolicy
 from rock.deployments.runtime_env import DockerRuntimeEnv, LocalRuntimeEnv, PipRuntimeEnv, UvRuntimeEnv
 from rock.deployments.sandbox_validator import DockerSandboxValidator
 from rock.deployments.status import PersistedServiceStatus, ServiceStatus
@@ -680,7 +682,54 @@ class DockerDeployment(AbstractDeployment):
         for _, port in service_status.get_port_mapping().items():
             release_port(port)
 
+        # Per-sandbox host log dir handling. Only touches
+        # ${ROCK_LOGGING_PATH}/<container_name>/, not host-side
+        # /data/logs/*.log (managed by logrotate).
+        if self._config and env_vars.ROCK_LOGGING_PATH and self._container_name:
+            log_dir = Path(env_vars.ROCK_LOGGING_PATH) / self._container_name
+            policy = self._config.sandbox_log_cleanup_policy
+            assert policy is not None, (
+                "sandbox_log_cleanup_policy must be resolved by DeploymentManager.init_config (None → cluster default)"
+            )
+            if log_dir.is_dir():
+                self._handle_sandbox_log_dir(log_dir, policy)
+
         self._config = None
+
+    def _handle_sandbox_log_dir(self, log_dir: Path, policy: LogCleanupPolicy) -> None:
+        """Apply LogCleanupPolicy to a sandbox bind-mount log dir.
+
+        Called ONLY by _stop(); never touches host-side /data/logs/*.log.
+        v5 semantics: KEEP_THEN_ARCHIVE only writes a sentinel here;
+        actual tar+upload+rm runs in SandboxLogArchiveTask scheduler
+        task after `oss.keep_days_before_archive` days.
+        """
+        match policy:
+            case LogCleanupPolicy.KEEP:
+                logger.info(
+                    f"Keep sandbox log dir (policy=keep): {log_dir}; FileCleanupTask will eventually purge by mtime"
+                )
+                return
+            case LogCleanupPolicy.CLEAN_DIRECTLY:
+                shutil.rmtree(log_dir, ignore_errors=True)
+                logger.info(f"Cleaned sandbox log dir directly: {log_dir}")
+                return
+            case LogCleanupPolicy.KEEP_THEN_ARCHIVE:
+                from rock.deployments.log_cleanup_sentinel import sentinel_path, write_sentinel
+
+                if sentinel_path(log_dir).exists():
+                    # _stop() may be called twice (e.g. ray actor restart);
+                    # do not bump stopped_at on the second call
+                    return
+                write_sentinel(log_dir)
+                logger.info(
+                    f"Marked sandbox log dir for deferred archive: {log_dir} "
+                    f"(sentinel written; SandboxLogArchiveTask will pick up)"
+                )
+                return
+            case _:
+                logger.error(f"Unknown sandbox_log_cleanup_policy {policy!r} for {log_dir}; falling back to KEEP")
+                return
 
     @property
     def runtime(self) -> RemoteSandboxRuntime:

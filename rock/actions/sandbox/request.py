@@ -47,6 +47,27 @@ class WriteFileRequest(BaseModel):
     path: str
 
 
+class ArchiveLogDirRequest(BaseModel):
+    """Worker-side request to tar+gzip a sandbox log dir, upload to OSS,
+    and apply post-upload cleanup. Driven by SandboxLogArchiveTask on admin.
+
+    Worker resolves OssArchiver from its own RockConfig (rocklet must
+    have loaded the cluster YAML so primary AK/SK is available).
+    """
+
+    log_dir: str
+    """Absolute path on the worker (e.g. /data/sandbox_logs/<container>/)."""
+
+    container_name: str
+    """Used as the leaf component of the OSS object key
+    (rock-archives/sandbox-logs/<container_name>.tar.gz)."""
+
+    max_attempts: int = 3
+    """Worker bumps sentinel.attempts on failure; once attempts ≥ max,
+    worker emits failed_persist semantics back to admin and DOES NOT
+    delete the dir (FileCleanupTask is the eventual janitor)."""
+
+
 class CloseBashSessionRequest(BaseModel):
     session_type: Literal["bash"] = "bash"
     session: str = "default"

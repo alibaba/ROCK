@@ -115,6 +115,28 @@ class MetricsMonitor:
         self._register_counter(MetricsConstants.METASTORE_DB_TOTAL, "Number of total DB operations")
         self._register_gauge(MetricsConstants.METASTORE_DB_RT, "DB operation response time", "ms")
 
+        # Disk governance: deferred sandbox log archival
+        self._register_counter(
+            MetricsConstants.SANDBOX_LOG_ARCHIVE_TOTAL, "Total archive attempts on stopped sandbox log dirs"
+        )
+        self._register_counter(
+            MetricsConstants.SANDBOX_LOG_ARCHIVE_SUCCESS, "Successful sandbox log archives to OSS primary bucket"
+        )
+        self._register_counter(
+            MetricsConstants.SANDBOX_LOG_ARCHIVE_FAILURE,
+            "Failed sandbox log archives (config / network / size / timeout)",
+        )
+        self._register_gauge(
+            MetricsConstants.SANDBOX_LOG_ARCHIVE_SIZE, "Original (uncompressed) size of archived sandbox log dir byte"
+        )
+        self._register_counter(
+            MetricsConstants.SANDBOX_LOG_ARCHIVE_PENDING, "Per-tick count of dirs whose archive failed (will retry)"
+        )
+        self._register_counter(
+            MetricsConstants.SANDBOX_LOG_ARCHIVE_FAILED_PERSIST,
+            "Dirs exceeding archive_max_attempts; preserved for FileCleanupTask",
+        )
+
     def _register_counter(self, name: str, description: str, unit: str = "1"):
         self.counters[name] = self.create_counter(name, description, unit)
 
