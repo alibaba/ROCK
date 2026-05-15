@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from rock import env_vars
 from rock.logger import init_logger
 
 if TYPE_CHECKING:
@@ -46,3 +47,32 @@ class OssClient:
         digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
         filename = Path(local_path).name or Path(sandbox_path).name
         return f"{digest}-{filename}"
+
+    @staticmethod
+    def _resolve_config(sts_response: dict) -> OssClientConfig | None:
+        # Layer 1: env var (highest priority)
+        env_endpoint = env_vars.ROCK_OSS_BUCKET_ENDPOINT
+        env_bucket = env_vars.ROCK_OSS_BUCKET_NAME
+        env_region = env_vars.ROCK_OSS_BUCKET_REGION
+        if env_endpoint and env_bucket and env_region:
+            return OssClientConfig(
+                endpoint=env_endpoint,
+                bucket=env_bucket,
+                region=env_region,
+                enabled_via_env=True,
+            )
+
+        # Layer 2: server response (fallback default)
+        resp_endpoint = sts_response.get("Endpoint")
+        resp_bucket = sts_response.get("Bucket")
+        resp_region = sts_response.get("Region")
+        if resp_endpoint and resp_bucket and resp_region:
+            return OssClientConfig(
+                endpoint=resp_endpoint,
+                bucket=resp_bucket,
+                region=resp_region,
+                enabled_via_env=False,
+            )
+
+        # Layer 3: OSS unavailable
+        return None
