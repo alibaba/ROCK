@@ -487,9 +487,6 @@ class TestCloseAwaitsPendingTasks:
         async def hang(*args, **kwargs):
             await asyncio.sleep(100)
 
-        with (
-            patch("asyncio.to_thread", new=hang),
-            patch("rock.sdk.sandbox.oss_client._OSS_CLOSE_TIMEOUT_SECONDS", 0.05),
-        ):
+        with patch("asyncio.to_thread", new=hang):
             await client.schedule_async_persistence("/local/foo.json", "/sandbox/foo.json")
-            await client.close()
+            await client.close(timeout=0.05)
