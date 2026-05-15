@@ -13,6 +13,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import oss2
+
 from rock import env_vars
 from rock.logger import init_logger
 from rock.utils.http import HttpUtils
@@ -106,3 +108,51 @@ class OssClient:
             return current_time >= effective_expire_time
         except (ValueError, AttributeError):
             return True
+
+    @property
+    def is_available(self) -> bool:
+        """OSS 是否可用：bucket 已成功初始化。"""
+        return self._bucket is not None
+
+    async def ensure_setup(self) -> bool:
+        """Ensure OSS bucket is set up and token is fresh. Idempotent.
+
+        Returns True if OSS is available, False otherwise.
+        """
+        if self._bucket is not None and not self._is_token_expired():
+            return True
+        return await self._setup()
+
+    async def _setup(self) -> bool:
+        try:
+            sts_response = await self._get_sts_credentials()
+        except Exception as e:
+            logger.warning("Failed to get STS credentials: %s", e)
+            return False
+
+        config = self._resolve_config(sts_response)
+        if config is None:
+            return False
+
+        # Layer 1 还要看 ROCK_OSS_ENABLE
+        if config.enabled_via_env and not env_vars.ROCK_OSS_ENABLE:
+            return False
+
+        try:
+            auth = oss2.StsAuth(
+                sts_response["AccessKeyId"],
+                sts_response["AccessKeySecret"],
+                sts_response["SecurityToken"],
+            )
+            self._bucket = oss2.Bucket(
+                auth=auth,
+                endpoint=config.endpoint,
+                bucket_name=config.bucket,
+                region=config.region,
+            )
+            self._client_config = config
+            return True
+        except Exception as e:
+            logger.warning("Failed to initialize OSS bucket: %s", e)
+            self._bucket = None
+            return False

@@ -198,3 +198,137 @@ class TestIsTokenExpired:
         client = OssClient(_make_sandbox())
         client._token_expire_time = 12345  # int, no .replace method → AttributeError
         assert client._is_token_expired() is True
+
+
+class TestSetup:
+    async def test_layer1_env_with_enable_true(self):
+        sandbox = _make_sandbox()
+        client = OssClient(sandbox)
+
+        with (
+            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", "env.endpoint"),
+            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", "env-bucket"),
+            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", "env-region"),
+            patch.object(env_vars, "ROCK_OSS_ENABLE", True),
+            patch("rock.sdk.sandbox._oss_client.HttpUtils") as mock_http,
+            patch("rock.sdk.sandbox._oss_client.oss2") as mock_oss2,
+        ):
+            mock_http.get = AsyncMock(
+                return_value={
+                    "status": "Success",
+                    "result": {
+                        "AccessKeyId": "ak",
+                        "AccessKeySecret": "sk",
+                        "SecurityToken": "tok",
+                        "Expiration": "2099-01-01T00:00:00Z",
+                    },
+                }
+            )
+            mock_oss2.Bucket = MagicMock(return_value="bucket-instance")
+            ok = await client.ensure_setup()
+
+        assert ok is True
+        assert client.is_available is True
+        mock_oss2.Bucket.assert_called_once()
+        kwargs = mock_oss2.Bucket.call_args.kwargs
+        assert kwargs["endpoint"] == "env.endpoint"
+        assert kwargs["bucket_name"] == "env-bucket"
+
+    async def test_layer1_env_with_enable_false_returns_unavailable(self):
+        sandbox = _make_sandbox()
+        client = OssClient(sandbox)
+
+        with (
+            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", "env.endpoint"),
+            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", "env-bucket"),
+            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", "env-region"),
+            patch.object(env_vars, "ROCK_OSS_ENABLE", False),
+            patch("rock.sdk.sandbox._oss_client.HttpUtils") as mock_http,
+        ):
+            mock_http.get = AsyncMock(
+                return_value={
+                    "status": "Success",
+                    "result": {
+                        "AccessKeyId": "ak",
+                        "AccessKeySecret": "sk",
+                        "SecurityToken": "tok",
+                        "Expiration": "2099-01-01T00:00:00Z",
+                    },
+                }
+            )
+            ok = await client.ensure_setup()
+
+        assert ok is False
+        assert client.is_available is False
+
+    async def test_layer2_server_response_used_when_env_unset(self):
+        sandbox = _make_sandbox()
+        client = OssClient(sandbox)
+
+        with (
+            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", ""),
+            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", ""),
+            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", ""),
+            patch("rock.sdk.sandbox._oss_client.HttpUtils") as mock_http,
+            patch("rock.sdk.sandbox._oss_client.oss2") as mock_oss2,
+        ):
+            mock_http.get = AsyncMock(
+                return_value={
+                    "status": "Success",
+                    "result": {
+                        "AccessKeyId": "ak",
+                        "AccessKeySecret": "sk",
+                        "SecurityToken": "tok",
+                        "Expiration": "2099-01-01T00:00:00Z",
+                        "Endpoint": "srv.endpoint",
+                        "Bucket": "srv-bucket",
+                        "Region": "srv-region",
+                    },
+                }
+            )
+            mock_oss2.Bucket = MagicMock(return_value="bucket-instance")
+            ok = await client.ensure_setup()
+
+        assert ok is True
+        assert client.is_available is True
+        kwargs = mock_oss2.Bucket.call_args.kwargs
+        assert kwargs["endpoint"] == "srv.endpoint"
+
+    async def test_layer3_unavailable_when_neither_set(self):
+        sandbox = _make_sandbox()
+        client = OssClient(sandbox)
+
+        with (
+            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", ""),
+            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", ""),
+            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", ""),
+            patch("rock.sdk.sandbox._oss_client.HttpUtils") as mock_http,
+        ):
+            mock_http.get = AsyncMock(
+                return_value={
+                    "status": "Success",
+                    "result": {
+                        "AccessKeyId": "ak",
+                        "AccessKeySecret": "sk",
+                        "SecurityToken": "tok",
+                        "Expiration": "2099-01-01T00:00:00Z",
+                    },
+                }
+            )
+            ok = await client.ensure_setup()
+
+        assert ok is False
+        assert client.is_available is False
+
+    async def test_ensure_setup_idempotent_when_token_valid(self):
+        sandbox = _make_sandbox()
+        client = OssClient(sandbox)
+        client._bucket = MagicMock()  # already set up
+        client._token_expire_time = "2099-01-01T00:00:00Z"
+
+        with patch("rock.sdk.sandbox._oss_client.HttpUtils") as mock_http:
+            mock_http.get = AsyncMock()
+            ok = await client.ensure_setup()
+
+        assert ok is True
+        mock_http.get.assert_not_called()  # 没有再调 /get_token
