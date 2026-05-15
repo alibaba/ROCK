@@ -750,8 +750,11 @@ class Sandbox(AbstractSandbox):
         logging.debug(f"Upload response: {response}")
         if "Success" != response.get("status"):
             return UploadResponse(success=False, message=f"Failed to execute command: upload response: {response}")
-        else:
-            return UploadResponse(success=True, message=f"Successfully uploaded file {filename} to {target_path}")
+        # Admin /upload succeeded; opportunistically persist to OSS in background.
+        # Skipped silently when OSS is not configured/available.
+        if self._oss.is_available:
+            await self._oss.schedule_async_persistence(path_str, target_path)
+        return UploadResponse(success=True, message=f"Successfully uploaded file {filename} to {target_path}")
 
     async def read_file(self, request: ReadFileRequest) -> ReadFileResponse:
         url = f"{self._url}/read_file"
