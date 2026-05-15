@@ -78,6 +78,25 @@ class SandboxProxyService:
         )
 
         self._batch_get_status_max_count = rock_config.proxy_service.batch_get_status_max_count
+        self._validate_oss_config_or_warn()
+
+    def _validate_oss_config_or_warn(self) -> None:
+        fields = {
+            "endpoint": self.oss_config.endpoint,
+            "bucket": self.oss_config.bucket,
+            "region": env_vars.ROCK_OSS_BUCKET_REGION,
+            "access_key_id": self.oss_config.access_key_id,
+            "access_key_secret": self.oss_config.access_key_secret,
+            "role_arn": self.oss_config.role_arn,
+        }
+        set_count = sum(1 for v in fields.values() if v)
+        if 0 < set_count < len(fields):
+            missing = [k for k, v in fields.items() if not v]
+            logger.warning(
+                "OSS configuration is partially set. Missing fields: %s. "
+                "Server will return null for these in /get_token, clients fall back accordingly.",
+                ", ".join(missing),
+            )
 
     @monitor_sandbox_operation()
     async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:

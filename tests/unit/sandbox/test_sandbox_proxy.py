@@ -1,3 +1,4 @@
+import logging
 import uuid
 from unittest.mock import MagicMock, patch
 
@@ -145,3 +146,71 @@ class TestGenOssStsToken:
         assert result["Endpoint"] is None
         assert result["Bucket"] == "bk"
         assert result["Region"] is None
+
+
+class TestStartupOssConfigWarning:
+    def _make_rock_config(self, oss_config: OssConfig):
+        rock_config = MagicMock()
+        rock_config.oss = oss_config
+        rock_config.runtime.metrics_endpoint = "http://localhost:9090/metrics"
+        rock_config.runtime.user_defined_tags = {}
+        rock_config.proxy_service.timeout = 10
+        rock_config.proxy_service.max_connections = 10
+        rock_config.proxy_service.max_keepalive_connections = 5
+        rock_config.proxy_service.batch_get_status_max_count = 100
+        return rock_config
+
+    def test_warning_when_partially_configured(self, caplog, monkeypatch):
+        # rock 的 logger propagate=False，强制开启以让 caplog 捕获到
+        from rock.sandbox.service import sandbox_proxy_service as sps_mod
+
+        monkeypatch.setattr(sps_mod.logger, "propagate", True)
+
+        oss_config = OssConfig(
+            endpoint="ep",
+            bucket="",  # 缺
+            access_key_id="ak",
+            access_key_secret="sk",
+            role_arn="arn",
+        )
+        rock_config = self._make_rock_config(oss_config)
+
+        with (
+            patch("rock.sandbox.service.sandbox_proxy_service.MetricsMonitor"),
+            patch("rock.sandbox.service.sandbox_proxy_service.client.AcsClient"),
+            patch("rock.sandbox.service.sandbox_proxy_service.httpx"),
+            patch("rock.sandbox.service.sandbox_proxy_service.env_vars") as mock_env,
+        ):
+            mock_env.ROCK_OSS_BUCKET_REGION = "rg"
+            with caplog.at_level(logging.WARNING):
+                _ = SandboxProxyService(rock_config=rock_config, meta_store=MagicMock())
+
+        assert any(
+            "partially set" in r.message.lower() or "partially configured" in r.message.lower() for r in caplog.records
+        ), f"Expected partial-config warning, got: {[r.message for r in caplog.records]}"
+
+    def test_no_warning_when_fully_configured(self, caplog, monkeypatch):
+        from rock.sandbox.service import sandbox_proxy_service as sps_mod
+
+        monkeypatch.setattr(sps_mod.logger, "propagate", True)
+
+        oss_config = OssConfig(
+            endpoint="ep",
+            bucket="bk",
+            access_key_id="ak",
+            access_key_secret="sk",
+            role_arn="arn",
+        )
+        rock_config = self._make_rock_config(oss_config)
+
+        with (
+            patch("rock.sandbox.service.sandbox_proxy_service.MetricsMonitor"),
+            patch("rock.sandbox.service.sandbox_proxy_service.client.AcsClient"),
+            patch("rock.sandbox.service.sandbox_proxy_service.httpx"),
+            patch("rock.sandbox.service.sandbox_proxy_service.env_vars") as mock_env,
+        ):
+            mock_env.ROCK_OSS_BUCKET_REGION = "rg"
+            with caplog.at_level(logging.WARNING):
+                _ = SandboxProxyService(rock_config=rock_config, meta_store=MagicMock())
+
+        assert not any("oss" in r.message.lower() and "partial" in r.message.lower() for r in caplog.records)
