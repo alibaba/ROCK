@@ -7,7 +7,9 @@ exposes upload / download / persistence operations. Composed by Sandbox.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rock.logger import init_logger
@@ -37,3 +39,10 @@ class OssClient:
         self._token_expire_time: str | None = None
         self._client_config: OssClientConfig | None = None
         self._pending_persistence_tasks: set[asyncio.Task] = set()
+
+    @staticmethod
+    def _compute_object_name(sandbox_id: str, local_path: str, sandbox_path: str) -> str:
+        payload = f"{sandbox_id}|{local_path}|{sandbox_path}"
+        digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        filename = Path(local_path).name or Path(sandbox_path).name
+        return f"{digest}-{filename}"
