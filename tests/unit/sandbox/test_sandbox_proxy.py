@@ -128,6 +128,8 @@ class TestGenOssStsToken:
             patch.object(sandbox_proxy_service.sts_client, "do_action_with_exception", return_value=fake_token_body),
             patch("rock.sandbox.service.sandbox_proxy_service.env_vars") as mock_env,
         ):
+            mock_env.ROCK_OSS_BUCKET_ENDPOINT = ""
+            mock_env.ROCK_OSS_BUCKET_NAME = ""
             mock_env.ROCK_OSS_BUCKET_REGION = "rg"
             result = sandbox_proxy_service.gen_oss_sts_token()
 
@@ -156,6 +158,8 @@ class TestGenOssStsToken:
             patch.object(sandbox_proxy_service.sts_client, "do_action_with_exception", return_value=fake_token_body),
             patch("rock.sandbox.service.sandbox_proxy_service.env_vars") as mock_env,
         ):
+            mock_env.ROCK_OSS_BUCKET_ENDPOINT = ""
+            mock_env.ROCK_OSS_BUCKET_NAME = ""
             mock_env.ROCK_OSS_BUCKET_REGION = ""
             result = sandbox_proxy_service.gen_oss_sts_token()
 
@@ -163,6 +167,51 @@ class TestGenOssStsToken:
         assert result["Endpoint"] is None
         assert result["Bucket"] == "bk"
         assert result["Region"] is None
+
+    def test_env_var_overrides_yaml_for_endpoint_and_bucket(self, sandbox_proxy_service):
+        """env_vars.ROCK_OSS_BUCKET_* 优先于 oss_config（YAML），与 client Layer 1 对齐。"""
+        sandbox_proxy_service.oss_config.endpoint = "yaml.endpoint"
+        sandbox_proxy_service.oss_config.bucket = "yaml-bucket"
+
+        fake_token_body = (
+            b'{"Credentials": {"AccessKeyId":"ak","AccessKeySecret":"sk",'
+            b'"SecurityToken":"tok","Expiration":"2099-01-01T00:00:00Z"}}'
+        )
+        with (
+            patch.object(sandbox_proxy_service.sts_client, "do_action_with_exception", return_value=fake_token_body),
+            patch("rock.sandbox.service.sandbox_proxy_service.env_vars") as mock_env,
+        ):
+            mock_env.ROCK_OSS_BUCKET_ENDPOINT = "env.endpoint"
+            mock_env.ROCK_OSS_BUCKET_NAME = "env-bucket"
+            mock_env.ROCK_OSS_BUCKET_REGION = "env-region"
+            result = sandbox_proxy_service.gen_oss_sts_token()
+
+        # env 全部赢
+        assert result["Endpoint"] == "env.endpoint"
+        assert result["Bucket"] == "env-bucket"
+        assert result["Region"] == "env-region"
+
+    def test_yaml_used_when_env_var_empty(self, sandbox_proxy_service):
+        """env 为空时 fallback 到 YAML。"""
+        sandbox_proxy_service.oss_config.endpoint = "yaml.endpoint"
+        sandbox_proxy_service.oss_config.bucket = "yaml-bucket"
+
+        fake_token_body = (
+            b'{"Credentials": {"AccessKeyId":"ak","AccessKeySecret":"sk",'
+            b'"SecurityToken":"tok","Expiration":"2099-01-01T00:00:00Z"}}'
+        )
+        with (
+            patch.object(sandbox_proxy_service.sts_client, "do_action_with_exception", return_value=fake_token_body),
+            patch("rock.sandbox.service.sandbox_proxy_service.env_vars") as mock_env,
+        ):
+            mock_env.ROCK_OSS_BUCKET_ENDPOINT = ""
+            mock_env.ROCK_OSS_BUCKET_NAME = ""
+            mock_env.ROCK_OSS_BUCKET_REGION = "rg"  # 仅 region 有值
+            result = sandbox_proxy_service.gen_oss_sts_token()
+
+        assert result["Endpoint"] == "yaml.endpoint"  # YAML 兜底
+        assert result["Bucket"] == "yaml-bucket"
+        assert result["Region"] == "rg"  # env
 
 
 class TestStartupOssConfigWarning:
@@ -193,6 +242,8 @@ class TestStartupOssConfigWarning:
             patch("rock.sandbox.service.sandbox_proxy_service.httpx"),
             patch("rock.sandbox.service.sandbox_proxy_service.env_vars") as mock_env,
         ):
+            mock_env.ROCK_OSS_BUCKET_ENDPOINT = ""
+            mock_env.ROCK_OSS_BUCKET_NAME = ""
             mock_env.ROCK_OSS_BUCKET_REGION = "rg"
             with _capture_on(caplog, "rock.sandbox.service.sandbox_proxy_service"):
                 _ = SandboxProxyService(rock_config=rock_config, meta_store=MagicMock())
@@ -217,8 +268,37 @@ class TestStartupOssConfigWarning:
             patch("rock.sandbox.service.sandbox_proxy_service.httpx"),
             patch("rock.sandbox.service.sandbox_proxy_service.env_vars") as mock_env,
         ):
+            mock_env.ROCK_OSS_BUCKET_ENDPOINT = ""
+            mock_env.ROCK_OSS_BUCKET_NAME = ""
             mock_env.ROCK_OSS_BUCKET_REGION = "rg"
             with _capture_on(caplog, "rock.sandbox.service.sandbox_proxy_service"):
                 _ = SandboxProxyService(rock_config=rock_config, meta_store=MagicMock())
 
         assert not any("oss" in r.message.lower() and "partial" in r.message.lower() for r in caplog.records)
+
+    def test_no_warning_when_env_provides_missing_yaml_fields(self, caplog):
+        """YAML 没配 endpoint/bucket 但 env 提供了，应不 warn（视为已配置）。"""
+        oss_config = OssConfig(
+            endpoint="",
+            bucket="",
+            access_key_id="ak",
+            access_key_secret="sk",
+            role_arn="arn",
+        )
+        rock_config = self._make_rock_config(oss_config)
+
+        with (
+            patch("rock.sandbox.service.sandbox_proxy_service.MetricsMonitor"),
+            patch("rock.sandbox.service.sandbox_proxy_service.client.AcsClient"),
+            patch("rock.sandbox.service.sandbox_proxy_service.httpx"),
+            patch("rock.sandbox.service.sandbox_proxy_service.env_vars") as mock_env,
+        ):
+            mock_env.ROCK_OSS_BUCKET_ENDPOINT = "env.endpoint"
+            mock_env.ROCK_OSS_BUCKET_NAME = "env-bucket"
+            mock_env.ROCK_OSS_BUCKET_REGION = "rg"
+            with _capture_on(caplog, "rock.sandbox.service.sandbox_proxy_service"):
+                _ = SandboxProxyService(rock_config=rock_config, meta_store=MagicMock())
+
+        assert not any(
+            "partially set" in r.message.lower() or "partially configured" in r.message.lower() for r in caplog.records
+        )
