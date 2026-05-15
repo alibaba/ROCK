@@ -8,7 +8,7 @@ from rock.deployments.config import LocalDeploymentConfig
 from rock.deployments.hooks.abstract import CombinedDeploymentHook, DeploymentHook
 from rock.logger import init_logger
 from rock.rocklet.exceptions import DeploymentNotStartedError
-from rock.rocklet.local_sandbox import LocalSandboxRuntime
+from rock.rocklet.rocklet import Rocklet
 
 logger = init_logger(__name__)
 
@@ -51,7 +51,7 @@ class LocalDeployment(AbstractDeployment):
 
     async def start(self):
         """Starts the runtime."""
-        self._runtime = LocalSandboxRuntime()
+        self._runtime = Rocklet.create()
 
     async def stop(self):
         """Stops the runtime."""
@@ -60,7 +60,7 @@ class LocalDeployment(AbstractDeployment):
             self._runtime = None
 
     @property
-    def runtime(self) -> LocalSandboxRuntime:
+    def runtime(self) -> Rocklet:
         """Returns the runtime if running.
 
         Raises:

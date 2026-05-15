@@ -25,6 +25,22 @@ class BashIncorrectSyntaxError(RockletException, RuntimeError):
         self.extra_info = extra_info
 
 
+class PowerShellError(RockletException, RuntimeError):
+    """Raised when a PowerShell session encounters an error."""
+
+    def __init__(self, message: str, *, extra_info: dict[str, Any] = None):
+        super().__init__(message)
+        if extra_info is None:
+            extra_info = {}
+        self.extra_info = extra_info
+
+
+class PowerShellNotFoundError(RockletException, FileNotFoundError):
+    """Raised when PowerShell executable is not found on the system."""
+
+    pass
+
+
 class CommandTimeoutError(RockletException, RuntimeError, TimeoutError):
     ...
 
@@ -52,3 +68,7 @@ class DeploymentStartupError(RockletException, RuntimeError):
 
 class DockerPullError(DeploymentStartupError):
     ...
+
+
+class UnsupportedPlatformError(RockletException, NotImplementedError):
+    """Raised when the current OS has no Rocklet subclass implementation."""

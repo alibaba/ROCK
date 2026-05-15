@@ -74,6 +74,8 @@ def _build_attributes(op_name: str, sandbox_id: str, f, user_id: str, experiment
 
 def _update_sandbox_id_from_result(result, attributes: dict):
     """Update sandbox_id from result if available"""
+    if "sandbox_id" not in attributes:
+        return attributes
     if hasattr(result, "sandbox_id"):
         result_sandbox_id = result.sandbox_id
         if result_sandbox_id != attributes.get("sandbox_id"):
@@ -242,8 +244,7 @@ def monitor_metastore_operation(f):
             return await f(self, *args, **kwargs)
 
         prefix = metrics_monitor.metric_prefix
-        sandbox_id = _extract_sandbox_id(args, kwargs)
-        attributes: dict[str, str] = {"operation": f.__name__, "method": f.__name__, "sandbox_id": sandbox_id}
+        attributes: dict[str, str] = {"operation": f.__name__}
 
         start_time = time.perf_counter()
 

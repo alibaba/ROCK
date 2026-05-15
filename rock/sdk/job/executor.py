@@ -95,11 +95,12 @@ class JobExecutor:
         # G4: let trial backfill config from sandbox state before setup
         await trial.on_sandbox_ready(sandbox)
 
+        await trial.setup(sandbox)
+
         session = f"rock-job-{config.job_name or 'default'}"
         env = self._build_session_env(config)
         await sandbox.create_session(CreateBashSessionRequest(session=session, env_enable=True, env=env))
 
-        await trial.setup(sandbox)
         script_content = trial.build()
 
         prefix = self._job_tmp_prefix(config)

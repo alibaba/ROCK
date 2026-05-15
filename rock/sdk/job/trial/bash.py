@@ -130,7 +130,7 @@ class BashTrial(AbstractTrial):
         )
 
     async def setup(self, sandbox: Sandbox) -> None:
-        await self._upload_files(sandbox)
+        await super().setup(sandbox)
         if self._config.script_path:
             self._config.script = Path(self._config.script_path).read_text()
 

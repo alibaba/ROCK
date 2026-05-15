@@ -16,6 +16,7 @@ from rock.admin.core.redis_key import alive_sandbox_key, timeout_sandbox_key
 from rock.admin.core.sandbox_table import SandboxTable
 from rock.admin.metrics.decorator import monitor_metastore_operation
 from rock.admin.metrics.monitor import MetricsMonitor
+from rock.config import RockConfig
 
 if TYPE_CHECKING:
     from rock.deployments.config import DockerDeploymentConfig
@@ -38,10 +39,16 @@ class SandboxMetaStore:
         self,
         redis_provider: RedisProvider,
         sandbox_table: SandboxTable,
+        rock_config: RockConfig | None = None,
     ) -> None:
         self._redis: RedisProvider = redis_provider
         self._db: SandboxTable = sandbox_table
-        self.metrics_monitor = MetricsMonitor.create(metric_prefix="meta_store")
+        self.metrics_monitor = MetricsMonitor.create(
+            export_interval_millis=20_000,
+            metrics_endpoint=rock_config.runtime.metrics_endpoint if rock_config else "",
+            user_defined_tags=rock_config.runtime.user_defined_tags if rock_config else {},
+            metric_prefix="meta_store",
+        )
 
     # ------------------------------------------------------------------
     # Public API

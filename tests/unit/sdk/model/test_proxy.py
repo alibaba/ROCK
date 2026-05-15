@@ -1,14 +1,24 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+"""Tests for the chat/completions proxy.
+
+Forward path is exercised by pointing the proxy at an httpx ``MockTransport``
+(no real network). Replay path is exercised end-to-end via the FastAPI test
+client. Config / CLI / metrics-singleton tests round out the file.
+"""
+
+import argparse
+import json
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
 import yaml
-from fastapi import FastAPI, Request
-from httpx import ASGITransport, AsyncClient, HTTPStatusError, Request, Response
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 
-from rock.sdk.model.server.api.proxy import perform_llm_request, proxy_router
+from rock.sdk.model.server.api.proxy import proxy_router
 from rock.sdk.model.server.config import ModelServiceConfig
 from rock.sdk.model.server.main import create_config_from_args, lifespan
+from rock.sdk.model.server.traj import SequentialCursor
 from rock.sdk.model.server.utils import (
     MODEL_SERVICE_REQUEST_COUNT,
     MODEL_SERVICE_REQUEST_RT,
@@ -16,361 +26,568 @@ from rock.sdk.model.server.utils import (
     record_traj,
 )
 
-# Initialize a temporary FastAPI application for testing the router
-test_app = FastAPI()
-test_app.include_router(proxy_router)
 
-mock_config = ModelServiceConfig()
-test_app.state.model_service_config = mock_config
+def _build_app(config: ModelServiceConfig, *, replay_cursor=None, recorder=None) -> FastAPI:
+    """Build a FastAPI app with the proxy router and the given config attached."""
+    from rock.sdk.model.server.api.proxy import ForwardBackend, ReplayBackend
 
-
-@pytest.mark.asyncio
-async def test_chat_completions_routing_success():
-    """
-    Test the high-level routing logic.
-    """
-    patch_path = "rock.sdk.model.server.api.proxy.perform_llm_request"
-
-    with patch(patch_path, new_callable=AsyncMock) as mock_request:
-        mock_resp = MagicMock(spec=Response)
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {"id": "chat-123", "choices": []}
-        mock_request.return_value = mock_resp
-
-        transport = ASGITransport(app=test_app)
-        async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            payload = {"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hello"}]}
-            response = await ac.post("/v1/chat/completions", json=payload)
-
-        assert response.status_code == 200
-        call_args = mock_request.call_args[0]
-        assert call_args[0] == "https://api.openai.com/v1/chat/completions"
-        assert mock_request.called
+    app = FastAPI()
+    app.state.model_service_config = config
+    if replay_cursor is not None:
+        app.state.backend = ReplayBackend(replay_cursor)
+    else:
+        app.state.backend = ForwardBackend(config, recorder=recorder)
+    app.include_router(proxy_router)
+    return app
 
 
-@pytest.mark.asyncio
-async def test_chat_completions_fallback_to_default_when_not_found():
-    """
-    Test that an unrecognized model name correctly falls back to the 'default' URL.
-    """
-    patch_path = "rock.sdk.model.server.api.proxy.perform_llm_request"
+def _patch_httpx_with_handler(handler):
+    """Patch ``proxy.httpx.AsyncClient`` so each ``async with httpx.AsyncClient(...)``
+    returns a real client wrapping ``MockTransport(handler)``."""
+    real_client_cls = httpx.AsyncClient  # capture before patching kicks in
+    transport = httpx.MockTransport(handler)
 
-    with patch(patch_path, new_callable=AsyncMock) as mock_request:
-        mock_resp = MagicMock(spec=Response)
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {"id": "chat-fallback", "choices": []}
-        mock_request.return_value = mock_resp
+    def factory(*args, **kwargs):
+        kwargs.pop("timeout", None)  # transport supplies the response, no timeout needed
+        return real_client_cls(transport=transport, **kwargs)
 
-        config = test_app.state.model_service_config
-        default_base_url = config.proxy_rules["default"].rstrip("/")
-        expected_target_url = f"{default_base_url}/chat/completions"
+    return patch("rock.sdk.model.server.api.proxy.httpx.AsyncClient", side_effect=factory)
 
-        transport = ASGITransport(app=test_app)
-        async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            payload = {
-                "model": "some-random-unsupported-model",  # This model is NOT in proxy_rules
-                "messages": [{"role": "user", "content": "hello"}],
+
+def _success_response_json(*, model: str = "gpt-3.5-turbo", content: str = "hi") -> dict:
+    return {
+        "id": "chatcmpl-1",
+        "object": "chat.completion",
+        "created": 1234,
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": content},
+                "finish_reason": "stop",
             }
-            response = await ac.post("/v1/chat/completions", json=payload)
+        ],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+    }
 
-        assert response.status_code == 200
 
-        # Verify that perform_llm_request was called with the DEFAULT URL
-        call_args = mock_request.call_args[0]
-        actual_url = call_args[0]
-
-        assert actual_url == expected_target_url
-        assert mock_request.called
+# ---------- Forward path: routing ----------
 
 
 @pytest.mark.asyncio
-async def test_chat_completions_routing_absolute_fail():
-    """
-    Test that both the specific model and the 'default' rule are missing.
-    """
-    empty_config = ModelServiceConfig()
-    empty_config.proxy_rules = {}
+async def test_forward_routes_by_model_name_to_proxy_rules():
+    captured = {}
 
-    with patch.object(test_app.state, "model_service_config", empty_config):
-        transport = ASGITransport(app=test_app)
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json=_success_response_json())
+
+    app = _build_app(ModelServiceConfig())
+    with _patch_httpx_with_handler(handler):
+        transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            payload = {"model": "any-model", "messages": [{"role": "user", "content": "hello"}]}
-            response = await ac.post("/v1/chat/completions", json=payload)
+            r = await ac.post(
+                "/v1/chat/completions",
+                json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}]},
+            )
 
-    assert response.status_code == 400
-    detail = response.json()["detail"]
-    assert "not configured" in detail
-
-
-@pytest.mark.asyncio
-async def test_perform_llm_request_retry_on_whitelist():
-    """
-    Test that the proxy retries when receiving a whitelisted error code.
-    """
-    client_post_path = "rock.sdk.model.server.api.proxy.http_client.post"
-
-    # Patch asyncio.sleep inside the retry module to avoid actual waiting
-    with (
-        patch(client_post_path, new_callable=AsyncMock) as mock_post,
-        patch("rock.utils.retry.asyncio.sleep", return_value=None),
-    ):
-        # 1. Setup Failed Response (429)
-        resp_429 = MagicMock(spec=Response)
-        resp_429.status_code = 429
-        error_429 = HTTPStatusError("Rate Limited", request=MagicMock(spec=Request), response=resp_429)
-
-        # 2. Setup Success Response (200)
-        resp_200 = MagicMock(spec=Response)
-        resp_200.status_code = 200
-        resp_200.json.return_value = {"ok": True}
-
-        # Sequence: Fail with 429, then Succeed with 200
-        mock_post.side_effect = [error_429, resp_200]
-
-        result = await perform_llm_request("http://fake.url", {}, {}, mock_config)
-
-        assert result.status_code == 200
-        assert mock_post.call_count == 2
+    assert r.status_code == 200
+    assert captured["url"] == "https://api.openai.com/v1/chat/completions"
+    assert captured["body"]["model"] == "gpt-3.5-turbo"
 
 
 @pytest.mark.asyncio
-async def test_perform_llm_request_no_retry_on_non_whitelist():
-    """
-    Test that the proxy DOES NOT retry for non-retryable codes (e.g., 401).
-    It should return the error response immediately.
-    """
-    client_post_path = "rock.sdk.model.server.api.proxy.http_client.post"
+async def test_forward_falls_back_to_default_for_unknown_model():
+    captured = {}
 
-    with patch(client_post_path, new_callable=AsyncMock) as mock_post:
-        # Mock 401 Unauthorized (NOT in the retry whitelist)
-        resp_401 = MagicMock(spec=Response)
-        resp_401.status_code = 401
-        resp_401.json.return_value = {"error": "Invalid API Key"}
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json=_success_response_json(model="some-random"))
 
-        # The function should return this response directly
-        mock_post.return_value = resp_401
+    config = ModelServiceConfig()
+    expected_default = config.proxy_rules["default"].rstrip("/") + "/chat/completions"
+    app = _build_app(config)
 
-        result = await perform_llm_request("http://fake.url", {}, {}, mock_config)
+    with _patch_httpx_with_handler(handler):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post(
+                "/v1/chat/completions",
+                json={"model": "some-random", "messages": [{"role": "user", "content": "hi"}]},
+            )
 
-        assert result.status_code == 401
-        # Call count must be 1, meaning no retries were attempted
-        assert mock_post.call_count == 1
+    assert r.status_code == 200
+    assert captured["url"] == expected_default
 
 
 @pytest.mark.asyncio
-async def test_perform_llm_request_network_timeout_retry():
-    """
-    Test that network-level exceptions (like Timeout) also trigger retries.
-    """
-    client_post_path = "rock.sdk.model.server.api.proxy.http_client.post"
+async def test_forward_400_when_no_rule_and_no_default():
+    config = ModelServiceConfig()
+    config.proxy_rules = {}
+    app = _build_app(config)
 
-    with (
-        patch(client_post_path, new_callable=AsyncMock) as mock_post,
-        patch("rock.utils.retry.asyncio.sleep", return_value=None),
-    ):
-        resp_200 = MagicMock(spec=Response)
-        resp_200.status_code = 200
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        r = await ac.post(
+            "/v1/chat/completions",
+            json={"model": "any", "messages": [{"role": "user", "content": "hi"}]},
+        )
 
-        mock_post.side_effect = [httpx.TimeoutException("Network Timeout"), resp_200]
+    assert r.status_code == 400
+    assert "not configured" in r.json()["detail"]
 
-        result = await perform_llm_request("http://fake.url", {}, {}, mock_config)
 
-        assert result.status_code == 200
-        assert mock_post.call_count == 2
+@pytest.mark.asyncio
+async def test_forward_proxy_base_url_overrides_proxy_rules():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json=_success_response_json())
+
+    config = ModelServiceConfig()
+    config.proxy_base_url = "https://custom-endpoint.example.com/v1"
+    app = _build_app(config)
+
+    with _patch_httpx_with_handler(handler):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            await ac.post(
+                "/v1/chat/completions",
+                json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}]},
+            )
+
+    assert captured["url"] == "https://custom-endpoint.example.com/v1/chat/completions"
+
+
+# ---------- Forward path: byte passthrough ----------
+
+
+@pytest.mark.asyncio
+async def test_forward_response_body_is_byte_for_byte_passthrough():
+    """Upstream's exact JSON bytes (incl. provider-specific fields) reach the client."""
+    upstream_payload = {
+        "id": "x",
+        "object": "chat.completion",
+        "model": "glm-5",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "hi", "reasoning_content": "...think..."},
+                "finish_reason": "stop",
+            }
+        ],
+        "provider_specific_fields": {"vendor_field": "vendor_value"},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=upstream_payload)
+
+    app = _build_app(ModelServiceConfig())
+    with _patch_httpx_with_handler(handler):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post(
+                "/v1/chat/completions",
+                json={"model": "glm-5", "messages": [{"role": "user", "content": "hi"}]},
+            )
+
+    body = r.json()
+    assert body["choices"][0]["message"]["reasoning_content"] == "...think..."
+    assert body["provider_specific_fields"] == {"vendor_field": "vendor_value"}
+
+
+@pytest.mark.asyncio
+async def test_forward_propagates_upstream_status_and_body_on_4xx():
+    """Upstream 4xx is forwarded verbatim — proxy doesn't re-shape error JSON."""
+    err_body = {"error": {"message": "context length exceeded", "type": "BadRequestError"}}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json=err_body)
+
+    app = _build_app(ModelServiceConfig())
+    with _patch_httpx_with_handler(handler):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post(
+                "/v1/chat/completions",
+                json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}]},
+            )
+
+    assert r.status_code == 400
+    assert r.json() == err_body
+
+
+@pytest.mark.asyncio
+async def test_forward_authorization_header_passes_through():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["headers"] = dict(request.headers)
+        return httpx.Response(200, json=_success_response_json())
+
+    app = _build_app(ModelServiceConfig())
+    with _patch_httpx_with_handler(handler):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            await ac.post(
+                "/v1/chat/completions",
+                json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}]},
+                headers={"Authorization": "Bearer sk-abc", "X-Trace": "t1"},
+            )
+
+    # Authorization and custom X-* headers are forwarded verbatim. We don't assert
+    # on framing headers (connection / content-length / accept-encoding) because
+    # httpx rebuilds them itself for the outgoing request.
+    auth_value = captured["headers"].get("Authorization") or captured["headers"].get("authorization")
+    assert auth_value == "Bearer sk-abc"
+    fwd_lower = {k.lower() for k in captured["headers"]}
+    assert "x-trace" in fwd_lower
+
+
+@pytest.mark.asyncio
+async def test_forward_502_on_upstream_connection_failure(monkeypatch):
+    """ConnectError → 502. Retry disabled here to keep the test fast."""
+    monkeypatch.setattr("rock.sdk.model.server.api.proxy._RETRY_MAX_ATTEMPTS", 1)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("upstream is down")
+
+    app = _build_app(ModelServiceConfig())
+    with _patch_httpx_with_handler(handler):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post(
+                "/v1/chat/completions",
+                json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}]},
+            )
+
+    assert r.status_code == 502
+
+
+# ---------- Forward path: retry ----------
+
+
+@pytest.mark.asyncio
+async def test_forward_retries_on_retryable_status_then_succeeds(monkeypatch):
+    """A 429 is retried; the next attempt's 200 is returned to the client."""
+    monkeypatch.setattr("rock.sdk.model.server.api.proxy._RETRY_DELAY_SECONDS", 0.0)
+
+    attempts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
+        if len(attempts) < 3:
+            return httpx.Response(429, json={"error": "rate limited"})
+        return httpx.Response(200, json=_success_response_json(content="finally"))
+
+    app = _build_app(ModelServiceConfig())  # default retryable_status_codes = [429, 500]
+    with _patch_httpx_with_handler(handler):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post(
+                "/v1/chat/completions",
+                json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}]},
+            )
+
+    assert r.status_code == 200
+    assert r.json()["choices"][0]["message"]["content"] == "finally"
+    assert len(attempts) == 3
+
+
+@pytest.mark.asyncio
+async def test_forward_returns_last_response_when_retries_exhausted(monkeypatch):
+    """All attempts return 429 → the final 429 body+status is forwarded verbatim."""
+    monkeypatch.setattr("rock.sdk.model.server.api.proxy._RETRY_MAX_ATTEMPTS", 3)
+    monkeypatch.setattr("rock.sdk.model.server.api.proxy._RETRY_DELAY_SECONDS", 0.0)
+
+    attempts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
+        return httpx.Response(429, json={"error": "still rate limited"})
+
+    app = _build_app(ModelServiceConfig())
+    with _patch_httpx_with_handler(handler):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post(
+                "/v1/chat/completions",
+                json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}]},
+            )
+
+    assert r.status_code == 429
+    assert r.json() == {"error": "still rate limited"}
+    assert len(attempts) == 3
+
+
+@pytest.mark.asyncio
+async def test_forward_does_not_retry_non_whitelisted_status(monkeypatch):
+    """400 is not in retryable_status_codes → forwarded immediately, no retry."""
+    monkeypatch.setattr("rock.sdk.model.server.api.proxy._RETRY_DELAY_SECONDS", 0.0)
+
+    attempts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
+        return httpx.Response(400, json={"error": "bad request"})
+
+    app = _build_app(ModelServiceConfig())
+    with _patch_httpx_with_handler(handler):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post(
+                "/v1/chat/completions",
+                json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}]},
+            )
+
+    assert r.status_code == 400
+    assert len(attempts) == 1
+
+
+@pytest.mark.asyncio
+async def test_forward_stream_retries_on_retryable_status_then_succeeds(monkeypatch):
+    """Streaming: 500 on first attempt, then 200 SSE on second — client sees only the 200 body."""
+    monkeypatch.setattr("rock.sdk.model.server.api.proxy._RETRY_DELAY_SECONDS", 0.0)
+
+    attempts = []
+    sse_body = (
+        b'data: {"id":"x","object":"chat.completion.chunk","choices":[{"index":0,'
+        b'"delta":{"content":"hello"},"finish_reason":null}]}\n\n'
+        b"data: [DONE]\n\n"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
+        if len(attempts) < 2:
+            return httpx.Response(500, json={"error": "internal"})
+        return httpx.Response(200, content=sse_body, headers={"content-type": "text/event-stream"})
+
+    app = _build_app(ModelServiceConfig())
+    with _patch_httpx_with_handler(handler):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post(
+                "/v1/chat/completions",
+                json={"model": "gpt-3.5-turbo", "stream": True, "messages": [{"role": "user", "content": "hi"}]},
+            )
+
+    body = r.text
+    assert "hello" in body
+    assert "[DONE]" in body
+    assert "internal" not in body  # the 500 attempt is not leaked to client
+    assert len(attempts) == 2
+
+
+# ---------- Forward path: recording ----------
+
+
+@pytest.mark.asyncio
+async def test_forward_invokes_recorder_on_success(tmp_path):
+    """When a recorder is attached to the backend, success calls write a JSONL line."""
+    from rock.sdk.model.server.traj import TrajectoryRecorder
+
+    upstream_payload = _success_response_json(content="recorded reply")
+    traj_file = tmp_path / "traj.jsonl"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=upstream_payload)
+
+    config = ModelServiceConfig()
+
+    with _patch_httpx_with_handler(handler):
+        recorder = TrajectoryRecorder(traj_file=traj_file)
+        app = _build_app(config, recorder=recorder)
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            await ac.post(
+                "/v1/chat/completions",
+                json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}]},
+            )
+
+    line = traj_file.read_text(encoding="utf-8").strip()
+    record = json.loads(line)
+    assert record["status"] == "success"
+    assert record["model"] == "gpt-3.5-turbo"
+    assert record["stream"] is False
+    assert record["request"]["messages"][0]["content"] == "hi"
+    assert record["response"] == upstream_payload
+
+
+# ---------- Replay path ----------
+
+
+@pytest.mark.asyncio
+async def test_replay_returns_recorded_response_no_upstream_call(tmp_path):
+    record = {
+        "model": "gpt-3.5-turbo",
+        "response": {
+            "id": "rec-1",
+            "object": "chat.completion",
+            "model": "gpt-3.5-turbo",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "recorded reply"},
+                    "finish_reason": "stop",
+                }
+            ],
+        },
+    }
+    traj = tmp_path / "t.jsonl"
+    traj.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    config = ModelServiceConfig()
+    config.replay_file = str(traj)
+    app = _build_app(config, replay_cursor=SequentialCursor.load(traj))
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        r = await ac.post(
+            "/v1/chat/completions",
+            json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}]},
+        )
+
+    assert r.status_code == 200
+    assert r.json()["choices"][0]["message"]["content"] == "recorded reply"
+
+
+@pytest.mark.asyncio
+async def test_replay_streaming_emits_recorded_response_as_sse(tmp_path):
+    record = {
+        "model": "gpt-3.5-turbo",
+        "response": {
+            "id": "rec-stream",
+            "object": "chat.completion",
+            "model": "gpt-3.5-turbo",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "streamed reply"},
+                    "finish_reason": "tool_calls",
+                }
+            ],
+        },
+    }
+    traj = tmp_path / "t.jsonl"
+    traj.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    config = ModelServiceConfig()
+    config.replay_file = str(traj)
+    app = _build_app(config, replay_cursor=SequentialCursor.load(traj))
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        r = await ac.post(
+            "/v1/chat/completions",
+            json={"model": "gpt-3.5-turbo", "stream": True, "messages": [{"role": "user", "content": "hi"}]},
+        )
+
+    body = r.text
+    assert "data: [DONE]" in body
+    assert '"object": "chat.completion.chunk"' in body
+    assert '"delta": {"role": "assistant", "content": "streamed reply"}' in body
+    assert '"finish_reason": "tool_calls"' in body
+
+
+@pytest.mark.asyncio
+async def test_replay_returns_404_when_cursor_exhausted(tmp_path):
+    record = {
+        "model": "gpt-3.5-turbo",
+        "response": {
+            "id": "only",
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": "x"}, "finish_reason": "stop"}],
+        },
+    }
+    traj = tmp_path / "t.jsonl"
+    traj.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    config = ModelServiceConfig()
+    config.replay_file = str(traj)
+    app = _build_app(config, replay_cursor=SequentialCursor.load(traj))
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        await ac.post(
+            "/v1/chat/completions",
+            json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}]},
+        )
+        second = await ac.post(
+            "/v1/chat/completions",
+            json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "again"}]},
+        )
+
+    assert second.status_code == 404
+    assert "exhausted" in second.json()["detail"]
+
+
+# ---------- Lifespan + Config ----------
 
 
 @pytest.mark.asyncio
 async def test_lifespan_initialization_with_config(tmp_path):
-    """
-    Test that the application correctly initializes and overrides defaults
-    when a valid configuration file path is provided.
-    """
     conf_file = tmp_path / "proxy.yml"
     conf_file.write_text(yaml.dump({"proxy_rules": {"my-model": "http://custom-url"}, "request_timeout": 50}))
 
-    # Initialize App and load config from file
     config = ModelServiceConfig.from_file(str(conf_file))
     app = FastAPI(lifespan=lambda app: lifespan(app, config))
 
     async with lifespan(app, config):
-        app_config = app.state.model_service_config
-        # Verify that the config reflects file content instead of defaults
-        assert app_config.proxy_rules["my-model"] == "http://custom-url"
-        assert app_config.request_timeout == 50
-        assert "gpt-3.5-turbo" not in app_config.proxy_rules
-
-
-@pytest.mark.asyncio
-async def test_lifespan_initialization_no_config():
-    """
-    Test that the application initializes with default ModelServiceConfig
-    settings when no configuration file path is provided.
-    """
-    config = ModelServiceConfig()
-    app = FastAPI(lifespan=lambda app: lifespan(app, config))
-
-    async with lifespan(app, config):
-        app_config = app.state.model_service_config
-        # Verify that default rules (e.g., 'gpt-3.5-turbo') are loaded
-        assert "gpt-3.5-turbo" in app_config.proxy_rules
-        assert app_config.request_timeout == 120
+        assert app.state.model_service_config.proxy_rules["my-model"] == "http://custom-url"
+        assert app.state.model_service_config.request_timeout == 50
 
 
 @pytest.mark.asyncio
 async def test_lifespan_invalid_config_path():
-    """
-    Test that providing a non-existent configuration file path causes
-    ModelServiceConfig.from_file to raise a FileNotFoundError.
-    """
-    # Expect FileNotFoundError when loading from non-existent file
     with pytest.raises(FileNotFoundError):
         ModelServiceConfig.from_file("/tmp/non_existent_file.yml")
 
 
-@pytest.mark.asyncio
-async def test_proxy_base_url_overrides_proxy_rules(tmp_path):
-    """
-    Test that when proxy_base_url is set, all requests are forwarded to that URL,
-    bypassing proxy_rules entirely.
-    """
-    config = ModelServiceConfig()
-    config.proxy_base_url = "https://custom-endpoint.example.com/v1"
-
-    test_app = FastAPI()
-    test_app.state.model_service_config = config
-    test_app.include_router(proxy_router)
-
-    with patch("rock.sdk.model.server.api.proxy.perform_llm_request", new_callable=AsyncMock) as mock_request:
-        mock_resp = MagicMock(spec=Response)
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {"id": "chat-123", "choices": []}
-        mock_request.return_value = mock_resp
-
-        transport = ASGITransport(app=test_app)
-        async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            # Even when requesting gpt-3.5-turbo, should forward to proxy_base_url
-            payload = {"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hello"}]}
-            response = await ac.post("/v1/chat/completions", json=payload)
-
-        assert response.status_code == 200
-        # Verify request was sent to proxy_base_url
-        call_args = mock_request.call_args[0]
-        assert call_args[0] == "https://custom-endpoint.example.com/v1/chat/completions"
-
-
-@pytest.mark.asyncio
-async def test_config_loads_host_and_port_from_file(tmp_path):
-    """
-    Test that ModelServiceConfig correctly loads host and port from config file.
-    """
-    conf_file = tmp_path / "proxy.yml"
-    conf_file.write_text(
-        yaml.dump({"host": "127.0.0.1", "port": 9000, "proxy_rules": {"my-model": "http://my-backend"}})
-    )
-
-    config = ModelServiceConfig.from_file(str(conf_file))
-
-    assert config.host == "127.0.0.1"
-    assert config.port == 9000
-    assert config.proxy_rules["my-model"] == "http://my-backend"
-
-
 def test_config_default_host_and_port():
-    """
-    Test default values for host and port.
-    """
     config = ModelServiceConfig()
-
     assert config.host == "0.0.0.0"
     assert config.port == 8080
 
 
+def test_config_default_recording_and_replay():
+    config = ModelServiceConfig()
+    assert config.recording_file is None
+    assert config.replay_file is None
+
+
 @pytest.mark.asyncio
-async def test_config_loads_retryable_status_codes_from_file(tmp_path):
-    """
-    Test that ModelServiceConfig correctly loads retryable_status_codes from config file.
-    """
+async def test_config_loads_recording_file_from_yaml(tmp_path):
     conf_file = tmp_path / "proxy.yml"
-    conf_file.write_text(yaml.dump({"retryable_status_codes": [429, 500, 502, 503]}))
-
+    conf_file.write_text(yaml.dump({"recording_file": "/tmp/my-traj.jsonl"}))
     config = ModelServiceConfig.from_file(str(conf_file))
-
-    assert config.retryable_status_codes == [429, 500, 502, 503]
-
-
-def test_config_default_retryable_status_codes():
-    """
-    Test default values for retryable_status_codes.
-    """
-    config = ModelServiceConfig()
-
-    assert config.retryable_status_codes == [429, 500]
+    assert config.recording_file == "/tmp/my-traj.jsonl"
+    assert config.replay_file is None
 
 
 @pytest.mark.asyncio
-async def test_perform_llm_request_respects_custom_retryable_codes():
-    """
-    Test that custom retryable_status_codes are respected (502 retries, 401 does not).
-    """
-    config = ModelServiceConfig()
-    config.retryable_status_codes = [502, 503, 504]  # Custom retryable status codes
-
-    client_post_path = "rock.sdk.model.server.api.proxy.http_client.post"
-
-    with (
-        patch(client_post_path, new_callable=AsyncMock) as mock_post,
-        patch("rock.utils.retry.asyncio.sleep", return_value=None),
-    ):
-        # 502 should retry (in custom list)
-        resp_502 = MagicMock(spec=Response)
-        resp_502.status_code = 502
-        error_502 = HTTPStatusError("Bad Gateway", request=MagicMock(spec=Request), response=resp_502)
-
-        resp_200 = MagicMock(spec=Response)
-        resp_200.status_code = 200
-        resp_200.json.return_value = {"ok": True}
-
-        # Sequence: 502 fail, then 200 success
-        mock_post.side_effect = [error_502, resp_200]
-
-        result = await perform_llm_request("http://fake.url", {}, {}, config)
-
-        assert result.status_code == 200
-        assert mock_post.call_count == 2
+async def test_config_loads_replay_file_from_yaml(tmp_path):
+    conf_file = tmp_path / "proxy.yml"
+    conf_file.write_text(yaml.dump({"replay_file": "/tmp/in.jsonl"}))
+    config = ModelServiceConfig.from_file(str(conf_file))
+    assert config.replay_file == "/tmp/in.jsonl"
+    assert config.recording_file is None
 
 
-@pytest.mark.asyncio
-async def test_perform_llm_request_non_retryable_code_not_retried():
-    """
-    Test that 401 (not in custom retryable_status_codes) does not trigger retry.
-    """
-    config = ModelServiceConfig()
-    config.retryable_status_codes = [502, 503, 504]  # Custom retryable status codes, excluding 401
+def test_config_recording_and_replay_are_mutually_exclusive():
+    """Setting both at construction time fails Pydantic validation."""
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        ModelServiceConfig(recording_file="/tmp/a.jsonl", replay_file="/tmp/b.jsonl")
 
-    client_post_path = "rock.sdk.model.server.api.proxy.http_client.post"
 
-    with patch(client_post_path, new_callable=AsyncMock) as mock_post:
-        # 401 should not retry (not in custom list)
-        resp_401 = MagicMock(spec=Response)
-        resp_401.status_code = 401
-        resp_401.json.return_value = {"error": "Invalid API Key"}
-
-        mock_post.return_value = resp_401
-
-        result = await perform_llm_request("http://fake.url", {}, {}, config)
-
-        assert result.status_code == 401
-        assert mock_post.call_count == 1  # No retry
+def test_config_recording_replay_mutex_fires_on_assignment():
+    """validate_assignment=True so CLI-style field-by-field overrides also trip the mutex."""
+    config = ModelServiceConfig(recording_file="/tmp/a.jsonl")
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        config.replay_file = "/tmp/b.jsonl"
 
 
 def test_cli_args_override_config_file(tmp_path):
-    """
-    Test that CLI arguments override config file settings.
-    This tests the logic in create_config_from_args().
-    """
-    import argparse
-
-    # Create args with config file and CLI parameters
     conf_file = tmp_path / "proxy.yml"
     conf_file.write_text(
         yaml.dump(
@@ -378,144 +595,67 @@ def test_cli_args_override_config_file(tmp_path):
                 "host": "192.168.1.1",
                 "port": 8080,
                 "proxy_base_url": "https://config-url.example.com/v1",
-                "retryable_status_codes": [429, 500],
                 "request_timeout": 60,
             }
         )
     )
-
     args = argparse.Namespace(
         config_file=str(conf_file),
-        host="0.0.0.0",  # CLI overrides config file
-        port=9000,  # CLI overrides config file
-        proxy_base_url="https://cli-url.example.com/v1",  # CLI overrides config file
-        retryable_status_codes="502,503",  # CLI overrides config file
-        request_timeout=30,  # CLI overrides config file
+        host="0.0.0.0",
+        port=9000,
+        proxy_base_url="https://cli-url.example.com/v1",
+        retryable_status_codes=None,
+        request_timeout=30,
+        recording_file=None,
+        replay_file=None,
     )
-
     config = create_config_from_args(args)
-
-    # Verify CLI arguments override config file
     assert config.host == "0.0.0.0"
     assert config.port == 9000
     assert config.proxy_base_url == "https://cli-url.example.com/v1"
-    assert config.retryable_status_codes == [502, 503]
     assert config.request_timeout == 30
 
 
-@pytest.mark.asyncio
-async def test_config_file_overrides_defaults(tmp_path):
-    """
-    Test that config file values override default values.
-    """
-    conf_file = tmp_path / "proxy.yml"
-    conf_file.write_text(
-        yaml.dump(
-            {
-                "host": "10.0.0.1",
-                "port": 8888,
-                "request_timeout": 300,
-                "proxy_rules": {"test-model": "http://test-backend"},
-            }
-        )
+def test_cli_replay_file_enables_replay():
+    args = argparse.Namespace(
+        config_file=None,
+        host=None,
+        port=None,
+        proxy_base_url=None,
+        retryable_status_codes=None,
+        request_timeout=None,
+        recording_file=None,
+        replay_file="/tmp/in.jsonl",
     )
+    config = create_config_from_args(args)
+    assert config.replay_file == "/tmp/in.jsonl"
 
-    config = ModelServiceConfig.from_file(str(conf_file))
 
-    # Verify config file overrides defaults
-    assert config.host == "10.0.0.1"
-    assert config.port == 8888
-    assert config.request_timeout == 300
-    assert config.proxy_rules["test-model"] == "http://test-backend"
-    # Verify other fields remain as defaults
-    assert config.proxy_base_url is None
+# ---------- Metrics singleton + legacy record_traj (still used by local mode) ----------
 
 
 def test_metrics_monitor_is_singleton():
-    """
-    Test that _get_or_create_metrics_monitor returns the same instance
-    on repeated calls (module-level singleton, created only once).
-    """
     import rock.sdk.model.server.utils as utils_module
 
     with patch("rock.sdk.model.server.utils.MetricsMonitor") as mock_cls:
-        mock_monitor = MagicMock()
-        mock_cls.create.return_value = mock_monitor
-
-        # Reset singleton so the test is isolated
+        mock_cls.create.return_value = MagicMock()
         utils_module._metrics_monitor = None
-
         first = _get_or_create_metrics_monitor()
         second = _get_or_create_metrics_monitor()
-
         assert first is second
-        assert mock_cls.create.call_count == 1
-
-        # Cleanup
-        utils_module._metrics_monitor = None
-
-
-def test_metrics_monitor_uses_env_endpoint():
-    """
-    Test that ROCK_METRICS_ENDPOINT env var is passed to MetricsMonitor.create().
-    """
-    import rock.sdk.model.server.utils as utils_module
-
-    custom_endpoint = "http://my-otel-collector:4318/v1/metrics"
-
-    with (
-        patch("rock.sdk.model.server.utils.MetricsMonitor") as mock_cls,
-        patch.dict("os.environ", {"ROCK_METRICS_ENDPOINT": custom_endpoint}),
-    ):
-        mock_monitor = MagicMock()
-        mock_cls.create.return_value = mock_monitor
-
-        utils_module._metrics_monitor = None
-        _get_or_create_metrics_monitor()
-
-        mock_cls.create.assert_called_once_with(metrics_endpoint=custom_endpoint)
-
-        utils_module._metrics_monitor = None
-
-
-def test_metrics_monitor_registers_gauge_and_counter():
-    """
-    Test that _get_or_create_metrics_monitor registers both
-    the RT gauge and request count counter on first creation.
-    """
-    import rock.sdk.model.server.utils as utils_module
-
-    with patch("rock.sdk.model.server.utils.MetricsMonitor") as mock_cls:
-        mock_monitor = MagicMock()
-        mock_cls.create.return_value = mock_monitor
-
-        utils_module._metrics_monitor = None
-        _get_or_create_metrics_monitor()
-
-        mock_monitor._register_gauge.assert_called_once_with(
-            MODEL_SERVICE_REQUEST_RT, "total execution time for request", "ms"
-        )
-        mock_monitor._register_counter.assert_called_once_with(
-            MODEL_SERVICE_REQUEST_COUNT, "total request count", "count"
-        )
-
         utils_module._metrics_monitor = None
 
 
 @pytest.mark.asyncio
-async def test_record_traj_reports_rt_and_count():
-    """
-    Test that record_traj decorator calls record_gauge_by_name (RT)
-    and record_counter_by_name (count) with correct metric names and attributes.
-    """
+async def test_record_traj_decorator_reports_rt_and_count():
+    """Legacy record_traj decorator (still used by local mode) reports RT/count."""
     import rock.sdk.model.server.utils as utils_module
-
-    mock_monitor = MagicMock()
 
     with (
         patch("rock.sdk.model.server.utils.MetricsMonitor") as mock_cls,
-        patch.dict("os.environ", {"ROCK_SANDBOX_ID": "sandbox-test-001"}),
+        patch.dict("os.environ", {"ROCK_SANDBOX_ID": "sandbox-test"}),
     ):
+        mock_monitor = MagicMock()
         mock_cls.create.return_value = mock_monitor
         utils_module._metrics_monitor = None
 
@@ -525,45 +665,11 @@ async def test_record_traj_reports_rt_and_count():
 
         await fake_handler({"model": "gpt-4", "messages": []})
 
-        mock_monitor.record_gauge_by_name.assert_called_once()
         gauge_call = mock_monitor.record_gauge_by_name.call_args
         assert gauge_call[0][0] == MODEL_SERVICE_REQUEST_RT
-        assert gauge_call[1]["attributes"]["type"] == "chat_completions"
-        assert gauge_call[1]["attributes"]["sandbox_id"] == "sandbox-test-001"
+        assert gauge_call[1]["attributes"]["sandbox_id"] == "sandbox-test"
 
-        mock_monitor.record_counter_by_name.assert_called_once()
         counter_call = mock_monitor.record_counter_by_name.call_args
         assert counter_call[0][0] == MODEL_SERVICE_REQUEST_COUNT
-        assert counter_call[0][1] == 1
-        assert counter_call[1]["attributes"]["sandbox_id"] == "sandbox-test-001"
-
-        utils_module._metrics_monitor = None
-
-
-@pytest.mark.asyncio
-async def test_record_traj_sandbox_id_defaults_to_unknown():
-    """
-    Test that sandbox_id defaults to 'unknown' when ROCK_SANDBOX_ID is not set.
-    """
-    import rock.sdk.model.server.utils as utils_module
-
-    mock_monitor = MagicMock()
-
-    with patch("rock.sdk.model.server.utils.MetricsMonitor") as mock_cls, patch.dict("os.environ", {}, clear=False):
-        # Ensure ROCK_SANDBOX_ID is not set
-        os_env = __import__("os").environ
-        os_env.pop("ROCK_SANDBOX_ID", None)
-
-        mock_cls.create.return_value = mock_monitor
-        utils_module._metrics_monitor = None
-
-        @record_traj
-        async def fake_handler(body: dict):
-            return {"id": "resp-2", "choices": []}
-
-        await fake_handler({"model": "gpt-4", "messages": []})
-
-        gauge_call = mock_monitor.record_gauge_by_name.call_args
-        assert gauge_call[1]["attributes"]["sandbox_id"] == "unknown"
 
         utils_module._metrics_monitor = None

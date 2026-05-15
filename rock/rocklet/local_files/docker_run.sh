@@ -30,19 +30,22 @@ is_nix() {
 
 # Kata DinD: set up loop device and mount disk image for Docker storage
 setup_kata_dind() {
-    mkdir -p /var/lib/docker
+    local docker_root="/var/lib/docker"
+    if [ -f /etc/docker/daemon.json ]; then
+        local custom_root
+        custom_root=$(grep -o '"data-root"[[:space:]]*:[[:space:]]*"[^"]*"' /etc/docker/daemon.json | sed 's/.*"data-root"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
+        if [ -n "$custom_root" ]; then
+            docker_root="$custom_root"
+        fi
+    fi
+    mkdir -p "$docker_root"
     for i in $(seq 0 7); do
         mknod -m 660 /dev/loop$i b 7 $i 2>/dev/null || true
     done
-    mount -o loop /docker-disk.img /var/lib/docker
+    mount -o loop /docker-disk.img "$docker_root"
     mount -o remount,rw /sys/fs/cgroup
     mount -o remount,rw /proc/sys
 }
-
-if [ "${ROCK_KATA_RUNTIME}" = "true" ]; then
-    echo "Kata runtime detected, setting up DinD disk..."
-    setup_kata_dind
-fi
 
 # Run rocklet
 if [ "$(is_nix)" = "true" ]; then
@@ -51,12 +54,19 @@ if [ "$(is_nix)" = "true" ]; then
     ln -sf $(ls -d /nix/store/*glibc*/lib64 2>/dev/null | head -1) /lib64
     mkdir -p /bin
     ln -sf $(ls -d /nix/store/*bash*/bin/bash 2>/dev/null | head -1) /bin/bash
+    ln -sf $(ls -d /nix/store/*util-linux*/bin/mount 2>/dev/null | head -1) /bin/mount
+    export PATH="/bin:${PATH}"
     GCC_LIB=$(ls -d /nix/store/*gcc*lib/lib 2>/dev/null | head -1)
     ZLIB_LIB=$(ls -d /nix/store/*zlib*/lib 2>/dev/null | head -1)
     NIX_LIBS=""
     [ -n "$GCC_LIB" ] && NIX_LIBS="${GCC_LIB}:"
     [ -n "$ZLIB_LIB" ] && NIX_LIBS="${NIX_LIBS}${ZLIB_LIB}:"
     [ -n "$NIX_LIBS" ] && export LD_LIBRARY_PATH="${NIX_LIBS}${LD_LIBRARY_PATH}"
+fi
+
+if [ "${ROCK_KATA_RUNTIME}" = "true" ]; then
+    echo "Kata runtime detected, setting up DinD disk..."
+    setup_kata_dind
 fi
 
 if [ "$(is_musl)" = "true" ]; then

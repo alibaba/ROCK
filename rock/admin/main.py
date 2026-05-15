@@ -86,8 +86,8 @@ async def lifespan(app: FastAPI):
     await db_provider.init()
     if not rock_config.database.url:
         await db_provider.create_tables()
-    sandbox_table = SandboxTable(db_provider)
-    meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=sandbox_table)
+    sandbox_table = SandboxTable(db_provider, rock_config=rock_config)
+    meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=sandbox_table, rock_config=rock_config)
 
     # init scheduler thread
     scheduler_thread = None

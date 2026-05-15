@@ -1,6 +1,15 @@
 from contextvars import ContextVar
 
-from .concurrent_helper import AsyncAtomicInt, AsyncSafeDict, RayUtil, Timer, get_executor, run_until_complete, timeout
+from .concurrent_helper import (
+    AsyncAtomicInt,
+    AsyncSafeDict,
+    RayUtil,
+    StageTimer,
+    Timer,
+    get_executor,
+    run_until_complete,
+    timeout,
+)
 from .data import (
     FileUtil,
     ListUtil,
@@ -54,6 +63,7 @@ __all__ = [
     "get_uniagent_endpoint",
     # Concurrent utilities
     "get_executor",
+    "StageTimer",
     "Timer",
     "RayUtil",
     "AsyncSafeDict",

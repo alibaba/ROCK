@@ -38,7 +38,7 @@ def _write_traj(data: dict):
 
 
 def record_traj(func: Callable):
-    """Decorator to record chat completions input/output as traj."""
+    """Decorator to record chat completions input/output as traj (local mode only)."""
 
     @wraps(func)
     async def wrapper(*args, **kwargs):

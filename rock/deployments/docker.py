@@ -32,7 +32,7 @@ from rock.utils import (
     ENV_POOL,
     DockerUtil,
     ImageUtil,
-    Timer,
+    StageTimer,
     find_free_port,
     get_executor,
     release_port,
@@ -43,6 +43,8 @@ from rock.utils import (
 
 __all__ = ["DockerDeployment", "DockerDeploymentConfig"]
 CHECK_CLEAR_INTERVAL_SECONDS = 300
+XFS_PRJID_MIN = (1 << 31)                      # low project IDs are reserved for Docker
+XFS_PRJID_RANGE = (1 << 32) - XFS_PRJID_MIN   # use remaining 32-bit space: [XFS_PRJID_MIN, 2^32)
 
 
 logger = init_logger(__name__)
@@ -87,6 +89,8 @@ class DockerDeployment(AbstractDeployment):
             raise Exception(f"Invalid ROCK_WORKER_ENV_TYPE: {env_vars.ROCK_WORKER_ENV_TYPE}")
 
         self.sandbox_validator: DockerSandboxValidator | None = DockerSandboxValidator()
+        self.log_dir_xfs_prjid: int | None = None
+        self.log_dir_xfs_mountpoint: str | None = None
 
     def add_hook(self, hook: DeploymentHook):
         self._hooks.add_hook(hook)
@@ -208,6 +212,37 @@ class DockerDeployment(AbstractDeployment):
                 os.remove(disk_path)
             raise
 
+    def _cleanup_log_dir_xfs_quota(self) -> None:
+        """Remove XFS project quota for the sandbox log directory on exit."""
+        if self.log_dir_xfs_prjid is None or self.log_dir_xfs_mountpoint is None:
+            return
+        if not self._container_name:
+            return
+
+        log_file_path = f"{env_vars.ROCK_LOGGING_PATH}/{self._container_name}"
+        project_id = self.log_dir_xfs_prjid
+        mount_point = self.log_dir_xfs_mountpoint
+        try:
+            clear_limit_cmd = f"limit -p bhard=0 bsoft=0 {project_id}"
+            clear_project_cmd = f"project -C -p {shlex.quote(log_file_path)} {project_id}"
+            for cmd in (clear_limit_cmd, clear_project_cmd):
+                result = subprocess.run(
+                    ["xfs_quota", "-x", "-c", cmd, mount_point],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode != 0:
+                    logger.warning(
+                        f"xfs_quota cleanup failed for {log_file_path!r} cmd={cmd!r}: {result.stderr.strip() or result.stdout.strip()}"
+                    )
+            logger.info(f"Cleaned up XFS project quota (prjid={project_id}) for {log_file_path!r}")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup XFS project quota for {log_file_path!r}: {e}")
+        finally:
+            self.log_dir_xfs_prjid = None
+            self.log_dir_xfs_mountpoint = None
+
     def _cleanup_kata_disk(self) -> None:
         """Remove the kata disk image file from the host.
 
@@ -259,7 +294,7 @@ class DockerDeployment(AbstractDeployment):
         logger.info(f"Pulling image {self._config.image!r}")
 
         try:
-            with Timer(description=f"[{self._config.image}] Image pull"):
+            with StageTimer("startup_timing", f"[{self._container_name}] [{self._config.image}] Image pull", logger):
                 # Parse registry from image name
                 registry, _ = ImageUtil.parse_registry_and_others(self._config.image)
 
@@ -389,7 +424,7 @@ class DockerDeployment(AbstractDeployment):
             return
 
         # Derive a deterministic project id from container name; reserve low ids.
-        project_id = (int(hashlib.sha1(self.container_name.encode("utf-8")).hexdigest()[:8], 16) % 900000) + 100000
+        project_id = (int(hashlib.sha1(self.container_name.encode("utf-8")).hexdigest()[:8], 16) % XFS_PRJID_RANGE) + XFS_PRJID_MIN
         try:
             findmnt_result = subprocess.run(
                 ["findmnt", "-T", log_file_path, "-o", "TARGET", "--noheadings"],
@@ -422,6 +457,8 @@ class DockerDeployment(AbstractDeployment):
                     )
                     self._effective_disk_limit_log = None
                     return
+            self.log_dir_xfs_prjid = project_id
+            self.log_dir_xfs_mountpoint = mount_point
             logger.info(f"Set XFS project quota {self._effective_disk_limit_log} for log path {log_file_path!r}")
         except Exception as e:
             logger.warning(f"Failed to set XFS project quota for {log_file_path!r}: {e}")
@@ -429,8 +466,9 @@ class DockerDeployment(AbstractDeployment):
 
     async def start(self):
         """Starts the runtime."""
-        if not self.sandbox_validator.check_availability():
-            raise Exception("Docker is not available")
+        with StageTimer("startup_timing", f"[{self._container_name}] Check availability", logger):
+            if not self.sandbox_validator.check_availability():
+                raise Exception("Docker is not available")
 
         storage_opt_supported = DockerUtil.detect_storage_opt_support()
         # Resolve effective rootfs quota: downgrade to None if storage-opt is not supported.
@@ -490,12 +528,14 @@ class DockerDeployment(AbstractDeployment):
 
         # Kata DinD: prepare disk image and add volume mount + env var
         if self._config.use_kata_runtime:
-            self._prepare_kata_disk()
+            with StageTimer("startup_timing", f"[{self._container_name}] Kata disk prepare", logger):
+                self._prepare_kata_disk()
             disk_path = self._get_kata_disk_image_path()
             volume_args.extend(["-v", f"{disk_path}:/docker-disk.img"])
             env_arg.extend(["-e", "ROCK_KATA_RUNTIME=true"])
 
-        time.sleep(random.randint(0, 5))
+        with StageTimer("startup_timing", f"[{self._container_name}] Random sleep", logger):
+            time.sleep(random.randint(0, 5))
         runtime_args = self._build_runtime_args()
         cmds = [
             "docker",
@@ -528,14 +568,15 @@ class DockerDeployment(AbstractDeployment):
         )
         logger.info(f"Command: {cmd_str!r}")
         # shell=True required for && etc.
-        with Timer(description=f"[{self._config.image}] Container start"):
+        with StageTimer("startup_timing", f"[{self._container_name}] Docker run", logger):
             self._container_process = await loop.run_in_executor(executor, self._docker_run, cmds)
-            await loop.run_in_executor(executor, self._hooks.on_custom_step, DeploymentHookStep.STARTING_RUNTIME)
-            logger.info(f"Starting runtime at {self._config.port}")
-            self._runtime = RemoteSandboxRuntime.from_config(
-                RemoteSandboxRuntimeConfig(port=self._config.port, timeout=self._runtime_timeout)
-            )
-            self._runtime.set_executor(executor)
+        await loop.run_in_executor(executor, self._hooks.on_custom_step, DeploymentHookStep.STARTING_RUNTIME)
+        logger.info(f"Starting runtime at {self._config.port}")
+        self._runtime = RemoteSandboxRuntime.from_config(
+            RemoteSandboxRuntimeConfig(port=self._config.port, timeout=self._runtime_timeout)
+        )
+        self._runtime.set_executor(executor)
+        with StageTimer("startup_timing", f"[{self._container_name}] Wait until alive", logger):
             await self._wait_until_alive(timeout=self._config.startup_timeout)
         if self._config.enable_auto_clear:
             self._check_stop_task = asyncio.create_task(self._check_stop())
@@ -620,6 +661,7 @@ class DockerDeployment(AbstractDeployment):
 
             self._container_process = None
             self._cleanup_kata_disk()
+            self._cleanup_log_dir_xfs_quota()
             self._container_name = None
 
         if self._config and self._config.remove_images and DockerUtil.is_image_available(self._config.image):

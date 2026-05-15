@@ -51,7 +51,7 @@ class HarborTrial(AbstractTrial):
     _config: HarborJobConfig
 
     async def setup(self, sandbox) -> None:
-        await self._upload_files(sandbox)
+        await super().setup(sandbox)
         # Write Harbor YAML config to sandbox
         yaml_content = self._config.to_harbor_yaml()
         config_path = f"{USER_DEFINED_LOGS}/rock_job_{self._config.job_name}.yaml"

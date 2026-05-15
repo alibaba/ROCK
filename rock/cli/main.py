@@ -19,6 +19,16 @@ from rock.logger import init_logger
 logger = init_logger("rock.cli")
 
 
+# ── Verbose level mapping ────────────────────────────────────────────
+_VERBOSE_LEVELS = [
+    logging.ERROR,    # 0: default
+    logging.WARNING,  # 1: -v
+    logging.INFO,     # 2: -vv
+    logging.DEBUG,    # 3: -vvv
+]
+_THIRD_PARTY_LOGGERS = ("httpx", "httpcore", "urllib3")
+
+
 def load_config_from_file(args):
     """Load valid configuration, command line arguments take precedence over configuration file"""
     # Load configuration file
@@ -81,16 +91,21 @@ Examples:
     )
 
     # Global parameters
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
+    parser.add_argument(
+        "-v", "--verbose",
+        action="count",
+        default=0,
+        help="Increase verbosity (-v=WARNING, -vv=INFO, -vvv=DEBUG; default=ERROR)",
+    )
     parser.add_argument("--config", help="Path to config file (default: ./.rock/config.ini)")
     parser.add_argument("--base-url", help="ROCK server base URL (overrides config file)")
     parser.add_argument("--auth-token", help="ROCK authorization token (overrides config file)")
     parser.add_argument("--cluster", help="ROCK cluster (overrides config file)")
     parser.add_argument(
         "--httpx-log-level",
-        help="httpx log level (default: INFO, options: DEBUG, INFO, WARNING, ERROR)",
+        help="Override httpx/httpcore log level (overrides -v; options: DEBUG, INFO, WARNING, ERROR)",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        default="INFO",
+        default=None,
     )
 
     # extra-header parameter
@@ -119,9 +134,26 @@ def find_command(command: str, subclasses: list[type[Command]]) -> type | None:
 
 
 def config_log(args: argparse.Namespace):
-    """Configure logging"""
-    logging.getLogger("httpx").setLevel(getattr(logging, args.httpx_log_level))
-    logging.getLogger("httpcore").setLevel(getattr(logging, args.httpx_log_level))
+    """Configure logging based on -v verbosity and --httpx-log-level."""
+    idx = min(args.verbose, len(_VERBOSE_LEVELS) - 1)
+    level = _VERBOSE_LEVELS[idx]
+
+    # --httpx-log-level overrides the inferred level for third-party loggers
+    third_party_level = level
+    if args.httpx_log_level is not None:
+        third_party_level = getattr(logging, args.httpx_log_level)
+
+    # Apply to all rock.* loggers (each has its own handler + propagate=False)
+    for name, logger_obj in logging.Logger.manager.loggerDict.items():
+        if name == "rock" or name.startswith("rock."):
+            if isinstance(logger_obj, logging.Logger):
+                logger_obj.setLevel(level)
+                for handler in logger_obj.handlers:
+                    handler.setLevel(level)
+
+    # Apply to third-party loggers
+    for name in _THIRD_PARTY_LOGGERS:
+        logging.getLogger(name).setLevel(third_party_level)
 
 
 def main():
@@ -137,10 +169,11 @@ def main():
         parser.print_help()
         sys.exit(1)
 
+    # Configure logging before any business logic produces log output
+    config_log(args)
+
     # Load valid configuration (configuration file + command line arguments)
     load_config_from_file(args)
-
-    config_log(args)
 
     try:
         command = find_command(args.command, subclasses)

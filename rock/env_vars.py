@@ -50,6 +50,7 @@ if TYPE_CHECKING:
     # Model Service Config
     ROCK_MODEL_SERVICE_DATA_DIR: str
     ROCK_MODEL_SERVICE_TRAJ_APPEND_MODE: bool | None = None
+    ROCK_JOB_PROXY_REPLAY_FILE: str
 
     # RuntimeEnv
     ROCK_RTENV_PYTHON_V31114_INSTALL_CMD: str
@@ -104,6 +105,9 @@ environment_variables: dict[str, Callable[[], Any]] = {
         "ROCK_CLI_DEFAULT_CONFIG_PATH", Path.home() / ".rock" / "config.ini"
     ),
     "ROCK_MODEL_SERVICE_DATA_DIR": lambda: os.getenv("ROCK_MODEL_SERVICE_DATA_DIR", "/data/logs"),
+    "ROCK_JOB_PROXY_REPLAY_FILE": lambda: os.getenv(
+        "ROCK_JOB_PROXY_REPLAY_FILE", "/data/logs/user-defined/rock-job-proxy-replay.jsonl"
+    ),
     "ROCK_MODEL_SERVICE_TRAJ_APPEND_MODE": lambda: os.getenv("ROCK_MODEL_SERVICE_TRAJ_APPEND_MODE", "false").lower()
     == "true",
     "ROCK_RTENV_PYTHON_V31114_INSTALL_CMD": lambda: os.getenv(

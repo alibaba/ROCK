@@ -1,70 +1,48 @@
+"""Linux/macOS Rocklet for the local sandbox runtime.
+
+Hosts the BashSession implementation (built on pexpect + bashlex) and the
+LinuxRocklet that the central dispatcher returns for sys.platform in
+{'linux', 'darwin'}.
+"""
+
 import asyncio
 import os
 import re
-import shutil
 import subprocess
 import time
-from abc import ABC, abstractmethod
-from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from pathlib import Path
-from typing import Any
 
 import bashlex
 import bashlex.ast
-import gem
 import pexpect
 import psutil
-from typing_extensions import Self
 
 from rock.actions import (
-    AbstractSandbox,
     BashObservation,
     CloseBashSessionResponse,
-    CloseResponse,
     CloseSessionResponse,
-    CommandResponse,
     CreateBashSessionResponse,
-    CreateSessionResponse,
-    EnvCloseResponse,
-    EnvListResponse,
-    EnvMakeResponse,
-    EnvResetResponse,
-    EnvStepResponse,
-    IsAliveResponse,
-    LocalSandboxRuntimeConfig,
-    Observation,
-    ReadFileRequest,
-    ReadFileResponse,
-    UploadRequest,
-    UploadResponse,
-    WriteFileRequest,
-    WriteFileResponse,
 )
-from rock.admin.proto.request import SandboxAction as Action
 from rock.admin.proto.request import SandboxBashAction as BashAction
-from rock.admin.proto.request import SandboxCloseSessionRequest as CloseSessionRequest
-from rock.admin.proto.request import SandboxCommand as Command
 from rock.admin.proto.request import SandboxCreateBashSessionRequest as CreateBashSessionRequest
-from rock.admin.proto.request import SandboxCreateSessionRequest as CreateSessionRequest
-from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
-from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.logger import init_logger
 from rock.rocklet.exceptions import (
     BashIncorrectSyntaxError,
     CommandTimeoutError,
     NoExitCodeError,
     NonZeroExitCodeError,
-    SessionDoesNotExistError,
-    SessionExistsError,
     SessionNotInitializedError,
 )
 from rock.utils import get_executor
 
-__all__ = ["LocalSandboxRuntime", "BashSession"]
+from .rocklet import Rocklet, Session
+
+logger = init_logger(__name__)
 
 
-logger = init_logger("rock.actions.local")
+def _strip_control_chars(s: str) -> str:
+    ansi_escape = re.compile(r"\x1B[@-_][0-?]*[ -/]*[@-~]")
+    return ansi_escape.sub("", s)
 
 
 def _split_bash_command(inpt: str) -> list[str]:
@@ -104,11 +82,6 @@ def _split_bash_command(inpt: str) -> list[str]:
     return cmd_strings
 
 
-def _strip_control_chars(s: str) -> str:
-    ansi_escape = re.compile(r"\x1B[@-_][0-?]*[ -/]*[@-~]")
-    return ansi_escape.sub("", s)
-
-
 def _check_bash_command(command: str) -> None:
     """Check if a bash command is valid. Raises BashIncorrectSyntaxError if it's not."""
     _unique_string = "SOUNIQUEEOF"
@@ -124,20 +97,6 @@ def _check_bash_command(command: str) -> None:
     )
     exc = BashIncorrectSyntaxError(msg, extra_info={"bash_stdout": stdout, "bash_stderr": stderr})
     raise exc
-
-
-class Session(ABC):
-    @abstractmethod
-    async def start(self) -> CreateSessionResponse:
-        ...
-
-    @abstractmethod
-    async def run(self, action: Action) -> Observation:
-        ...
-
-    @abstractmethod
-    async def close(self) -> CloseSessionResponse:
-        ...
 
 
 class BashSession(Session):
@@ -380,202 +339,16 @@ class BashSession(Session):
         self.shell.interact()
 
 
-class LocalSandboxRuntime(AbstractSandbox):
-    def __init__(self, *, executor: ThreadPoolExecutor | None = None, **kwargs: Any):
-        """A Runtime that runs locally and actually executes commands in a shell.
-        If you are deploying to Modal/Fargate/etc., this class will be running within the docker container
-        on Modal/Fargate/etc.
+class LinuxRocklet(Rocklet):
+    """Rocklet implementation for sys.platform in {'linux', 'darwin'}."""
 
-        Args:
-            **kwargs: Keyword arguments (see `LocalSandboxConfig` for details).
-        """
-        self._config = LocalSandboxRuntimeConfig(**kwargs)
-        self._sessions: dict[str, Session] = {}
-        # Set up logger
-        self.command_logger = init_logger("command", "command.log")
-        self._executor = executor
-        self._gem_envs: dict[str, gem.Env] = {}
+    def _build_bash_session(self, request: CreateBashSessionRequest) -> Session:
+        return BashSession(request)
 
-    @classmethod
-    def from_config(cls, config: LocalSandboxRuntimeConfig) -> Self:
-        return cls(**config.model_dump())
-
-    @property
-    def sessions(self) -> dict[str, Session]:
-        return self._sessions
-
-    async def is_alive(self, *, timeout: float | None = None) -> IsAliveResponse:
-        """Checks if the runtime is alive."""
-        return IsAliveResponse(is_alive=True)
-
-    async def create_session(self, request: CreateSessionRequest) -> CreateSessionResponse:
-        """Creates a new session."""
-        if request.session in self.sessions:
-            msg = f"session {request.session} already exists"
-            raise SessionExistsError(msg)
-        if isinstance(request, CreateBashSessionRequest):
-            session = BashSession(request)
-        else:
-            msg = f"unknown session type: {request!r}"
-            raise ValueError(msg)
-        self.sessions[request.session] = session
-        self.command_logger.info(f"[create_session]:{request.session}")
-        return await session.start()
-
-    async def run_in_session(self, action: Action) -> Observation:
-        """Runs a command in a session."""
-        if action.session not in self.sessions:
-            msg = f"session {action.session!r} does not exist"
-            raise SessionDoesNotExistError(msg)
-        self.command_logger.info(f"[run_in_session input][{action.session}]:{action.command}")
-        observation = await self.sessions[action.session].run(action)
-        if observation.output:
-            self.command_logger.info(f"[run_in_session output][{action.session}]:{observation.output}")
-        if observation.exit_code:
-            self.command_logger.info(f"[run_in_session exit_code][{action.session}]:{observation.exit_code}")
-        if observation.failure_reason:
-            self.command_logger.info(f"[run_in_session failure_reason][{action.session}]:{observation.failure_reason}")
-        return observation
-
-    async def close_session(self, request: CloseSessionRequest) -> CloseSessionResponse:
-        """Closes a shell session."""
-        if request.session not in self.sessions:
-            msg = f"session {request.session!r} does not exist"
-            raise SessionDoesNotExistError(msg)
-        out = await self.sessions[request.session].close()
-        del self.sessions[request.session]
-        self.command_logger.info(f"[close_session]:{request.session}")
-        return out
-
-    async def execute(self, command: Command) -> CommandResponse:
-        """Executes a command (independent of any shell session).
-
-        Raises:
-            CommandTimeoutError: If the command times out.
-            NonZeroExitCodeError: If the command has a non-zero exit code and `check` is True.
-        """
-        self.command_logger.info(f"[execute input]:{command.command}")
-        loop = asyncio.get_running_loop()
-        try:
-            result = await loop.run_in_executor(self._executor, self._run_subprocess_blocking, command)
-            r = CommandResponse(
-                stdout=result.stdout.decode(errors="backslashreplace"),
-                stderr=result.stderr.decode(errors="backslashreplace"),
-                exit_code=result.returncode,
-            )
-        except subprocess.TimeoutExpired as e:
-            msg = f"Timeout ({command.timeout}s) exceeded while running command"
-            raise CommandTimeoutError(msg) from e
-        if command.check and result.returncode != 0:
-            msg = (
-                f"Command {command.command!r} failed with exit code {result.returncode}. "
-                f"Stdout:\n{r.stdout!r}\nStderr:\n{r.stderr!r}"
-            )
-            if command.error_msg:
-                msg = f"{command.error_msg}: {msg}"
-            raise NonZeroExitCodeError(msg)
-        if r.stdout:
-            self.command_logger.info(f"[execute stdout]:{r.stdout}")
-        if r.stderr:
-            self.command_logger.info(f"[execute stderr]:{r.stderr}")
-        return r
-
-    def _run_subprocess_blocking(self, command: Command):
-        # This is synchronous blocking code
-        return subprocess.run(
-            command.command,
-            shell=command.shell,
-            timeout=command.timeout,
-            env=command.env,
-            capture_output=True,
-            cwd=command.cwd,
-        )
-
-    async def read_file(self, request: ReadFileRequest) -> ReadFileResponse:
-        """Reads a file"""
-        self.command_logger.info(f"[read_file input]: {request.path}")
-        content = Path(request.path).read_text(encoding=request.encoding, errors=request.errors)
-        self.command_logger.info(f"[read_file output]: {content[:1000]}")
-        return ReadFileResponse(content=content)
-
-    async def write_file(self, request: WriteFileRequest) -> WriteFileResponse:
-        """Writes a file"""
-        self.command_logger.info(f"[write_file input]: {request.path}")
-        self.command_logger.info(f"[write_file content]: {request.content[:1000]}")
-        Path(request.path).parent.mkdir(parents=True, exist_ok=True)
-        Path(request.path).write_text(request.content)
-        return WriteFileResponse()
-
-    async def upload(self, request: UploadRequest) -> UploadResponse:
-        """Uploads a file"""
-        self.command_logger.info(f"[upload source]: {request.source_path}")
-        self.command_logger.info(f"[upload target]: {request.target_path}")
-        if Path(request.source_path).is_dir():
-            shutil.copytree(request.source_path, request.target_path)
-        else:
-            shutil.copy(request.source_path, request.target_path)
-        self.command_logger.info("[upload output]: upload success!")
-        return UploadResponse()
-
-    async def close(self) -> CloseResponse:
-        """Closes the runtime."""
-        for session in self.sessions.values():
-            await session.close()
-        return CloseResponse()
-
-    async def get_statistics(self):
-        cpu_percent: float = psutil.cpu_percent()
-        mem_percent: float = psutil.virtual_memory().percent
-        disk_percent: float = psutil.disk_usage("/").percent
-        net_io: int = psutil.net_io_counters().bytes_recv + psutil.net_io_counters().bytes_sent
+    async def get_statistics(self) -> dict:
         return {
-            "cpu": cpu_percent,
-            "mem": mem_percent,
-            "disk": disk_percent,
-            "net": net_io,
+            "cpu": psutil.cpu_percent(),
+            "mem": psutil.virtual_memory().percent,
+            "disk": psutil.disk_usage("/").percent,
+            "net": psutil.net_io_counters().bytes_recv + psutil.net_io_counters().bytes_sent,
         }
-
-    def env_make(self, env_id: str, sandbox_id: str) -> EnvMakeResponse:
-        """
-        Make gem env
-        """
-        env = gem.make(env_id)
-        self._gem_envs[sandbox_id] = env
-        return EnvMakeResponse(sandbox_id=sandbox_id)
-
-    def env_step(self, sandbox_id: str, action: str) -> EnvStepResponse:
-        """
-        Step gem env
-        """
-        env = self._gem_envs[sandbox_id]
-        observation, reward, terminated, truncated, info = env.step(action)
-        return EnvStepResponse(
-            observation=observation,
-            reward=reward,
-            terminated=terminated,
-            truncated=truncated,
-            info=info,
-        )
-
-    def env_reset(self, sandbox_id: str, seed: int | None = None) -> EnvResetResponse:
-        """
-        Reset gem env
-        """
-        env = self._gem_envs[sandbox_id]
-        observation, info = env.reset(seed=seed)
-        return EnvResetResponse(observation=observation, info=info)
-
-    def env_close(self, sandbox_id: str) -> EnvCloseResponse:
-        """
-        Close gem env
-        """
-        del self._gem_envs[sandbox_id]
-        return EnvCloseResponse(sandbox_id=sandbox_id)
-
-    def env_list(self) -> EnvListResponse:
-        """
-        List gem env
-        """
-        from gem.envs.registration import ENV_REGISTRY
-
-        return EnvListResponse(env_id=list(ENV_REGISTRY))

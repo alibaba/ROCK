@@ -27,7 +27,7 @@ from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.common.port_validation import validate_port_forward_port
 from rock.logger import init_logger
-from rock.rocklet.local_sandbox import LocalSandboxRuntime
+from rock.rocklet.rocklet import Rocklet
 from rock.utils import get_executor
 
 logger = init_logger(__name__)
@@ -38,7 +38,7 @@ local_router = APIRouter()
 TCP_CONNECT_TIMEOUT = 10  # seconds
 IDLE_TIMEOUT = 300  # seconds
 
-runtime = LocalSandboxRuntime(executor=get_executor())
+rocklet = Rocklet.create(executor=get_executor())
 
 
 def serialize_model(model):
@@ -47,42 +47,42 @@ def serialize_model(model):
 
 @local_router.get("/is_alive")
 async def is_alive():
-    return serialize_model(await runtime.is_alive())
+    return serialize_model(await rocklet.is_alive())
 
 
 @local_router.get("/get_statistics")
 async def get_statistics():
-    return await runtime.get_statistics()
+    return await rocklet.get_statistics()
 
 
 @local_router.post("/create_session")
 async def create_session(request: CreateSessionRequest):
-    return serialize_model(await runtime.create_session(request))
+    return serialize_model(await rocklet.create_session(request))
 
 
 @local_router.post("/run_in_session")
 async def run(action: Action):
-    return serialize_model(await runtime.run_in_session(action))
+    return serialize_model(await rocklet.run_in_session(action))
 
 
 @local_router.post("/close_session")
 async def close_session(request: CloseSessionRequest):
-    return serialize_model(await runtime.close_session(request))
+    return serialize_model(await rocklet.close_session(request))
 
 
 @local_router.post("/execute")
 async def execute(command: Command):
-    return serialize_model(await runtime.execute(command=command))
+    return serialize_model(await rocklet.execute(command=command))
 
 
 @local_router.post("/read_file")
 async def read_file(request: ReadFileRequest):
-    return serialize_model(await runtime.read_file(request))
+    return serialize_model(await rocklet.read_file(request))
 
 
 @local_router.post("/write_file")
 async def write_file(request: WriteFileRequest):
-    return serialize_model(await runtime.write_file(request))
+    return serialize_model(await rocklet.write_file(request))
 
 
 @local_router.post("/upload")
@@ -112,33 +112,33 @@ async def upload(
 
 @local_router.post("/close")
 async def close():
-    await runtime.close()
+    await rocklet.close()
     return CloseResponse()
 
 
 @local_router.post("/env/make")
 async def env_make(request: EnvMakeRequest) -> EnvMakeResponse:
-    return runtime.env_make(env_id=request.env_id, sandbox_id=request.sandbox_id)
+    return rocklet.env_make(env_id=request.env_id, sandbox_id=request.sandbox_id)
 
 
 @local_router.post("/env/step")
 async def env_step(request: EnvStepRequest) -> EnvStepResponse:
-    return runtime.env_step(request.sandbox_id, request.action)
+    return rocklet.env_step(request.sandbox_id, request.action)
 
 
 @local_router.post("/env/reset")
 async def env_reset(request: EnvResetRequest) -> EnvResetResponse:
-    return runtime.env_reset(request.sandbox_id, request.seed)
+    return rocklet.env_reset(request.sandbox_id, request.seed)
 
 
 @local_router.post("/env/close")
 async def env_close(request: EnvCloseRequest) -> EnvCloseResponse:
-    return runtime.env_close(request.sandbox_id)
+    return rocklet.env_close(request.sandbox_id)
 
 
 @local_router.post("/env/list")
 async def env_list() -> EnvListResponse:
-    return runtime.env_list()
+    return rocklet.env_list()
 
 
 @local_router.websocket("/portforward")

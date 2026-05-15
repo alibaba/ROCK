@@ -1,7 +1,7 @@
 """Run claw-eval via BashJob SDK.
 
 Usage:
-    cd examples/agents/claw_eval
+    cd examples/job/bash/claw_eval
     cp claw_eval_bashjob.yaml.template claw_eval_bashjob.yaml
     # fill in real values
     python run_claw_eval.py

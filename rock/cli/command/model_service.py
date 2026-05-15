@@ -82,6 +82,8 @@ class ModelServiceCommand(Command):
                 proxy_base_url=args.proxy_base_url,
                 retryable_status_codes=args.retryable_status_codes,
                 request_timeout=args.request_timeout,
+                recording_file=args.recording_file,
+                replay_file=args.replay_file,
             )
             logger.info(f"model service started, pid: {pid}")
             with open(self.DEFAULT_MODEL_SERVICE_PID_FILE, "w") as f:
@@ -177,6 +179,18 @@ class ModelServiceCommand(Command):
             type=int,
             default=None,
             help="Request timeout in seconds. Overrides config file.",
+        )
+        start_parser.add_argument(
+            "--recording-file",
+            type=str,
+            default=None,
+            help="Proxy mode only: where to write the trajectory JSONL. Defaults to LOG_DIR/LLMTraj.jsonl.",
+        )
+        start_parser.add_argument(
+            "--replay-file",
+            type=str,
+            default=None,
+            help="Proxy mode only: replay from a recorded .jsonl traj file. Mutually exclusive with --recording-file.",
         )
 
         watch_agent_parser = model_service_subparsers.add_parser(

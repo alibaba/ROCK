@@ -9,16 +9,16 @@ from rock.admin.proto.request import SandboxBashAction as BashAction
 from rock.admin.proto.request import SandboxCloseBashSessionRequest as CloseBashSessionRequest
 from rock.admin.proto.request import SandboxCreateBashSessionRequest as CreateBashSessionRequest
 from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
-from rock.rocklet.local_sandbox import LocalSandboxRuntime
+from rock.rocklet.rocklet import Rocklet
 
 
 @pytest.fixture
 def local_runtime():
-    return LocalSandboxRuntime()
+    return Rocklet.create()
 
 
 @pytest.mark.asyncio
-async def test_upload_file(local_runtime: LocalSandboxRuntime, tmp_path: Path):
+async def test_upload_file(local_runtime: Rocklet, tmp_path: Path):
     file_path = tmp_path / "source.txt"
     file_path.write_text("test")
     tmp_target = tmp_path / "target.txt"
@@ -27,7 +27,7 @@ async def test_upload_file(local_runtime: LocalSandboxRuntime, tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_upload_directory(local_runtime: LocalSandboxRuntime, tmp_path: Path):
+async def test_upload_directory(local_runtime: Rocklet, tmp_path: Path):
     dir_path = tmp_path / "source_dir"
     dir_path.mkdir()
     (dir_path / "file1.txt").write_text("test1")
@@ -39,7 +39,7 @@ async def test_upload_directory(local_runtime: LocalSandboxRuntime, tmp_path: Pa
 
 
 @pytest.mark.asyncio
-async def test_gem(local_runtime: LocalSandboxRuntime):
+async def test_gem(local_runtime: Rocklet):
     env_id = "game:Sokoban-v0-easy"
     exmaple_gem_env: SokobanEnv = gem.make(env_id)
 
@@ -66,7 +66,7 @@ async def test_gem(local_runtime: LocalSandboxRuntime):
 
 
 @pytest.mark.asyncio
-async def test_prompt_command(local_runtime: LocalSandboxRuntime):
+async def test_prompt_command(local_runtime: Rocklet):
     prompt_command = "echo ROCK"
     await local_runtime.create_session(
         CreateBashSessionRequest(env={"PROMPT_COMMAND": prompt_command}, session_type="bash")
