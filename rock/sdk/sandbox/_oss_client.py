@@ -18,8 +18,8 @@ from typing import TYPE_CHECKING
 import oss2
 
 from rock import env_vars
-from rock.actions.sandbox.request import BashAction, CreateBashSessionRequest
-from rock.actions.sandbox.response import Observation, UploadResponse
+from rock.actions.sandbox.request import BashAction, Command, CreateBashSessionRequest
+from rock.actions.sandbox.response import CommandResponse, DownloadFileResponse, Observation, UploadResponse
 from rock.logger import init_logger
 from rock.utils.http import HttpUtils
 
@@ -220,3 +220,76 @@ class OssClient:
                 success=False,
                 message=f"Failed to upload file {file_name} to {target_path}: {e}",
             )
+
+    async def download_via_oss(self, remote_path: str, local_path: Path) -> DownloadFileResponse:
+        """Download file from sandbox to local via OSS as intermediary.
+
+        Note: ensure_setup must succeed before calling. Caller is LinuxFileSystem,
+        which holds an `ensure_ossutil` helper for installing ossutil in the sandbox.
+        """
+        from rock.sdk.sandbox.client import RunMode  # late import
+
+        if self._bucket is None or self._client_config is None:
+            return DownloadFileResponse(success=False, message="OSS is not available")
+
+        # Verify source file exists in sandbox (must be regular file)
+        check: CommandResponse = await self._sandbox.execute(Command(command=["test", "-f", remote_path]))
+        if check.exit_code != 0:
+            return DownloadFileResponse(
+                success=False,
+                message=(
+                    f"Source file not found or is not a regular file in sandbox: {remote_path}. "
+                    "Note: Only regular files are supported. For directories, create a tar archive first."
+                ),
+            )
+
+        # Caller (LinuxFileSystem) is responsible for ensure_ossutil before calling here.
+
+        # Refresh STS creds for ossutil (use existing helper, will refresh if expired)
+        if self._is_token_expired():
+            await self._setup()
+        sts_response = await self._get_sts_credentials()
+        access_key_id = sts_response["AccessKeyId"]
+        access_key_secret = sts_response["AccessKeySecret"]
+        security_token = sts_response["SecurityToken"]
+
+        # Upload sandbox file to OSS via ossutil
+        oss_object_name = self._compute_object_name(
+            sandbox_id=self._sandbox.sandbox_id,
+            local_path=str(local_path),
+            sandbox_path=remote_path,
+        )
+        oss_url = f"oss://{self._client_config.bucket}/{oss_object_name}"
+
+        ossutil_inner = (
+            f"ossutil cp {shlex.quote(remote_path)} {shlex.quote(oss_url)}"
+            f" --access-key-id {shlex.quote(access_key_id)}"
+            f" --access-key-secret {shlex.quote(access_key_secret)}"
+            f" --sts-token {shlex.quote(security_token)}"
+            f" --endpoint {shlex.quote(self._client_config.endpoint)}"
+            f" --region {shlex.quote(self._client_config.region)}"
+        )
+        upload_cmd = f"bash -c {shlex.quote(ossutil_inner)}"
+        upload_resp = await self._sandbox.arun(cmd=upload_cmd, mode=RunMode.NOHUP)
+        if upload_resp.exit_code != 0:
+            return DownloadFileResponse(
+                success=False,
+                message=f"Failed to upload file to OSS (exit_code={upload_resp.exit_code}): {upload_resp.output}",
+            )
+
+        # Download from OSS to local via oss2
+        auth = oss2.StsAuth(access_key_id, access_key_secret, security_token)
+        bucket = oss2.Bucket(
+            auth, self._client_config.endpoint, self._client_config.bucket, region=self._client_config.region
+        )
+        local = Path(local_path).expanduser().resolve()
+        local.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            bucket.get_object_to_file(oss_object_name, str(local))
+        except Exception as e:
+            return DownloadFileResponse(success=False, message=f"Failed to download from OSS: {e}")
+
+        if not local.exists():
+            return DownloadFileResponse(success=False, message=f"Downloaded file not found at: {local}")
+
+        return DownloadFileResponse(success=True, message=f"Successfully downloaded {remote_path} to {local}")

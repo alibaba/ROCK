@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from rock import env_vars
-from rock.actions.sandbox.response import UploadResponse
+from rock.actions.sandbox.response import DownloadFileResponse, UploadResponse
 from rock.sdk.sandbox._oss_client import OssClient, OssClientConfig
 
 
@@ -386,3 +386,27 @@ class TestUploadViaOss:
             response = await client.upload_via_oss("/local/foo.json", "/sandbox/dst/foo.json")
 
         assert response.success is False
+
+
+class TestDownloadViaOss:
+    async def test_oss_unavailable_returns_failure(self, tmp_path):
+        sandbox = _make_sandbox()
+        client = OssClient(sandbox)
+        # _bucket 仍是 None
+        response = await client.download_via_oss("/sandbox/foo.txt", tmp_path / "foo.txt")
+        assert isinstance(response, DownloadFileResponse)
+        assert response.success is False
+        assert "OSS is not available" in response.message
+
+    async def test_remote_file_not_found_returns_failure(self, tmp_path):
+        sandbox = _make_sandbox()
+        sandbox.sandbox_id = "sb-1"
+        sandbox.execute = AsyncMock(return_value=MagicMock(exit_code=1))  # test -f 失败
+
+        client = OssClient(sandbox)
+        client._bucket = MagicMock()
+        client._client_config = OssClientConfig("ep", "bk", "rg", enabled_via_env=False)
+
+        response = await client.download_via_oss("/sandbox/foo.txt", tmp_path / "foo.txt")
+        assert response.success is False
+        assert "not found" in response.message.lower()
