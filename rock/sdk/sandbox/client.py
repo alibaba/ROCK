@@ -894,9 +894,11 @@ class Sandbox(AbstractSandbox):
             f"_sandbox_id={self._sandbox_id!r}, "
             f"_host_name={self._host_name!r}, "
             f"_host_ip={self._host_ip!r}, "
+            f"_oss_bucket={self._oss._bucket!r}, "
             f"_cluster={self._cluster!r}, "
             f"_pod_name={self._pod_name!r}, "
-            f"_ip={self._ip!r}"
+            f"_ip={self._ip!r}, "
+            f"_oss_token_expire_time={self._oss._token_expire_time!r}"
             f")"
         )
 
