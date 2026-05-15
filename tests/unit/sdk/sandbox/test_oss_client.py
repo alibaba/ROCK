@@ -449,11 +449,11 @@ class TestScheduleAsyncPersistence:
         with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
             mock_to_thread.return_value = None
             key = await client.schedule_async_persistence("/local/foo.json", "/sandbox/foo.json")
+            # 等任务跑完（必须在 patch 仍然生效的范围内）
+            await asyncio.gather(*client._pending_persistence_tasks, return_exceptions=True)
+            mock_to_thread.assert_awaited_once()
 
         assert key.endswith("-foo.json")
-        # 等任务跑完
-        await asyncio.gather(*client._pending_persistence_tasks, return_exceptions=True)
-        mock_to_thread.assert_awaited_once()
 
     async def test_no_op_when_unavailable(self):
         client = OssClient(_make_sandbox())

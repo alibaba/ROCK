@@ -131,7 +131,7 @@ class OssClient:
         try:
             sts_response = await self._get_sts_credentials()
         except Exception as e:
-            logger.warning("Failed to get STS credentials: %s", e)
+            logger.warning(f"Failed to get STS credentials: {e}")
             return False
 
         config = self._resolve_config(sts_response)
@@ -157,7 +157,7 @@ class OssClient:
             self._client_config = config
             return True
         except Exception as e:
-            logger.warning("Failed to initialize OSS bucket: %s", e)
+            logger.warning(f"Failed to initialize OSS bucket: {e}")
             self._bucket = None
             return False
 
@@ -215,7 +215,7 @@ class OssClient:
                 message=f"Successfully uploaded file {file_name} to {target_path}",
             )
         except Exception as e:
-            logger.warning("upload_via_oss failed: %s", e)
+            logger.warning(f"upload_via_oss failed: {e}")
             return UploadResponse(
                 success=False,
                 message=f"Failed to upload file {file_name} to {target_path}: {e}",
@@ -315,17 +315,14 @@ class OssClient:
         task = asyncio.create_task(self._persist_to_oss(local_path, oss_object_name))
         self._pending_persistence_tasks.add(task)
         task.add_done_callback(self._pending_persistence_tasks.discard)
-        # Yield once so the task gets to start running before we return.
-        # This makes patching/stubbing of inner awaits behave deterministically.
-        await asyncio.sleep(0)
         return oss_object_name
 
     async def _persist_to_oss(self, local_path: str, oss_object_name: str) -> None:
         try:
             await asyncio.to_thread(oss2.resumable_upload, self._bucket, oss_object_name, local_path)
-            logger.info("OSS persisted: %s", oss_object_name)
+            logger.info(f"OSS persisted: {oss_object_name}")
         except Exception as e:
-            logger.warning("OSS persistence failed for %s: %s", oss_object_name, e)
+            logger.warning(f"OSS persistence failed for {oss_object_name}: {e}")
 
     async def close(self) -> None:
         """Wait for pending persistence tasks (with timeout)."""
@@ -338,7 +335,6 @@ class OssClient:
             )
         except asyncio.TimeoutError:
             logger.warning(
-                "OSS persistence tasks did not finish within %ss on close (%d pending)",
-                _OSS_CLOSE_TIMEOUT_SECONDS,
-                len(self._pending_persistence_tasks),
+                f"OSS persistence tasks did not finish within {_OSS_CLOSE_TIMEOUT_SECONDS}s on close "
+                f"({len(self._pending_persistence_tasks)} pending)"
             )
