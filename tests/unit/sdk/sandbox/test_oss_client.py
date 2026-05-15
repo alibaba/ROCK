@@ -1,10 +1,19 @@
 """Tests for OssClient — encapsulates all OSS operations for Sandbox."""
 
 import re
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from rock import env_vars
 from rock.sdk.sandbox._oss_client import OssClient, OssClientConfig
+
+
+def _make_sandbox(base_url="http://admin:8080", headers=None):
+    sb = MagicMock()
+    sb._url = base_url
+    sb._build_headers = MagicMock(return_value=headers or {})
+    return sb
 
 
 def test_oss_client_module_imports():
@@ -125,3 +134,54 @@ class TestResolveConfig:
         ):
             cfg = OssClient._resolve_config({})
         assert cfg is None
+
+
+class TestGetStsCredentials:
+    async def test_success_returns_credentials_dict(self):
+        sandbox = _make_sandbox()
+        client = OssClient(sandbox)
+
+        mock_response = {
+            "status": "Success",
+            "result": {
+                "AccessKeyId": "ak",
+                "AccessKeySecret": "sk",
+                "SecurityToken": "tok",
+                "Expiration": "2026-12-31T00:00:00Z",
+                "Endpoint": "endpoint",
+                "Bucket": "bucket",
+                "Region": "region",
+            },
+        }
+        with patch("rock.sdk.sandbox._oss_client.HttpUtils") as mock_http:
+            mock_http.get = AsyncMock(return_value=mock_response)
+            result = await client._get_sts_credentials()
+
+        assert result["AccessKeyId"] == "ak"
+        assert result["Endpoint"] == "endpoint"
+        assert client._token_expire_time == "2026-12-31T00:00:00Z"
+
+    async def test_failure_raises(self):
+        sandbox = _make_sandbox()
+        client = OssClient(sandbox)
+        with patch("rock.sdk.sandbox._oss_client.HttpUtils") as mock_http:
+            mock_http.get = AsyncMock(return_value={"status": "Fail", "message": "boom"})
+            with pytest.raises(Exception, match="boom"):
+                await client._get_sts_credentials()
+
+
+class TestIsTokenExpired:
+    def test_no_token_means_expired(self):
+        client = OssClient(_make_sandbox())
+        client._token_expire_time = None
+        assert client._is_token_expired() is True
+
+    def test_future_expiration_not_expired(self):
+        client = OssClient(_make_sandbox())
+        client._token_expire_time = "2099-01-01T00:00:00Z"
+        assert client._is_token_expired() is False
+
+    def test_past_expiration_is_expired(self):
+        client = OssClient(_make_sandbox())
+        client._token_expire_time = "2000-01-01T00:00:00Z"
+        assert client._is_token_expired() is True

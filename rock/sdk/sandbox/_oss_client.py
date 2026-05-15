@@ -9,11 +9,13 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rock import env_vars
 from rock.logger import init_logger
+from rock.utils.http import HttpUtils
 
 if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
@@ -76,3 +78,32 @@ class OssClient:
 
         # Layer 3: OSS unavailable
         return None
+
+    async def _get_sts_credentials(self) -> dict:
+        """Fetch STS credentials and OSS config from /get_token endpoint.
+
+        Returns the entire response result dict, which may include:
+        - STS creds: AccessKeyId, AccessKeySecret, SecurityToken, Expiration
+        - OSS config (if server is new + configured): Endpoint, Bucket, Region
+
+        Side effect: caches Expiration in self._token_expire_time.
+        """
+        url = f"{self._sandbox._url}/get_token"
+        headers = self._sandbox._build_headers()
+        response = await HttpUtils.get(url, headers)
+        if response["status"] != "Success":
+            raise Exception(f"Failed to get OSS STS token: {response.get('message', 'Unknown error')}")
+        credentials = response["result"]
+        self._token_expire_time = credentials["Expiration"]
+        return credentials
+
+    def _is_token_expired(self) -> bool:
+        """Whether cached token is missing or expired (per Expiration field)."""
+        if not self._token_expire_time:
+            return True
+        try:
+            # Aliyun STS Expiration format: "2026-12-31T00:00:00Z"
+            exp = datetime.strptime(self._token_expire_time, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        except ValueError:
+            return True
+        return datetime.now(timezone.utc) >= exp
