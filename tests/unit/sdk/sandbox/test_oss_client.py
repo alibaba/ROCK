@@ -11,7 +11,7 @@ import pytest
 
 from rock import env_vars
 from rock.actions.sandbox.response import DownloadFileResponse, UploadResponse
-from rock.sdk.sandbox._oss_client import OssClient, OssClientConfig
+from rock.sdk.sandbox.oss_client import OssClient, OssClientConfig
 
 
 @contextmanager
@@ -174,7 +174,7 @@ class TestGetStsCredentials:
                 "Region": "region",
             },
         }
-        with patch("rock.sdk.sandbox._oss_client.HttpUtils") as mock_http:
+        with patch("rock.sdk.sandbox.oss_client.HttpUtils") as mock_http:
             mock_http.get = AsyncMock(return_value=mock_response)
             result = await client._get_sts_credentials()
 
@@ -185,7 +185,7 @@ class TestGetStsCredentials:
     async def test_failure_raises(self):
         sandbox = _make_sandbox()
         client = OssClient(sandbox)
-        with patch("rock.sdk.sandbox._oss_client.HttpUtils") as mock_http:
+        with patch("rock.sdk.sandbox.oss_client.HttpUtils") as mock_http:
             mock_http.get = AsyncMock(return_value={"status": "Fail", "message": "boom"})
             with pytest.raises(Exception, match="boom"):
                 await client._get_sts_credentials()
@@ -230,8 +230,8 @@ class TestSetup:
             patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", "env-bucket"),
             patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", "env-region"),
             patch.object(env_vars, "ROCK_OSS_ENABLE", True),
-            patch("rock.sdk.sandbox._oss_client.HttpUtils") as mock_http,
-            patch("rock.sdk.sandbox._oss_client.oss2") as mock_oss2,
+            patch("rock.sdk.sandbox.oss_client.HttpUtils") as mock_http,
+            patch("rock.sdk.sandbox.oss_client.oss2") as mock_oss2,
         ):
             mock_http.get = AsyncMock(
                 return_value={
@@ -263,7 +263,7 @@ class TestSetup:
             patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", "env-bucket"),
             patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", "env-region"),
             patch.object(env_vars, "ROCK_OSS_ENABLE", False),
-            patch("rock.sdk.sandbox._oss_client.HttpUtils") as mock_http,
+            patch("rock.sdk.sandbox.oss_client.HttpUtils") as mock_http,
         ):
             mock_http.get = AsyncMock(
                 return_value={
@@ -289,8 +289,8 @@ class TestSetup:
             patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", ""),
             patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", ""),
             patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", ""),
-            patch("rock.sdk.sandbox._oss_client.HttpUtils") as mock_http,
-            patch("rock.sdk.sandbox._oss_client.oss2") as mock_oss2,
+            patch("rock.sdk.sandbox.oss_client.HttpUtils") as mock_http,
+            patch("rock.sdk.sandbox.oss_client.oss2") as mock_oss2,
         ):
             mock_http.get = AsyncMock(
                 return_value={
@@ -322,7 +322,7 @@ class TestSetup:
             patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", ""),
             patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", ""),
             patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", ""),
-            patch("rock.sdk.sandbox._oss_client.HttpUtils") as mock_http,
+            patch("rock.sdk.sandbox.oss_client.HttpUtils") as mock_http,
         ):
             mock_http.get = AsyncMock(
                 return_value={
@@ -346,7 +346,7 @@ class TestSetup:
         client._bucket = MagicMock()  # already set up
         client._token_expire_time = "2099-01-01T00:00:00Z"
 
-        with patch("rock.sdk.sandbox._oss_client.HttpUtils") as mock_http:
+        with patch("rock.sdk.sandbox.oss_client.HttpUtils") as mock_http:
             mock_http.get = AsyncMock()
             ok = await client.ensure_setup()
 
@@ -366,7 +366,7 @@ class TestUploadViaOss:
         client._bucket = MagicMock()
         client._bucket.sign_url = MagicMock(return_value="https://oss/signed?...")
 
-        with patch("rock.sdk.sandbox._oss_client.oss2.resumable_upload") as mock_upload:
+        with patch("rock.sdk.sandbox.oss_client.oss2.resumable_upload") as mock_upload:
             response = await client.upload_via_oss("/local/foo.json", "/sandbox/dst/foo.json")
 
         assert isinstance(response, UploadResponse)
@@ -389,7 +389,7 @@ class TestUploadViaOss:
         client._bucket = MagicMock()
         client._bucket.sign_url = MagicMock(return_value="url")
 
-        with patch("rock.sdk.sandbox._oss_client.oss2.resumable_upload"):
+        with patch("rock.sdk.sandbox.oss_client.oss2.resumable_upload"):
             response = await client.upload_via_oss("/local/foo.json", "/sandbox/dst/foo.json")
 
         assert response.success is False
@@ -401,7 +401,7 @@ class TestUploadViaOss:
         client = OssClient(sandbox)
         client._bucket = MagicMock()
 
-        with patch("rock.sdk.sandbox._oss_client.oss2.resumable_upload", side_effect=Exception("oss boom")):
+        with patch("rock.sdk.sandbox.oss_client.oss2.resumable_upload", side_effect=Exception("oss boom")):
             response = await client.upload_via_oss("/local/foo.json", "/sandbox/dst/foo.json")
 
         assert response.success is False
@@ -468,7 +468,7 @@ class TestScheduleAsyncPersistence:
 
         with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
             mock_to_thread.side_effect = Exception("oss boom")
-            with _capture_on(caplog, "rock.sdk.sandbox._oss_client"):
+            with _capture_on(caplog, "rock.sdk.sandbox.oss_client"):
                 key = await client.schedule_async_persistence("/local/foo.json", "/sandbox/foo.json")
                 # 等任务跑完（应该不抛异常）
                 await asyncio.gather(*client._pending_persistence_tasks, return_exceptions=True)
@@ -509,8 +509,8 @@ class TestCloseAwaitsPendingTasks:
 
         with (
             patch("asyncio.to_thread", new=hang),
-            patch("rock.sdk.sandbox._oss_client._OSS_CLOSE_TIMEOUT_SECONDS", 0.05),
-            _capture_on(caplog, "rock.sdk.sandbox._oss_client"),
+            patch("rock.sdk.sandbox.oss_client._OSS_CLOSE_TIMEOUT_SECONDS", 0.05),
+            _capture_on(caplog, "rock.sdk.sandbox.oss_client"),
         ):
             await client.schedule_async_persistence("/local/foo.json", "/sandbox/foo.json")
             await client.close()

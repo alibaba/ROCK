@@ -44,13 +44,13 @@ from rock.sdk.common.exceptions import (
     InvalidParameterRockException,
     raise_for_code,
 )
-from rock.sdk.sandbox._oss_client import OssClient
 from rock.sdk.sandbox.agent.rock_agent import RockAgent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
 from rock.sdk.sandbox.deploy import Deploy
 from rock.sdk.sandbox.file_system import FileSystem, LinuxFileSystem
 from rock.sdk.sandbox.model_service.base import ModelService
 from rock.sdk.sandbox.network import Network
+from rock.sdk.sandbox.oss_client import OssClient
 from rock.sdk.sandbox.process import Process
 from rock.sdk.sandbox.remote_user import LinuxRemoteUser, RemoteUser
 from rock.sdk.sandbox.runtime_env.base import RuntimeEnv, RuntimeEnvId
