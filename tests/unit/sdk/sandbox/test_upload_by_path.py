@@ -76,3 +76,29 @@ async def test_failed_upload_no_persistence(tmp_path):
 
     assert response.success is False
     sandbox._oss.schedule_async_persistence.assert_not_awaited()
+
+
+async def test_sandbox_close_awaits_oss_pending_tasks():
+    """Sandbox.close() must await OssClient.close() so pending persistence
+    tasks have a chance to finish before the sandbox lifecycle ends."""
+    from rock.sdk.sandbox.client import Sandbox
+    from rock.sdk.sandbox.config import SandboxConfig
+
+    sandbox = Sandbox(SandboxConfig(base_url="http://x"))
+    sandbox._oss = MagicMock()
+    sandbox._oss.close = AsyncMock()
+
+    # stop() would otherwise issue a real HTTP request; replace with a noop.
+    # Track call order to verify _oss.close runs BEFORE stop (so pending OSS
+    # tasks aren't aborted by sandbox teardown).
+    call_order: list[str] = []
+    sandbox._oss.close.side_effect = lambda: call_order.append("oss_close")
+
+    async def fake_stop():
+        call_order.append("stop")
+
+    with patch.object(sandbox, "stop", AsyncMock(side_effect=fake_stop)):
+        await sandbox.close()
+
+    sandbox._oss.close.assert_awaited_once()
+    assert call_order == ["oss_close", "stop"]

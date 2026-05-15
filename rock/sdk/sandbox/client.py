@@ -866,6 +866,12 @@ class Sandbox(AbstractSandbox):
         return CloseSessionResponse(**result)
 
     async def close(self) -> CloseResponse:
+        # Drain pending async OSS persistence tasks (with timeout) before
+        # tearing down the sandbox so in-flight uploads have a chance to finish.
+        try:
+            await self._oss.close()
+        except Exception as e:
+            logging.warning(f"OssClient.close() failed, IGNORE: {e}")
         await self.stop()
 
     def __str__(self):
