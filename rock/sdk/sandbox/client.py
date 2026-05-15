@@ -874,20 +874,6 @@ class Sandbox(AbstractSandbox):
             logging.warning(f"OssClient.close() failed, IGNORE: {e}")
         await self.stop()
 
-    def _is_token_expired(self) -> bool:
-        """BC shim for downstream test xrl/intetest .. test_timestamp_expire."""
-        return self._oss._is_token_expired()
-
-    @property
-    def _oss_token_expire_time(self):
-        return self._oss._token_expire_time
-
-    @_oss_token_expire_time.setter
-    def _oss_token_expire_time(self, value):
-        # BC shim: downstream test_timestamp_expire writes here to drive
-        # _is_token_expired(). Forward the write onto the OssClient.
-        self._oss._token_expire_time = value
-
     def __str__(self):
         """Return user-friendly string representation with key attributes."""
         return (
