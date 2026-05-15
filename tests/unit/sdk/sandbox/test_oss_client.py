@@ -1,5 +1,6 @@
 """Tests for OssClient — encapsulates all OSS operations for Sandbox."""
 
+import asyncio
 import re
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -416,3 +417,55 @@ class TestClose:
     async def test_close_with_no_pending_tasks_is_noop(self):
         client = OssClient(_make_sandbox())
         await client.close()  # 不抛异常即可
+
+
+class TestScheduleAsyncPersistence:
+    async def test_schedules_task_when_available(self):
+        sandbox = _make_sandbox()
+        sandbox.sandbox_id = "sb-1"
+        client = OssClient(sandbox)
+        client._bucket = MagicMock()
+
+        with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
+            mock_to_thread.return_value = None
+            key = await client.schedule_async_persistence("/local/foo.json", "/sandbox/foo.json")
+
+        assert key.endswith("-foo.json")
+        # 等任务跑完
+        await asyncio.gather(*client._pending_persistence_tasks, return_exceptions=True)
+        mock_to_thread.assert_awaited_once()
+
+    async def test_no_op_when_unavailable(self):
+        client = OssClient(_make_sandbox())
+        # _bucket 仍是 None
+        key = await client.schedule_async_persistence("/local/foo.json", "/sandbox/foo.json")
+        assert key is None
+        assert len(client._pending_persistence_tasks) == 0
+
+    async def test_failure_logs_warning_does_not_raise(self, caplog):
+        import logging
+
+        sandbox = _make_sandbox()
+        sandbox.sandbox_id = "sb-1"
+        client = OssClient(sandbox)
+        client._bucket = MagicMock()
+
+        with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
+            mock_to_thread.side_effect = Exception("oss boom")
+            with caplog.at_level(logging.WARNING):
+                # 注意：rock logger 默认 propagate=False，需要 monkeypatch
+                from rock.sdk.sandbox import _oss_client as oss_mod
+
+                propagate_before = oss_mod.logger.propagate
+                oss_mod.logger.propagate = True
+                try:
+                    key = await client.schedule_async_persistence("/local/foo.json", "/sandbox/foo.json")
+                    # 等任务跑完（应该不抛异常）
+                    await asyncio.gather(*client._pending_persistence_tasks, return_exceptions=True)
+                finally:
+                    oss_mod.logger.propagate = propagate_before
+
+        assert key is not None
+        assert any(
+            "OSS persistence failed" in r.message for r in caplog.records
+        ), f"Expected warning, got: {[r.message for r in caplog.records]}"

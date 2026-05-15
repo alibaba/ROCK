@@ -294,6 +294,35 @@ class OssClient:
 
         return DownloadFileResponse(success=True, message=f"Successfully downloaded {remote_path} to {local}")
 
+    async def schedule_async_persistence(self, local_path: str, sandbox_path: str) -> str | None:
+        """Fire-and-forget: upload local file to OSS in the background.
+
+        Returns the OSS object key if scheduled, None if OSS is unavailable.
+        Failures are logged as warnings; main flow is unaffected.
+        """
+        if self._bucket is None:
+            return None
+
+        oss_object_name = self._compute_object_name(
+            sandbox_id=self._sandbox.sandbox_id,
+            local_path=local_path,
+            sandbox_path=sandbox_path,
+        )
+        task = asyncio.create_task(self._persist_to_oss(local_path, oss_object_name))
+        self._pending_persistence_tasks.add(task)
+        task.add_done_callback(self._pending_persistence_tasks.discard)
+        # Yield once so the task gets to start running before we return.
+        # This makes patching/stubbing of inner awaits behave deterministically.
+        await asyncio.sleep(0)
+        return oss_object_name
+
+    async def _persist_to_oss(self, local_path: str, oss_object_name: str) -> None:
+        try:
+            await asyncio.to_thread(oss2.resumable_upload, self._bucket, oss_object_name, local_path)
+            logger.info("OSS persisted: %s", oss_object_name)
+        except Exception as e:
+            logger.warning("OSS persistence failed for %s: %s", oss_object_name, e)
+
     async def close(self) -> None:
         """Wait for any pending OSS tasks (placeholder; full impl in async-persistence task)."""
         # Phase D 会替换为：await asyncio.wait_for(asyncio.gather(*self._pending_persistence_tasks, ...), 5.0)
