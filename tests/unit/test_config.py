@@ -62,7 +62,6 @@ def test_oss_config_defaults():
     assert cfg.primary.region == ""
     # archive defaults: prefix empty (YAML opt-in), other timing fields preset
     assert cfg.archive_prefix == ""
-    assert cfg.archive_ttl_days == 30
     assert cfg.keep_days_before_archive == 3
     assert cfg.archive_max_attempts == 3
 
@@ -92,12 +91,10 @@ def test_oss_config_archive_fields_overridable():
 
     cfg = OssConfig(
         archive_prefix="custom-prefix/",
-        archive_ttl_days=7,
         keep_days_before_archive=1,
         archive_max_attempts=5,
     )
     assert cfg.archive_prefix == "custom-prefix/"
-    assert cfg.archive_ttl_days == 7
     assert cfg.keep_days_before_archive == 1
     assert cfg.archive_max_attempts == 5
 
