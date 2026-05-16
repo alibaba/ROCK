@@ -4,9 +4,9 @@ Currently provides:
 - Disk emergency cleanup: trigger scheduled cleanup tasks immediately on
   selected workers, bypassing the scheduler interval.
 
-Default mode is **async** (fire-and-forget): the API returns a job_id
-immediately while tasks execute in the background. Callers can use mode="sync"
-to block and get per-task summaries directly.
+Execution is async (fire-and-forget): the API returns a job_id immediately
+while tasks execute in the background. Use the /status/{job_id} endpoint
+to poll for results.
 
 NOTE: Task instances are constructed on demand from RockConfig (via
 TaskFactory). This does NOT touch the SchedulerThread's task registry, so
@@ -39,6 +39,7 @@ admin_ops_router = APIRouter()
 
 _TASK_WHITELIST_SUFFIXES: tuple[str, ...] = ("_cleanup", "_prune")
 _RATE_LIMIT_SECONDS: int = 60
+_MAX_JOB_HISTORY: int = 1000
 _last_triggered_at: dict[str, float] = {}  # task_type -> unix ts
 
 # Wired from main.py lifespan. Decoupled from SchedulerThread.
@@ -114,6 +115,18 @@ def _select_tasks(
     return selected, errors
 
 
+def _evict_stale_jobs() -> None:
+    """Evict oldest completed/failed jobs when history exceeds _MAX_JOB_HISTORY."""
+    if len(_async_jobs) <= _MAX_JOB_HISTORY:
+        return
+    done = [(k, v) for k, v in _async_jobs.items()
+            if v["status"] in ("completed", "failed")]
+    done.sort(key=lambda x: x[1].get("submitted_at", 0))
+    to_remove = len(_async_jobs) - _MAX_JOB_HISTORY
+    for k, _ in done[:to_remove]:
+        del _async_jobs[k]
+
+
 def _check_and_mark_rate_limit(task_type: str, now: float) -> bool:
     """Returns True if allowed; False if hit cooldown.
     Side effect on success: updates _last_triggered_at[task_type] = now.
@@ -178,6 +191,7 @@ async def disk_emergency_cleanup(
     payload: DiskEmergencyCleanupRequest,
     request: Request,
 ) -> RockResponse[dict]:
+    _evict_stale_jobs()
     caller_ip = request.client.host if request.client else "unknown"
     audit_logger.info(
         f"emergency_cleanup called: caller={caller_ip}, "
