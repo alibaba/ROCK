@@ -21,6 +21,7 @@ from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Port, Status
 from rock.deployments.docker_client import TempAuthDockerClient, TempAuthDockerClientError
 from rock.deployments.hooks.abstract import CombinedDeploymentHook, DeploymentHook
+from rock.deployments.log_cleanup_sentinel import sentinel_path, write_sentinel
 from rock.deployments.runtime_env import DockerRuntimeEnv, LocalRuntimeEnv, PipRuntimeEnv, UvRuntimeEnv
 from rock.deployments.sandbox_validator import DockerSandboxValidator
 from rock.deployments.status import PersistedServiceStatus, ServiceStatus
@@ -679,6 +680,19 @@ class DockerDeployment(AbstractDeployment):
         service_status = self.get_status()
         for _, port in service_status.get_port_mapping().items():
             release_port(port)
+
+        # Mark per-sandbox host log dir for deferred archive. Only touches
+        # ${ROCK_LOGGING_PATH}/<container_name>/, not host-side
+        # /data/logs/*.log (managed by logrotate). The sentinel drives
+        # SandboxLogArchiveTask, which tar+uploads + rms after
+        # `oss.keep_days_before_archive` days.
+        if env_vars.ROCK_LOGGING_PATH and self._container_name:
+            log_dir = Path(env_vars.ROCK_LOGGING_PATH) / self._container_name
+            if log_dir.is_dir() and not sentinel_path(log_dir).exists():
+                # _stop() may be called twice (e.g. ray actor restart);
+                # do not bump stopped_at on the second call.
+                write_sentinel(log_dir)
+                logger.info(f"Marked sandbox log dir for deferred archive: {log_dir}")
 
         self._config = None
 
