@@ -118,10 +118,10 @@ class SandboxLogArchiveTask(BaseTask):
     async def _discover_candidates(self, runtime: RemoteSandboxRuntime) -> list[str]:
         cmd = (
             f'find "{self.log_root}" -maxdepth 2 -mindepth 2 '
-            f'-type f -name "{LOG_STOPPED_SENTINEL}" -printf "%h\\n" 2>/dev/null || true'
+            f'-type f -name "{LOG_STOPPED_SENTINEL}" -exec dirname {{}} \\; 2>/dev/null || true'
         )
         result = await runtime.execute(Command(command=cmd, shell=True, check=False))
-        return [d for d in (result.stdout or "").splitlines() if d.strip()]
+        return list(dict.fromkeys(d for d in (result.stdout or "").splitlines() if d.strip()))
 
     async def _process_one(
         self,
