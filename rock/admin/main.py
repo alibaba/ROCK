@@ -16,6 +16,11 @@ from rock import env_vars
 from rock.admin.core.db_provider import DatabaseProvider
 from rock.admin.core.ray_service import RayService
 from rock.admin.core.sandbox_table import SandboxTable
+from rock.admin.entrypoints.admin_ops_api import (
+    admin_ops_router,
+    set_alive_workers_provider as set_admin_ops_workers_provider,
+    set_rock_config_provider as set_admin_ops_config_provider,
+)
 from rock.admin.entrypoints.sandbox_api import sandbox_router, set_sandbox_manager
 from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_sandbox_proxy_service
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
@@ -133,6 +138,12 @@ async def lifespan(app: FastAPI):
         set_warmup_service(warmup_service)
         set_env_service(sandbox_manager)
 
+        # Wire admin_ops_api providers (independent of scheduler being enabled)
+        from rock.admin.scheduler.scheduler import WorkerIPCache
+        _emergency_worker_cache = WorkerIPCache(cache_ttl=rock_config.scheduler.worker_cache_ttl)
+        set_admin_ops_workers_provider(_emergency_worker_cache.get_alive_workers)
+        set_admin_ops_config_provider(lambda: rock_config)
+
         if rock_config.scheduler.enabled and is_primary_pod():
             scheduler_thread = SchedulerThread(
                 scheduler_config=rock_config.scheduler,
@@ -242,6 +253,11 @@ def main():
     # config router
     if args.role == "admin":
         app.include_router(sandbox_router, prefix="/apis/envs/sandbox/v1", tags=["sandbox"])
+        app.include_router(
+            admin_ops_router,
+            prefix="/apis/v1/admin/internal",
+            tags=["admin-internal"],
+        )
     else:
         app.include_router(sandbox_proxy_router, prefix="/apis/envs/sandbox/v1", tags=["sandbox"])
     app.include_router(warmup_router, prefix="/apis/envs/sandbox/v1", tags=["warmup"])

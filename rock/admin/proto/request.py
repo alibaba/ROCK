@@ -140,6 +140,27 @@ class ClusterInfo(TypedDict, total=False):
     cluster_name: str
 
 
+class DiskEmergencyCleanupRequest(BaseModel):
+    """Manual trigger for disk cleanup tasks, bypassing the scheduler interval.
+
+    Designed for SRE on-call use during disk-fill incidents. All fields are
+    optional; defaults run all whitelisted cleanup tasks on all alive workers.
+    Execution is always async (fire-and-forget), returns job_id immediately.
+    """
+
+    tasks: list[str] | None = Field(
+        default=None,
+        description=(
+            "BaseTask.type names to trigger (e.g. 'docker_image_prune'). "
+            "Whitelisted to suffix '_cleanup' / '_prune'. None = all whitelisted."
+        ),
+    )
+    worker_ips: list[str] | None = Field(
+        default=None,
+        description="Worker IPs to target. None = use the live alive-worker cache.",
+    )
+
+
 class StartHeaders:
     def __init__(
         self,
