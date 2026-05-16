@@ -40,6 +40,7 @@ class RayService:
             namespace=self._config.namespace,
             resources=self._config.resources,
             _temp_dir=self._config.temp_dir,
+            log_to_driver=False,
         )
         if self._config.ray_reconnect_enabled:
             self._setup_ray_reconnect_scheduler()
@@ -94,6 +95,7 @@ class RayService:
                             namespace=self._config.namespace,
                             resources=self._config.resources,
                             _temp_dir=self._config.temp_dir,
+                            log_to_driver=False,
                         )
                     except Exception as e:
                         last_exc = e
