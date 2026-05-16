@@ -100,6 +100,25 @@ class OssConfig:
     process env. xrl package is no longer maintained, so internal users
     must export this env var themselves when upgrading to SDK >= 1.8."""
 
+    archive_prefix: str = ""
+    """OSS object key prefix under the PRIMARY bucket for sandbox-log
+    archives. Empty (default) means each deployment's YAML must opt-in
+    explicitly to a value matching its OSS bucket lifecycle rule (e.g.
+    "rock-archives/")."""
+
+    archive_ttl_days: int = 30
+    """OSS-side lifecycle expiration days for archives. Audit-only:
+    ROCK does not enforce TTL itself; the bucket lifecycle rule on
+    `archive_prefix` is the source of truth."""
+
+    keep_days_before_archive: int = 3
+    """Days to wait after sandbox stop before archiving. Gives
+    operators a short investigation window without bloating disk."""
+
+    archive_max_attempts: int = 3
+    """Max retry attempts before giving up archival and degrading
+    to KEEP (FileCleanupTask is the eventual janitor)."""
+
     def __post_init__(self):
         # Allow YAML to pass a dict for `primary` (dataclass deserialization
         # from yaml.safe_load returns dicts, not nested dataclasses).
