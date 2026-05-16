@@ -332,16 +332,6 @@ async def get_token(account: str = "legacy"):
     return RockResponse(result=result)
 
 
-@sandbox_proxy_router.get("/get_token_v2")
-@handle_exceptions(error_message="get oss sts token v2 failed")
-async def get_token_v2():
-    """Primary-account STS for SDK >= 1.8.
-    Delegates to the unified ``gen_oss_sts_token`` with account="primary".
-    Response format is identical to /get_token (same Credentials shape)."""
-    result = await asyncio.to_thread(sandbox_proxy_service.gen_oss_sts_token, "primary")
-    return RockResponse(result=result)
-
-
 @sandbox_proxy_router.api_route(
     "/sandboxes/{sandbox_id}/vnc",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],

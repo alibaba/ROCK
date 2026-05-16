@@ -84,10 +84,9 @@ class OssConfig:
     env_vars.ROCK_OSS_BUCKET_REGION, YAML-level values always win over env."""
 
     primary: OssAccountConfig = field(default_factory=OssAccountConfig)
-    """Primary account used by SDK >= 1.8 (`/get_token_v2` endpoint) and by
-    all host-side archival (OssArchiver, landed in PR-1). An empty
-    `primary.bucket` disables v2 STS and archival, leaving legacy path
-    fully operational."""
+    """Primary account used by SDK >= 1.8 (`/get_token?account=primary`) and by
+    host-side archival. An empty `primary.bucket` disables v2 STS and archival,
+    leaving legacy path fully operational."""
 
     transfer_prefix: str = ""
     """Prefix under the PRIMARY bucket for ephemeral host↔container file
