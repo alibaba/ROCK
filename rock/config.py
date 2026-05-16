@@ -106,11 +106,6 @@ class OssConfig:
     explicitly to a value matching its OSS bucket lifecycle rule (e.g.
     "rock-archives/")."""
 
-    archive_ttl_days: int = 30
-    """OSS-side lifecycle expiration days for archives. Audit-only:
-    ROCK does not enforce TTL itself; the bucket lifecycle rule on
-    `archive_prefix` is the source of truth."""
-
     keep_days_before_archive: int = 3
     """Days to wait after sandbox stop before archiving. Gives
     operators a short investigation window without bloating disk."""
