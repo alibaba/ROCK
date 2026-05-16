@@ -74,19 +74,22 @@ class SandboxProxyService:
         # Replace single self.sts_client with a dict keyed by account name,
         # so /get_token?account=legacy|primary maps to the right credentials.
         legacy_region = self.oss_config.region or env_vars.ROCK_OSS_BUCKET_REGION
-        primary_region = self.oss_config.primary.region or env_vars.ROCK_OSS_BUCKET_REGION
         self._sts_clients = {
             "legacy": client.AcsClient(
                 self.oss_config.access_key_id,
                 self.oss_config.access_key_secret,
                 legacy_region,
             ),
-            "primary": client.AcsClient(
+        }
+        # Only create primary client when credentials are configured,
+        # avoiding an AcsClient with empty AK/SK that would fail at call time.
+        if self.oss_config.primary.access_key_id:
+            primary_region = self.oss_config.primary.region or env_vars.ROCK_OSS_BUCKET_REGION
+            self._sts_clients["primary"] = client.AcsClient(
                 self.oss_config.primary.access_key_id,
                 self.oss_config.primary.access_key_secret,
                 primary_region,
-            ),
-        }
+            )
 
         self._batch_get_status_max_count = rock_config.proxy_service.batch_get_status_max_count
         self._validate_oss_config_or_warn()
