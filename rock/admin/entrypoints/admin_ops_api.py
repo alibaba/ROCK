@@ -37,7 +37,7 @@ admin_ops_router = APIRouter()
 
 # --- Whitelist & rate limit (process-local) ---
 
-_TASK_WHITELIST_SUFFIXES: tuple[str, ...] = ("_cleanup", "_prune")
+_TASK_WHITELIST_SUFFIXES: tuple[str, ...] = ("_cleanup", "_prune", "_archive")
 _RATE_LIMIT_SECONDS: int = 60
 _MAX_JOB_HISTORY: int = 1000
 _last_triggered_at: dict[str, float] = {}  # task_type -> unix ts
@@ -80,9 +80,7 @@ def _build_eligible_tasks(rock_config: RockConfig) -> dict[str, BaseTask]:
         try:
             task = TaskFactory.create_task(task_config)
         except Exception as e:
-            logger.warning(
-                f"emergency_cleanup: failed to construct task '{task_config.task_class}': {e}"
-            )
+            logger.warning(f"emergency_cleanup: failed to construct task '{task_config.task_class}': {e}")
             continue
         if _is_task_whitelisted(task.type):
             out[task.type] = task
@@ -119,8 +117,7 @@ def _evict_stale_jobs() -> None:
     """Evict oldest completed/failed jobs when history exceeds _MAX_JOB_HISTORY."""
     if len(_async_jobs) <= _MAX_JOB_HISTORY:
         return
-    done = [(k, v) for k, v in _async_jobs.items()
-            if v["status"] in ("completed", "failed")]
+    done = [(k, v) for k, v in _async_jobs.items() if v["status"] in ("completed", "failed")]
     done.sort(key=lambda x: x[1].get("submitted_at", 0))
     to_remove = len(_async_jobs) - _MAX_JOB_HISTORY
     for k, _ in done[:to_remove]:
@@ -176,8 +173,7 @@ async def _run_tasks_async_background(
         _async_jobs[job_id]["status"] = "completed"
         _async_jobs[job_id]["results"] = results
         audit_logger.info(
-            f"emergency_cleanup async job completed: job_id={job_id}, "
-            f"caller={caller_ip}, results={results}"
+            f"emergency_cleanup async job completed: job_id={job_id}, caller={caller_ip}, results={results}"
         )
     except Exception as e:
         _async_jobs[job_id]["status"] = "failed"
@@ -194,8 +190,7 @@ async def disk_emergency_cleanup(
     _evict_stale_jobs()
     caller_ip = request.client.host if request.client else "unknown"
     audit_logger.info(
-        f"emergency_cleanup called: caller={caller_ip}, "
-        f"tasks={payload.tasks}, worker_ips={payload.worker_ips}"
+        f"emergency_cleanup called: caller={caller_ip}, tasks={payload.tasks}, worker_ips={payload.worker_ips}"
     )
 
     # 1) Resolve workers
@@ -273,9 +268,7 @@ async def disk_emergency_cleanup(
         "worker_count": len(worker_ips),
         "submitted_at": time.time(),
     }
-    asyncio.create_task(
-        _run_tasks_async_background(job_id, allowed, worker_ips, caller_ip)
-    )
+    asyncio.create_task(_run_tasks_async_background(job_id, allowed, worker_ips, caller_ip))
     audit_logger.info(
         f"emergency_cleanup dispatched: job_id={job_id}, caller={caller_ip}, "
         f"tasks={[t.type for t in allowed]}, workers={len(worker_ips)}"

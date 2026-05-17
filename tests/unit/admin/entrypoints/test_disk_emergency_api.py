@@ -14,7 +14,6 @@ from rock.actions import ResponseStatus
 from rock.admin.entrypoints import admin_ops_api as api
 from rock.admin.proto.request import DiskEmergencyCleanupRequest
 
-
 # ----------------------------------------------------------------------------- #
 # Fixtures
 # ----------------------------------------------------------------------------- #
@@ -111,9 +110,14 @@ class TestWhitelist:
         assert api._is_task_whitelisted("file_cleanup") is True
         assert api._is_task_whitelisted("docker_image_prune") is True
 
+    def test_suffix_archive(self):
+        # `_archive` is whitelisted so emergency API can manually trigger
+        # SandboxLogArchiveTask outside its 24h cadence (e.g. for SRE recovery).
+        assert api._is_task_whitelisted("sandbox_log_archive") is True
+
     def test_non_whitelist(self):
         assert api._is_task_whitelisted("image_pull") is False
-        assert api._is_task_whitelisted("sandbox_log_archive") is False
+        assert api._is_task_whitelisted("warmup_check") is False
 
 
 # ----------------------------------------------------------------------------- #
@@ -150,18 +154,14 @@ class TestDiskEmergencyCleanupAsync:
     async def test_no_worker_returns_failed(self):
         api.set_alive_workers_provider(lambda: [])
         with _wire_config_with_tasks([_make_task("file_cleanup")]):
-            resp = await api.disk_emergency_cleanup.__wrapped__(
-                DiskEmergencyCleanupRequest(), _make_request()
-            )
+            resp = await api.disk_emergency_cleanup.__wrapped__(DiskEmergencyCleanupRequest(), _make_request())
         assert resp.status == ResponseStatus.FAILED
         assert "no worker available" in resp.message
 
     @pytest.mark.asyncio
     async def test_no_config_provider_returns_failed(self):
         api.set_alive_workers_provider(lambda: ["10.0.0.1"])
-        resp = await api.disk_emergency_cleanup.__wrapped__(
-            DiskEmergencyCleanupRequest(), _make_request()
-        )
+        resp = await api.disk_emergency_cleanup.__wrapped__(DiskEmergencyCleanupRequest(), _make_request())
         assert resp.status == ResponseStatus.FAILED
         assert "not initialized" in resp.message
 
@@ -170,9 +170,7 @@ class TestDiskEmergencyCleanupAsync:
         api.set_alive_workers_provider(lambda: ["10.0.0.1"])
         # image_pull is not whitelisted, gets filtered in _build_eligible_tasks
         with _wire_config_with_tasks([_make_task("image_pull")]):
-            resp = await api.disk_emergency_cleanup.__wrapped__(
-                DiskEmergencyCleanupRequest(), _make_request()
-            )
+            resp = await api.disk_emergency_cleanup.__wrapped__(DiskEmergencyCleanupRequest(), _make_request())
         assert resp.status == ResponseStatus.FAILED
         assert "no eligible task" in resp.message
 
@@ -181,9 +179,7 @@ class TestDiskEmergencyCleanupAsync:
         t1 = _make_task("file_cleanup")
         api.set_alive_workers_provider(lambda: ["10.0.0.1", "10.0.0.2"])
         with _wire_config_with_tasks([t1]):
-            resp = await api.disk_emergency_cleanup.__wrapped__(
-                DiskEmergencyCleanupRequest(), _make_request()
-            )
+            resp = await api.disk_emergency_cleanup.__wrapped__(DiskEmergencyCleanupRequest(), _make_request())
 
         assert resp.status == ResponseStatus.SUCCESS
         assert resp.message == "accepted"
@@ -260,9 +256,7 @@ class TestDiskEmergencyCleanupAsync:
 
         api.set_alive_workers_provider(boom)
         with _wire_config_with_tasks([_make_task("file_cleanup")]):
-            resp = await api.disk_emergency_cleanup.__wrapped__(
-                DiskEmergencyCleanupRequest(), _make_request()
-            )
+            resp = await api.disk_emergency_cleanup.__wrapped__(DiskEmergencyCleanupRequest(), _make_request())
         assert resp.status == ResponseStatus.FAILED
         assert "no worker available" in resp.message
 
