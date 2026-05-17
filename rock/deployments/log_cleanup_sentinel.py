@@ -62,7 +62,8 @@ def _atomic_write(target: Path, content: str) -> None:
         with os.fdopen(fd, "w") as f:
             f.write(content)
         os.replace(tmp_name, target)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"[sentinel] _atomic_write failed for {target}: {e}", exc_info=True)
         try:
             os.unlink(tmp_name)
         except OSError:

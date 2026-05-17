@@ -624,77 +624,106 @@ class DockerDeployment(AbstractDeployment):
         if self._runtime:
             await loop.run_in_executor(stop_executor, self._stop)
 
+    def _try_mark_sentinel(self, container_name: str | None) -> None:
+        """Best-effort: write .rock_stopped_at sentinel for deferred archival.
+
+        Caller MUST pass container_name (snapshotted at _stop() entry), since
+        self._container_name is reset mid-flow before this method is called.
+        Never raises — sentinel writing is housekeeping, must not break stop flow.
+        All branches log explicitly so root cause is traceable from worker logs.
+        """
+        try:
+            log_path = env_vars.ROCK_LOGGING_PATH
+            if not log_path:
+                logger.warning("[sentinel] skip: ROCK_LOGGING_PATH is empty")
+                return
+            if not container_name:
+                logger.warning("[sentinel] skip: container_name is empty (None at _stop entry)")
+                return
+            log_dir = Path(log_path) / container_name
+            logger.info(f"[sentinel] resolved log_dir={log_dir}")
+            if not log_dir.is_dir():
+                logger.warning(f"[sentinel] skip: log_dir does not exist: {log_dir}")
+                return
+            if sentinel_path(log_dir).exists():
+                logger.info(f"[sentinel] skip: sentinel already exists at {sentinel_path(log_dir)}")
+                return
+            write_sentinel(log_dir)
+            logger.info(f"[sentinel] WRITE_OK at {sentinel_path(log_dir)}")
+        except Exception as e:
+            logger.exception(f"[sentinel] _try_mark_sentinel unexpected error: {e}")
+
+
     def _stop(self):
         """Stops the runtime."""
-        if self._container_name in ENV_POOL:
-            del ENV_POOL[self._container_name]
-        if self._runtime is not None:
-            try:
-                with timeout(5):
-                    self._runtime.close()
-            except TimeoutError as e:
-                logger.error("close timeout", exc_info=e)
-            except Exception as e:
-                logger.error("close failed", exc_info=e)
-            self._runtime = None
+        container_name_for_sentinel = self._container_name
 
-        if self._container_process is not None:
-            try:
-                subprocess.check_call(
-                    ["docker", "kill", self._container_name],  # type: ignore
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=10,
-                )
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-                logger.warning(
-                    f"Failed to kill container {self._container_name}: {e}. Will try harder.", exc_info=False
-                )
-            for _ in range(3):
-                self._container_process.kill()
+        try:
+            if self._container_name in ENV_POOL:
+                del ENV_POOL[self._container_name]
+            if self._runtime is not None:
                 try:
-                    self._container_process.wait(timeout=5)
-                    break
-                except subprocess.TimeoutExpired:
-                    continue
-            else:
-                logger.warning(f"Failed to kill container {self._container_name} with SIGKILL")
+                    with timeout(5):
+                        self._runtime.close()
+                except TimeoutError as e:
+                    logger.error("close timeout", exc_info=e)
+                except Exception as e:
+                    logger.error("close failed", exc_info=e)
+                self._runtime = None
 
-            self._container_process = None
-            self._cleanup_kata_disk()
-            self._cleanup_log_dir_xfs_quota()
-            self._container_name = None
+            if self._container_process is not None:
+                try:
+                    subprocess.check_call(
+                        ["docker", "kill", self._container_name],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=10,
+                    )
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+                    logger.warning(
+                        f"Failed to kill container {self._container_name}: {e}. Will try harder.", exc_info=False
+                    )
+                for _ in range(3):
+                    self._container_process.kill()
+                    try:
+                        self._container_process.wait(timeout=5)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
+                else:
+                    logger.warning(f"Failed to kill container {self._container_name} with SIGKILL")
 
-        if self._config and self._config.remove_images and DockerUtil.is_image_available(self._config.image):
-            logger.info(f"Removing image {self._config.image}")
+                self._container_process = None
+                self._cleanup_kata_disk()
+                self._cleanup_log_dir_xfs_quota()
+                self._container_name = None
+
+            if self._config and self._config.remove_images and DockerUtil.is_image_available(self._config.image):
+                logger.info(f"Removing image {self._config.image}")
+                try:
+                    DockerUtil.remove_image(self._config.image)
+                except subprocess.CalledProcessError:
+                    logger.error(f"Failed to remove image {self._config.image}", exc_info=True)
+
+            if self._check_stop_task is not None:
+                logger.info("Stopping check task")
+                self._check_stop_task.cancel()
+                self._check_stop_task = None
+
+            # service_status / port release 失败不影响 sentinel
             try:
-                DockerUtil.remove_image(self._config.image)
-            except subprocess.CalledProcessError:
-                logger.error(f"Failed to remove image {self._config.image}", exc_info=True)
-
-        if self._check_stop_task is not None:
-            logger.info("Stopping check task")
-            self._check_stop_task.cancel()
-            self._check_stop_task = None
-
-        service_status = self.get_status()
-        for _, port in service_status.get_port_mapping().items():
-            release_port(port)
-
-        # Mark per-sandbox host log dir for deferred archive. Only touches
-        # ${ROCK_LOGGING_PATH}/<container_name>/, not host-side
-        # /data/logs/*.log (managed by logrotate). The sentinel drives
-        # SandboxLogArchiveTask, which tar+uploads + rms after
-        # `oss.keep_days_before_archive` days.
-        if env_vars.ROCK_LOGGING_PATH and self._container_name:
-            log_dir = Path(env_vars.ROCK_LOGGING_PATH) / self._container_name
-            if log_dir.is_dir() and not sentinel_path(log_dir).exists():
-                # _stop() may be called twice (e.g. ray actor restart);
-                # do not bump stopped_at on the second call.
-                write_sentinel(log_dir)
-                logger.info(f"Marked sandbox log dir for deferred archive: {log_dir}")
-
-        self._config = None
+                service_status = self.get_status()
+                for _, port in service_status.get_port_mapping().items():
+                    release_port(port)
+            except Exception as e:
+                logger.warning(
+                    f"[sentinel] pre-stop service_status/port_release failed (non-fatal): {e}",
+                    exc_info=True,
+                )
+        finally:
+            # 用 snapshot 的 container_name,绕开 self._container_name 已被清空的问题
+            self._try_mark_sentinel(container_name_for_sentinel)
+            self._config = None
 
     @property
     def runtime(self) -> RemoteSandboxRuntime:
