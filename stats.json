@@ -2336,5 +2336,19 @@
       "total": 548,
       "open": 39
     }
+  },
+  "2026-05-17": {
+    "stars": 437,
+    "forks": 62,
+    "contributors": 26,
+    "issues": {
+      "total": 414,
+      "open": 78,
+      "fixRate": 81
+    },
+    "prs": {
+      "total": 557,
+      "open": 47
+    }
   }
 }
