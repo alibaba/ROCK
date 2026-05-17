@@ -1,6 +1,7 @@
 """K8s Operator implementation for managing sandboxes via Kubernetes."""
 
 from rock.actions.sandbox.sandbox_info import SandboxInfo
+from rock.common.constants import StopReason
 from rock.config import K8sConfig
 from rock.deployments.config import DockerDeploymentConfig
 from rock.logger import init_logger
@@ -113,13 +114,16 @@ class K8sOperator(AbstractOperator):
                 raise Exception(f"Sandbox {sandbox_id} not found in Redis")
         return sandbox_info
 
-    async def stop(self, sandbox_id: str) -> bool:
+    async def stop(self, sandbox_id: str, reason: StopReason = StopReason.MANUAL) -> bool:
         """Stop and delete a sandbox.
 
         Args:
             sandbox_id: Sandbox identifier
+            reason: Why the stop was triggered. Logged here for traceability; K8s
+                path has no actor-side lifecycle summary to attach it to.
 
         Returns:
             True if successful, False otherwise
         """
+        logger.info(f"[{sandbox_id}] k8s stop (reason={reason.value})")
         return await self._provider.stop(sandbox_id)

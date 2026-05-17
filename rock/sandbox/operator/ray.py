@@ -6,7 +6,7 @@ from rock import env_vars
 from rock.actions.sandbox.response import IsAliveResponse, State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.core.ray_service import RayService
-from rock.common.constants import GET_STATUS_SWITCH
+from rock.common.constants import GET_STATUS_SWITCH, StopReason
 from rock.config import RuntimeConfig
 from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Port
@@ -104,10 +104,10 @@ class RayOperator(AbstractOperator):
             else:
                 return sandbox_info
 
-    async def stop(self, sandbox_id: str) -> bool:
+    async def stop(self, sandbox_id: str, reason: StopReason = StopReason.MANUAL) -> bool:
         async with self._ray_service.get_ray_rwlock().read_lock():
             actor: SandboxActor = await self._ray_service.async_ray_get_actor(self._get_actor_name(sandbox_id))
-            await self._ray_service.async_ray_get(actor.stop.remote())
+            await self._ray_service.async_ray_get(actor.stop.remote(reason))
             logger.info(f"run time stop over {sandbox_id}")
             ray.kill(actor)
             return True

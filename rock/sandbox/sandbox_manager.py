@@ -25,6 +25,7 @@ from rock.admin.proto.request import SandboxCreateSessionRequest as CreateSessio
 from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
+from rock.common.constants import StopReason
 from rock.config import RockConfig, RuntimeConfig
 from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
 from rock.logger import init_logger
@@ -170,8 +171,8 @@ class SandboxManager(BaseManager):
         )
 
     @monitor_sandbox_operation()
-    async def stop(self, sandbox_id):
-        logger.info(f"stop sandbox {sandbox_id}")
+    async def stop(self, sandbox_id, reason: StopReason = StopReason.MANUAL):
+        logger.info(f"stop sandbox {sandbox_id} (reason={reason.value})")
         sandbox_info: SandboxInfo | None = await self._meta_store.get(sandbox_id)
         if sandbox_info is None:
             sandbox_info = {}
@@ -180,7 +181,7 @@ class SandboxManager(BaseManager):
             sandbox_info["stop_time"] = get_iso8601_timestamp()
             log_billing_info(sandbox_info=sandbox_info)
         try:
-            await self._operator.stop(sandbox_id)
+            await self._operator.stop(sandbox_id, reason)
         except ValueError as e:
             logger.error(f"ray get actor, actor {sandbox_id} not exist", exc_info=e)
             await self._meta_store.archive(sandbox_id, sandbox_info)
@@ -330,7 +331,7 @@ class SandboxManager(BaseManager):
                 is_expired = await self._is_expired(sandbox_id)
                 if is_expired:
                     logger.info(f"sandbox_id:[{sandbox_id}] is expired, start to stop")
-                    asyncio.create_task(self.stop(sandbox_id))
+                    asyncio.create_task(self.stop(sandbox_id, reason=StopReason.EXPIRED))
             except asyncio.CancelledError as e:
                 logger.error("check_job_background CancelledError", exc_info=e)
                 continue
