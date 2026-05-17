@@ -7,3 +7,45 @@ ray:
 warmup:
     images:
       - "python:3.11"
+
+# Scheduler configuration
+scheduler:
+  enabled: true                    # Whether to enable the scheduler
+  worker_cache_ttl: 43200             # Worker IP cache TTL (seconds)
+  tasks:                           # Task list
+    - task_class: rock.admin.scheduler.tasks.image_cleanup_task.ImageCleanupTask  # Task class path
+      enabled: true                # Whether to enable this task
+      interval_seconds: 43200      # Execution interval (seconds)
+      params:                      # Task-specific parameters
+        disk_threshold: "70%"            # docuum cleanup threshold
+        image_whitelist:
+          - "python:3.11"
+    - task_class: rock.admin.scheduler.tasks.file_cleanup_task.FileCleanupTask  # File cleanup task class path
+      enabled: true                # Whether to enable this task
+      interval_seconds: 360      # Execution interval (seconds); runs once per day by default
+      params:                      # Task-specific parameters
+        target_dirs:               # List of target directories to clean up; each directory can configure its own exclusions
+          - path: "/data/logs"     # Directory path
+            exclude_files:         # Files to exclude in this directory (supports name, relative path, absolute path)
+              - "docuum.log"
+              - "./rocklet.log"
+              - "./rock_worker.log"
+              - "./access.log"
+          - "/data/service_status"
+        max_age_mins: 180         # Maximum file retention time (minutes); files whose last-modified time exceeds this value will be cleaned up. Default: 7 days (10080 minutes)
+        max_file_size: "1G"        # File size threshold; files larger than this will be cleaned up. Supports K/M/G/T units
+    - task_class: "rock.admin.scheduler.tasks.container_cleanup_task.ContainerCleanupTask"
+      interval_seconds: 86400
+      enabled: true
+      params:
+        max_age_hours: 72
+    - task_class: rock.admin.scheduler.tasks.image_pull_task.ImagePullTask
+      enabled: true
+      interval_seconds: 21600
+      params:
+        images:
+          # - image: "python:3.11"
+          #   registry_username: "user"
+          #   registry_password: "ZNDQ0NWVlZDUzZDTVmMQo="
+          - "python:3.11"
+

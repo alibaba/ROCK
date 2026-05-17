@@ -238,7 +238,12 @@ def is_primary_pod() -> bool:
     Check if the current pod is the primary pod (index 0).
     Reads /etc/hostname file and parses the pod index from the pod name.
     Hostname format example: rock-admin-write-nt-gray-0.rock-admin-write-nt-gray-hs.chatos.svc.cluster.local
+
+    If ROCK_FORCE_PRIMARY_POD is set to true, treat the current pod as primary
+    without inspecting the hostname.
     """
+    if env_vars.ROCK_FORCE_PRIMARY_POD:
+        return True
     try:
         with open("/etc/hostname") as f:
             hostname = f.read().strip()
