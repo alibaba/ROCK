@@ -22,17 +22,41 @@ class TestBuildSandboxLogKey:
 
 
 class TestBuildArchiveCommand:
-    def test_contains_tar_pipe_ossutil_then_rm(self):
-        cmd = build_archive_command(
-            log_dir="/data/logs/sb-1",
-            oss_key="rock-archives/sandbox-logs/sb-1.tar.gz",
-            bucket="chatos-rock",
-            endpoint="oss-cn-hangzhou.aliyuncs.com",
-        )
-        # tar streams to ossutil, only rm on success (&& chains)
-        assert "tar -czf -" in cmd
-        assert "| ossutil cp -f -" in cmd
-        assert "&& rm -rf" in cmd
+    def test_starts_with_set_e_so_failures_short_circuit(self):
+        # `set -e` is what guarantees the trailing `rm -rf <log_dir>` is
+        # skipped on tar / ossutil failure, so retry can re-archive cleanly.
+        cmd = build_archive_command("/data/logs/sb-1", "k", "b", "e")
+        assert cmd.startswith("set -e &&")
+
+    def test_uses_mktemp_and_traps_exit_for_cleanup(self):
+        # ossutil 1.7.x cannot read stdin, so we must land a temp tarball;
+        # mktemp -d isolates concurrent archives, trap EXIT cleans up.
+        cmd = build_archive_command("/data/logs/sb-1", "k", "b", "e")
+        assert "mktemp -d" in cmd
+        assert "trap " in cmd and "EXIT" in cmd
+
+    def test_writes_ossutil_config_with_endpoint_and_env_var_credentials(self):
+        # ossutil 1.7.x ignores OSS_ACCESS_KEY_* env vars, so we materialize
+        # an [Credentials] config file. AK/SK are still passed by env-var
+        # reference (printf "%s" + "$OSS_ACCESS_KEY_*"), never substituted.
+        cmd = build_archive_command("/data/logs/sb-1", "k", "b", "oss-cn-hangzhou.aliyuncs.com")
+        assert "[Credentials]" in cmd
+        assert "language=EN" in cmd
+        assert "endpoint=%s" in cmd
+        assert "accessKeyID=%s" in cmd
+        assert "accessKeySecret=%s" in cmd
+        assert (
+            "oss-cn-hangzhou.aliyuncs.com" in cmd
+        )  # endpoint passed through (shlex.quote skips quoting for safe chars)
+        assert '"$OSS_ACCESS_KEY_ID"' in cmd
+        assert '"$OSS_ACCESS_KEY_SECRET"' in cmd
+
+    def test_tar_then_ossutil_cp_against_temp_files(self):
+        cmd = build_archive_command("/data/logs/sb-1", "k", "b", "e")
+        # tar produces a real file under the scratch dir.
+        assert 'tar -czf "$ARCHIVE_DIR/archive.tar.gz"' in cmd
+        # ossutil cp uses -c <config> -f <file> <oss_url> (1.7.x compatible).
+        assert 'ossutil cp -c "$ARCHIVE_DIR/ossconfig" -f "$ARCHIVE_DIR/archive.tar.gz"' in cmd
 
     def test_uses_parent_dir_for_tar_so_archive_does_not_embed_full_path(self):
         cmd = build_archive_command("/data/logs/sb-1", "k", "b", "e")
@@ -55,9 +79,18 @@ class TestBuildArchiveCommand:
         cmd = build_archive_command("/data/logs/sb-1", "rock-archives/sandbox-logs/sb-1.tar.gz", "chatos-rock", "e")
         assert "oss://chatos-rock/rock-archives/sandbox-logs/sb-1.tar.gz" in cmd
 
-    def test_no_credentials_in_command_string(self):
-        # AK/SK MUST flow via SandboxCommand.env, never the command string.
+    def test_log_dir_rm_is_last_and_chained_on_success(self):
+        # The final rm is gated by the && chain — set -e + && ensures it
+        # never runs if any prior step failed.
         cmd = build_archive_command("/data/logs/sb-1", "k", "b", "e")
-        assert "ACCESS_KEY" not in cmd.upper()
-        assert "SECRET" not in cmd.upper()
+        assert cmd.endswith("&& rm -rf /data/logs/sb-1")
+
+    def test_no_literal_credentials_in_command_string(self):
+        # AK/SK appear ONLY as env-var references; never as literals or
+        # ossutil --access-key flag (which would expose them in argv).
+        cmd = build_archive_command("/data/logs/sb-1", "k", "b", "e")
+        assert '"$OSS_ACCESS_KEY_ID"' in cmd
+        assert '"$OSS_ACCESS_KEY_SECRET"' in cmd
         assert "--access-key" not in cmd
+        # `LTAI` is the prefix of every alibaba live AK — cheap regression check.
+        assert "LTAI" not in cmd
