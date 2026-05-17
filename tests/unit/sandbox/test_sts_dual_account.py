@@ -17,6 +17,7 @@ def _make_rock_config(
     primary_role: str,
     legacy_region: str = "cn-hangzhou",
     transfer_prefix: str = "rock-transfer/",
+    archive_prefix: str = "rock-archives/",
 ) -> RockConfig:
     return RockConfig(
         oss=OssConfig(
@@ -27,6 +28,7 @@ def _make_rock_config(
             role_arn=legacy_role,
             region=legacy_region,
             transfer_prefix=transfer_prefix,
+            archive_prefix=archive_prefix,
             primary=OssAccountConfig(
                 endpoint="oss-cn-hangzhou.aliyuncs.com",
                 bucket="chatos-rock",
@@ -123,6 +125,39 @@ def test_primary_prefix_is_none_when_yaml_does_not_set_it():
     svc._sts_clients["primary"].do_action_with_exception = _fake_assume("P-AK", "P-SK", "P-TOK")
     creds = svc.gen_oss_sts_token(account="primary")
     assert creds["Prefix"] is None
+
+
+def test_archive_prefix_returned_for_both_accounts():
+    # ArchivePrefix lives on oss_config root (not per-account), so legacy and primary
+    # should both surface the same value — `rock storage get` reads it to skip
+    # --archive-prefix, regardless of which account it queries.
+    svc = _build_service(
+        _make_rock_config(
+            legacy_role="acs:ram::1933967579503727:role/legacy-role",
+            primary_role="acs:ram::1771269394322852:role/chatos-rock-sts-role",
+            archive_prefix="rock-archives/",
+        )
+    )
+    svc._sts_clients["legacy"].do_action_with_exception = _fake_assume("L-AK", "L-SK", "L-TOK")
+    svc._sts_clients["primary"].do_action_with_exception = _fake_assume("P-AK", "P-SK", "P-TOK")
+
+    legacy = svc.gen_oss_sts_token()
+    primary = svc.gen_oss_sts_token(account="primary")
+    assert legacy["ArchivePrefix"] == "rock-archives/"
+    assert primary["ArchivePrefix"] == "rock-archives/"
+
+
+def test_archive_prefix_none_when_yaml_does_not_set_it():
+    svc = _build_service(
+        _make_rock_config(
+            legacy_role="acs:ram::1933967579503727:role/legacy-role",
+            primary_role="acs:ram::1771269394322852:role/chatos-rock-sts-role",
+            archive_prefix="",
+        )
+    )
+    svc._sts_clients["primary"].do_action_with_exception = _fake_assume("P-AK", "P-SK", "P-TOK")
+    creds = svc.gen_oss_sts_token(account="primary")
+    assert creds["ArchivePrefix"] is None
 
 
 def test_unknown_account_returns_none():
