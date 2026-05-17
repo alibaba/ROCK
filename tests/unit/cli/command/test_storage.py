@@ -224,10 +224,96 @@ class TestStorageGet:
         assert kwargs["endpoint"] == "my-endpoint"
 
     @pytest.mark.asyncio
+    async def test_archive_prefix_falls_back_to_sts_field_when_flag_empty(self):
+        # No --archive-prefix flag → CLI must use the value pushed by admin
+        # via the STS response so the user does not hardcode it.
+        cmd = StorageCommand()
+        args = _args(archive_prefix="")  # user did not pass the flag
+
+        bucket_mock = MagicMock()
+        with (
+            patch(
+                "rock.cli.command.storage.HttpUtils.get",
+                AsyncMock(
+                    return_value={
+                        "status": "Success",
+                        "result": _sts_payload(ArchivePrefix="rock-archives/"),
+                    }
+                ),
+            ),
+            patch("rock.cli.command.storage.oss2") as oss2_mod,
+            patch("rock.cli.command.storage.os.makedirs"),
+        ):
+            oss2_mod.Bucket.return_value = bucket_mock
+            oss2_mod.exceptions.NoSuchKey = type("NoSuchKey", (Exception,), {})
+
+            await cmd.arun(args)
+
+        oss_key, _ = bucket_mock.get_object_to_file.call_args.args
+        assert oss_key == "rock-archives/sandbox-logs/sb-abc.tar.gz"
+
+    @pytest.mark.asyncio
+    async def test_archive_prefix_flag_overrides_sts_field(self):
+        # Explicit --archive-prefix wins over STS-pushed value.
+        cmd = StorageCommand()
+        args = _args(archive_prefix="custom/")
+
+        bucket_mock = MagicMock()
+        with (
+            patch(
+                "rock.cli.command.storage.HttpUtils.get",
+                AsyncMock(
+                    return_value={
+                        "status": "Success",
+                        "result": _sts_payload(ArchivePrefix="rock-archives/"),
+                    }
+                ),
+            ),
+            patch("rock.cli.command.storage.oss2") as oss2_mod,
+            patch("rock.cli.command.storage.os.makedirs"),
+        ):
+            oss2_mod.Bucket.return_value = bucket_mock
+            oss2_mod.exceptions.NoSuchKey = type("NoSuchKey", (Exception,), {})
+
+            await cmd.arun(args)
+
+        oss_key, _ = bucket_mock.get_object_to_file.call_args.args
+        assert oss_key == "custom/sandbox-logs/sb-abc.tar.gz"
+
+    @pytest.mark.asyncio
     async def test_unknown_action_raises(self):
         cmd = StorageCommand()
         with pytest.raises(ValueError, match="Unknown storage action"):
             await cmd.arun(argparse.Namespace(storage_action="delete"))
+
+
+class TestBuildGetTokenUrl:
+    def test_appends_api_prefix_when_base_url_is_bare_host(self):
+        # User passes just `https://admin/` — CLI auto-appends the FastAPI prefix
+        # so they don't have to remember the routing detail.
+        url = StorageCommand._build_get_token_url("https://admin.local")
+        assert url == "https://admin.local/apis/envs/sandbox/v1/get_token?account=primary"
+
+    def test_does_not_double_append_when_base_url_already_has_prefix(self):
+        url = StorageCommand._build_get_token_url("https://admin.local/apis/envs/sandbox/v1")
+        assert url == "https://admin.local/apis/envs/sandbox/v1/get_token?account=primary"
+
+    def test_strips_trailing_slash(self):
+        url = StorageCommand._build_get_token_url("https://admin.local/")
+        assert url == "https://admin.local/apis/envs/sandbox/v1/get_token?account=primary"
+
+    @pytest.mark.asyncio
+    async def test_404_error_message_explains_proxy_role(self):
+        # A 404 on /get_token nearly always means the user pointed at the write-admin URL
+        # by mistake; surface that explicitly instead of bubbling a raw HTTPStatusError.
+        cmd = StorageCommand()
+        args = _args()
+        with patch(
+            "rock.cli.command.storage.HttpUtils.get",
+            AsyncMock(side_effect=Exception("Client error '404 Not Found' for url ...")),
+        ):
+            with pytest.raises(RuntimeError, match="proxy/read admin role"):
+                await cmd.arun(args)
 
 
 class TestHeaders:

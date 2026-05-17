@@ -10,6 +10,10 @@ Design choices:
     and CLI cannot drift on the OSS key layout.
   - AK/SK never leave admin → CLI is given a short-lived STS token.
   - No new admin endpoints; the existing /get_token covers it.
+  - `--base-url` may be either the bare host (`https://admin/`) or include
+    the `/apis/envs/sandbox/v1` prefix; CLI normalizes either form.
+  - `--archive-prefix` defaults to admin's `oss.archive_prefix` config
+    (returned in the STS response as `ArchivePrefix`); CLI flag overrides.
 """
 
 import argparse
@@ -44,7 +48,8 @@ class StorageCommand(Command):
     async def _get(self, args: argparse.Namespace):
         sts = await self._fetch_primary_sts(args)
         bucket_name, endpoint, region = self._extract_oss_target(args, sts)
-        oss_key = build_sandbox_log_key(args.sandbox_id, args.archive_prefix or "")
+        archive_prefix = self._resolve_archive_prefix(args, sts)
+        oss_key = build_sandbox_log_key(args.sandbox_id, archive_prefix)
         out_path = self._resolve_output_path(args.output, args.sandbox_id)
 
         bucket = oss2.Bucket(
@@ -70,15 +75,51 @@ class StorageCommand(Command):
         print(f"To extract: tar -xzf {out_path}")
 
     async def _fetch_primary_sts(self, args: argparse.Namespace) -> dict[str, Any]:
-        url = f"{args.base_url.rstrip('/')}/get_token?account=primary"
+        url = self._build_get_token_url(args.base_url)
         headers = self._build_headers(args)
-        response = await HttpUtils.get(url, headers)
+        try:
+            response = await HttpUtils.get(url, headers)
+        except Exception as e:
+            # Most common 404 cause: user passed admin-write URL but /get_token only lives on
+            # the proxy/read role. Augment the error so the user knows what to flip.
+            if "404" in str(e):
+                raise RuntimeError(
+                    f"admin /get_token returned 404 at {url}. "
+                    "/get_token is only mounted on the proxy/read admin role, not the write admin. "
+                    "If you used the write URL, switch --base-url to the proxy/read URL."
+                ) from e
+            raise
         if response.get("status") != "Success":
             raise RuntimeError(f"admin /get_token returned: {response.get('message') or response}")
         result = response.get("result")
         if not result:
             raise RuntimeError("admin /get_token returned an empty result; check OssConfig.primary on admin")
         return result
+
+    @staticmethod
+    def _build_get_token_url(base_url: str) -> str:
+        """Normalize base_url and append /get_token?account=primary.
+
+        Accepts either the bare admin host (`https://admin/`) or a base that already
+        contains `/apis/envs/sandbox/v1`; in either case the result hits the right route.
+        """
+        clean = base_url.rstrip("/")
+        api_prefix = "/apis/envs/sandbox/v1"
+        if not clean.endswith(api_prefix):
+            clean = f"{clean}{api_prefix}"
+        return f"{clean}/get_token?account=primary"
+
+    @staticmethod
+    def _resolve_archive_prefix(args: argparse.Namespace, sts: dict[str, Any]) -> str:
+        """Pick archive_prefix: explicit CLI flag wins, else admin-pushed value, else empty.
+
+        The STS response carries `ArchivePrefix` so users do not need to hardcode the prefix
+        on every invocation; admin and CLI thus cannot drift on prefix layout.
+        """
+        flag = args.archive_prefix
+        if flag:
+            return flag
+        return sts.get("ArchivePrefix") or ""
 
     @staticmethod
     def _build_headers(args: argparse.Namespace) -> dict[str, str]:
@@ -133,7 +174,11 @@ class StorageCommand(Command):
             "--archive-prefix",
             dest="archive_prefix",
             default="",
-            help="Override the OSS key prefix used at archive time (must match admin OssConfig.archive_prefix)",
+            help=(
+                "Override the OSS key prefix used at archive time. "
+                "If unset, the prefix is taken from admin's STS response (ArchivePrefix field), "
+                "so you usually do not need to pass this."
+            ),
         )
         get_p.add_argument(
             "--bucket",
