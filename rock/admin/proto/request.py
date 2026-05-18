@@ -42,6 +42,8 @@ class SandboxStartRequest(BaseModel):
     """Whether to use kata container runtime (io.containerd.kata.v2) instead of --privileged mode."""
     auto_delete_seconds: int | None = None
     """The time for automatic container deletion, with the unit being seconds."""
+    disk: str | None = None
+    """Disk quota for the sandbox (e.g. '20g'). Applied to rootfs (log dir shares the same quota via XFS prjid). Falls back to cluster default if None."""
     num_gpus: float | None = None
     """Number of GPUs to allocate. Supports fractional values (e.g. 0.5 for GPU sharing)."""
     accelerator_type: str | None = None

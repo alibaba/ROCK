@@ -212,10 +212,8 @@ class DockerDeploymentConfig(DeploymentConfig):
     @classmethod
     def from_request(cls, request: SandboxStartRequest) -> DeploymentConfig:
         """Create DockerDeploymentConfig from SandboxStartRequest"""
-        return cls(
-            **request.model_dump(exclude={"sandbox_id"}),
-            container_name=request.sandbox_id,
-        )
+        data = request.model_dump(exclude={"sandbox_id"})
+        return cls(**data, container_name=request.sandbox_id)
 
 
 class RayDeploymentConfig(DockerDeploymentConfig):

@@ -47,6 +47,8 @@ class SandboxConfig(BaseConfig):
     use_kata_runtime: bool = False
     sandbox_id: str | None = None
     auto_delete_seconds: int | None = None
+    disk: str | None = None
+    """Disk quota for the sandbox (e.g. '20g'). Applied to both rootfs and log dir."""
 
     @field_validator("auto_delete_seconds")
     @classmethod
