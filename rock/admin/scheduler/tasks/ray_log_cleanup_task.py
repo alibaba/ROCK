@@ -1,5 +1,7 @@
 """Drop stale /data/tmp/ray/session_* dirs on each worker."""
 
+import textwrap
+
 from rock.admin.proto.request import SandboxCommand as Command
 from rock.admin.scheduler.task_base import BaseTask, IdempotencyType, TaskStatusEnum
 from rock.common.constants import SCHEDULER_LOG_NAME
@@ -60,20 +62,25 @@ class RayLogCleanupTask(BaseTask):
         max_age_min = self.min_age_hours * 60
         # Resolve session_latest -> live basename, then list session_* dirs
         # older than threshold and rm -rf those that are not the live one.
-        command = (
-            f'if [ -d "{ray_dir}" ]; then '
-            f'  LIVE=$(readlink "{ray_dir}/session_latest" 2>/dev/null | xargs -I{{}} basename {{}} 2>/dev/null); '
-            f'  echo "live_session=${{LIVE:-<none>}}"; '
-            f'  find "{ray_dir}" -maxdepth 1 -type d -name "session_*" '
-            f'    ! -name "session_latest" -mmin +{max_age_min} '
-            f'  | while read -r d; do '
-            f'      bn=$(basename "$d"); '
-            f'      if [ "$bn" != "$LIVE" ]; then '
-            f'        rm -rf "$d" && echo "removed=$bn"; '
-            f'      fi; '
-            f'    done; '
-            f'  echo "ray_log_cleanup_done"; '
-            f'else echo "ray_temp_dir_not_found"; fi'
+        # textwrap.dedent strips common leading whitespace so source can be
+        # indented for readability without polluting the emitted shell.
+        command = textwrap.dedent(
+            f"""\
+            if [ -d "{ray_dir}" ]; then
+              LIVE=$(readlink "{ray_dir}/session_latest" 2>/dev/null | xargs -I{{}} basename {{}} 2>/dev/null)
+              echo "live_session=${{LIVE:-<none>}}"
+              find "{ray_dir}" -maxdepth 1 -type d -name "session_*" \\
+                ! -name "session_latest" -mmin +{max_age_min} \\
+              | while read -r d; do
+                  bn=$(basename "$d")
+                  if [ "$bn" != "$LIVE" ]; then
+                    rm -rf "$d" && echo "removed=$bn"
+                  fi
+                done
+              echo "ray_log_cleanup_done"
+            else
+              echo "ray_temp_dir_not_found"
+            fi"""
         )
         result = await runtime.execute(Command(command=command, shell=True, check=False))
         output = (result.stdout or "").strip()
