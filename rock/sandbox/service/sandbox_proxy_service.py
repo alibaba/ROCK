@@ -686,12 +686,17 @@ class SandboxProxyService:
         self, account: str = "legacy"
     ) -> dict | None:  # CHANGED: account param, default "legacy" preserves BC
         """Generate STS credentials and OSS config for the given account.
+
+        Returns ONLY OSS connectivity / account-scoped config. Sandbox-side
+        domain policy (e.g. archive prefix, retry counts) does NOT belong here
+        and must be fetched from a separate endpoint when a client needs it.
+
         Args:
             account: "legacy" (xrl-sandbox, BC for SDK < 1.8) or
                      "primary" (chatos-rock, SDK >= 1.8).
         Returns:
             Dict with STS credentials (AccessKeyId, AccessKeySecret, SecurityToken, Expiration) PLUS account-scoped OSS config:
-            Endpoint, Bucket, Region, Prefix (transfer/upload prefix), ArchivePrefix (recovery prefix used by `rock storage get`).
+            Endpoint, Bucket, Region, Prefix (transfer/upload prefix).
             None on failure or when the requested account is unconfigured.
         """
         if account not in self._sts_clients:
@@ -739,10 +744,6 @@ class SandboxProxyService:
             "Bucket": bucket,
             "Region": region,
             "Prefix": prefix,  # transfer-object key prefix, scoped per account
-            # ArchivePrefix is the same across both accounts (it lives on the dedicated
-            # SandboxLogConfig under SandboxConfig.log, not per-OSS-account). Letting
-            # the client pull it from STS lets `rock storage get` skip --archive-prefix.
-            "ArchivePrefix": self._rock_config.sandbox_config.log.archive_prefix or None,
         }
 
     async def get_sandbox_websocket_url(

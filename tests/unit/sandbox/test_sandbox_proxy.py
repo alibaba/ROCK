@@ -97,11 +97,10 @@ class TestGenOssStsToken:
         service.oss_config = OssConfig(role_arn="test_role_arn")
         # gen_oss_sts_token routes by account name; legacy is the default.
         service._sts_clients = {"legacy": MagicMock(), "primary": MagicMock()}
-        # gen_oss_sts_token reads sandbox_config.log.archive_prefix and
-        # sandbox_config.file_transfer.prefix from rock_config after the
-        # SandboxLogConfig / SandboxFileTransferConfig extraction.
+        # gen_oss_sts_token reads sandbox_config.file_transfer.prefix from
+        # rock_config (primary-account branch) after the SandboxFileTransferConfig
+        # extraction; legacy branch reads ROCK_OSS_TRANSFER_PREFIX env directly.
         service._rock_config = MagicMock()
-        service._rock_config.sandbox_config.log.archive_prefix = ""
         service._rock_config.sandbox_config.file_transfer.prefix = ""
         return service
 
