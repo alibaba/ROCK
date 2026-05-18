@@ -28,7 +28,7 @@ from rock.deployments.log_cleanup_sentinel import (
 )
 from rock.logger import init_logger
 from rock.sandbox.remote_sandbox import RemoteSandboxRuntime
-from rock.utils.archive_command import build_archive_command, build_sandbox_log_key
+from rock.utils.archive_command import ArchiveCommand
 
 logger = init_logger(name="sandbox_log_archive", file_name=SCHEDULER_LOG_NAME)
 
@@ -59,7 +59,8 @@ class SandboxLogArchiveTask(BaseTask):
             logger.warning(f"[{self.type}] ROCK_LOGGING_PATH is empty; skip")
             return {"status": TaskStatusEnum.SUCCESS, "message": "no log root configured"}
 
-        oss = RockConfig.from_env().oss
+        rock_config = RockConfig.from_env()
+        oss = rock_config.oss
         primary = oss.primary
         bucket = primary.bucket or env_vars.ROCK_OSS_BUCKET_NAME or oss.bucket
         endpoint = primary.endpoint or env_vars.ROCK_OSS_BUCKET_ENDPOINT or oss.endpoint
@@ -70,9 +71,10 @@ class SandboxLogArchiveTask(BaseTask):
             logger.warning(f"[{self.type}] OSS primary account incomplete; skip archival")
             return {"status": TaskStatusEnum.SUCCESS, "message": "oss primary account not configured"}
 
-        keep_days = int(oss.keep_days_before_archive or 3)
-        max_attempts = int(oss.archive_max_attempts or 3)
-        archive_prefix = oss.archive_prefix or ""
+        sandbox_log = rock_config.sandbox_config.log
+        keep_days = int(sandbox_log.keep_days_before_archive or 3)
+        max_attempts = int(sandbox_log.archive_max_attempts or 3)
+        archive_prefix = sandbox_log.archive_prefix or ""
 
         candidate_dirs = await self._discover_candidates(runtime)
 
@@ -150,8 +152,8 @@ class SandboxLogArchiveTask(BaseTask):
             return "too_young"
 
         sandbox_id = log_dir.rstrip("/").split("/")[-1] or "unknown"
-        oss_key = build_sandbox_log_key(sandbox_id, archive_prefix)
-        cmd_str = build_archive_command(
+        oss_key = ArchiveCommand.build_key(sandbox_id, archive_prefix)
+        cmd_str = ArchiveCommand.build_command(
             log_dir=log_dir,
             oss_key=oss_key,
             bucket=bucket,
