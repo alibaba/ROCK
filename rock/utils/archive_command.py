@@ -8,6 +8,7 @@ string), so they never appear in `ps` argv output.
 """
 
 import shlex
+import textwrap
 from pathlib import Path
 
 
@@ -49,18 +50,23 @@ class ArchiveCommand:
         The scratch dir is removed via ``trap EXIT`` regardless of outcome.
         """
         log_path = Path(log_dir)
-        parent = str(log_path.parent)
-        name = log_path.name
-        oss_url = f"oss://{bucket}/{oss_key}"
-        return (
-            "set -e && "
-            "ARCHIVE_DIR=$(mktemp -d -t sb-archive-XXXXXX) && "
-            "trap 'rm -rf \"$ARCHIVE_DIR\"' EXIT && "
-            "umask 077 && "
-            "printf '[Credentials]\\nlanguage=EN\\nendpoint=%s\\naccessKeyID=%s\\naccessKeySecret=%s\\n' "
-            f'{shlex.quote(endpoint)} "$OSS_ACCESS_KEY_ID" "$OSS_ACCESS_KEY_SECRET" '
-            '> "$ARCHIVE_DIR/ossconfig" && '
-            f'tar -czf "$ARCHIVE_DIR/archive.tar.gz" -C {shlex.quote(parent)} {shlex.quote(name)} && '
-            f'ossutil cp -c "$ARCHIVE_DIR/ossconfig" -f "$ARCHIVE_DIR/archive.tar.gz" {shlex.quote(oss_url)} && '
-            f"rm -rf {shlex.quote(log_dir)}"
+        parent = shlex.quote(str(log_path.parent))
+        name = shlex.quote(log_path.name)
+        endpoint_q = shlex.quote(endpoint)
+        oss_url_q = shlex.quote(f"oss://{bucket}/{oss_key}")
+        log_dir_q = shlex.quote(log_dir)
+        # textwrap.dedent strips the common leading whitespace so the source can be
+        # indented for readability without polluting the emitted shell string.
+        return textwrap.dedent(
+            f"""\
+            set -e \\
+            && ARCHIVE_DIR=$(mktemp -d -t sb-archive-XXXXXX) \\
+            && trap 'rm -rf "$ARCHIVE_DIR"' EXIT \\
+            && umask 077 \\
+            && printf '[Credentials]\\nlanguage=EN\\nendpoint=%s\\naccessKeyID=%s\\naccessKeySecret=%s\\n' \\
+            {endpoint_q} "$OSS_ACCESS_KEY_ID" "$OSS_ACCESS_KEY_SECRET" \\
+            > "$ARCHIVE_DIR/ossconfig" \\
+            && tar -czf "$ARCHIVE_DIR/archive.tar.gz" -C {parent} {name} \\
+            && ossutil cp -c "$ARCHIVE_DIR/ossconfig" -f "$ARCHIVE_DIR/archive.tar.gz" {oss_url_q} \\
+            && rm -rf {log_dir_q}"""
         )

@@ -25,8 +25,10 @@ class TestArchiveCommandBuildCommand:
     def test_starts_with_set_e_so_failures_short_circuit(self):
         # `set -e` is what guarantees the trailing `rm -rf <log_dir>` is
         # skipped on tar / ossutil failure, so retry can re-archive cleanly.
+        # Triple-quoted multi-line string emits `set -e \\\n&& ...` (bash treats
+        # `\<newline>` as line continuation, so it's still one chained command).
         cmd = ArchiveCommand.build_command("/data/logs/sb-1", "k", "b", "e")
-        assert cmd.startswith("set -e &&")
+        assert cmd.startswith("set -e \\\n&&")
 
     def test_uses_mktemp_and_traps_exit_for_cleanup(self):
         # ossutil 1.7.x cannot read stdin, so we must land a temp tarball;
