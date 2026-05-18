@@ -23,8 +23,8 @@ from rock.common.constants import SCHEDULER_LOG_NAME
 from rock.config import RockConfig
 from rock.deployments.log_cleanup_sentinel import (
     LOG_STOPPED_SENTINEL,
+    Sentinel,
     SentinelState,
-    dump_state,
 )
 from rock.logger import init_logger
 from rock.sandbox.remote_sandbox import RemoteSandboxRuntime
@@ -183,7 +183,7 @@ class SandboxLogArchiveTask(BaseTask):
             await runtime.write_file(
                 WriteFileRequest(
                     path=sentinel_remote_path,
-                    content=dump_state(new_state),
+                    content=Sentinel.dump(new_state),
                 )
             )
         except Exception as e:
