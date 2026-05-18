@@ -5,7 +5,7 @@ Architecture under test:
   - admin reads sentinel JSON via /read_file
   - admin runs `tar | ossutil cp && rm -rf` via /execute, with AK/SK in
     SandboxCommand.env so they never leak into argv
-  - on failure, admin bumps attempts via /write_file (dump_state JSON)
+  - on failure, admin bumps attempts via /write_file (Sentinel.dump JSON)
   - exceeding archive_max_attempts → outcome `failed_persist`, dir is
     left intact for FileCleanupTask
 """
