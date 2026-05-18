@@ -87,22 +87,16 @@ async def _apply_kata_disk_size(config: DockerDeploymentConfig) -> None:
 
 
 async def _apply_disk_limits(config: DockerDeploymentConfig) -> None:
-    """Apply disk limits from RuntimeConfig (rock-xxx.yml), overridable by Nacos at runtime.
+    """Apply disk limits with priority: user request > Nacos > RuntimeConfig > None.
 
-    Priority: Nacos > RuntimeConfig (rock-xxx.yml). None in both means no limit.
     The log dir shares the rootfs prjid + bhard at runtime, so only rootfs is configurable.
     """
     runtime = sandbox_manager.rock_config.runtime
     nacos = sandbox_manager.rock_config.nacos_provider
 
-    disk = runtime.sandbox_disk_limit_rootfs
-
-    if nacos is not None:
-        nacos_rootfs = await nacos.get_config_value(SANDBOX_DISK_LIMIT_ROOTFS_KEY)
-        if nacos_rootfs:
-            disk = nacos_rootfs
-
-    config.disk = disk
+    if config.disk is None:
+        nacos_rootfs = await nacos.get_config_value(SANDBOX_DISK_LIMIT_ROOTFS_KEY) if nacos else None
+        config.disk = nacos_rootfs or runtime.sandbox_disk_limit_rootfs
 
 
 def _probe_cache_get(candidate: str) -> bool | None:

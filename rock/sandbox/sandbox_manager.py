@@ -430,10 +430,16 @@ class SandboxManager(BaseManager):
             logger.warning(f"Invalid memory size: {deployment_config.memory}", exc_info=e)
             raise BadRequestRockError(f"Invalid memory size: {deployment_config.memory}")
 
-        # Validate disk format
+        # Validate disk format and cap
         if deployment_config.disk is not None:
             try:
-                parse_size_to_bytes(deployment_config.disk)
+                disk_bytes = parse_size_to_bytes(deployment_config.disk)
             except ValueError as e:
                 logger.warning(f"Invalid disk size: {deployment_config.disk}", exc_info=e)
                 raise BadRequestRockError(f"Invalid disk size: {deployment_config.disk}")
+            if runtime_config.max_allowed_spec.disk is not None:
+                max_disk_bytes = parse_size_to_bytes(runtime_config.max_allowed_spec.disk)
+                if disk_bytes > max_disk_bytes:
+                    raise BadRequestRockError(
+                        f"Requested disk {deployment_config.disk} exceeds the maximum allowed {runtime_config.max_allowed_spec.disk}"
+                    )

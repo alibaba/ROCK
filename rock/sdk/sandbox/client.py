@@ -205,6 +205,7 @@ class Sandbox(AbstractSandbox):
             "limit_cpus": self.config.limit_cpus,
             "sandbox_id": self.config.sandbox_id,
             "auto_delete_seconds": self.config.auto_delete_seconds,
+            "disk": self.config.disk,
         }
         try:
             response = await HttpUtils.post(url, headers, data)
