@@ -50,7 +50,10 @@ class SandboxStatusResponse(BaseModel):
     memory: str | None = None
     disk_limit_rootfs: str | None = None
     disk_limit_log: str | None = None
-    lifecycle_info: dict = None
+    state: State | None = None
+    start_time: str | None = None
+    stop_time: str | None = None
+    create_time: str | None = None
 
 
 class CommandResponse(BaseModel):

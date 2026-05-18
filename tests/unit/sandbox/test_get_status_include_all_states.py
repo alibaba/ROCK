@@ -7,7 +7,7 @@ Key behaviour changes covered:
   - include_all_states=True  + operator None  → fall back to meta_store.get(check_db=True)
   - include_all_states=True  + operator data  → skip fallback, normal path
   - meta_store.update only when state is PENDING or RUNNING
-  - lifecycle_info populated in every response
+  - start_time/stop_time/create_time populated in every response
 """
 
 from unittest.mock import AsyncMock, patch
@@ -61,7 +61,7 @@ def sandbox_manager(mock_operator, mock_meta_store, rock_config):
 class TestGetStatusIncludeAllStates:
     @pytest.mark.asyncio
     async def test_running_sandbox_returns_alive_response(self, sandbox_manager, mock_operator):
-        """Operator returns RUNNING → is_alive=True, lifecycle_info.current_state populated."""
+        """Operator returns RUNNING → is_alive=True, state field populated."""
         mock_operator.get_status = AsyncMock(return_value=_make_sandbox_info(state=State.RUNNING))
 
         result = await sandbox_manager.get_status("sandbox-1")
@@ -69,7 +69,6 @@ class TestGetStatusIncludeAllStates:
         assert isinstance(result, SandboxStatusResponse)
         assert result.state == State.RUNNING
         assert result.is_alive is True
-        assert result.lifecycle_info["current_state"] == State.RUNNING
 
     @pytest.mark.asyncio
     async def test_running_state_triggers_meta_store_update(self, sandbox_manager, mock_operator, mock_meta_store):

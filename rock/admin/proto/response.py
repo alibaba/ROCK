@@ -34,7 +34,9 @@ class SandboxStatusResponse(BaseModel):
     memory: str | None = None
     disk_limit_rootfs: str | None = None
     disk_limit_log: str | None = None
-    lifecycle_info: dict = None
+    start_time: str | None = None
+    stop_time: str | None = None
+    create_time: str | None = None
 
     @classmethod
     def from_sandbox_info(cls, sandbox_info: "SandboxInfo") -> "SandboxStatusResponse":
