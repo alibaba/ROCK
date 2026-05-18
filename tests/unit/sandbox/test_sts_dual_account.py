@@ -7,6 +7,9 @@ from rock.config import (
     ProxyServiceConfig,
     RockConfig,
     RuntimeConfig,
+    SandboxConfig,
+    SandboxFileTransferConfig,
+    SandboxLogConfig,
 )
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 
@@ -27,8 +30,6 @@ def _make_rock_config(
             access_key_secret="legacy-sk",
             role_arn=legacy_role,
             region=legacy_region,
-            transfer_prefix=transfer_prefix,
-            archive_prefix=archive_prefix,
             primary=OssAccountConfig(
                 endpoint="oss-cn-hangzhou.aliyuncs.com",
                 bucket="chatos-rock",
@@ -37,6 +38,10 @@ def _make_rock_config(
                 role_arn=primary_role,
                 region="cn-hangzhou",
             ),
+        ),
+        sandbox_config=SandboxConfig(
+            log=SandboxLogConfig(archive_prefix=archive_prefix),
+            file_transfer=SandboxFileTransferConfig(prefix=transfer_prefix),
         ),
         proxy_service=ProxyServiceConfig(),
         runtime=RuntimeConfig(

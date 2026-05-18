@@ -53,11 +53,69 @@ class RedisConfig:
 
 
 @dataclass
+class SandboxLogConfig:
+    """Policy for archiving stopped-sandbox log directories to OSS.
+
+    Lives under SandboxConfig.log: the fields are domain knobs of "what to do
+    with stopped sandbox logs" — when to archive, how many retries, what OSS
+    key prefix to use — colocated with other sandbox lifecycle / cleanup
+    policy (image_keep_patterns, remove_container_enabled). OSS endpoint /
+    bucket / credentials still belong to OssConfig.primary.
+    """
+
+    archive_prefix: str = ""
+    """OSS object key prefix under OssConfig.primary.bucket for sandbox-log
+    archives. Empty (default) means each deployment's YAML must opt-in
+    explicitly to a value matching its OSS bucket lifecycle rule (e.g.
+    "rock-archives/")."""
+
+    keep_days_before_archive: int = 3
+    """Days to wait after sandbox stop before archiving. Gives operators
+    a short investigation window without bloating disk."""
+
+    archive_max_attempts: int = 3
+    """Max retry attempts before giving up archival and degrading to KEEP
+    (FileCleanupTask is the eventual janitor)."""
+
+
+@dataclass
+class SandboxFileTransferConfig:
+    """Policy for sandbox <-> host file transfer via OSS as intermediary.
+
+    Lives under SandboxConfig.file_transfer: the prefix governs where the
+    SDK puts ephemeral transfer objects under OssConfig.primary.bucket,
+    a sandbox-side concern not OSS connectivity.
+    """
+
+    prefix: str = ""
+    """Prefix under OssConfig.primary.bucket for ephemeral host↔container
+    file transfers ({timestamp}-{filename} objects). The legacy bucket keeps
+    its pre-existing flat layout (no prefix) for backward compatibility —
+    xrl-sandbox has a 3-day lifecycle rule at bucket root (configured in
+    the Aliyun OSS console, not in repo) that we do not disturb.
+
+    Note: this field lives in admin-side RockConfig and is NOT what the SDK
+    reads. The SDK reads ROCK_OSS_TRANSFER_PREFIX directly from the process
+    env. xrl package is no longer maintained, so internal users must export
+    this env var themselves when upgrading to SDK >= 1.8."""
+
+
+@dataclass
 class SandboxConfig:
     actor_resource: str = ""
     actor_resource_num: float = 0.0
     gateway_num: int = 1
     remove_container_enabled: bool = True
+    log: SandboxLogConfig = field(default_factory=SandboxLogConfig)
+    file_transfer: SandboxFileTransferConfig = field(default_factory=SandboxFileTransferConfig)
+
+    def __post_init__(self):
+        # Allow YAML to pass dicts for nested dataclasses (yaml.safe_load
+        # returns dicts, not nested dataclass instances).
+        if isinstance(self.log, dict):
+            self.log = SandboxLogConfig(**self.log)
+        if isinstance(self.file_transfer, dict):
+            self.file_transfer = SandboxFileTransferConfig(**self.file_transfer)
 
 
 @dataclass
@@ -87,32 +145,6 @@ class OssConfig:
     """Primary account used by SDK >= 1.8 (`/get_token?account=primary`) and by
     host-side archival. An empty `primary.bucket` disables v2 STS and archival,
     leaving legacy path fully operational."""
-
-    transfer_prefix: str = ""
-    """Prefix under the PRIMARY bucket for ephemeral host↔container file
-    transfers ({timestamp}-{filename} objects). The legacy bucket keeps
-    its pre-existing flat layout (no prefix) for backward compatibility —
-    xrl-sandbox has a 3-day lifecycle rule at bucket root (configured
-    in the Aliyun OSS console, not in repo) that we do not disturb.
-
-    Note: this field lives in admin-side RockConfig and is NOT what the
-    SDK reads. The SDK reads ROCK_OSS_TRANSFER_PREFIX directly from the
-    process env. xrl package is no longer maintained, so internal users
-    must export this env var themselves when upgrading to SDK >= 1.8."""
-
-    archive_prefix: str = ""
-    """OSS object key prefix under the PRIMARY bucket for sandbox-log
-    archives. Empty (default) means each deployment's YAML must opt-in
-    explicitly to a value matching its OSS bucket lifecycle rule (e.g.
-    "rock-archives/")."""
-
-    keep_days_before_archive: int = 3
-    """Days to wait after sandbox stop before archiving. Gives
-    operators a short investigation window without bloating disk."""
-
-    archive_max_attempts: int = 3
-    """Max retry attempts before giving up archival and degrading
-    to KEEP (FileCleanupTask is the eventual janitor)."""
 
     def __post_init__(self):
         # Allow YAML to pass a dict for `primary` (dataclass deserialization

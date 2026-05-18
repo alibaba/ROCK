@@ -705,7 +705,7 @@ class SandboxProxyService:
             endpoint = primary.endpoint or None
             bucket = primary.bucket or None
             region = primary.region or env_vars.ROCK_OSS_BUCKET_REGION or None
-            prefix = self.oss_config.transfer_prefix or None
+            prefix = self._rock_config.sandbox_config.file_transfer.prefix or None
         else:  # legacy
             role_arn = self.oss_config.role_arn
             session_name = "rock-sandbox-legacy"
@@ -739,9 +739,10 @@ class SandboxProxyService:
             "Bucket": bucket,
             "Region": region,
             "Prefix": prefix,  # transfer-object key prefix, scoped per account
-            # ArchivePrefix is the same across both accounts (it lives on oss_config root, not per-account).
-            # Letting the client pull it from STS lets `rock storage get` skip --archive-prefix.
-            "ArchivePrefix": self.oss_config.archive_prefix or None,
+            # ArchivePrefix is the same across both accounts (it lives on the dedicated
+            # SandboxLogConfig under SandboxConfig.log, not per-OSS-account). Letting
+            # the client pull it from STS lets `rock storage get` skip --archive-prefix.
+            "ArchivePrefix": self._rock_config.sandbox_config.log.archive_prefix or None,
         }
 
     async def get_sandbox_websocket_url(
