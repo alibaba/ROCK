@@ -2,7 +2,7 @@
 
 The sentinel is a small JSON file dropped into a stopped sandbox's log
 directory by DockerDeployment._stop(); SandboxLogArchiveTask later picks
-up dirs whose sentinel is older than `oss.keep_days_before_archive` and
+up dirs whose sentinel is older than `sandbox_config.log.keep_days_before_archive` and
 ships them to OSS.
 
 Sentinel JSON shape (versioned for future evolution):
