@@ -97,6 +97,12 @@ class TestGenOssStsToken:
         service.oss_config = OssConfig(role_arn="test_role_arn")
         # gen_oss_sts_token routes by account name; legacy is the default.
         service._sts_clients = {"legacy": MagicMock(), "primary": MagicMock()}
+        # gen_oss_sts_token reads sandbox_config.log.archive_prefix and
+        # sandbox_config.file_transfer.prefix from rock_config after the
+        # SandboxLogConfig / SandboxFileTransferConfig extraction.
+        service._rock_config = MagicMock()
+        service._rock_config.sandbox_config.log.archive_prefix = ""
+        service._rock_config.sandbox_config.file_transfer.prefix = ""
         return service
 
     def test_success_returns_dict_with_extra_fields(self, sandbox_proxy_service):
@@ -108,7 +114,9 @@ class TestGenOssStsToken:
             b'"SecurityToken":"tok","Expiration":"2099-01-01T00:00:00Z"}}'
         )
         with (
-            patch.object(sandbox_proxy_service._sts_clients["legacy"], "do_action_with_exception", return_value=fake_token_body),
+            patch.object(
+                sandbox_proxy_service._sts_clients["legacy"], "do_action_with_exception", return_value=fake_token_body
+            ),
             patch("rock.sandbox.service.sandbox_proxy_service.env_vars") as mock_env,
         ):
             mock_env.ROCK_OSS_BUCKET_ENDPOINT = ""
@@ -138,7 +146,9 @@ class TestGenOssStsToken:
             b'"SecurityToken":"tok","Expiration":"2099-01-01T00:00:00Z"}}'
         )
         with (
-            patch.object(sandbox_proxy_service._sts_clients["legacy"], "do_action_with_exception", return_value=fake_token_body),
+            patch.object(
+                sandbox_proxy_service._sts_clients["legacy"], "do_action_with_exception", return_value=fake_token_body
+            ),
             patch("rock.sandbox.service.sandbox_proxy_service.env_vars") as mock_env,
         ):
             mock_env.ROCK_OSS_BUCKET_ENDPOINT = ""
@@ -161,7 +171,9 @@ class TestGenOssStsToken:
             b'"SecurityToken":"tok","Expiration":"2099-01-01T00:00:00Z"}}'
         )
         with (
-            patch.object(sandbox_proxy_service._sts_clients["legacy"], "do_action_with_exception", return_value=fake_token_body),
+            patch.object(
+                sandbox_proxy_service._sts_clients["legacy"], "do_action_with_exception", return_value=fake_token_body
+            ),
             patch("rock.sandbox.service.sandbox_proxy_service.env_vars") as mock_env,
         ):
             mock_env.ROCK_OSS_BUCKET_ENDPOINT = "env.endpoint"
@@ -184,7 +196,9 @@ class TestGenOssStsToken:
             b'"SecurityToken":"tok","Expiration":"2099-01-01T00:00:00Z"}}'
         )
         with (
-            patch.object(sandbox_proxy_service._sts_clients["legacy"], "do_action_with_exception", return_value=fake_token_body),
+            patch.object(
+                sandbox_proxy_service._sts_clients["legacy"], "do_action_with_exception", return_value=fake_token_body
+            ),
             patch("rock.sandbox.service.sandbox_proxy_service.env_vars") as mock_env,
         ):
             mock_env.ROCK_OSS_BUCKET_ENDPOINT = ""
