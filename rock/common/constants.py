@@ -3,7 +3,8 @@ from enum import Enum
 GET_STATUS_SWITCH = "get_status_v2_enabled"
 KATA_RUNTIME_SWITCH = "use_kata_enabled"
 SUPPORT_KATA_SWITCH = "support_kata_enabled"
-CPU_PREEMPT_SWITCH = "cpu_preempt_enabled"
+CPU_OVERCOMMIT_HEADROOM_KEY = "cpu_overcommit_headroom"
+CPU_OVERCOMMIT_ALLOWED_KEYS_KEY = "cpu_overcommit_allowed_keys"
 KATA_DIND_DISK_SIZE_KEY = "kata_dind_disk_size"
 SANDBOX_DISK_LIMIT_ROOTFS_KEY = "sandbox_disk_limit_rootfs"
 SANDBOX_DISK_LIMIT_LOG_KEY = "sandbox_disk_limit_log"
@@ -20,3 +21,13 @@ class DeploymentHookStep(str, Enum):
 
     PULLING_IMAGE = "Pulling docker image"
     STARTING_RUNTIME = "Starting runtime"
+
+
+class StopReason(str, Enum):
+    """Why a sandbox was stopped. Propagated through the SandboxManager → Operator → Actor
+    stop chain so the actor-side lifecycle summary can distinguish user-initiated stops
+    from auto-cleanup of expired sandboxes.
+    """
+
+    MANUAL = "manual"
+    EXPIRED = "expired"

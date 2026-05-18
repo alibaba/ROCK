@@ -91,7 +91,7 @@ class DockerDeploymentConfig(DeploymentConfig):
     """Number of CPU cores to allocate for the container. Used as --cpu-shares (cpus * 1024)."""
 
     limit_cpus: float | None = None
-    """Hard limit on the number of CPU cores the container can use. Used as --cpus when CPU preemption is enabled via nacos switch."""
+    """Hard limit on the number of CPU cores the container can use. Used as --cpus. When the SDK leaves this None, the admin gateway may derive it from cpus + Nacos `cpu_overcommit_headroom`."""
 
     disk_limit_rootfs: str | None = None
     """Maximum rootfs disk size for the container (e.g., '20g', '50g'). Maps to --storage-opt size=<value>. Only supported on overlay2 storage driver with xfs backing filesystem. None means no limit."""

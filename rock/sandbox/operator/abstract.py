@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.core.redis_key import alive_sandbox_key
+from rock.common.constants import StopReason
 from rock.config import RuntimeConfig
 from rock.deployments.config import DeploymentConfig
 from rock.utils.providers.nacos_provider import NacosConfigProvider
@@ -22,7 +23,7 @@ class AbstractOperator(ABC):
         ...
 
     @abstractmethod
-    async def stop(self, sandbox_id: str) -> bool:
+    async def stop(self, sandbox_id: str, reason: StopReason = StopReason.MANUAL) -> bool:
         ...
 
     def set_redis_provider(self, redis_provider: RedisProvider):

@@ -150,6 +150,8 @@ def _make_actor() -> ConcreteBaseActor:
     config = MagicMock()
     config.container_name = "test-container"
     config.auto_clear_time = None  # skip DockerDeploymentConfig branch
+    config.cpus = 2.0
+    config.limit_cpus = None
 
     deployment = MagicMock()
     deployment.__class__ = object  # make isinstance(deployment, DockerDeployment) return False
@@ -157,7 +159,7 @@ def _make_actor() -> ConcreteBaseActor:
     actor = ConcreteBaseActor(config, deployment)
     actor.host = "127.0.0.1"
     # Pre-populate all gauges with mocks so tests can override selectively
-    for key in ("cpu", "mem", "disk", "net", "rt"):
+    for key in ("cpu", "mem", "disk", "net", "rt", "cpus_used"):
         actor._gauges[key] = MagicMock()
     return actor
 
@@ -304,3 +306,32 @@ async def test_metrics_attributes_host_name_matches_actor_field():
 
     attributes = mock_cpu_gauge.set.call_args[1]["attributes"]
     assert attributes["host_name"] == custom_hostname
+
+
+@pytest.mark.asyncio
+async def test_cpu_metric_no_overcommit():
+    """When limit_cpus is None: cpus_used scales by cpus, and cpus_allocated/cpus_limit
+    are reported as tags equal to cpus."""
+    actor = _make_actor()  # cpus=2.0, limit_cpus=None; ConcreteBaseActor returns cpu=10.0
+    await actor._collect_sandbox_metrics("test-container")
+
+    # cpu_pct=10, effective_limit=2 -> cpus_used = 0.1 * 2 = 0.2
+    assert actor._gauges["cpus_used"].set.call_args[0][0] == pytest.approx(0.2)
+    attrs = actor._gauges["cpus_used"].set.call_args[1]["attributes"]
+    assert attrs["cpus_allocated"] == "2"
+    assert attrs["cpus_limit"] == "2"
+
+
+@pytest.mark.asyncio
+async def test_cpu_metric_overcommit():
+    """When limit_cpus > cpus: cpus_used scales by the limit; cpus_limit tag reflects the limit."""
+    actor = _make_actor()
+    actor._config.limit_cpus = 6.0  # overcommit: 2 allocated, 6 hard cap
+
+    await actor._collect_sandbox_metrics("test-container")
+
+    # cpu_pct=10, effective_limit=6 -> cpus_used = 0.1 * 6 = 0.6
+    assert actor._gauges["cpus_used"].set.call_args[0][0] == pytest.approx(0.6)
+    attrs = actor._gauges["cpus_used"].set.call_args[1]["attributes"]
+    assert attrs["cpus_allocated"] == "2"
+    assert attrs["cpus_limit"] == "6"

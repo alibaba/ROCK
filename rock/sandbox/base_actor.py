@@ -11,6 +11,7 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
 from rock import env_vars
+from rock.common.constants import StopReason
 from rock.deployments.abstract import AbstractDeployment
 from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
 from rock.deployments.docker import DockerDeployment
@@ -39,6 +40,7 @@ class BaseActor:
     _user_defined_tags: dict = {}
     _created_time: float = None
     _host_name: str = None
+    _max_cpus_used: float = 0.0
 
     def __init__(
         self,
@@ -51,6 +53,7 @@ class BaseActor:
         if isinstance(config, DockerDeploymentConfig) and config.auto_clear_time:
             self._auto_clear_time_in_minutes = config.auto_clear_time
         self._created_time = time.monotonic()
+        self._max_cpus_used = 0.0
         self._stop_time = datetime.datetime.now() + datetime.timedelta(minutes=self._auto_clear_time_in_minutes)
         # Initialize the user and environment info - can be overridden by subclasses
         self._role = "test"
@@ -110,6 +113,12 @@ class BaseActor:
         self._gauges["rt"] = self.meter.create_gauge(
             name="xrl_gateway.system.lifespan_rt", description="Life Span Rt", unit="1"
         )
+        self._gauges["cpus_used"] = self.meter.create_gauge(
+            name="xrl_gateway.system.cpus_used",
+            description="Sandbox actual CPU cores used (cpu_percent/100 * cpus_limit). "
+            "cpus_allocated and cpus_limit are reported as tags on this and every other gauge.",
+            unit="1",
+        )
 
     async def _setup_monitor(self):
         if not env_vars.ROCK_MONITOR_ENABLE:
@@ -126,6 +135,19 @@ class BaseActor:
             name="Sandbox Resource Metrics Collection",
         )
         self._metrics_report_scheduler.start()
+
+    def log_lifecycle_summary(self, reason: StopReason = StopReason.MANUAL) -> None:
+        """Emit a single line summarising CPU usage and lifespan for this sandbox."""
+        duration_seconds = time.monotonic() - self._created_time if self._created_time is not None else 0.0
+        logger.info(
+            f"[{self._config.container_name}] lifecycle summary: "
+            f"reason={reason.value}, "
+            f"image={self._config.image}, "
+            f"cpus={self._config.cpus}, "
+            f"limit_cpus={self._config.limit_cpus}, "
+            f"max_cpus_used={self._max_cpus_used:.4f}, "
+            f"duration={duration_seconds:.2f}s"
+        )
 
     def stop_monitoring(self):
         if env_vars.ROCK_MONITOR_ENABLE and self._metrics_report_scheduler and self._metrics_report_scheduler.running:
@@ -159,6 +181,11 @@ class BaseActor:
                 return
             logger.debug(f"sandbox [{sandbox_id}] metrics = {metrics}")
 
+            cpus = float(self._config.cpus)
+            limit_cpus_raw = self._config.limit_cpus
+            # When limit_cpus is None, treat it as equal to cpus (no overcommit).
+            effective_limit = float(limit_cpus_raw) if limit_cpus_raw is not None else cpus
+
             attributes = {
                 "sandbox_id": sandbox_id,
                 "env": self._env,
@@ -169,6 +196,11 @@ class BaseActor:
                 "experiment_id": self._experiment_id,
                 "namespace": self._namespace,
                 "host_name": self._host_name,
+                # cpus_allocated / cpus_limit are static per-sandbox values; reported
+                # as tags on every gauge so dashboards can group/filter without
+                # needing dedicated time-series for them.
+                "cpus_allocated": f"{cpus:g}",
+                "cpus_limit": f"{effective_limit:g}",
             }
             if self._user_defined_tags is not None:
                 attributes.update(self._user_defined_tags)
@@ -178,6 +210,15 @@ class BaseActor:
                 self._gauges["mem"].set(metrics["mem"], attributes=attributes)
                 self._gauges["disk"].set(metrics["disk"], attributes=attributes)
                 self._gauges["net"].set(metrics["net"], attributes=attributes)
+
+                # cpus_used inherits the semantic of metrics["cpu"]: it is reported
+                # as a percentage of the sandbox's allocated CPU (see the legend of
+                # xrl_gateway.system.cpu in admin/metrics/monitor.py). Multiplying by
+                # effective_limit converts it back to absolute cores.
+                cpus_used = (metrics["cpu"] / 100.0) * effective_limit if effective_limit > 0 else 0.0
+                if cpus_used > self._max_cpus_used:
+                    self._max_cpus_used = cpus_used
+                self._gauges["cpus_used"].set(cpus_used, attributes=attributes)
 
                 logger.debug(f"Successfully reported metrics for sandbox: {sandbox_id}")
             else:

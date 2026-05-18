@@ -25,6 +25,7 @@ from rock.admin.proto.request import SandboxCommand as Command
 from rock.admin.proto.request import SandboxCreateBashSessionRequest as CreateBashSessionRequest
 from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
+from rock.common.constants import StopReason
 from rock.deployments.abstract import AbstractDeployment
 from rock.deployments.config import DeploymentConfig
 from rock.deployments.constants import Status
@@ -133,8 +134,8 @@ class SandboxActor(GemActor):
             self._clean_container_background()
         await self._setup_monitor()
 
-    async def stop(self):
-        logger.info(f"[{self._config.container_name}] start to stop")
+    async def stop(self, reason: StopReason = StopReason.MANUAL):
+        logger.info(f"[{self._config.container_name}] start to stop (reason={reason.value})")
         try:
             await self._deployment.stop()
             logger.info(f"[{self._config.container_name}] deployment stopped")
@@ -142,6 +143,8 @@ class SandboxActor(GemActor):
             logger.info(f"[{self._config.container_name}] actor stopped")
         except Exception as e:
             logger.error(f"[{self._config.container_name}] Error occurred while stopping container: {e}", exc_info=True)
+        finally:
+            self.log_lifecycle_summary(reason)
 
     async def commit(self, image_tag: str, username: str, password: str) -> CommandResponse:
         logger.info(f"start to commit {self._config.container_name} to {image_tag}")
