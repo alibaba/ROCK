@@ -31,3 +31,7 @@ class MetricsConstants:
     METASTORE_DB_SUCCESS = "meta_store.db.success"
     METASTORE_DB_FAILURE = "meta_store.db.failure"
     METASTORE_DB_RT = "meta_store.db.rt"
+
+    # Disk governance: deferred sandbox log archival
+    SANDBOX_LOG_ARCHIVE_FAILED_PERSIST = "sandbox.log.archive.failed_persist"
+    """Counter: dirs that exceeded archive_max_attempts; preserved for FileCleanupTask."""
