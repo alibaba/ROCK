@@ -39,6 +39,8 @@ class SandboxStartRequest(BaseModel):
     """Whether to use kata container runtime (io.containerd.kata.v2) instead of --privileged mode."""
     auto_delete_seconds: int | None = None
     """The time for automatic container deletion, with the unit being seconds."""
+    disk: str | None = None
+    """Disk quota for the sandbox (e.g. '20g'). Applied to both rootfs and log dir. Falls back to cluster default if None."""
 
 
 class SandboxCommand(Command):
