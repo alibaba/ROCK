@@ -37,9 +37,9 @@ def mock_oss_config():
     cfg.oss.endpoint = ""
     cfg.oss.access_key_id = ""
     cfg.oss.access_key_secret = ""
-    cfg.oss.archive_prefix = "rock-archives/"
-    cfg.oss.keep_days_before_archive = 3
-    cfg.oss.archive_max_attempts = 3
+    cfg.sandbox_config.log.archive_prefix = "rock-archives/"
+    cfg.sandbox_config.log.keep_days_before_archive = 3
+    cfg.sandbox_config.log.archive_max_attempts = 3
     return cfg
 
 
@@ -171,8 +171,10 @@ class TestProcessOne:
         assert cmd_arg.env == {"OSS_ACCESS_KEY_ID": "LEAKY_AK", "OSS_ACCESS_KEY_SECRET": "LEAKY_SK"}
         assert "LEAKY_AK" not in cmd_arg.command
         assert "LEAKY_SK" not in cmd_arg.command
-        # Sanity: actually a tar|ossutil pipeline targeting the right OSS object
-        assert "tar -czf -" in cmd_arg.command
+        # Sanity: actually a tar + ossutil cp pipeline targeting the right OSS object
+        # (build_command rewrites tar into a temp file under mktemp -d, then ossutil cp
+        # reads it with a temp credentials file; no stdin pipe for ossutil 1.7.x compat).
+        assert "tar -czf" in cmd_arg.command
         assert "ossutil cp" in cmd_arg.command
         assert "oss://chatos-rock/rock-archives/sandbox-logs/sb-old.tar.gz" in cmd_arg.command
         assert cmd_arg.shell is True
