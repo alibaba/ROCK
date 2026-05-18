@@ -4,26 +4,12 @@ from unittest.mock import patch
 
 import pytest
 
-import rock.utils.cgroup_stats as cgroup_stats
-
-
-@pytest.fixture(autouse=True)
-def _reset_global_state():
-    """Reset module-level caches between tests."""
-    cgroup_stats._cgroup_version = None
-    cgroup_stats._cpu_quota = None
-    cgroup_stats._last_cpu_usage = None
-    cgroup_stats._last_cpu_time = None
-    yield
-    cgroup_stats._cgroup_version = None
-    cgroup_stats._cpu_quota = None
-    cgroup_stats._last_cpu_usage = None
-    cgroup_stats._last_cpu_time = None
+from rock.utils.cgroup_stats import CgroupCpuStats, Path
 
 
 def _mock_path_exists(mapping: dict[str, bool]):
     """Return a side_effect for Path.exists() based on a path-string mapping."""
-    original_exists = cgroup_stats.Path.exists
+    original_exists = Path.exists
 
     def _exists(self):
         s = str(self)
@@ -51,39 +37,44 @@ def _mock_path_read_text(mapping: dict[str, str]):
 
 class TestDetectCgroupVersion:
     def test_detects_v2(self):
+        stats = CgroupCpuStats()
         exists_map = {"/sys/fs/cgroup/cgroup.controllers": True}
-        with patch.object(cgroup_stats.Path, "exists", _mock_path_exists(exists_map)):
-            assert cgroup_stats._detect_cgroup_version() == 2
+        with patch.object(Path, "exists", _mock_path_exists(exists_map)):
+            assert stats._detect_cgroup_version() == 2
 
     def test_detects_v1(self):
+        stats = CgroupCpuStats()
         exists_map = {
             "/sys/fs/cgroup/cgroup.controllers": False,
             "/sys/fs/cgroup/cpu/cpuacct.usage": True,
         }
-        with patch.object(cgroup_stats.Path, "exists", _mock_path_exists(exists_map)):
-            assert cgroup_stats._detect_cgroup_version() == 1
+        with patch.object(Path, "exists", _mock_path_exists(exists_map)):
+            assert stats._detect_cgroup_version() == 1
 
     def test_detects_v1_alternate_path(self):
+        stats = CgroupCpuStats()
         exists_map = {
             "/sys/fs/cgroup/cgroup.controllers": False,
             "/sys/fs/cgroup/cpu/cpuacct.usage": False,
             "/sys/fs/cgroup/cpuacct/cpuacct.usage": True,
         }
-        with patch.object(cgroup_stats.Path, "exists", _mock_path_exists(exists_map)):
-            assert cgroup_stats._detect_cgroup_version() == 1
+        with patch.object(Path, "exists", _mock_path_exists(exists_map)):
+            assert stats._detect_cgroup_version() == 1
 
     def test_detects_no_cgroup(self):
+        stats = CgroupCpuStats()
         exists_map = {
             "/sys/fs/cgroup/cgroup.controllers": False,
             "/sys/fs/cgroup/cpu/cpuacct.usage": False,
             "/sys/fs/cgroup/cpuacct/cpuacct.usage": False,
         }
-        with patch.object(cgroup_stats.Path, "exists", _mock_path_exists(exists_map)):
-            assert cgroup_stats._detect_cgroup_version() == 0
+        with patch.object(Path, "exists", _mock_path_exists(exists_map)):
+            assert stats._detect_cgroup_version() == 0
 
     def test_caches_result(self):
-        cgroup_stats._cgroup_version = 2
-        assert cgroup_stats._detect_cgroup_version() == 2
+        stats = CgroupCpuStats()
+        stats._cgroup_version = 2
+        assert stats._detect_cgroup_version() == 2
 
 
 # ---------- CPU percent ----------
@@ -91,13 +82,15 @@ class TestDetectCgroupVersion:
 
 class TestCpuPercent:
     def test_first_call_returns_zero(self):
-        cgroup_stats._cgroup_version = 2
+        stats = CgroupCpuStats()
+        stats._cgroup_version = 2
         read_map = {"/sys/fs/cgroup/cpu.stat": "usage_usec 1000000\n"}
-        with patch.object(cgroup_stats.Path, "read_text", _mock_path_read_text(read_map)):
-            assert cgroup_stats.cpu_percent() == 0.0
+        with patch.object(Path, "read_text", _mock_path_read_text(read_map)):
+            assert stats.cpu_percent() == 0.0
 
     def test_v2_cpu_calculation(self):
-        cgroup_stats._cgroup_version = 2
+        stats = CgroupCpuStats()
+        stats._cgroup_version = 2
         read_map_1 = {
             "/sys/fs/cgroup/cpu.stat": "usage_usec 1000000\n",
             "/sys/fs/cgroup/cpu.max": "100000 100000\n",
@@ -115,16 +108,16 @@ class TestCpuPercent:
             return val
 
         with (
-            patch.object(cgroup_stats.Path, "read_text", _mock_path_read_text(read_map_1)),
+            patch.object(Path, "read_text", _mock_path_read_text(read_map_1)),
             patch("rock.utils.cgroup_stats.time.monotonic_ns", mock_monotonic_ns),
         ):
-            cgroup_stats.cpu_percent()
+            stats.cpu_percent()
 
         with (
-            patch.object(cgroup_stats.Path, "read_text", _mock_path_read_text(read_map_2)),
+            patch.object(Path, "read_text", _mock_path_read_text(read_map_2)),
             patch("rock.utils.cgroup_stats.time.monotonic_ns", mock_monotonic_ns),
         ):
-            result = cgroup_stats.cpu_percent()
+            result = stats.cpu_percent()
 
         # delta_usage = (1500000 - 1000000) * 1000 = 500_000_000 ns
         # delta_time = 100_000_000_000 ns
@@ -133,7 +126,8 @@ class TestCpuPercent:
         assert result == 0.5
 
     def test_v1_cpu_calculation(self):
-        cgroup_stats._cgroup_version = 1
+        stats = CgroupCpuStats()
+        stats._cgroup_version = 1
         exists_map = {"/sys/fs/cgroup/cpu/cpuacct.usage": True}
         read_map_1 = {
             "/sys/fs/cgroup/cpu/cpuacct.usage": "1000000000\n",
@@ -154,18 +148,18 @@ class TestCpuPercent:
             return val
 
         with (
-            patch.object(cgroup_stats.Path, "exists", _mock_path_exists(exists_map)),
-            patch.object(cgroup_stats.Path, "read_text", _mock_path_read_text(read_map_1)),
+            patch.object(Path, "exists", _mock_path_exists(exists_map)),
+            patch.object(Path, "read_text", _mock_path_read_text(read_map_1)),
             patch("rock.utils.cgroup_stats.time.monotonic_ns", mock_monotonic_ns),
         ):
-            cgroup_stats.cpu_percent()
+            stats.cpu_percent()
 
         with (
-            patch.object(cgroup_stats.Path, "exists", _mock_path_exists(exists_map)),
-            patch.object(cgroup_stats.Path, "read_text", _mock_path_read_text(read_map_2)),
+            patch.object(Path, "exists", _mock_path_exists(exists_map)),
+            patch.object(Path, "read_text", _mock_path_read_text(read_map_2)),
             patch("rock.utils.cgroup_stats.time.monotonic_ns", mock_monotonic_ns),
         ):
-            result = cgroup_stats.cpu_percent()
+            result = stats.cpu_percent()
 
         # delta_usage = 1_000_000_000 ns, delta_time = 100_000_000_000 ns
         # quota = 200000/100000 = 2.0 CPUs
@@ -173,17 +167,18 @@ class TestCpuPercent:
         assert result == 0.5
 
     def test_fallback_to_psutil_when_no_cgroup(self):
-        cgroup_stats._cgroup_version = 0
+        stats = CgroupCpuStats()
+        stats._cgroup_version = 0
         with patch("rock.utils.cgroup_stats.psutil.cpu_percent", return_value=42.0):
-            assert cgroup_stats.cpu_percent() == 42.0
+            assert stats.cpu_percent() == 42.0
 
     def test_capped_at_100(self):
-        cgroup_stats._cgroup_version = 2
+        stats = CgroupCpuStats()
+        stats._cgroup_version = 2
         read_map_1 = {
             "/sys/fs/cgroup/cpu.stat": "usage_usec 0\n",
             "/sys/fs/cgroup/cpu.max": "100000 100000\n",
         }
-        # Huge jump to exceed 100%
         read_map_2 = {
             "/sys/fs/cgroup/cpu.stat": "usage_usec 200000000\n",
             "/sys/fs/cgroup/cpu.max": "100000 100000\n",
@@ -197,35 +192,37 @@ class TestCpuPercent:
             return val
 
         with (
-            patch.object(cgroup_stats.Path, "read_text", _mock_path_read_text(read_map_1)),
+            patch.object(Path, "read_text", _mock_path_read_text(read_map_1)),
             patch("rock.utils.cgroup_stats.time.monotonic_ns", mock_monotonic_ns),
         ):
-            cgroup_stats.cpu_percent()
+            stats.cpu_percent()
 
         with (
-            patch.object(cgroup_stats.Path, "read_text", _mock_path_read_text(read_map_2)),
+            patch.object(Path, "read_text", _mock_path_read_text(read_map_2)),
             patch("rock.utils.cgroup_stats.time.monotonic_ns", mock_monotonic_ns),
         ):
-            result = cgroup_stats.cpu_percent()
+            result = stats.cpu_percent()
 
         assert result == 100.0
 
     def test_zero_delta_time_returns_zero(self):
-        cgroup_stats._cgroup_version = 2
+        stats = CgroupCpuStats()
+        stats._cgroup_version = 2
         read_map = {"/sys/fs/cgroup/cpu.stat": "usage_usec 1000000\n"}
         same_time = 100_000_000_000
 
         with (
-            patch.object(cgroup_stats.Path, "read_text", _mock_path_read_text(read_map)),
+            patch.object(Path, "read_text", _mock_path_read_text(read_map)),
             patch("rock.utils.cgroup_stats.time.monotonic_ns", return_value=same_time),
         ):
-            cgroup_stats.cpu_percent()
-            result = cgroup_stats.cpu_percent()
+            stats.cpu_percent()
+            result = stats.cpu_percent()
 
         assert result == 0.0
 
     def test_negative_delta_usage_returns_zero(self):
-        cgroup_stats._cgroup_version = 2
+        stats = CgroupCpuStats()
+        stats._cgroup_version = 2
         read_map_1 = {"/sys/fs/cgroup/cpu.stat": "usage_usec 2000000\n"}
         read_map_2 = {
             "/sys/fs/cgroup/cpu.stat": "usage_usec 1000000\n",
@@ -240,16 +237,16 @@ class TestCpuPercent:
             return val
 
         with (
-            patch.object(cgroup_stats.Path, "read_text", _mock_path_read_text(read_map_1)),
+            patch.object(Path, "read_text", _mock_path_read_text(read_map_1)),
             patch("rock.utils.cgroup_stats.time.monotonic_ns", mock_monotonic_ns),
         ):
-            cgroup_stats.cpu_percent()
+            stats.cpu_percent()
 
         with (
-            patch.object(cgroup_stats.Path, "read_text", _mock_path_read_text(read_map_2)),
+            patch.object(Path, "read_text", _mock_path_read_text(read_map_2)),
             patch("rock.utils.cgroup_stats.time.monotonic_ns", mock_monotonic_ns),
         ):
-            result = cgroup_stats.cpu_percent()
+            result = stats.cpu_percent()
 
         assert result == 0.0
 
@@ -259,30 +256,33 @@ class TestCpuPercent:
 
 class TestCpuQuota:
     def test_v2_unlimited(self):
-        cgroup_stats._cgroup_version = 2
+        stats = CgroupCpuStats()
+        stats._cgroup_version = 2
         read_map = {"/sys/fs/cgroup/cpu.max": "max 100000\n"}
         with (
-            patch.object(cgroup_stats.Path, "read_text", _mock_path_read_text(read_map)),
+            patch.object(Path, "read_text", _mock_path_read_text(read_map)),
             patch("rock.utils.cgroup_stats.os.cpu_count", return_value=4),
         ):
-            assert cgroup_stats._read_cpu_quota() == 4.0
+            assert stats._read_cpu_quota() == 4.0
 
     def test_v1_unlimited(self):
-        cgroup_stats._cgroup_version = 1
+        stats = CgroupCpuStats()
+        stats._cgroup_version = 1
         read_map = {
             "/sys/fs/cgroup/cpu/cpu.cfs_quota_us": "-1\n",
             "/sys/fs/cgroup/cpu/cpu.cfs_period_us": "100000\n",
         }
         with (
-            patch.object(cgroup_stats.Path, "read_text", _mock_path_read_text(read_map)),
+            patch.object(Path, "read_text", _mock_path_read_text(read_map)),
             patch("rock.utils.cgroup_stats.os.cpu_count", return_value=8),
         ):
-            assert cgroup_stats._read_cpu_quota() == 8.0
+            assert stats._read_cpu_quota() == 8.0
 
     def test_fallback_on_error(self):
-        cgroup_stats._cgroup_version = 2
+        stats = CgroupCpuStats()
+        stats._cgroup_version = 2
         with (
-            patch.object(cgroup_stats.Path, "read_text", side_effect=PermissionError),
+            patch.object(Path, "read_text", side_effect=PermissionError),
             patch("rock.utils.cgroup_stats.os.cpu_count", return_value=2),
         ):
-            assert cgroup_stats._read_cpu_quota() == 2.0
+            assert stats._read_cpu_quota() == 2.0
