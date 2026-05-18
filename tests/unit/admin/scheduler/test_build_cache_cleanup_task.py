@@ -108,7 +108,9 @@ class TestRunAction:
         # The mutually-exclusive shape: if/then/else replaces `a && b || c`.
         assert "if command -v uv" in cmd
         assert "if command -v pip" in cmd
-        assert "else echo" in cmd
+        # Triple-quote bash puts `else` and `echo` on separate lines (newline as
+        # statement separator); just check the keyword is present.
+        assert "else" in cmd
 
     @pytest.mark.asyncio
     async def test_subset_of_tools(self):

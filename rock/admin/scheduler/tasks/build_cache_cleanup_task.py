@@ -1,5 +1,7 @@
 """Prune build/install caches (uv, pip) on each worker."""
 
+import textwrap
+
 from rock.admin.proto.request import SandboxCommand as Command
 from rock.admin.scheduler.task_base import BaseTask, IdempotencyType, TaskStatusEnum
 from rock.common.constants import SCHEDULER_LOG_NAME
@@ -14,15 +16,21 @@ logger = init_logger(name="build_cache_cleanup", file_name=SCHEDULER_LOG_NAME)
 # also fire `c` when `b` failed (permission/disk error), misleading operators
 # into thinking the tool was missing when in fact the prune itself errored.
 _TOOL_COMMANDS: dict[str, str] = {
-    "uv": (
-        "if command -v uv >/dev/null 2>&1; then "
-        '  uv cache prune 2>&1 || echo "uv: prune failed"; '
-        'else echo "uv: skipped (not installed)"; fi'
+    "uv": textwrap.dedent(
+        """\
+        if command -v uv >/dev/null 2>&1; then
+          uv cache prune 2>&1 || echo "uv: prune failed"
+        else
+          echo "uv: skipped (not installed)"
+        fi"""
     ),
-    "pip": (
-        "if command -v pip >/dev/null 2>&1; then "
-        '  pip cache purge 2>&1 || echo "pip: prune failed"; '
-        'else echo "pip: skipped (not installed)"; fi'
+    "pip": textwrap.dedent(
+        """\
+        if command -v pip >/dev/null 2>&1; then
+          pip cache purge 2>&1 || echo "pip: prune failed"
+        else
+          echo "pip: skipped (not installed)"
+        fi"""
     ),
 }
 
@@ -54,9 +62,7 @@ class BuildCacheCleanupTask(BaseTask):
         tools = tools if tools is not None else ["uv", "pip"]
         unknown = [t for t in tools if t not in _TOOL_COMMANDS]
         if unknown:
-            raise ValueError(
-                f"Unsupported build cache tool(s): {unknown}. Supported: {sorted(_TOOL_COMMANDS)}"
-            )
+            raise ValueError(f"Unsupported build cache tool(s): {unknown}. Supported: {sorted(_TOOL_COMMANDS)}")
         self.tools = tools
 
     @classmethod
