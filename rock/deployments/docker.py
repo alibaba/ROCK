@@ -21,7 +21,7 @@ from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Port, Status
 from rock.deployments.docker_client import TempAuthDockerClient, TempAuthDockerClientError
 from rock.deployments.hooks.abstract import CombinedDeploymentHook, DeploymentHook
-from rock.deployments.log_cleanup_sentinel import sentinel_path, write_sentinel
+from rock.deployments.log_cleanup_sentinel import Sentinel
 from rock.deployments.runtime_env import DockerRuntimeEnv, LocalRuntimeEnv, PipRuntimeEnv, UvRuntimeEnv
 from rock.deployments.sandbox_validator import DockerSandboxValidator
 from rock.deployments.status import PersistedServiceStatus, ServiceStatus
@@ -44,8 +44,8 @@ from rock.utils import (
 
 __all__ = ["DockerDeployment", "DockerDeploymentConfig"]
 CHECK_CLEAR_INTERVAL_SECONDS = 300
-XFS_PRJID_MIN = (1 << 31)                      # low project IDs are reserved for Docker
-XFS_PRJID_RANGE = (1 << 32) - XFS_PRJID_MIN   # use remaining 32-bit space: [XFS_PRJID_MIN, 2^32)
+XFS_PRJID_MIN = 1 << 31  # low project IDs are reserved for Docker
+XFS_PRJID_RANGE = (1 << 32) - XFS_PRJID_MIN  # use remaining 32-bit space: [XFS_PRJID_MIN, 2^32)
 
 
 logger = init_logger(__name__)
@@ -425,7 +425,9 @@ class DockerDeployment(AbstractDeployment):
             return
 
         # Derive a deterministic project id from container name; reserve low ids.
-        project_id = (int(hashlib.sha1(self.container_name.encode("utf-8")).hexdigest()[:8], 16) % XFS_PRJID_RANGE) + XFS_PRJID_MIN
+        project_id = (
+            int(hashlib.sha1(self.container_name.encode("utf-8")).hexdigest()[:8], 16) % XFS_PRJID_RANGE
+        ) + XFS_PRJID_MIN
         try:
             findmnt_result = subprocess.run(
                 ["findmnt", "-T", log_file_path, "-o", "TARGET", "--noheadings"],
@@ -645,14 +647,13 @@ class DockerDeployment(AbstractDeployment):
             if not log_dir.is_dir():
                 logger.warning(f"[sentinel] skip: log_dir does not exist: {log_dir}")
                 return
-            if sentinel_path(log_dir).exists():
-                logger.info(f"[sentinel] skip: sentinel already exists at {sentinel_path(log_dir)}")
+            if Sentinel.path(log_dir).exists():
+                logger.info(f"[sentinel] skip: sentinel already exists at {Sentinel.path(log_dir)}")
                 return
-            write_sentinel(log_dir)
-            logger.info(f"[sentinel] WRITE_OK at {sentinel_path(log_dir)}")
+            Sentinel.write(log_dir)
+            logger.info(f"[sentinel] WRITE_OK at {Sentinel.path(log_dir)}")
         except Exception as e:
             logger.exception(f"[sentinel] _try_mark_sentinel unexpected error: {e}")
-
 
     def _stop(self):
         """Stops the runtime."""
