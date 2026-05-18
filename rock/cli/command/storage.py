@@ -6,13 +6,13 @@ recovery path: ask admin for primary STS via `/get_token?account=primary`,
 then download the object via oss2.
 
 Design choices:
-  - Reuses `build_sandbox_log_key` from rock.utils.archive_command so admin
+  - Reuses `ArchiveCommand.build_key` from rock.utils.archive_command so admin
     and CLI cannot drift on the OSS key layout.
   - AK/SK never leave admin → CLI is given a short-lived STS token.
   - No new admin endpoints; the existing /get_token covers it.
   - `--base-url` may be either the bare host (`https://admin/`) or include
     the `/apis/envs/sandbox/v1` prefix; CLI normalizes either form.
-  - `--archive-prefix` defaults to admin's `oss.archive_prefix` config
+  - `--archive-prefix` defaults to admin's `sandbox_config.log.archive_prefix`
     (returned in the STS response as `ArchivePrefix`); CLI flag overrides.
 """
 
@@ -25,7 +25,7 @@ import oss2
 
 from rock.cli.command.command import Command
 from rock.logger import init_logger
-from rock.utils.archive_command import build_sandbox_log_key
+from rock.utils.archive_command import ArchiveCommand
 from rock.utils.http import HttpUtils
 
 logger = init_logger("rock.cli.storage")
@@ -49,7 +49,7 @@ class StorageCommand(Command):
         sts = await self._fetch_primary_sts(args)
         bucket_name, endpoint, region = self._extract_oss_target(args, sts)
         archive_prefix = self._resolve_archive_prefix(args, sts)
-        oss_key = build_sandbox_log_key(args.sandbox_id, archive_prefix)
+        oss_key = ArchiveCommand.build_key(args.sandbox_id, archive_prefix)
         out_path = self._resolve_output_path(args.output, args.sandbox_id)
 
         bucket = oss2.Bucket(
