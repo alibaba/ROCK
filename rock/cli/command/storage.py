@@ -12,8 +12,10 @@ Design choices:
   - No new admin endpoints; the existing /get_token covers it.
   - `--base-url` may be either the bare host (`https://admin/`) or include
     the `/apis/envs/sandbox/v1` prefix; CLI normalizes either form.
-  - `--archive-prefix` defaults to admin's `sandbox_config.log.archive_prefix`
-    (returned in the STS response as `ArchivePrefix`); CLI flag overrides.
+  - `--archive-prefix` must match admin's `sandbox_config.log.archive_prefix`
+    (e.g. "rock-archives/"); the user passes it explicitly. We do NOT pull
+    it from /get_token — that endpoint is for STS / OSS connectivity only,
+    not for sandbox-side domain policy like archive layout.
 """
 
 import argparse
@@ -48,8 +50,7 @@ class StorageCommand(Command):
     async def _get(self, args: argparse.Namespace):
         sts = await self._fetch_primary_sts(args)
         bucket_name, endpoint, region = self._extract_oss_target(args, sts)
-        archive_prefix = self._resolve_archive_prefix(args, sts)
-        oss_key = ArchiveCommand.build_key(args.sandbox_id, archive_prefix)
+        oss_key = ArchiveCommand.build_key(args.sandbox_id, args.archive_prefix or "")
         out_path = self._resolve_output_path(args.output, args.sandbox_id)
 
         bucket = oss2.Bucket(
@@ -110,18 +111,6 @@ class StorageCommand(Command):
         return f"{clean}/get_token?account=primary"
 
     @staticmethod
-    def _resolve_archive_prefix(args: argparse.Namespace, sts: dict[str, Any]) -> str:
-        """Pick archive_prefix: explicit CLI flag wins, else admin-pushed value, else empty.
-
-        The STS response carries `ArchivePrefix` so users do not need to hardcode the prefix
-        on every invocation; admin and CLI thus cannot drift on prefix layout.
-        """
-        flag = args.archive_prefix
-        if flag:
-            return flag
-        return sts.get("ArchivePrefix") or ""
-
-    @staticmethod
     def _build_headers(args: argparse.Namespace) -> dict[str, str]:
         headers = dict(getattr(args, "extra_headers", {}) or {})
         token = getattr(args, "auth_token", None)
@@ -175,9 +164,8 @@ class StorageCommand(Command):
             dest="archive_prefix",
             default="",
             help=(
-                "Override the OSS key prefix used at archive time. "
-                "If unset, the prefix is taken from admin's STS response (ArchivePrefix field), "
-                "so you usually do not need to pass this."
+                "OSS key prefix used at archive time (must match admin's "
+                "sandbox_config.log.archive_prefix, e.g. 'rock-archives/')."
             ),
         )
         get_p.add_argument(
