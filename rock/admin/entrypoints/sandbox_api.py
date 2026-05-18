@@ -101,15 +101,14 @@ async def _apply_cpu_overcommit_default(config: DockerDeploymentConfig, rock_aut
 
     Formula: limit_cpus = min(2 * cpus, cpus + headroom)
     - SDK-supplied limit_cpus always wins (function is a no-op in that case).
-    - Grayscale gate: only enabled when `rock_authorization` matches one of the
-      keys in Nacos list `cpu_overcommit_allowed_keys`. Missing/None auth or an
-      empty/misconfigured whitelist keeps the gate closed.
+    - Grayscale gate driven by Nacos list `cpu_overcommit_allowed_keys`:
+      * key absent from Nacos -> gate is open for every caller (full rollout).
+      * key present as a list  -> only `rock_authorization` values in the list pass.
+      * key present but not a list (misconfigured) -> gate closed.
     - headroom is read from Nacos key `cpu_overcommit_headroom` (default 0).
     - headroom <= 0 keeps limit_cpus = None (docker run gets no --cpus flag).
     """
     if config.limit_cpus is not None:
-        return
-    if rock_authorization is None:
         return
 
     nacos = sandbox_manager.rock_config.nacos_provider
@@ -117,8 +116,8 @@ async def _apply_cpu_overcommit_default(config: DockerDeploymentConfig, rock_aut
         return
 
     nacos_config = await nacos.get_config() or {}
-    allowed_keys = nacos_config.get(CPU_OVERCOMMIT_ALLOWED_KEYS_KEY) or []
-    if not isinstance(allowed_keys, list) or rock_authorization not in allowed_keys:
+    allowed_keys = nacos_config.get(CPU_OVERCOMMIT_ALLOWED_KEYS_KEY)
+    if allowed_keys is not None and (not isinstance(allowed_keys, list) or rock_authorization not in allowed_keys):
         return
 
     raw = nacos_config.get(CPU_OVERCOMMIT_HEADROOM_KEY)
