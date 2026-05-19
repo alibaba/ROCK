@@ -59,7 +59,7 @@ class SandboxLogConfig:
     Lives under SandboxConfig.log: the fields are domain knobs of "what to do
     with stopped sandbox logs" — when to archive, how many retries, what OSS
     key prefix to use — colocated with other sandbox lifecycle / cleanup
-    policy (image_keep_patterns, remove_container_enabled). OSS endpoint /
+    policy (remove_container_enabled). OSS endpoint /
     bucket / credentials still belong to OssConfig.primary.
     """
 

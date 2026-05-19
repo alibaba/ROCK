@@ -664,13 +664,6 @@ class DockerDeployment(AbstractDeployment):
             self._cleanup_log_dir_xfs_quota()
             self._container_name = None
 
-        if self._config and self._config.remove_images and DockerUtil.is_image_available(self._config.image):
-            logger.info(f"Removing image {self._config.image}")
-            try:
-                DockerUtil.remove_image(self._config.image)
-            except subprocess.CalledProcessError:
-                logger.error(f"Failed to remove image {self._config.image}", exc_info=True)
-
         if self._check_stop_task is not None:
             logger.info("Stopping check task")
             self._check_stop_task.cancel()

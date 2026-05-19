@@ -90,9 +90,6 @@ class DockerDeploymentConfig(DeploymentConfig):
     pull: Literal["never", "always", "missing"] = "missing"
     """Docker image pull policy: 'never', 'always', or 'missing'."""
 
-    remove_images: bool = False
-    """Whether to remove the Docker image after the container stops."""
-
     python_standalone_dir: str | None = None
     """Directory path for Python standalone installation within the container."""
 

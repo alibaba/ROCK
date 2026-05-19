@@ -206,7 +206,7 @@ class DockerUtil:
             raise
 
     @classmethod
-    def remove_image(image: str) -> bytes:
+    def remove_image(cls, image: str) -> bytes:
         """Remove a Docker image"""
         return subprocess.check_output(["docker", "rmi", image], timeout=30)
 
