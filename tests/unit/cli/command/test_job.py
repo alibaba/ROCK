@@ -669,3 +669,120 @@ class TestHelpOutput:
         assert "flags mode" in out
         assert "--job_config" in out
         assert "--script" in out
+
+
+class TestAsyncFlag:
+    """--async submits the job and returns immediately without waiting."""
+
+    def _setup(self):
+        JobCommand._run_parser = None
+        top = argparse.ArgumentParser(prog="rock")
+        subparsers = top.add_subparsers(dest="command")
+        asyncio.run(JobCommand.add_parser_to(subparsers))
+        return top
+
+    def test_async_flag_parses_to_async_mode_true(self):
+        top = self._setup()
+        ns = top.parse_args(["job", "run", "--script", "run.sh", "--async"])
+        assert ns.async_mode is True
+
+    def test_async_mode_defaults_to_false(self):
+        top = self._setup()
+        ns = top.parse_args(["job", "run", "--script", "run.sh"])
+        assert ns.async_mode is False
+
+    def test_async_mode_calls_submit_not_run(self, monkeypatch):
+        """With --async, _job_run should call job.submit() and skip run()/wait()."""
+        calls = {"submit": 0, "run": 0, "wait": 0}
+
+        class FakeJob:
+            def __init__(self, cfg):
+                self._cfg = cfg
+
+            async def submit(self):
+                calls["submit"] += 1
+
+            async def run(self):
+                calls["run"] += 1
+
+            async def wait(self):
+                calls["wait"] += 1
+
+            @property
+            def sandbox_ids(self):
+                return ["sb-x"]
+
+        monkeypatch.setattr("rock.sdk.job.Job", FakeJob)
+
+        top = self._setup()
+        ns = top.parse_args(["job", "run", "--script", "run.sh", "--async"])
+        asyncio.run(JobCommand().arun(ns))
+
+        assert calls == {"submit": 1, "run": 0, "wait": 0}
+
+    def test_async_mode_prints_experiment_job_and_sandbox_ids(self, monkeypatch, capsys):
+        """Output must expose experiment_id, job_name and sandbox_ids after submit."""
+
+        class FakeJob:
+            def __init__(self, cfg):
+                self._cfg = cfg
+
+            async def submit(self):
+                pass
+
+            async def run(self):
+                raise AssertionError("run() should not be called in async mode")
+
+            @property
+            def sandbox_ids(self):
+                return ["sb-a", "sb-b"]
+
+        monkeypatch.setattr("rock.sdk.job.Job", FakeJob)
+
+        top = self._setup()
+        ns = top.parse_args(
+            [
+                "job",
+                "run",
+                "--script",
+                "run.sh",
+                "--async",
+            ]
+        )
+        # Set experiment_id and job_name via the parsed config path by mocking config after build
+        # Simpler: assert the three labels exist in stdout with actual values from config.
+        asyncio.run(JobCommand().arun(ns))
+
+        out = capsys.readouterr().out
+        assert "experiment_id:" in out
+        assert "job_name:" in out
+        assert "sandbox_ids: sb-a,sb-b" in out
+
+    def test_sync_mode_still_uses_run(self, monkeypatch):
+        """Regression: without --async, existing run() path stays intact."""
+        from unittest.mock import MagicMock
+
+        calls = {"submit": 0, "run": 0}
+
+        class FakeJob:
+            def __init__(self, cfg):
+                pass
+
+            async def submit(self):
+                calls["submit"] += 1
+
+            async def run(self):
+                calls["run"] += 1
+                r = MagicMock()
+                r.status = "COMPLETED"
+                r.trial_results = []
+                return r
+
+        monkeypatch.setattr("rock.sdk.job.Job", FakeJob)
+
+        top = self._setup()
+        ns = top.parse_args(["job", "run", "--script", "run.sh"])
+        asyncio.run(JobCommand().arun(ns))
+
+        assert calls["run"] == 1
+        assert calls["submit"] == 0

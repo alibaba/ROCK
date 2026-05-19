@@ -92,8 +92,15 @@ class JobCommand(Command):
         self._apply_overrides(config, args)
 
         # ── 4. Run ────────────────────────────────────────────────────
+        job = Job(config)
+        if getattr(args, "async_mode", False):
+            await job.submit()
+            print(f"experiment_id: {config.experiment_id or ''}")
+            print(f"job_name: {config.job_name or ''}")
+            print(f"sandbox_ids: {','.join(job.sandbox_ids)}")
+            return
         try:
-            result = await Job(config).run()
+            result = await job.run()
             if result.trial_results:
                 for tr in result.trial_results:
                     output = getattr(tr, "raw_output", None) or ""
@@ -266,6 +273,12 @@ class JobCommand(Command):
             "--xrl-authorization",
             default=None,
             help="XRL authorization token",
+        )
+        run_parser.add_argument(
+            "--async",
+            dest="async_mode",
+            action="store_true",
+            help="Submit job and return immediately with job info (non-blocking).",
         )
 
         # Stash on the class so _job_run can call parser.error() with the right parser.
