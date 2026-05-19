@@ -185,10 +185,11 @@ class DockerDeploymentConfig(DeploymentConfig):
     @classmethod
     def from_request(cls, request: SandboxStartRequest) -> DeploymentConfig:
         """Create DockerDeploymentConfig from SandboxStartRequest"""
-        return cls(
-            **request.model_dump(exclude={"sandbox_id"}),
-            container_name=request.sandbox_id,
-        )
+        data = request.model_dump(exclude={"sandbox_id", "disk"})
+        if request.disk is not None:
+            data["disk_limit_rootfs"] = request.disk
+            data["disk_limit_log"] = request.disk
+        return cls(**data, container_name=request.sandbox_id)
 
 
 class RayDeploymentConfig(DockerDeploymentConfig):
