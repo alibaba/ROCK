@@ -85,11 +85,11 @@ def _wire_config_with_tasks(tasks: list):
 class TestSelectTasks:
     def test_default_returns_all_available(self):
         available = {
-            "docker_image_prune": _make_task("docker_image_prune"),
+            "image_cleanup": _make_task("image_cleanup"),
             "file_cleanup": _make_task("file_cleanup"),
         }
         selected, errors = api._select_tasks(None, available)
-        assert sorted(t.type for t in selected) == ["docker_image_prune", "file_cleanup"]
+        assert sorted(t.type for t in selected) == ["file_cleanup", "image_cleanup"]
         assert errors == []
 
     def test_explicit_request_filters_unknown(self):
@@ -108,7 +108,9 @@ class TestSelectTasks:
 class TestWhitelist:
     def test_suffix_cleanup(self):
         assert api._is_task_whitelisted("file_cleanup") is True
-        assert api._is_task_whitelisted("docker_image_prune") is True
+        # `_prune` suffix kept whitelisted for forward-compat with future
+        # prune-style tasks; synthetic stub since no current task uses it.
+        assert api._is_task_whitelisted("future_prune") is True
 
     def test_suffix_archive(self):
         # `_archive` is whitelisted so emergency API can manually trigger
@@ -141,7 +143,7 @@ class TestRateLimit:
     def test_independent_per_task(self):
         api._check_and_mark_rate_limit("file_cleanup", now=1000.0)
         # different task name, same instant -> allowed
-        assert api._check_and_mark_rate_limit("docker_image_prune", now=1000.0) is True
+        assert api._check_and_mark_rate_limit("image_cleanup", now=1000.0) is True
 
 
 # ----------------------------------------------------------------------------- #
@@ -262,21 +264,21 @@ class TestDiskEmergencyCleanupAsync:
 
     @pytest.mark.asyncio
     async def test_partial_rate_limit_runs_the_unblocked_subset(self):
-        # Trigger file_cleanup first, then request both — only docker_image_prune runs.
+        # Trigger file_cleanup first, then request both — only image_cleanup runs.
         t1 = _make_task("file_cleanup")
-        t2 = _make_task("docker_image_prune")
+        t2 = _make_task("image_cleanup")
         api.set_alive_workers_provider(lambda: ["10.0.0.1"])
         with _wire_config_with_tasks([t1, t2]):
             await api.disk_emergency_cleanup.__wrapped__(
                 DiskEmergencyCleanupRequest(tasks=["file_cleanup"]), _make_request()
             )
             resp = await api.disk_emergency_cleanup.__wrapped__(
-                DiskEmergencyCleanupRequest(tasks=["file_cleanup", "docker_image_prune"]),
+                DiskEmergencyCleanupRequest(tasks=["file_cleanup", "image_cleanup"]),
                 _make_request(),
             )
         assert resp.status == ResponseStatus.SUCCESS
         assert "file_cleanup" in resp.result["rate_limited"]
-        assert "docker_image_prune" in resp.result["tasks"]
+        assert "image_cleanup" in resp.result["tasks"]
 
 
 # ----------------------------------------------------------------------------- #

@@ -151,7 +151,7 @@ class DiskEmergencyCleanupRequest(BaseModel):
     tasks: list[str] | None = Field(
         default=None,
         description=(
-            "BaseTask.type names to trigger (e.g. 'docker_image_prune'). "
+            "BaseTask.type names to trigger (e.g. 'image_cleanup'). "
             "Whitelisted to suffix '_cleanup' / '_prune'. None = all whitelisted."
         ),
     )
