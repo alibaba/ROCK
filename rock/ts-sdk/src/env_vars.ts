@@ -271,6 +271,20 @@ export const envVars = {
   get ROCK_DEFAULT_STATUS_CHECK_INTERVAL(): number {
     return parseInt(getEnv('ROCK_DEFAULT_STATUS_CHECK_INTERVAL', '3')!, 10);
   },
+
+  // ========== Kmon Configuration ==========
+
+  get ROCK_KMON_TOKEN(): string | undefined {
+    return getEnv('ROCK_KMON_TOKEN');
+  },
+
+  get ROCK_KMON_BASE_URL(): string | undefined {
+    return getEnv('ROCK_KMON_BASE_URL');
+  },
+
+  get ROCK_KMON_TENANTS(): string | undefined {
+    return getEnv('ROCK_KMON_TENANTS');
+  },
 };
 
 /**

@@ -26,8 +26,9 @@ describe('ENSURE_OSSUTIL_SCRIPT', () => {
     expect(ENSURE_OSSUTIL_SCRIPT).toContain('command -v curl');
   });
 
-  test('should check for unzip availability', () => {
-    expect(ENSURE_OSSUTIL_SCRIPT).toContain('command -v unzip');
+  test('should use Python to extract zip (more universal than unzip)', () => {
+    expect(ENSURE_OSSUTIL_SCRIPT).toContain('python3 -c "import zipfile');
+    expect(ENSURE_OSSUTIL_SCRIPT).toContain('python -c "import zipfile');
   });
 
   test('should skip installation if ossutil already exists', () => {

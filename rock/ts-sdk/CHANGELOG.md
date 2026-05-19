@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-03-30
+
+### Added
+
+- **Sandbox Logs Support** - New methods to view and download log files from sandboxes
+  - `listLogs(options?)`: List log files in `/data/logs/` directory
+    - Options: `recursive` (default: true), `pattern` (glob filter like `*.log`)
+    - Returns: Array of `LogFileInfo` with name, path, size, modifiedTime
+  - `downloadLog(logPath, localPath, options?)`: Download log file via OSS
+    - Path security: rejects absolute paths and directory traversal (`..`)
+    - Options: `timeout`, `onProgress` callback
+  - Works transparently for both alive and destroyed sandboxes
+
+- **KmonHostIpResolver** - Resolve hostIp for destroyed sandboxes via Kmon metrics API
+  - `Sandbox.setHostIpResolver(resolver)`: Set custom host IP resolver
+  - `Sandbox.useKmonHostIpResolver(config?)`: Use built-in Kmon resolver
+  - Config options: `token`, `baseUrl`, `tenants`, `maxQueryDays`, `maxQueryRangeMs`
+  - Automatic tenant fallback (default → gen_ai)
+  - QPS rate limiting (max 5 requests/second)
+  - Query segmentation for large time ranges (max 2 days per query)
+
+- **New Environment Variables**
+  - `ROCK_KMON_TOKEN`: Kmon API authentication token
+  - `ROCK_KMON_BASE_URL`: Kmon API base URL (default: `https://kmon-metric.alibaba-inc.com`)
+  - `ROCK_KMON_TENANTS`: Comma-separated list of tenants to try (default: `default,gen_ai`)
+
+- **New Types**
+  - `LogFileInfo`: Log file metadata (name, path, size, modifiedTime, isDirectory)
+  - `ListLogsOptions`: Options for listLogs (recursive, pattern)
+  - `DownloadLogOptions`: Options for downloadLog (timeout, onProgress)
+  - `DownloadLogResponse`: Response from downloadLog (success, message)
+  - `HostInfo`: Internal type for host information (hostIp, isAlive)
+  - `KmonConfig`: Configuration for KmonHostIpResolver
+
 ## [1.3.9] - 2026-03-29
 
 ### Added
