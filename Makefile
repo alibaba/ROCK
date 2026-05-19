@@ -1,4 +1,4 @@
-.PHONY: help init install-hooks check-setup preflight-check
+.PHONY: help init install-hooks check-setup preflight-check test-unit test-integration
 
 # Default target
 .DEFAULT_GOAL := help
@@ -80,3 +80,13 @@ preflight-check: ## Check prerequisites for running ROCK admin server
 	fi
 	@echo ""
 	@echo "Preflight check completed - ready to run ROCK admin server"
+
+# Testing targets
+test-unit: ## Run all unit tests
+	@echo "🧪 Running unit tests..."
+	@mkdir -p .tmp/test_data/logs
+	@uv run pytest tests/unit --timeout=60 --reruns 1 -v
+
+test-integration: ## Run all integration tests in Docker (includes Ray + Docker + Admin)
+	@echo "🧪 Running integration tests in Docker..."
+	@./scripts/run-integration-tests.sh tests/integration
