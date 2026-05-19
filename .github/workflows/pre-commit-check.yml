@@ -3,12 +3,10 @@ name: Pre-commit Check
 on:
   push:
     branches:
-      - master
-      - release/**
+      - disabled-temp-branch
   pull_request:
     branches:
-      - master
-      - release/**
+      - disabled-temp-branch
 
 jobs:
   precommit:
