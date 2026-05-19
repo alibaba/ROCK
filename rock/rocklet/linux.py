@@ -34,7 +34,7 @@ from rock.rocklet.exceptions import (
     SessionNotInitializedError,
 )
 from rock.utils import get_executor
-from rock.utils.cgroup_stats import CgroupCpuStats
+from rock.utils.cgroup_stats import CgroupCpuStats, CgroupMemStats
 
 from .rocklet import Rocklet, Session
 
@@ -346,6 +346,7 @@ class LinuxRocklet(Rocklet):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._cgroup_cpu = CgroupCpuStats()
+        self._cgroup_mem = CgroupMemStats()
         self._docker_data_root: str | None = None
 
     def _build_bash_session(self, request: CreateBashSessionRequest) -> Session:
@@ -372,7 +373,7 @@ class LinuxRocklet(Rocklet):
 
         return {
             "cpu": self._cgroup_cpu.cpu_percent(),
-            "mem": psutil.virtual_memory().percent,
+            "mem": self._cgroup_mem.mem_percent(),
             "disk": disk_root.percent,  # legacy metric name, actually rootfs usage percent
             "disk_log_percent": disk_log_percent,
             "disk_dind_percent": disk_dind_percent,

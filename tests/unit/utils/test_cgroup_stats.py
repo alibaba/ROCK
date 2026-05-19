@@ -1,10 +1,8 @@
-"""Tests for rock.utils.cgroup_stats — container-aware CPU metrics."""
+"""Tests for rock.utils.cgroup_stats — container-aware CPU/memory metrics."""
 
 from unittest.mock import patch
 
-import pytest
-
-from rock.utils.cgroup_stats import CgroupCpuStats, Path
+from rock.utils.cgroup_stats import CgroupCpuStats, CgroupMemStats, Path
 
 
 def _mock_path_exists(mapping: dict[str, bool]):
@@ -286,3 +284,133 @@ class TestCpuQuota:
             patch("rock.utils.cgroup_stats.os.cpu_count", return_value=2),
         ):
             assert stats._read_cpu_quota() == 2.0
+
+
+# ---------- Memory cgroup version detection ----------
+
+
+class TestMemDetectCgroupVersion:
+    def test_detects_v2(self):
+        stats = CgroupMemStats()
+        exists_map = {"/sys/fs/cgroup/cgroup.controllers": True}
+        with patch.object(Path, "exists", _mock_path_exists(exists_map)):
+            assert stats._detect_cgroup_version() == 2
+
+    def test_detects_v1(self):
+        stats = CgroupMemStats()
+        exists_map = {
+            "/sys/fs/cgroup/cgroup.controllers": False,
+            "/sys/fs/cgroup/memory/memory.usage_in_bytes": True,
+        }
+        with patch.object(Path, "exists", _mock_path_exists(exists_map)):
+            assert stats._detect_cgroup_version() == 1
+
+    def test_detects_no_cgroup(self):
+        stats = CgroupMemStats()
+        exists_map = {
+            "/sys/fs/cgroup/cgroup.controllers": False,
+            "/sys/fs/cgroup/memory/memory.usage_in_bytes": False,
+        }
+        with patch.object(Path, "exists", _mock_path_exists(exists_map)):
+            assert stats._detect_cgroup_version() == 0
+
+    def test_caches_result(self):
+        stats = CgroupMemStats()
+        stats._cgroup_version = 2
+        assert stats._detect_cgroup_version() == 2
+
+
+# ---------- Memory percent ----------
+
+
+class TestMemPercent:
+    def test_v2_mem_calculation(self):
+        stats = CgroupMemStats()
+        stats._cgroup_version = 2
+        read_map = {
+            "/sys/fs/cgroup/memory.current": "524288000\n",
+            "/sys/fs/cgroup/memory.max": "1073741824\n",
+        }
+        with patch.object(Path, "read_text", _mock_path_read_text(read_map)):
+            result = stats.mem_percent()
+        # 524288000 / 1073741824 * 100 = 48.8%
+        assert result == 48.8
+
+    def test_v1_mem_calculation(self):
+        stats = CgroupMemStats()
+        stats._cgroup_version = 1
+        read_map = {
+            "/sys/fs/cgroup/memory/memory.usage_in_bytes": "734003200\n",
+            "/sys/fs/cgroup/memory/memory.limit_in_bytes": "1073741824\n",
+        }
+        with patch.object(Path, "read_text", _mock_path_read_text(read_map)):
+            result = stats.mem_percent()
+        # 734003200 / 1073741824 * 100 = 68.4%
+        assert result == 68.4
+
+    def test_fallback_to_psutil_when_no_cgroup(self):
+        stats = CgroupMemStats()
+        stats._cgroup_version = 0
+        with patch("rock.utils.cgroup_stats.psutil.virtual_memory") as mock_vmem:
+            mock_vmem.return_value.percent = 55.3
+            assert stats.mem_percent() == 55.3
+
+    def test_fallback_to_psutil_when_unlimited_v2(self):
+        stats = CgroupMemStats()
+        stats._cgroup_version = 2
+        read_map = {
+            "/sys/fs/cgroup/memory.current": "524288000\n",
+            "/sys/fs/cgroup/memory.max": "max\n",
+        }
+        with (
+            patch.object(Path, "read_text", _mock_path_read_text(read_map)),
+            patch("rock.utils.cgroup_stats.psutil.virtual_memory") as mock_vmem,
+        ):
+            mock_vmem.return_value.percent = 33.0
+            assert stats.mem_percent() == 33.0
+
+    def test_fallback_to_psutil_when_unlimited_v1(self):
+        stats = CgroupMemStats()
+        stats._cgroup_version = 1
+        read_map = {
+            "/sys/fs/cgroup/memory/memory.usage_in_bytes": "524288000\n",
+            "/sys/fs/cgroup/memory/memory.limit_in_bytes": "9223372036854771712\n",
+        }
+        with (
+            patch.object(Path, "read_text", _mock_path_read_text(read_map)),
+            patch("rock.utils.cgroup_stats.psutil.virtual_memory") as mock_vmem,
+        ):
+            mock_vmem.return_value.percent = 45.0
+            assert stats.mem_percent() == 45.0
+
+    def test_capped_at_100(self):
+        stats = CgroupMemStats()
+        stats._cgroup_version = 2
+        stats._mem_limit = 1073741824
+        read_map = {
+            "/sys/fs/cgroup/memory.current": "2147483648\n",
+        }
+        with patch.object(Path, "read_text", _mock_path_read_text(read_map)):
+            result = stats.mem_percent()
+        assert result == 100.0
+
+    def test_caches_mem_limit(self):
+        stats = CgroupMemStats()
+        stats._cgroup_version = 2
+        read_map = {
+            "/sys/fs/cgroup/memory.current": "524288000\n",
+            "/sys/fs/cgroup/memory.max": "1073741824\n",
+        }
+        with patch.object(Path, "read_text", _mock_path_read_text(read_map)):
+            stats.mem_percent()
+        assert stats._mem_limit == 1073741824
+
+    def test_fallback_to_psutil_on_read_error(self):
+        stats = CgroupMemStats()
+        stats._cgroup_version = 2
+        with (
+            patch.object(Path, "read_text", side_effect=PermissionError),
+            patch("rock.utils.cgroup_stats.psutil.virtual_memory") as mock_vmem,
+        ):
+            mock_vmem.return_value.percent = 60.0
+            assert stats.mem_percent() == 60.0
