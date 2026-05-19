@@ -11,21 +11,37 @@ logger = init_logger(name="image_clean", file_name=SCHEDULER_LOG_NAME)
 
 
 class ImageCleanupTask(BaseTask):
-    """Docker image cleanup task using docuum."""
+    """Docker image cleanup: docuum LRU + dangling/BuildKit prune.
+
+    Two complementary cleanups in one task:
+    - docuum: long-running daemon, LRU eviction of whole image:tag entries.
+      Honors ``image_whitelist``.
+    - ``docker image prune --filter dangling=true`` + ``docker builder prune
+      --keep-storage <X>``: one-shot synchronous sweep of dangling layers
+      (``<none>:<none>``) and BuildKit cache, which docuum never touches.
+      Whitelist is intentionally NOT plumbed through here — dangling layers
+      and BuildKit cache entries have no image:tag, so a whitelist would be
+      misleading on both subcommands.
+
+    Set ``keep_build_storage`` to a falsy value to disable the prune step.
+    """
 
     def __init__(
         self,
         interval_seconds: int = 3600,
         disk_threshold: str = "1T",
         image_whitelist: list[str] | None = None,
+        keep_build_storage: str | None = "20GB",
     ):
         """
-        Initialize image cleanup task.
-
         Args:
             interval_seconds: Execution interval, default 1 hour
-            disk_threshold: Disk threshold to trigger cleanup, default 1T
-            image_whitelist: List of regex patterns for images to keep (matched against repository:tag)
+            disk_threshold: Disk threshold to trigger docuum cleanup, default 1T
+            image_whitelist: Regex patterns of images to keep (matched against
+                repository:tag). Applies to docuum only.
+            keep_build_storage: Lower bound for BuildKit cache retention,
+                passed to ``docker builder prune --keep-storage``. Default
+                "20GB". Set to None / empty to skip the prune step.
         """
         super().__init__(
             type="image_cleanup",
@@ -34,21 +50,21 @@ class ImageCleanupTask(BaseTask):
         )
         self.disk_threshold = disk_threshold
         self.image_whitelist = image_whitelist or []
+        self.keep_build_storage = keep_build_storage
 
     @classmethod
     def from_config(cls, task_config) -> "ImageCleanupTask":
         """Create task instance from config."""
-        disk_threshold = task_config.params.get("disk_threshold", "1T")
-        image_whitelist = task_config.params.get("image_whitelist", [])
         return cls(
             interval_seconds=task_config.interval_seconds,
-            disk_threshold=disk_threshold,
-            image_whitelist=image_whitelist,
+            disk_threshold=task_config.params.get("disk_threshold", "1T"),
+            image_whitelist=task_config.params.get("image_whitelist", []),
+            keep_build_storage=task_config.params.get("keep_build_storage", "20GB"),
         )
 
     async def run_action(self, runtime: RemoteSandboxRuntime) -> dict:
-        """Run docuum image cleanup action."""
-        # Check if docuum exists, install if not
+        """Start docuum daemon, then synchronously prune dangling/build cache."""
+        # 1) docuum: LRU image eviction (long-running, nohup &)
         check_and_install_cmd = (
             f"command -v docuum > /dev/null 2>&1 || curl {env_vars.ROCK_DOCUUM_INSTALL_URL} -LSfs | sh"
         )
@@ -67,9 +83,31 @@ class ImageCleanupTask(BaseTask):
         pid = extract_nohup_pid(result.stdout)
         logger.info(f"image cleanup task [{pid}] run successfully on worker[{runtime._config.host}]")
 
+        # 2) Dangling/BuildKit prune (sync, fail-soft so an old/missing docker
+        #    subcommand on one worker doesn't abort the rest of the pipeline).
+        prune_exit = None
+        prune_output = ""
+        if self.keep_build_storage:
+            prune_steps = [
+                "docker image prune -f --filter dangling=true",
+                f"docker builder prune -f --keep-storage {self.keep_build_storage}",
+            ]
+            prune_cmd = "; ".join(f"({s}) 2>&1 || true" for s in prune_steps)
+            prune_result = await runtime.execute(Command(command=prune_cmd, shell=True, check=False))
+            prune_output = (prune_result.stdout or "").strip()[:1000]
+            prune_exit = prune_result.exit_code
+            logger.info(
+                f"docker prune done on worker[{runtime._config.host}]: "
+                f"keep_build_storage={self.keep_build_storage}, exit={prune_exit}, "
+                f"output_head={prune_output[:300]}"
+            )
+
         return {
             "pid": pid,
             "disk_threshold": self.disk_threshold,
             "image_whitelist": self.image_whitelist,
+            "keep_build_storage": self.keep_build_storage,
+            "prune_exit_code": prune_exit,
+            "prune_output_head": prune_output,
             "status": TaskStatusEnum.RUNNING,
         }
