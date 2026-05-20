@@ -3930,6 +3930,15 @@ wheels = [
 ]
 
 [[package]]
+name = "python-statemachine"
+version = "3.1.2"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/af/e2/dcc389e9855f65a3e54c859499dd409341d5ba561da74af22ce824bc4964/python_statemachine-3.1.2.tar.gz", hash = "sha256:3a64c4ae91d628eb256580f328c68b16e472f25794d2c478e91f2f1dfb8b0668" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/f2/f5/fe9072bfc9d245138561c09bf05b841bf6d92b4ce93d44dbfa18d96e498e/python_statemachine-3.1.2-py3-none-any.whl", hash = "sha256:89dcdbcbf7b197adade16138c75bee4f32e0c98b7eeb18d30aeb1c830dbbdd62" },
+]
+
+[[package]]
 name = "pytz"
 version = "2025.2"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -4285,6 +4294,7 @@ dependencies = [
     { name = "oss2" },
     { name = "pydantic" },
     { name = "python-multipart" },
+    { name = "python-statemachine" },
     { name = "pyyaml" },
     { name = "requests" },
     { name = "rich" },
@@ -4437,6 +4447,7 @@ requires-dist = [
     { name = "psutil", marker = "extra == 'rocklet'" },
     { name = "pydantic" },
     { name = "python-multipart" },
+    { name = "python-statemachine", specifier = ">=3.1.1" },
     { name = "pyyaml" },
     { name = "ray", extras = ["default"], marker = "extra == 'admin'", specifier = "==2.43.0" },
     { name = "redis", marker = "extra == 'admin'" },
