@@ -150,6 +150,27 @@ class SandboxActor(GemActor):
         finally:
             self.log_lifecycle_summary(reason)
 
+    async def restart(self):
+        """Restart an existing stopped container using docker start."""
+        logger.info(f"[{self._config.container_name}] start to restart")
+        try:
+            await self._deployment.restart()
+            logger.info(f"[{self._config.container_name}] deployment restarted")
+
+            # Re-arm the cleanup watchdog so a future actor death still triggers
+            # docker stop — start() does this too; restart must stay symmetric.
+            if isinstance(self._deployment, DockerDeployment):
+                self._clean_container_background()
+
+            # Re-establish monitoring after restart
+            await self._setup_monitor()
+            logger.info(f"[{self._config.container_name}] actor restarted")
+        except Exception as e:
+            logger.error(
+                f"[{self._config.container_name}] Error occurred while restarting container: {e}", exc_info=True
+            )
+            raise
+
     async def commit(self, image_tag: str, username: str, password: str) -> CommandResponse:
         logger.info(f"start to commit {self._config.container_name} to {image_tag}")
         with tempfile.TemporaryDirectory() as docker_config_dir:

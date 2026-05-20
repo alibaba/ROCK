@@ -11,6 +11,7 @@ Covers:
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from statemachine.exceptions import TransitionNotAllowed
 
 from rock.actions.sandbox.response import State
 from rock.common.constants import StopReason
@@ -163,6 +164,18 @@ class TestOnStop:
         mock_meta_store.archive.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_propagates_reason_to_operator(self, mock_operator, mock_meta_store):
+        sm = await SandboxStateMachine.from_state_value(State.RUNNING, sandbox_info={})
+        await sm.send(
+            "stop",
+            sandbox_id="sb-1",
+            operator=mock_operator,
+            meta_store=mock_meta_store,
+            reason=StopReason.EXPIRED,
+        )
+        mock_operator.stop.assert_awaited_once_with("sb-1", reason=StopReason.EXPIRED)
+
+    @pytest.mark.asyncio
     async def test_archives_stopped_state(self, mock_operator, mock_meta_store):
         sm = await SandboxStateMachine.from_state_value(State.RUNNING, sandbox_info={})
         await sm.send("stop", sandbox_id="sb-1", operator=mock_operator, meta_store=mock_meta_store)
@@ -192,3 +205,90 @@ class TestOnStop:
         sm = await SandboxStateMachine.from_state_value(State.RUNNING, sandbox_info={})
         await sm.send("stop", sandbox_id="sb-1", operator=mock_operator, meta_store=store)
         store.archive.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# restart transitions
+# ---------------------------------------------------------------------------
+
+
+_VALID_RESTART_INFO = {
+    "host_ip": "1.2.3.4",
+    "spec": {
+        "container_name": "sb",
+        "image": "python:3.11",
+        "memory": "2g",
+        "cpus": 1,
+        "auto_clear_time_minutes": 30,
+    },
+}
+
+
+class TestRestartTransitions:
+    def _restart_kwargs(self, meta_store=None):
+        return dict(
+            sandbox_id="sb",
+            operator=AsyncMock(),
+            meta_store=meta_store or AsyncMock(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_restart_from_stopped_transitions_to_pending(self):
+        sm = await SandboxStateMachine.from_state_value(State.STOPPED, sandbox_info=dict(_VALID_RESTART_INFO))
+        await sm.send("restart", **self._restart_kwargs())
+        assert sm.pending.is_active
+
+    @pytest.mark.asyncio
+    async def test_restart_from_running_raises(self):
+        sm = await SandboxStateMachine.from_state_value(State.RUNNING, sandbox_info={})
+        with pytest.raises(TransitionNotAllowed):
+            await sm.send("restart", **self._restart_kwargs())
+
+    @pytest.mark.asyncio
+    async def test_restart_from_pending_raises(self):
+        sm = await SandboxStateMachine.from_state_value(State.PENDING, sandbox_info={})
+        with pytest.raises(TransitionNotAllowed):
+            await sm.send("restart", **self._restart_kwargs())
+
+
+# ---------------------------------------------------------------------------
+# on_restart callback
+# ---------------------------------------------------------------------------
+
+
+class TestOnRestart:
+    @pytest.fixture
+    def mock_meta_store(self):
+        return AsyncMock()
+
+    async def _send_restart(self, mock_meta_store, sandbox_info=None):
+        info = sandbox_info if sandbox_info is not None else dict(_VALID_RESTART_INFO)
+        sm = await SandboxStateMachine.from_state_value(State.STOPPED, sandbox_info=info)
+        await sm.send(
+            "restart",
+            sandbox_id="sb-1",
+            operator=AsyncMock(),
+            meta_store=mock_meta_store,
+        )
+
+    @pytest.mark.asyncio
+    async def test_calls_meta_store_update_not_create(self, mock_meta_store):
+        await self._send_restart(mock_meta_store)
+        mock_meta_store.update.assert_awaited_once()
+        mock_meta_store.create.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_updates_state_to_pending(self, mock_meta_store):
+        await self._send_restart(mock_meta_store)
+        updated_info = mock_meta_store.update.call_args[0][1]
+        assert updated_info["state"] == State.PENDING
+
+    @pytest.mark.asyncio
+    async def test_writes_timeout_built_from_spec(self, mock_meta_store):
+        # auto_clear_time_minutes=30 in spec → make_timeout_info uses 30
+        await self._send_restart(mock_meta_store)
+        mock_meta_store.update_timeout.assert_awaited_once()
+        sandbox_id, timeout_info = mock_meta_store.update_timeout.call_args[0]
+        assert sandbox_id == "sb-1"
+        # SandboxTimeoutHelper.make_timeout_info stores auto_clear_time as the env-var key
+        assert any("30" == str(v) for v in timeout_info.values())

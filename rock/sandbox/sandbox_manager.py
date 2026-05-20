@@ -151,6 +151,30 @@ class SandboxManager(BaseManager):
         )
 
     @monitor_sandbox_operation()
+    async def restart_async(self, sandbox_id: str) -> SandboxStartResponse:
+        sm = await self._get_current_statemachine(sandbox_id)
+        if sm is None:
+            raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
+
+        state = sm.current_state.value
+        if state != State.STOPPED:
+            raise BadRequestRockError(f"Sandbox {sandbox_id} cannot be restarted: current state is '{state}'")
+
+        await sm.send(
+            "restart",
+            sandbox_id=sandbox_id,
+            operator=self._operator,
+            meta_store=self._meta_store,
+        )
+
+        info: SandboxInfo = sm.sandbox_info or {}
+        return SandboxStartResponse(
+            sandbox_id=sandbox_id,
+            host_name=info.get("host_name"),
+            host_ip=info.get("host_ip"),
+        )
+
+    @monitor_sandbox_operation()
     async def start(self, config: DeploymentConfig) -> SandboxStartResponse:
         docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(config)
 

@@ -267,6 +267,26 @@ class Sandbox(AbstractSandbox):
         except Exception as e:
             logging.warning(f"Failed to stop sandbox, IGNORE: {e}")
 
+    async def restart(self):
+        """Restart a stopped sandbox using 'docker start' (reuses existing container).
+
+        The sandbox must be in STOPPED state before calling this method.
+        After restart, the sandbox will be back in RUNNING state with the same container.
+        """
+        if not self.sandbox_id:
+            raise Exception("sandbox_id is not set, cannot restart")
+        url = f"{self._url}/restart"
+        headers = self._build_headers()
+        data = {"sandbox_id": self.sandbox_id}
+        response = await HttpUtils.post(url, headers, data)
+        logging.debug(f"Restart sandbox response: {response}")
+        if "Success" != response.get("status"):
+            result = response.get("result", None)
+            if result is not None:
+                rock_response = SandboxResponse(**result)
+                raise_for_code(rock_response.code, f"Failed to restart sandbox: {response}")
+            raise Exception(f"Failed to restart sandbox: {response}")
+
     async def commit(self, image_tag: str, username: str, password: str):
         if not self.sandbox_id:
             return

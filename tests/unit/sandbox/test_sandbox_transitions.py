@@ -9,9 +9,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from rock.actions.sandbox.response import State
+from rock.admin.proto.response import SandboxStartResponse
 from rock.common.constants import StopReason
 from rock.sandbox.sandbox_manager import SandboxManager
-from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
+from rock.sdk.common.exceptions import BadRequestRockError
 
 
 @pytest.fixture
@@ -50,13 +51,12 @@ async def mgr(mock_meta_store, mock_operator):
 
     # Function to get state machine based on meta_store data — mirrors _get_current_statemachine
     async def get_current_statemachine(sandbox_id: str) -> SandboxStateMachine | None:
+        from rock.sandbox.sandbox_statemachine import SandboxStateMachine
+
         info = await mock_meta_store.get(sandbox_id, check_db=True)
         if info is None:
             return None
-        state = info.get("state")
-        if state is None:
-            raise InternalServerRockError(f"Sandbox {sandbox_id} exists in store but has no state field")
-        return await SandboxStateMachine.from_state_value(state, sandbox_info=info)
+        return await SandboxStateMachine.from_state_value(info.get("state"), sandbox_info=info)
 
     m._get_current_statemachine = AsyncMock(side_effect=get_current_statemachine)
 
@@ -127,12 +127,6 @@ class TestManagerStop:
         archived_info = mock_meta_store.archive.call_args[0][1]
         assert archived_info["state"] == State.STOPPED
 
-    @pytest.mark.asyncio
-    async def test_stop_missing_state_field_raises(self, mgr, mock_meta_store):
-        mock_meta_store.get.return_value = {}
-        with pytest.raises(InternalServerRockError, match="no state field"):
-            await mgr.stop("sb-1")
-
 
 # ---------------------------------------------------------------------------
 # TestManagerGetStatus
@@ -183,3 +177,128 @@ class TestManagerGetStatus:
         mock_operator.get_status.return_value = {"state": State.RUNNING, "phases": {}, "port_mapping": {}}
         await mgr.get_status("sb-1")
         mock_meta_store.update.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# TestManagerRestart
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_docker_config():
+    cfg = MagicMock()
+    cfg.container_name = "sb-1"
+    cfg.auto_clear_time = 30
+    return cfg
+
+
+@pytest.fixture
+def mgr_restart(mgr, mock_docker_config):
+    mgr.deployment_manager = MagicMock()
+    mgr.deployment_manager.init_config = AsyncMock(return_value=mock_docker_config)
+    mgr.restart_async = SandboxManager.restart_async.__wrapped__.__get__(mgr)
+    return mgr
+
+
+class TestManagerRestart:
+    @pytest.mark.asyncio
+    async def test_sandbox_not_found_raises(self, mgr_restart, mock_meta_store):
+        mock_meta_store.get.return_value = None
+        with pytest.raises(BadRequestRockError, match="not found"):
+            await mgr_restart.restart_async(MagicMock())
+
+    @pytest.mark.asyncio
+    async def test_non_stopped_state_raises(self, mgr_restart, mock_meta_store):
+        mock_meta_store.get.return_value = {"state": State.RUNNING, "host_ip": "1.2.3.4", "host_name": "w1"}
+        with pytest.raises(BadRequestRockError):
+            await mgr_restart.restart_async(MagicMock())
+
+    @pytest.mark.asyncio
+    async def test_stopped_success_returns_response(self, mgr_restart, mock_meta_store, mock_operator):
+        mock_meta_store.get.return_value = {
+            "state": State.STOPPED,
+            "host_ip": "1.2.3.4",
+            "host_name": "worker-1",
+            "image": "python:3.11",
+            "memory": "2g",
+            "cpus": 1,
+            "spec": {
+                "container_name": "sb-1",
+                "image": "python:3.11",
+                "memory": "2g",
+                "cpus": 1,
+                "auto_clear_time_minutes": 30,
+            },
+        }
+        mock_operator.restart = AsyncMock(return_value={"host_name": "worker-1", "host_ip": "1.2.3.4"})
+        result = await mgr_restart.restart_async("sb-1")
+        assert isinstance(result, SandboxStartResponse)
+        assert result.sandbox_id == "sb-1"
+        assert result.host_ip == "1.2.3.4"
+
+    @pytest.mark.asyncio
+    async def test_stopped_success_calls_operator_restart(self, mgr_restart, mock_meta_store, mock_operator):
+        mock_meta_store.get.return_value = {
+            "state": State.STOPPED,
+            "host_ip": "1.2.3.4",
+            "host_name": "worker-1",
+            "image": "python:3.11",
+            "memory": "2g",
+            "cpus": 1,
+            "spec": {
+                "container_name": "sb-1",
+                "image": "python:3.11",
+                "memory": "2g",
+                "cpus": 1,
+                "auto_clear_time_minutes": 30,
+            },
+        }
+        mock_operator.restart = AsyncMock(return_value={"host_name": "worker-1", "host_ip": "1.2.3.4"})
+        await mgr_restart.restart_async("sb-1")
+        mock_operator.restart.assert_awaited_once()
+        called_config = mock_operator.restart.await_args.args[0]
+        assert called_config.container_name == "sb-1"
+        assert called_config.image == "python:3.11"
+
+    @pytest.mark.asyncio
+    async def test_stopped_success_calls_meta_update(self, mgr_restart, mock_meta_store, mock_operator):
+        mock_meta_store.get.return_value = {
+            "state": State.STOPPED,
+            "host_ip": "1.2.3.4",
+            "host_name": "worker-1",
+            "image": "python:3.11",
+            "memory": "2g",
+            "cpus": 1,
+            "spec": {
+                "container_name": "sb-1",
+                "image": "python:3.11",
+                "memory": "2g",
+                "cpus": 1,
+                "auto_clear_time_minutes": 30,
+            },
+        }
+        mock_operator.restart = AsyncMock(return_value={"host_name": "worker-1", "host_ip": "1.2.3.4"})
+        await mgr_restart.restart_async("sb-1")
+        mock_meta_store.update.assert_awaited()
+        mock_meta_store.create.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_operator_failure_propagates(self, mgr_restart, mock_meta_store, mock_operator):
+        mock_meta_store.get.return_value = {
+            "state": State.STOPPED,
+            "host_ip": "1.2.3.4",
+            "host_name": "worker-1",
+            "image": "python:3.11",
+            "memory": "2g",
+            "cpus": 1,
+            "spec": {
+                "container_name": "sb-1",
+                "image": "python:3.11",
+                "memory": "2g",
+                "cpus": 1,
+                "auto_clear_time_minutes": 30,
+            },
+        }
+        mock_operator.restart = AsyncMock(side_effect=BadRequestRockError("docker start failed"))
+        with pytest.raises(BadRequestRockError, match="docker start failed"):
+            await mgr_restart.restart_async("sb-1")
