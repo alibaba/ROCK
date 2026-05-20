@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import functools
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rock.admin.core.db_provider import DatabaseProvider
@@ -19,6 +21,21 @@ if TYPE_CHECKING:
     from rock.deployments.config import DockerDeploymentConfig
 
 logger = init_logger(__name__)
+
+
+def _retry_on_disconnect(func):
+    """Retry once when SQLAlchemy signals the connection was invalidated before the query ran."""
+
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except DBAPIError as exc:
+            if exc.connection_invalidated:
+                return await func(*args, **kwargs)
+            raise
+
+    return wrapper
 
 
 class SandboxTable:
@@ -46,6 +63,7 @@ class SandboxTable:
             metric_prefix="meta_store.db",
         )
 
+    @_retry_on_disconnect
     @monitor_metastore_operation
     async def create(
         self,
@@ -76,6 +94,7 @@ class SandboxTable:
             session.add(record)
             await session.commit()
 
+    @_retry_on_disconnect
     @monitor_metastore_operation
     async def get(self, sandbox_id: str) -> dict | None:
         """Return a sandbox row as a plain dict, or ``None`` if not found."""
@@ -85,6 +104,7 @@ class SandboxTable:
                 return None
             return record.to_dict()
 
+    @_retry_on_disconnect
     @monitor_metastore_operation
     async def update(self, sandbox_id: str, info: SandboxInfo) -> None:
         """Partial update of scalar columns; always overwrites ``status`` with *info*."""
@@ -100,6 +120,7 @@ class SandboxTable:
                 setattr(record, key, value)
             await session.commit()
 
+    @_retry_on_disconnect
     @monitor_metastore_operation
     async def delete(self, sandbox_id: str) -> None:
         """Hard-delete a sandbox record."""
@@ -109,6 +130,7 @@ class SandboxTable:
                 await session.delete(record)
                 await session.commit()
 
+    @_retry_on_disconnect
     @monitor_metastore_operation
     async def list_by(self, column: str, value: str | int | float | bool) -> list[dict]:
         """Equality query on a single column. Only columns in ``SandboxRecord.LIST_BY_ALLOWLIST`` are permitted."""
@@ -120,6 +142,7 @@ class SandboxTable:
             result = await session.execute(stmt)
             return [r.to_dict() for r in result.scalars().all()]
 
+    @_retry_on_disconnect
     @monitor_metastore_operation
     async def list_by_in(self, column: str, values: list[str | int | float | bool]) -> list[dict]:
         """IN query on a single column. Only columns in ``SandboxRecord.LIST_BY_ALLOWLIST`` are permitted."""
