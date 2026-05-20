@@ -12,6 +12,7 @@ from rock.actions import (
     EnvStepRequest,
     EnvStepResponse,
 )
+from rock.common.validation import validate_required_str
 from rock.sandbox.gem_manager import GemManager
 
 gem_router = APIRouter()
@@ -33,16 +34,19 @@ async def env_make(request: dict[str, Any] = Body(...)) -> EnvMakeResponse:
 
 @gem_router.post("/step")
 async def env_step(request: EnvStepRequest) -> EnvStepResponse:
+    validate_required_str(request.sandbox_id, "sandbox_id")
     return await sandbox_manager.env_step(request)
 
 
 @gem_router.post("/reset")
 async def env_reset(request: EnvResetRequest) -> EnvResetResponse:
+    validate_required_str(request.sandbox_id, "sandbox_id")
     return await sandbox_manager.env_reset(request)
 
 
 @gem_router.post("/close")
 async def env_close(request: EnvCloseRequest) -> EnvCloseResponse:
+    validate_required_str(request.sandbox_id, "sandbox_id")
     return await sandbox_manager.env_close(request)
 
 
