@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import functools
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DisconnectionError, InterfaceError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rock.admin.core.db_provider import DatabaseProvider
@@ -23,17 +24,51 @@ if TYPE_CHECKING:
 logger = init_logger(__name__)
 
 
+_DISCONNECT_RETRY_ATTEMPTS = 4
+
+# Exceptions retried with exponential back-off across DB outages.
+# - OperationalError / InterfaceError: SQLAlchemy-wrapped runtime connection
+#   problems on the statement-execution path (stale connection, server gone,
+#   socket-level failures observed mid-query).
+# - DisconnectionError: explicit pool-level "connection is invalid" signal.
+# - OSError / ConnectionError / asyncio.TimeoutError: asyncpg's connect path
+#   raises these directly; SQLAlchemy does NOT wrap them into DBAPIError
+#   because they fire before a statement is ever issued. Without catching
+#   them here, retries cannot bridge a multi-second PG restart window.
+# Excluded on purpose: DatabaseError (would swallow IntegrityError,
+# DataError, ProgrammingError — all permanent failures that must fast-fail).
+_RETRY_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    OperationalError,
+    InterfaceError,
+    DisconnectionError,
+    ConnectionError,
+    OSError,
+    asyncio.TimeoutError,
+)
+
+
 def _retry_on_disconnect(func):
-    """Retry once when SQLAlchemy signals the connection was invalidated before the query ran."""
+    """Retry up to _DISCONNECT_RETRY_ATTEMPTS times across DB outages."""
 
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
-        try:
-            return await func(*args, **kwargs)
-        except DBAPIError as exc:
-            if exc.connection_invalidated:
+        last_exc: BaseException | None = None
+        for attempt in range(1, _DISCONNECT_RETRY_ATTEMPTS + 1):
+            try:
                 return await func(*args, **kwargs)
-            raise
+            except _RETRY_EXCEPTIONS as exc:
+                last_exc = exc
+                logger.warning(
+                    "DB connection lost on %s (attempt %d/%d): %r",
+                    func.__name__,
+                    attempt,
+                    _DISCONNECT_RETRY_ATTEMPTS,
+                    exc,
+                )
+                if attempt < _DISCONNECT_RETRY_ATTEMPTS:
+                    await asyncio.sleep(1.0 * 2 ** (attempt - 1))
+        assert last_exc is not None
+        raise last_exc
 
     return wrapper
 
