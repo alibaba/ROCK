@@ -13,6 +13,8 @@ class MetricsConstants:
     SANDBOX_CPU = "system.cpu"
     SANDBOX_MEM = "system.memory"
     SANDBOX_DISK = "system.disk"
+    SANDBOX_DISK_LOG = "system.disk.log"
+    SANDBOX_DISK_DIND = "system.disk.dind"
     SANDBOX_NET = "system.network"
 
     TOTAL_CPU_RESOURCE = "resource.cpu.total"

@@ -346,14 +346,46 @@ class LinuxRocklet(Rocklet):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._cgroup_cpu = CgroupCpuStats()
+        self._docker_data_root: str | None = None
 
     def _build_bash_session(self, request: CreateBashSessionRequest) -> Session:
         return BashSession(request)
 
     async def get_statistics(self) -> dict:
+        disk_root = psutil.disk_usage("/")
+
+        log_path = os.environ.get("ROCK_LOGGING_PATH", "/data/logs")
+        try:
+            disk_log_percent = psutil.disk_usage(log_path).percent if os.path.exists(log_path) else 0.0
+        except OSError:
+            disk_log_percent = 0.0
+
+        disk_dind_percent = 0.0
+        if os.environ.get("ROCK_KATA_RUNTIME") == "true":
+            if self._docker_data_root is None:
+                self._docker_data_root = self._get_docker_data_root()
+            dind_path = self._docker_data_root
+            try:
+                disk_dind_percent = psutil.disk_usage(dind_path).percent if os.path.exists(dind_path) else 0.0
+            except OSError:
+                disk_dind_percent = 0.0
+
         return {
             "cpu": self._cgroup_cpu.cpu_percent(),
             "mem": psutil.virtual_memory().percent,
-            "disk": psutil.disk_usage("/").percent,
+            "disk": disk_root.percent,  # legacy metric name, actually rootfs usage percent
+            "disk_log_percent": disk_log_percent,
+            "disk_dind_percent": disk_dind_percent,
             "net": psutil.net_io_counters().bytes_recv + psutil.net_io_counters().bytes_sent,
         }
+
+    @staticmethod
+    def _get_docker_data_root() -> str:
+        import json as _json
+
+        try:
+            with open("/etc/docker/daemon.json") as f:
+                cfg = _json.load(f)
+                return cfg.get("data-root", "/var/lib/docker")
+        except Exception:
+            return "/var/lib/docker"
