@@ -15,7 +15,6 @@ from rock.actions import (
 from rock.actions.sandbox.response import State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.core.ray_service import RayService
-from rock.admin.metrics.billing import log_billing_info
 from rock.admin.metrics.decorator import monitor_sandbox_operation
 from rock.admin.proto.request import ClusterInfo, UserInfo
 from rock.admin.proto.request import SandboxAction as Action
@@ -35,6 +34,7 @@ from rock.sandbox.base_manager import BaseManager
 from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
+from rock.sandbox.sandbox_statemachine import SandboxStateMachine
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
@@ -69,6 +69,13 @@ class SandboxManager(BaseManager):
         self._aes_encrypter = AESEncryption()
         self._proxy_service = SandboxProxyService(rock_config=rock_config, meta_store=meta_store)
         logger.info("sandbox service init success")
+
+    async def _get_current_statemachine(self, sandbox_id: str) -> SandboxStateMachine | None:
+        """Fetch current state from meta store and return a restored SandboxStateMachine, or None if not found."""
+        info = await self._meta_store.get(sandbox_id, check_db=True)
+        if info is None:
+            return None
+        return await SandboxStateMachine.from_state_value(info.get("state"), sandbox_info=info)
 
     async def refresh_aes_key(self):
         try:
@@ -171,23 +178,20 @@ class SandboxManager(BaseManager):
         )
 
     @monitor_sandbox_operation()
-    async def stop(self, sandbox_id, reason: StopReason = StopReason.MANUAL):
-        logger.info(f"stop sandbox {sandbox_id} (reason={reason.value})")
-        sandbox_info: SandboxInfo | None = await self._meta_store.get(sandbox_id)
-        if sandbox_info is None:
-            sandbox_info = {}
-        sandbox_info["state"] = State.STOPPED
-        if sandbox_info.get("start_time"):
-            sandbox_info["stop_time"] = get_iso8601_timestamp()
-            log_billing_info(sandbox_info=sandbox_info)
-        try:
-            await self._operator.stop(sandbox_id, reason)
-        except ValueError as e:
-            logger.error(f"ray get actor, actor {sandbox_id} not exist", exc_info=e)
+    async def stop(self, sandbox_id: str):
+        sm = await self._get_current_statemachine(sandbox_id)
+        if sm is None:
+            logger.info(f"stop dangling sandbox {sandbox_id}")
+            sandbox_info: SandboxInfo = {"state": State.STOPPED}
+            try:
+                await self._operator.stop(sandbox_id)
+            except ValueError as e:
+                logger.error(f"ray get actor, actor {sandbox_id} not exist", exc_info=e)
             await self._meta_store.archive(sandbox_id, sandbox_info)
-            return
-        logger.info(f"sandbox {sandbox_id} stopped")
-        await self._meta_store.archive(sandbox_id, sandbox_info)
+        elif sm.current_state.value == State.STOPPED:
+            await sm.send("stop_noop", sandbox_id=sandbox_id)
+        else:
+            await sm.send("stop", sandbox_id=sandbox_id, operator=self._operator, meta_store=self._meta_store)
 
     async def get_mount(self, sandbox_id):
         async with self._ray_service.get_ray_rwlock().read_lock():
@@ -216,22 +220,32 @@ class SandboxManager(BaseManager):
 
     @monitor_sandbox_operation()
     async def get_status(self, sandbox_id, include_all_states: bool = False) -> SandboxStatusResponse:
-        is_alive = False
-
-        sandbox_info: SandboxInfo | None = await self._operator.get_status(sandbox_id=sandbox_id)
-        if sandbox_info is not None:
-            is_alive = sandbox_info.get("state") == State.RUNNING
-            self._update_sandbox_alive_info(sandbox_info, is_alive)
-            if sandbox_info.get("state") in (State.PENDING, State.RUNNING):
-                current = await self._meta_store.get(sandbox_id)
-                if current is None or current.get("state") != sandbox_info.get("state"):
-                    await self._meta_store.update(sandbox_id, sandbox_info)
-                await self._refresh_timeout(sandbox_id)
-        elif include_all_states:
-            sandbox_info = await self._meta_store.get(sandbox_id, check_db=True)
-
-        if sandbox_info is None:
+        # get status from meta_store
+        sm = await self._get_current_statemachine(sandbox_id)
+        if sm is None:
             raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
+
+        # update status from operator
+        is_alive = False
+        operator_sandbox_info: SandboxInfo | None = await self._operator.get_status(sandbox_id=sandbox_id)
+        if operator_sandbox_info is not None:
+            is_alive = operator_sandbox_info.get("state") == State.RUNNING
+            if sm.current_state.value == State.PENDING and is_alive:
+                await sm.send(
+                    "alive", sandbox_id=sandbox_id, meta_store=self._meta_store, sandbox_info=operator_sandbox_info
+                )
+            if operator_sandbox_info.get("state") in (State.PENDING, State.RUNNING):
+                await self._refresh_timeout(sandbox_id)
+
+        # compat with legacy get_status behavior by default (include_all_states == False),
+        # raise 'not found' if not on pending or running status.
+        if not include_all_states and sm.current_state.value not in (State.PENDING, State.RUNNING):
+            raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
+
+        if operator_sandbox_info is not None:
+            sandbox_info = operator_sandbox_info
+        else:
+            sandbox_info = sm.sandbox_info
 
         return SandboxStatusResponse(
             sandbox_id=sandbox_id,
@@ -269,13 +283,6 @@ class SandboxManager(BaseManager):
         else:
             sandbox_info = deployment_info
         return sandbox_info
-
-    def _update_sandbox_alive_info(self, sandbox_info: SandboxInfo, is_alive: bool) -> None:
-        if is_alive:
-            sandbox_info["state"] = State.RUNNING
-            # Set start_time for the first time the sandbox becomes alive
-            if sandbox_info.get("start_time") is None:
-                sandbox_info["start_time"] = get_iso8601_timestamp()
 
     async def get_status_v2(self, sandbox_id, include_all_states: bool = False) -> SandboxStatusResponse:
         """
