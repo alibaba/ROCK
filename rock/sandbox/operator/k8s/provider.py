@@ -48,15 +48,15 @@ class ResourceMatchingPoolSelector(PoolSelector):
     3. Among all matching pools, select the one with smallest resource capacity
     """
 
-    def _parse_memory_to_mb(self, memory: str) -> float:
-        """Parse memory string to MB for comparison."""
-        memory = memory.lower().strip()
+    def _parse_size_to_mb(self, size: str) -> float:
+        """Parse size string (memory/disk) to MB for comparison."""
+        size = size.lower().strip()
 
         # Extract number and unit
-        match = re.match(r"^(\d+(\.\d+)?)\s*([a-z]*)$", memory)
+        match = re.match(r"^(\d+(\.\d+)?)\s*([a-z]*)$", size)
         if not match:
             try:
-                return float(memory) / (1024 * 1024)  # Assume bytes
+                return float(size) / (1024 * 1024)  # Assume bytes
             except (ValueError, TypeError):
                 return 0
 
@@ -77,20 +77,23 @@ class ResourceMatchingPoolSelector(PoolSelector):
         else:
             return 0
 
+    # Disk weight factor: disk typically has much larger values than memory,
+    # divide by this constant to reduce its impact on pool scoring
+    _DISK_SCORE_WEIGHT_DIVISOR = 100
+
     def _get_pool_resource_score(self, pool_config: PoolConfig) -> float:
         """Calculate resource score for a pool (lower is better for selection)."""
-        memory_mb = self._parse_memory_to_mb(pool_config.memory)
-        disk_mb = self._parse_memory_to_mb(pool_config.disk) if pool_config.disk else 0
-        # Normalize memory and disk to GB and add to cpus for a unified score (lower = smaller capacity)
-        return pool_config.cpus + memory_mb / 1024 + disk_mb / 1024
+        memory_mb = self._parse_size_to_mb(pool_config.memory)
+        disk_mb = self._parse_size_to_mb(pool_config.disk) if pool_config.disk else 0
+        return pool_config.cpus + memory_mb / 1024 + disk_mb / 1024 / self._DISK_SCORE_WEIGHT_DIVISOR
 
     def select_pool(self, config: DockerDeploymentConfig, pools: dict[str, PoolConfig]) -> str | None:
         """Select best matching pool based on image and resource requirements."""
         if not pools:
             return None
 
-        config_memory_mb = self._parse_memory_to_mb(config.memory)
-        config_disk_mb = self._parse_memory_to_mb(config.disk_limit_rootfs) if config.disk_limit_rootfs else 0
+        config_memory_mb = self._parse_size_to_mb(config.memory)
+        config_disk_mb = self._parse_size_to_mb(config.disk_limit_rootfs) if config.disk_limit_rootfs else 0
         matching_pools: list[tuple[str, PoolConfig, float]] = []
 
         for pool_name, pool_config in pools.items():
@@ -99,7 +102,7 @@ class ResourceMatchingPoolSelector(PoolSelector):
                 continue
 
             # Check resource capacity (pool must have >= required resources)
-            pool_memory_mb = self._parse_memory_to_mb(pool_config.memory)
+            pool_memory_mb = self._parse_size_to_mb(pool_config.memory)
             if pool_config.cpus < config.cpus or pool_memory_mb < config_memory_mb:
                 continue
 
@@ -107,7 +110,7 @@ class ResourceMatchingPoolSelector(PoolSelector):
             if config_disk_mb > 0:
                 if not pool_config.disk:
                     continue
-                pool_disk_mb = self._parse_memory_to_mb(pool_config.disk)
+                pool_disk_mb = self._parse_size_to_mb(pool_config.disk)
                 if pool_disk_mb < config_disk_mb:
                     continue
 
