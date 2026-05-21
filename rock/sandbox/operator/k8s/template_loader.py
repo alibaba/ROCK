@@ -59,6 +59,7 @@ class K8sTemplateLoader:
         image: str | None = None,
         cpus: float | None = None,
         memory: str | None = None,
+        disk: str | None = None,
         num_gpus: int | None = None,
         accelerator_type: str | None = None,
     ) -> dict[str, Any]:
@@ -84,6 +85,7 @@ class K8sTemplateLoader:
             image: Container image (rendered into the template via {{ image }}).
             cpus: CPU resource value (rendered via {{ cpus }}).
             memory: Memory resource value (rendered via {{ memory }}).
+            disk: Disk resource value (rendered via {{ disk }}).
             num_gpus: GPU count (rendered via {{ num_gpus }}).
             accelerator_type: GPU model (rendered via {{ accelerator_type }}).
 
@@ -111,6 +113,7 @@ class K8sTemplateLoader:
             "image": image if image is not None else "",
             "cpus": str(cpus) if cpus is not None else "",
             "memory": memory if memory is not None else "",
+            "disk": disk if disk is not None else "",
             "num_gpus": num_gpus if num_gpus is not None else "",
             "accelerator_type": accelerator_type if accelerator_type is not None else "",
         }

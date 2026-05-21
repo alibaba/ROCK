@@ -207,6 +207,7 @@ class PoolConfig:
     image: str
     cpus: float
     memory: str
+    disk: str = ""
     ports: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self):

@@ -228,3 +228,90 @@ class TestK8sTemplateLoader:
         assert limits["cpu"] == "2"
         # GPU placeholders rendered to empty → keys dropped
         assert "nvidia.com/gpu" not in limits
+
+    def test_build_manifest_with_disk(self):
+        """Disk placeholder fills correctly when disk is provided."""
+        templates = {
+            "with-disk": {
+                "ports": {"proxy": 8000, "server": 8080, "ssh": 22},
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "main",
+                                "image": "{{ image }}",
+                                "resources": {
+                                    "requests": {
+                                        "cpu": "{{ cpus }}",
+                                        "memory": "{{ memory }}",
+                                        "ephemeral-storage": "{{ disk }}",
+                                    },
+                                    "limits": {
+                                        "cpu": "{{ cpus }}",
+                                        "memory": "{{ memory }}",
+                                        "ephemeral-storage": "{{ disk }}",
+                                    },
+                                },
+                            }
+                        ],
+                    }
+                },
+            }
+        }
+        loader = K8sTemplateLoader(templates=templates, default_namespace="rock-test")
+
+        manifest = loader.build_manifest(
+            template_name="with-disk",
+            sandbox_id="test-disk",
+            image="python:3.11",
+            cpus=2.0,
+            memory="4Gi",
+            disk="100Gi",
+        )
+
+        container = manifest["spec"]["template"]["spec"]["containers"][0]
+        assert container["resources"]["requests"]["ephemeral-storage"] == "100Gi"
+        assert container["resources"]["limits"]["ephemeral-storage"] == "100Gi"
+
+    def test_build_manifest_drops_disk_when_none(self):
+        """When disk is None, ephemeral-storage keys are dropped."""
+        templates = {
+            "with-disk": {
+                "ports": {"proxy": 8000, "server": 8080, "ssh": 22},
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "main",
+                                "image": "{{ image }}",
+                                "resources": {
+                                    "requests": {
+                                        "cpu": "{{ cpus }}",
+                                        "memory": "{{ memory }}",
+                                        "ephemeral-storage": "{{ disk }}",
+                                    },
+                                    "limits": {
+                                        "cpu": "{{ cpus }}",
+                                        "memory": "{{ memory }}",
+                                        "ephemeral-storage": "{{ disk }}",
+                                    },
+                                },
+                            }
+                        ],
+                    }
+                },
+            }
+        }
+        loader = K8sTemplateLoader(templates=templates, default_namespace="rock-test")
+
+        manifest = loader.build_manifest(
+            template_name="with-disk",
+            sandbox_id="test-no-disk",
+            image="python:3.11",
+            cpus=2.0,
+            memory="4Gi",
+        )
+
+        container = manifest["spec"]["template"]["spec"]["containers"][0]
+        assert "ephemeral-storage" not in container["resources"]["requests"]
+        assert "ephemeral-storage" not in container["resources"]["limits"]

@@ -37,6 +37,7 @@ def make_config(
     extended_params: dict = None,
     image_os: str = "linux",
     num_gpus: float | None = None,
+    disk_limit_rootfs: str | None = None,
 ) -> DockerDeploymentConfig:
     return DockerDeploymentConfig(
         image=image,
@@ -46,6 +47,7 @@ def make_config(
         extended_params=extended_params or {},
         image_os=image_os,
         num_gpus=num_gpus,
+        disk_limit_rootfs=disk_limit_rootfs,
     )
 
 
@@ -114,6 +116,52 @@ class TestResourceMatchingPoolSelector:
         }
         config = make_config(image="python:3.11", cpus=2, memory="4Gi")
         assert selector.select_pool(config, pools) == "pool_mi"
+
+    def test_skip_pool_when_disk_not_enough(self):
+        """Return None when pool disk is smaller than required."""
+        selector = ResourceMatchingPoolSelector()
+        pools = {
+            "pool_small_disk": PoolConfig(image="python:3.11", cpus=2, memory="4Gi", disk="20Gi"),
+        }
+        config = make_config(image="python:3.11", cpus=2, memory="4Gi", disk_limit_rootfs="50Gi")
+        assert selector.select_pool(config, pools) is None
+
+    def test_skip_pool_without_disk_when_disk_required(self):
+        """Return None when config requires disk but pool has no disk."""
+        selector = ResourceMatchingPoolSelector()
+        pools = {
+            "pool_no_disk": PoolConfig(image="python:3.11", cpus=2, memory="4Gi"),
+        }
+        config = make_config(image="python:3.11", cpus=2, memory="4Gi", disk_limit_rootfs="50Gi")
+        assert selector.select_pool(config, pools) is None
+
+    def test_select_pool_with_sufficient_disk(self):
+        """Select pool when disk capacity meets requirement."""
+        selector = ResourceMatchingPoolSelector()
+        pools = {
+            "pool_disk": PoolConfig(image="python:3.11", cpus=2, memory="4Gi", disk="100Gi"),
+        }
+        config = make_config(image="python:3.11", cpus=2, memory="4Gi", disk_limit_rootfs="50Gi")
+        assert selector.select_pool(config, pools) == "pool_disk"
+
+    def test_select_best_fit_pool_with_disk(self):
+        """Select pool with smallest cpu+mem+disk when multiple pools match."""
+        selector = ResourceMatchingPoolSelector()
+        pools = {
+            "pool_large": PoolConfig(image="python:3.11", cpus=8, memory="16Gi", disk="200Gi"),
+            "pool_exact": PoolConfig(image="python:3.11", cpus=2, memory="4Gi", disk="50Gi"),
+        }
+        config = make_config(image="python:3.11", cpus=2, memory="4Gi", disk_limit_rootfs="50Gi")
+        assert selector.select_pool(config, pools) == "pool_exact"
+
+    def test_no_disk_filter_when_config_has_no_disk(self):
+        """Pools without disk field are still selectable when config has no disk requirement."""
+        selector = ResourceMatchingPoolSelector()
+        pools = {
+            "pool_no_disk": PoolConfig(image="python:3.11", cpus=2, memory="4Gi"),
+        }
+        config = make_config(image="python:3.11", cpus=2, memory="4Gi")
+        assert selector.select_pool(config, pools) == "pool_no_disk"
 
 
 # ========== _get_pool_name ==========

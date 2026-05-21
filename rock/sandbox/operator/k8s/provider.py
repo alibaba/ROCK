@@ -80,8 +80,9 @@ class ResourceMatchingPoolSelector(PoolSelector):
     def _get_pool_resource_score(self, pool_config: PoolConfig) -> float:
         """Calculate resource score for a pool (lower is better for selection)."""
         memory_mb = self._parse_memory_to_mb(pool_config.memory)
-        # Normalize memory to GB and add to cpus for a unified score (lower = smaller capacity)
-        return pool_config.cpus + memory_mb / 1024
+        disk_mb = self._parse_memory_to_mb(pool_config.disk) if pool_config.disk else 0
+        # Normalize memory and disk to GB and add to cpus for a unified score (lower = smaller capacity)
+        return pool_config.cpus + memory_mb / 1024 + disk_mb / 1024
 
     def select_pool(self, config: DockerDeploymentConfig, pools: dict[str, PoolConfig]) -> str | None:
         """Select best matching pool based on image and resource requirements."""
@@ -89,6 +90,7 @@ class ResourceMatchingPoolSelector(PoolSelector):
             return None
 
         config_memory_mb = self._parse_memory_to_mb(config.memory)
+        config_disk_mb = self._parse_memory_to_mb(config.disk_limit_rootfs) if config.disk_limit_rootfs else 0
         matching_pools: list[tuple[str, PoolConfig, float]] = []
 
         for pool_name, pool_config in pools.items():
@@ -100,6 +102,14 @@ class ResourceMatchingPoolSelector(PoolSelector):
             pool_memory_mb = self._parse_memory_to_mb(pool_config.memory)
             if pool_config.cpus < config.cpus or pool_memory_mb < config_memory_mb:
                 continue
+
+            # Check disk capacity
+            if config_disk_mb > 0:
+                if not pool_config.disk:
+                    continue
+                pool_disk_mb = self._parse_memory_to_mb(pool_config.disk)
+                if pool_disk_mb < config_disk_mb:
+                    continue
 
             # Calculate score for this matching pool
             score = self._get_pool_resource_score(pool_config)
@@ -565,6 +575,7 @@ class BatchSandboxProvider(K8sProvider):
             image=config.image,
             cpus=config.cpus,
             memory=self._normalize_memory(config.memory),
+            disk=config.disk_limit_rootfs,
             num_gpus=config.num_gpus,
             accelerator_type=config.accelerator_type,
         )
