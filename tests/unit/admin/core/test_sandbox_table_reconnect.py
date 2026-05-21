@@ -130,31 +130,41 @@ class TestSandboxTablePgProcessRestart:
         yield t
         await engine.dispose()
 
-    async def _pg_restart_and_wait(self, restartable_pg) -> None:
-        """Stop then start the postgres process; keep asyncio event loop alive.
+    _OUTAGE_SECONDS = 4
 
-        run_in_executor prevents blocking the event loop so asyncpg can process
-        the TCP RST from the stopped backend while pg_ctl is running.
-        The sleep afterwards lets asyncpg finish settling the connection to closed.
+    def _do_pg_restart_blocking(self, restartable_pg) -> None:
+        """Stop, hold the outage open for _OUTAGE_SECONDS, then start.
+
+        Runs in an executor so the asyncio loop stays free to drive the
+        retry/back-off path inside SandboxTable while PG is down.
+        Cumulative back-off in the production wrapper (1+2+4+8 = 15s) must
+        exceed _OUTAGE_SECONDS for the test to pass; a no-sleep retry fires
+        immediately, finds the DB still down, and fails.
         """
-        import asyncio
+        import time
 
         container = restartable_pg["container"]
-
-        def do_restart() -> None:
-            container.exec_run(f"su postgres -c 'pg_ctl stop -D {_PGDATA} -m fast'")
-            container.exec_run(f"su postgres -c 'pg_ctl start -D {_PGDATA} -l /tmp/pg.log'")
-            _wait_pg_ready_sql(container, _PGUSER, _PGDB)
-
-        await asyncio.get_event_loop().run_in_executor(None, do_restart)
-        await asyncio.sleep(0.5)
+        container.exec_run(f"su postgres -c 'pg_ctl stop -D {_PGDATA} -m fast'")
+        time.sleep(self._OUTAGE_SECONDS)
+        container.exec_run(f"su postgres -c 'pg_ctl start -D {_PGDATA} -l /tmp/pg.log'")
+        _wait_pg_ready_sql(container, _PGUSER, _PGDB)
 
     async def test_retry_recovers_after_pg_restart(self, table, restartable_pg):
+        import asyncio
+
         await table.create("pgr-1", {"user_id": "bob", "create_time": "2025-01-01T00:00:00Z"})
         await table.list_by_in("sandbox_id", ["pgr-1"])  # warm pool
 
-        await self._pg_restart_and_wait(restartable_pg)
+        # Kick off the outage in the background so the query below races against it.
+        restart_task = asyncio.create_task(asyncio.to_thread(self._do_pg_restart_blocking, restartable_pg))
+
+        # Let `pg_ctl stop` actually land and the asyncpg reader observe the RST
+        # before issuing the query; the query must therefore traverse the outage
+        # window via the retry decorator's back-off.
+        await asyncio.sleep(0.5)
 
         result = await table.list_by_in("sandbox_id", ["pgr-1"])
+
+        await restart_task
         assert len(result) == 1
         assert result[0]["sandbox_id"] == "pgr-1"
