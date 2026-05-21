@@ -387,5 +387,5 @@ class LinuxRocklet(Rocklet):
             with open("/etc/docker/daemon.json") as f:
                 cfg = _json.load(f)
                 return cfg.get("data-root", "/var/lib/docker")
-        except (FileNotFoundError, ValueError):
+        except Exception:
             return "/var/lib/docker"
