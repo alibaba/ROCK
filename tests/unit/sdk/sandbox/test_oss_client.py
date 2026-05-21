@@ -388,6 +388,92 @@ class TestUploadViaOss:
 
         assert response.success is False
 
+    async def test_wget_command_has_no_continue_flag(self):
+        """Regression: `wget -c` would skip download when target exists with
+        matching size — but OSS object key is path-based (not content-based),
+        so a repeat upload re-uses the same key and `-c` would leave the
+        sandbox file at its old content. We must use `-O` alone to force
+        truncate-and-rewrite."""
+        sandbox = _make_sandbox()
+        sandbox.sandbox_id = "sb-123"
+        sandbox.arun = AsyncMock(return_value=MagicMock(exit_code=0))
+        sandbox.execute = AsyncMock(return_value=MagicMock(exit_code=0))
+
+        client = OssClient(sandbox)
+        client._bucket = MagicMock()
+        client._bucket.sign_url = MagicMock(return_value="https://oss/signed?token=xxx")
+
+        with patch("rock.sdk.sandbox.oss_client.oss2.resumable_upload"):
+            await client.upload_via_oss("/local/foo.json", "/sandbox/dst/foo.json")
+
+        # arun() is invoked twice: first for `mkdir -p`, second for `wget`.
+        wget_call = next(
+            c for c in sandbox.arun.await_args_list
+            if "wget" in (c.kwargs.get("cmd") or (c.args[0] if c.args else ""))
+        )
+        wget_cmd = wget_call.kwargs.get("cmd") or wget_call.args[0]
+        # The bug was `wget -c -O ...` — `-c` makes wget skip a same-sized local file.
+        assert " -c " not in f" {wget_cmd} ", f"wget should not use -c: {wget_cmd!r}"
+        assert " -O " in wget_cmd, f"wget must use -O to force overwrite: {wget_cmd!r}"
+
+    async def test_wget_command_quotes_target_path(self):
+        """target_path is interpolated into a shell command; if it contains
+        spaces or shell metachars (`;`, `$`, `&`, etc.) the unquoted form
+        would either fail or, worse, execute injected commands. shlex.quote
+        is the standard fix."""
+        sandbox = _make_sandbox()
+        sandbox.sandbox_id = "sb-123"
+        sandbox.arun = AsyncMock(return_value=MagicMock(exit_code=0))
+        sandbox.execute = AsyncMock(return_value=MagicMock(exit_code=0))
+
+        client = OssClient(sandbox)
+        client._bucket = MagicMock()
+        client._bucket.sign_url = MagicMock(return_value="https://oss/signed")
+
+        unsafe_target = "/sandbox/dir with spaces/foo.json"
+        with patch("rock.sdk.sandbox.oss_client.oss2.resumable_upload"):
+            await client.upload_via_oss("/local/foo.json", unsafe_target)
+
+        wget_call = next(
+            c for c in sandbox.arun.await_args_list
+            if "wget" in (c.kwargs.get("cmd") or (c.args[0] if c.args else ""))
+        )
+        wget_cmd = wget_call.kwargs.get("cmd") or wget_call.args[0]
+        # shlex.quote wraps a path-with-spaces in single quotes.
+        assert "'/sandbox/dir with spaces/foo.json'" in wget_cmd, \
+            f"target_path with spaces must be shell-quoted: {wget_cmd!r}"
+
+    async def test_repeat_upload_to_same_target_does_not_skip_via_wget(self):
+        """End-to-end intent: repeat upload(local_v2, /tmp/x) after upload(local_v1, /tmp/x)
+        must issue a wget command that *will* overwrite — i.e. wget must be invoked
+        with -O alone (not -c -O). We can't observe sandbox file content in unit
+        tests, but verifying the command shape forces the correct behavior."""
+        sandbox = _make_sandbox()
+        sandbox.sandbox_id = "sb-fixed"
+        sandbox.arun = AsyncMock(return_value=MagicMock(exit_code=0))
+        sandbox.execute = AsyncMock(return_value=MagicMock(exit_code=0))
+
+        client = OssClient(sandbox)
+        client._bucket = MagicMock()
+        client._bucket.sign_url = MagicMock(return_value="https://oss/v1")
+
+        with patch("rock.sdk.sandbox.oss_client.oss2.resumable_upload"):
+            # Round 1: upload local_a → /sandbox/x
+            await client.upload_via_oss("/local/a.bin", "/sandbox/x.bin")
+            # Round 2: upload local_b (different content, hypothetically) → SAME target
+            client._bucket.sign_url = MagicMock(return_value="https://oss/v2")
+            await client.upload_via_oss("/local/b.bin", "/sandbox/x.bin")
+
+        # Both rounds must produce a wget cmd without `-c`.
+        wget_calls = [
+            (c.kwargs.get("cmd") or (c.args[0] if c.args else ""))
+            for c in sandbox.arun.await_args_list
+            if "wget" in (c.kwargs.get("cmd") or (c.args[0] if c.args else ""))
+        ]
+        assert len(wget_calls) == 2
+        for wget_cmd in wget_calls:
+            assert " -c " not in f" {wget_cmd} ", f"`-c` regressed: {wget_cmd!r}"
+
 
 class TestDownloadViaOss:
     async def test_oss_unavailable_returns_failure(self, tmp_path):

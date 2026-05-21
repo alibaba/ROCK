@@ -210,8 +210,18 @@ class OssClient:
                 mode=RunMode.NORMAL,
             )
 
-            # wget the signed URL
-            download_cmd = f"wget -c -O {target_path} '{url}'"
+            # wget the signed URL.
+            # Note: NO `-c` (continue/resume). With `-c`, wget skips download
+            # entirely if the local file already exists with size matching the
+            # remote object — but the OSS object name is derived from
+            # (sandbox_id|local_path|sandbox_path), not file content, so a
+            # repeat upload to the same target re-uses the same OSS key. The
+            # remote object IS overwritten by `resumable_upload` above (new
+            # content), but `wget -c` would compare sizes, see they match, and
+            # exit 0 without fetching, leaving the sandbox file at its old
+            # content while we still report success. `-O` alone forces wget
+            # to truncate and rewrite, regardless of existing local state.
+            download_cmd = f"wget -O {shlex.quote(target_path)} '{url}'"
             await self._sandbox.arun(cmd=download_cmd, wait_timeout=600, mode=RunMode.NOHUP)
 
             # Verify target exists in sandbox. Use execute() instead of arun(),
