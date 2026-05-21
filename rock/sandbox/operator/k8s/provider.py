@@ -575,7 +575,7 @@ class BatchSandboxProvider(K8sProvider):
             image=config.image,
             cpus=config.cpus,
             memory=self._normalize_memory(config.memory),
-            disk=config.disk_limit_rootfs,
+            disk=self._normalize_memory(config.disk_limit_rootfs) if config.disk_limit_rootfs else None,
             num_gpus=config.num_gpus,
             accelerator_type=config.accelerator_type,
         )

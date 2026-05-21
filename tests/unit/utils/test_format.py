@@ -20,6 +20,7 @@ def test_kilobytes():
     assert parse_size_to_bytes("1K") == 1024
     assert parse_size_to_bytes("1kb") == 1024
     assert parse_size_to_bytes("1KB") == 1024
+    assert parse_size_to_bytes("1Ki") == 1024
     assert parse_size_to_bytes("2k") == 2048
 
 
@@ -28,6 +29,7 @@ def test_megabytes():
     assert parse_size_to_bytes("1M") == 1024**2
     assert parse_size_to_bytes("1mb") == 1024**2
     assert parse_size_to_bytes("1MB") == 1024**2
+    assert parse_size_to_bytes("1Mi") == 1024**2
     assert parse_size_to_bytes("2m") == 2 * 1024**2
 
 
@@ -36,6 +38,8 @@ def test_gigabytes():
     assert parse_size_to_bytes("1G") == 1024**3
     assert parse_size_to_bytes("1gb") == 1024**3
     assert parse_size_to_bytes("1GB") == 1024**3
+    assert parse_size_to_bytes("1Gi") == 1024**3
+    assert parse_size_to_bytes("100Gi") == 100 * 1024**3
     assert parse_size_to_bytes("2g") == 2 * 1024**3
 
 
@@ -44,6 +48,7 @@ def test_terabytes():
     assert parse_size_to_bytes("1T") == 1024**4
     assert parse_size_to_bytes("1tb") == 1024**4
     assert parse_size_to_bytes("1TB") == 1024**4
+    assert parse_size_to_bytes("1Ti") == 1024**4
 
 
 def test_decimal_values():
