@@ -73,18 +73,18 @@ async def mgr(mock_meta_store, mock_operator):
 
 class TestManagerStop:
     @pytest.mark.asyncio
-    async def test_stop_not_found_attempts_cleanup(self, mgr, mock_meta_store, mock_operator):
+    async def test_stop_not_found_attempts_operator_stop(self, mgr, mock_meta_store, mock_operator):
         mock_meta_store.get.return_value = None
         await mgr.stop("sb-1")
         mock_operator.stop.assert_awaited_once_with("sb-1", reason=StopReason.MANUAL)
-        mock_meta_store.archive.assert_awaited_once()
+        mock_meta_store.archive.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_stop_not_found_actor_missing_still_archives(self, mgr, mock_meta_store, mock_operator):
+    async def test_stop_not_found_actor_missing_is_silent(self, mgr, mock_meta_store, mock_operator):
         mock_meta_store.get.return_value = None
         mock_operator.stop.side_effect = ValueError("actor not found")
         await mgr.stop("sb-1")
-        mock_meta_store.archive.assert_awaited_once()
+        mock_meta_store.archive.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_stop_already_stopped_is_noop(self, mgr, mock_meta_store, mock_operator):
