@@ -316,3 +316,30 @@ def test_list_organizations_returns_empty_when_no_orgs():
         orgs = registry.list_organizations()
 
     assert orgs == []
+
+
+def test_list_org_datasets_returns_sorted_dataset_names():
+    registry = OssDatasetRegistry(make_registry_info())
+    mock_bucket = MagicMock()
+    mock_bucket.list_objects_v2.return_value = make_list_result(prefixes=[
+        "datasets/qwen/bench-2/",
+        "datasets/qwen/bench-1/",
+    ])
+
+    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+        datasets = registry.list_org_datasets("qwen")
+
+    call_kwargs = mock_bucket.list_objects_v2.call_args[1]
+    assert call_kwargs["prefix"] == "datasets/qwen/"
+    assert call_kwargs["delimiter"] == "/"
+    assert call_kwargs["max_keys"] == 1000
+    assert datasets == ["bench-1", "bench-2"]
+
+
+def test_list_org_datasets_returns_empty_when_org_missing():
+    registry = OssDatasetRegistry(make_registry_info())
+    mock_bucket = MagicMock()
+    mock_bucket.list_objects_v2.return_value = make_list_result(prefixes=[])
+
+    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+        assert registry.list_org_datasets("nonexistent") == []

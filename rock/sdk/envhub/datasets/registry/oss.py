@@ -76,6 +76,14 @@ class OssDatasetRegistry(BaseDatasetRegistry):
         result = bucket.list_objects_v2(prefix=f"{base}/", delimiter="/", max_keys=1000)
         return sorted(self._last_segment(p) for p in result.prefix_list)
 
+    def list_org_datasets(self, organization: str) -> list[str]:
+        bucket = self._build_bucket()
+        base = self._registry.oss_dataset_path or "datasets"
+        result = bucket.list_objects_v2(
+            prefix=f"{base}/{organization}/", delimiter="/", max_keys=1000
+        )
+        return sorted(self._last_segment(p) for p in result.prefix_list)
+
     def list_datasets(self, organization: str | None = None) -> list[DatasetSpec]:
         bucket = self._build_bucket()
         base = self._registry.oss_dataset_path or "datasets"

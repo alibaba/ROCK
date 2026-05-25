@@ -22,6 +22,11 @@ class BaseDatasetRegistry(ABC):
         ...
 
     @abstractmethod
+    def list_org_datasets(self, organization: str) -> list[str]:
+        """List dataset names under one organization. Single backend call."""
+        ...
+
+    @abstractmethod
     def upload_dataset(
         self,
         source: LocalDatasetConfig,
