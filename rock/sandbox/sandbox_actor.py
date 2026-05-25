@@ -74,9 +74,14 @@ class SandboxActor(GemActor):
             logger.info("start to run background script")
             actor_pid = str(os.getpid())
             logger.info(f"actor_pid is {actor_pid}")
-            # Execute script
+            # start_new_session: detach from actor's session so SIGHUP doesn't
+            # take the watchdog down (replaces the script's prior `nohup ... &`
+            # form, which made the watchdog uncontrollable from Python).
             process = subprocess.Popen(
                 ["bash", self._clean_container_background_script, actor_pid, self._config.container_name],
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
             logger.info(f"Background script started successfully, pid is {process.pid}")
             self._clean_container_background_process = process
