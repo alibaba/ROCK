@@ -14,6 +14,18 @@ class DatasetClient:
     def list_dataset_tasks(self, organization: str, dataset: str, split: str = "test") -> DatasetSpec | None:
         return self._registry.list_dataset_tasks(organization, dataset, split)
 
+    def list_organizations(self) -> list[str]:
+        return self._registry.list_organizations()
+
+    def list_org_datasets(self, organization: str) -> list[str]:
+        return self._registry.list_org_datasets(organization)
+
+    def list_all_datasets(self, concurrency: int = 10) -> list[tuple[str, str]]:
+        return self._registry.list_all_datasets(concurrency)
+
+    def list_dataset_splits(self, organization: str, dataset: str) -> list[str]:
+        return self._registry.list_dataset_splits(organization, dataset)
+
     def upload_dataset(
         self,
         source: LocalDatasetConfig,

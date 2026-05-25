@@ -42,3 +42,42 @@ def test_dataset_client_list_tasks_delegates_to_registry_with_default_split():
 
     mock_list_tasks.assert_called_once_with("qwen", "bench", "test")
     assert result == expected
+
+
+def test_dataset_client_list_organizations_delegates():
+    client = DatasetClient(make_registry_info())
+    with patch.object(client._registry, "list_organizations", return_value=["a", "b"]) as m:
+        result = client.list_organizations()
+    m.assert_called_once_with()
+    assert result == ["a", "b"]
+
+
+def test_dataset_client_list_org_datasets_delegates():
+    client = DatasetClient(make_registry_info())
+    with patch.object(client._registry, "list_org_datasets", return_value=["d1"]) as m:
+        result = client.list_org_datasets("qwen")
+    m.assert_called_once_with("qwen")
+    assert result == ["d1"]
+
+
+def test_dataset_client_list_all_datasets_delegates_with_default_concurrency():
+    client = DatasetClient(make_registry_info())
+    with patch.object(client._registry, "list_all_datasets", return_value=[("a", "x")]) as m:
+        result = client.list_all_datasets()
+    m.assert_called_once_with(10)
+    assert result == [("a", "x")]
+
+
+def test_dataset_client_list_all_datasets_passes_custom_concurrency():
+    client = DatasetClient(make_registry_info())
+    with patch.object(client._registry, "list_all_datasets", return_value=[]) as m:
+        client.list_all_datasets(concurrency=5)
+    m.assert_called_once_with(5)
+
+
+def test_dataset_client_list_dataset_splits_delegates():
+    client = DatasetClient(make_registry_info())
+    with patch.object(client._registry, "list_dataset_splits", return_value=["test", "train"]) as m:
+        result = client.list_dataset_splits("qwen", "bench")
+    m.assert_called_once_with("qwen", "bench")
+    assert result == ["test", "train"]
