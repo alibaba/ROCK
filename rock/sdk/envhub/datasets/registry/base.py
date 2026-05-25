@@ -27,6 +27,11 @@ class BaseDatasetRegistry(ABC):
         ...
 
     @abstractmethod
+    def list_dataset_splits(self, organization: str, dataset: str) -> list[str]:
+        """List split names under one dataset. Single backend call."""
+        ...
+
+    @abstractmethod
     def upload_dataset(
         self,
         source: LocalDatasetConfig,

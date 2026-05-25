@@ -343,3 +343,29 @@ def test_list_org_datasets_returns_empty_when_org_missing():
 
     with patch.object(registry, "_build_bucket", return_value=mock_bucket):
         assert registry.list_org_datasets("nonexistent") == []
+
+
+def test_list_dataset_splits_returns_sorted_split_names():
+    registry = OssDatasetRegistry(make_registry_info())
+    mock_bucket = MagicMock()
+    mock_bucket.list_objects_v2.return_value = make_list_result(prefixes=[
+        "datasets/qwen/bench/train/",
+        "datasets/qwen/bench/test/",
+    ])
+
+    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+        splits = registry.list_dataset_splits("qwen", "bench")
+
+    call_kwargs = mock_bucket.list_objects_v2.call_args[1]
+    assert call_kwargs["prefix"] == "datasets/qwen/bench/"
+    assert call_kwargs["delimiter"] == "/"
+    assert splits == ["test", "train"]
+
+
+def test_list_dataset_splits_returns_empty_when_dataset_missing():
+    registry = OssDatasetRegistry(make_registry_info())
+    mock_bucket = MagicMock()
+    mock_bucket.list_objects_v2.return_value = make_list_result(prefixes=[])
+
+    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+        assert registry.list_dataset_splits("qwen", "nope") == []
