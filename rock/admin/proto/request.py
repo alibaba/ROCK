@@ -163,3 +163,24 @@ class StartHeaders:
         self.cluster_info: ClusterInfo = {
             "cluster_name": x_cluster,
         }
+
+
+class OpsJobRequest(BaseModel):
+    """Submit an admin ops job: execute one or more scheduler tasks on demand.
+
+    Generalised replacement for per-feature requests (e.g. DiskEmergencyCleanupRequest).
+    The specific intent is expressed by ``tasks``; the API stays agnostic so
+    new ops operations don't need new endpoints.
+    """
+
+    tasks: list[str] | None = Field(
+        default=None,
+        description=(
+            "BaseTask.type names to trigger (e.g. 'image_cleanup'). "
+            "Whitelisted to suffix '_cleanup' / '_prune' / '_archive'. None = all whitelisted."
+        ),
+    )
+    worker_ips: list[str] | None = Field(
+        default=None,
+        description="Worker IPs to target. None = use the live alive-worker cache.",
+    )

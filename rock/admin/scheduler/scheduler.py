@@ -297,3 +297,19 @@ class SchedulerThread:
     def is_alive(self) -> bool:
         """Check if the scheduler thread is alive."""
         return self._thread is not None and self._thread.is_alive()
+
+    def get_task_registry(self) -> dict[str, "BaseTask"]:
+        """Return a snapshot of currently scheduled tasks {task_class: instance}.
+
+        Safe to call from other threads — returns a shallow copy so concurrent
+        mutation by Nacos config reload (in scheduler thread) doesn't fault.
+        """
+        if self._task_scheduler is None:
+            return {}
+        return dict(self._task_scheduler._tasks_by_class)
+
+    def get_alive_workers(self) -> list[str]:
+        """Return currently alive worker IPs (TTL-cached via WorkerIPCache)."""
+        if self._task_scheduler is None or self._task_scheduler._worker_cache is None:
+            return []
+        return self._task_scheduler._worker_cache.get_alive_workers()

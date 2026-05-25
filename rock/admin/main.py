@@ -16,8 +16,19 @@ from starlette.responses import JSONResponse
 
 from rock import env_vars
 from rock.admin.core.db_provider import DatabaseProvider
+from rock.admin.core.ops_job_table import OpsJobTable
 from rock.admin.core.ray_service import RayService
 from rock.admin.core.sandbox_table import SandboxTable
+from rock.admin.entrypoints.admin_ops_api import (
+    admin_ops_router,
+    set_ops_job_table,
+)
+from rock.admin.entrypoints.admin_ops_api import (
+    set_alive_workers_provider as set_ops_alive_workers_provider,
+)
+from rock.admin.entrypoints.admin_ops_api import (
+    set_task_registry_provider as set_ops_task_registry_provider,
+)
 from rock.admin.entrypoints.sandbox_api import sandbox_router, set_sandbox_manager
 from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_sandbox_proxy_service
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
@@ -166,6 +177,14 @@ async def lifespan(app: FastAPI):
         elif rock_config.scheduler.enabled:
             logger.info("Scheduler thread skipped on non-primary pod")
 
+        # Wire admin_ops_router to scheduler. Providers are called per-request so
+        # they always see the *current* task set (Nacos may mutate it) and worker
+        # IPs. On non-primary pods scheduler_thread is None — providers return
+        # empty registry, POST will report rejected/empty; GET still works via DB.
+        if scheduler_thread is not None:
+            set_ops_task_registry_provider(scheduler_thread.get_task_registry)
+            set_ops_alive_workers_provider(scheduler_thread.get_alive_workers)
+
     else:
         sandbox_manager = SandboxProxyService(rock_config=rock_config, meta_store=meta_store)
         set_sandbox_proxy_service(sandbox_manager)
@@ -275,6 +294,8 @@ def main():
         app.include_router(sandbox_proxy_router, prefix="/apis/envs/sandbox/v1", tags=["sandbox"])
     app.include_router(warmup_router, prefix="/apis/envs/sandbox/v1", tags=["warmup"])
     app.include_router(gem_router, prefix="/apis/v1/envs/gem", tags=["gem"])
+    if args.role == "admin":
+        app.include_router(admin_ops_router, prefix="/apis/v1", tags=["admin-ops"])
 
     uvicorn.run(app, host="0.0.0.0", port=args.port, ws_ping_interval=None, ws_ping_timeout=None, timeout_keep_alive=30)
 
