@@ -32,6 +32,11 @@ class BaseDatasetRegistry(ABC):
         ...
 
     @abstractmethod
+    def list_all_datasets(self, concurrency: int = 10) -> list[tuple[str, str]]:
+        """List all (org, dataset) pairs. 1 + N_org backend calls with bounded concurrency."""
+        ...
+
+    @abstractmethod
     def upload_dataset(
         self,
         source: LocalDatasetConfig,

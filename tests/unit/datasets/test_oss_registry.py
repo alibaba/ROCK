@@ -369,3 +369,71 @@ def test_list_dataset_splits_returns_empty_when_dataset_missing():
 
     with patch.object(registry, "_build_bucket", return_value=mock_bucket):
         assert registry.list_dataset_splits("qwen", "nope") == []
+
+
+def test_list_all_datasets_returns_sorted_pairs():
+    registry = OssDatasetRegistry(make_registry_info())
+
+    def fake_list_org_datasets(org):
+        return {"qwen": ["bench-2", "bench-1"], "alibaba": ["pinch"]}[org]
+
+    with patch.object(registry, "list_organizations", return_value=["qwen", "alibaba"]):
+        with patch.object(registry, "list_org_datasets", side_effect=fake_list_org_datasets):
+            pairs = registry.list_all_datasets()
+
+    assert pairs == [("alibaba", "pinch"), ("qwen", "bench-1"), ("qwen", "bench-2")]
+
+
+def test_list_all_datasets_uses_bounded_concurrency():
+    registry = OssDatasetRegistry(make_registry_info())
+
+    with patch.object(registry, "list_organizations", return_value=["o1", "o2"]):
+        with patch.object(registry, "list_org_datasets", return_value=["d"]):
+            with patch("rock.sdk.envhub.datasets.registry.oss.ThreadPoolExecutor") as mock_pool:
+                with patch("rock.sdk.envhub.datasets.registry.oss.as_completed", side_effect=lambda d: list(d)):
+                    mock_executor = MagicMock()
+                    mock_pool.return_value.__enter__.return_value = mock_executor
+                    future = MagicMock()
+                    future.result.return_value = ["d"]
+                    mock_executor.submit.return_value = future
+                    registry.list_all_datasets(concurrency=7)
+
+    mock_pool.assert_called_once_with(max_workers=7)
+
+
+def test_list_all_datasets_default_concurrency_is_10():
+    registry = OssDatasetRegistry(make_registry_info())
+
+    with patch.object(registry, "list_organizations", return_value=["o1"]):
+        with patch.object(registry, "list_org_datasets", return_value=["d"]):
+            with patch("rock.sdk.envhub.datasets.registry.oss.ThreadPoolExecutor") as mock_pool:
+                with patch("rock.sdk.envhub.datasets.registry.oss.as_completed", side_effect=lambda d: list(d)):
+                    mock_executor = MagicMock()
+                    mock_pool.return_value.__enter__.return_value = mock_executor
+                    future = MagicMock()
+                    future.result.return_value = ["d"]
+                    mock_executor.submit.return_value = future
+                    registry.list_all_datasets()
+
+    mock_pool.assert_called_once_with(max_workers=10)
+
+
+def test_list_all_datasets_propagates_exception_from_worker():
+    import pytest as _pytest
+    registry = OssDatasetRegistry(make_registry_info())
+
+    def fake_list_org_datasets(org):
+        if org == "bad":
+            raise RuntimeError("oss boom")
+        return ["d"]
+
+    with patch.object(registry, "list_organizations", return_value=["good", "bad"]):
+        with patch.object(registry, "list_org_datasets", side_effect=fake_list_org_datasets):
+            with _pytest.raises(RuntimeError, match="oss boom"):
+                registry.list_all_datasets()
+
+
+def test_list_all_datasets_empty_when_no_orgs():
+    registry = OssDatasetRegistry(make_registry_info())
+    with patch.object(registry, "list_organizations", return_value=[]):
+        assert registry.list_all_datasets() == []

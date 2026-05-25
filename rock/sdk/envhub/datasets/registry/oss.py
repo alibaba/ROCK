@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import oss2
@@ -91,6 +91,19 @@ class OssDatasetRegistry(BaseDatasetRegistry):
             prefix=f"{base}/{organization}/{dataset}/", delimiter="/", max_keys=1000
         )
         return sorted(self._last_segment(p) for p in result.prefix_list)
+
+    def list_all_datasets(self, concurrency: int = 10) -> list[tuple[str, str]]:
+        orgs = self.list_organizations()
+        if not orgs:
+            return []
+        pairs: list[tuple[str, str]] = []
+        with ThreadPoolExecutor(max_workers=concurrency) as ex:
+            future_to_org = {ex.submit(self.list_org_datasets, o): o for o in orgs}
+            for fut in as_completed(future_to_org):
+                org = future_to_org[fut]
+                for ds in fut.result():
+                    pairs.append((org, ds))
+        return sorted(pairs)
 
     def list_datasets(self, organization: str | None = None) -> list[DatasetSpec]:
         bucket = self._build_bucket()
