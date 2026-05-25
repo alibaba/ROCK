@@ -281,3 +281,38 @@ def test_upload_dataset_oss_key_format(tmp_path):
 
     key = mock_bucket.put_object.call_args[0][0]
     assert key == "datasets/qwen/my-bench/train/task-001/task.toml"
+
+
+# ---------------------------------------------------------------------------
+# list_organizations tests
+# ---------------------------------------------------------------------------
+
+
+def test_list_organizations_returns_sorted_org_names():
+    registry = OssDatasetRegistry(make_registry_info())
+    mock_bucket = MagicMock()
+    mock_bucket.list_objects_v2.return_value = make_list_result(prefixes=[
+        "datasets/qwen/",
+        "datasets/alibaba/",
+        "datasets/AoneBenchDev/",
+    ])
+
+    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+        orgs = registry.list_organizations()
+
+    call_kwargs = mock_bucket.list_objects_v2.call_args[1]
+    assert call_kwargs["prefix"] == "datasets/"
+    assert call_kwargs["delimiter"] == "/"
+    assert call_kwargs["max_keys"] == 1000
+    assert orgs == ["AoneBenchDev", "alibaba", "qwen"]
+
+
+def test_list_organizations_returns_empty_when_no_orgs():
+    registry = OssDatasetRegistry(make_registry_info())
+    mock_bucket = MagicMock()
+    mock_bucket.list_objects_v2.return_value = make_list_result(prefixes=[])
+
+    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+        orgs = registry.list_organizations()
+
+    assert orgs == []

@@ -17,6 +17,11 @@ class BaseDatasetRegistry(ABC):
         ...
 
     @abstractmethod
+    def list_organizations(self) -> list[str]:
+        """List organization names under the dataset registry. Single backend call."""
+        ...
+
+    @abstractmethod
     def upload_dataset(
         self,
         source: LocalDatasetConfig,
