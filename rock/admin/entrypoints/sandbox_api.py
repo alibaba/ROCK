@@ -33,7 +33,6 @@ from rock.common.constants import (
     GET_STATUS_SWITCH,
     KATA_DIND_DISK_SIZE_KEY,
     KATA_RUNTIME_SWITCH,
-    SANDBOX_DISK_LIMIT_LOG_KEY,
     SANDBOX_DISK_LIMIT_ROOTFS_KEY,
     SUPPORT_KATA_SWITCH,
 )
@@ -79,23 +78,19 @@ async def _apply_disk_limits(config: DockerDeploymentConfig) -> None:
     """Apply disk limits from RuntimeConfig (rock-xxx.yml), overridable by Nacos at runtime.
 
     Priority: Nacos > RuntimeConfig (rock-xxx.yml). None in both means no limit.
+    The log dir shares the rootfs prjid + bhard at runtime, so only rootfs is configurable.
     """
     runtime = sandbox_manager.rock_config.runtime
     nacos = sandbox_manager.rock_config.nacos_provider
 
     disk_limit_rootfs = runtime.sandbox_disk_limit_rootfs
-    disk_limit_log = runtime.sandbox_disk_limit_log
 
     if nacos is not None:
         nacos_rootfs = await nacos.get_config_value(SANDBOX_DISK_LIMIT_ROOTFS_KEY)
         if nacos_rootfs:
             disk_limit_rootfs = nacos_rootfs
-        nacos_log = await nacos.get_config_value(SANDBOX_DISK_LIMIT_LOG_KEY)
-        if nacos_log:
-            disk_limit_log = nacos_log
 
     config.disk_limit_rootfs = disk_limit_rootfs
-    config.disk_limit_log = disk_limit_log
 
 
 async def _apply_accelerator_type_validation(config: DockerDeploymentConfig) -> None:

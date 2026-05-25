@@ -1,8 +1,8 @@
 import asyncio
 import datetime
-import hashlib
 import os
 import random
+import re
 import shlex
 import subprocess
 import time
@@ -43,8 +43,6 @@ from rock.utils import (
 
 __all__ = ["DockerDeployment", "DockerDeploymentConfig"]
 CHECK_CLEAR_INTERVAL_SECONDS = 300
-XFS_PRJID_MIN = (1 << 31)                      # low project IDs are reserved for Docker
-XFS_PRJID_RANGE = (1 << 32) - XFS_PRJID_MIN   # use remaining 32-bit space: [XFS_PRJID_MIN, 2^32)
 
 
 logger = init_logger(__name__)
@@ -65,7 +63,9 @@ class DockerDeployment(AbstractDeployment):
         if registry_password:
             self._config.registry_password = registry_password
         self._effective_disk_limit_rootfs: str | None = self._config.disk_limit_rootfs
-        self._effective_disk_limit_log: str | None = self._config.disk_limit_log
+        # Effective log limit equals the rootfs limit when shared-prjid setup succeeds in start();
+        # otherwise stays None. The log dir always shares the docker-allocated rootfs prjid.
+        self._effective_disk_limit_log: str | None = None
         self._runtime: RemoteSandboxRuntime | None = None
         self._container_process = None
         self._runtime_timeout = 0.15
@@ -89,8 +89,6 @@ class DockerDeployment(AbstractDeployment):
             raise Exception(f"Invalid ROCK_WORKER_ENV_TYPE: {env_vars.ROCK_WORKER_ENV_TYPE}")
 
         self.sandbox_validator: DockerSandboxValidator | None = DockerSandboxValidator()
-        self.log_dir_xfs_prjid: int | None = None
-        self.log_dir_xfs_mountpoint: str | None = None
 
     def add_hook(self, hook: DeploymentHook):
         self._hooks.add_hook(hook)
@@ -211,37 +209,6 @@ class DockerDeployment(AbstractDeployment):
             if os.path.exists(disk_path):
                 os.remove(disk_path)
             raise
-
-    def _cleanup_log_dir_xfs_quota(self) -> None:
-        """Remove XFS project quota for the sandbox log directory on exit."""
-        if self.log_dir_xfs_prjid is None or self.log_dir_xfs_mountpoint is None:
-            return
-        if not self._container_name:
-            return
-
-        log_file_path = f"{env_vars.ROCK_LOGGING_PATH}/{self._container_name}"
-        project_id = self.log_dir_xfs_prjid
-        mount_point = self.log_dir_xfs_mountpoint
-        try:
-            clear_limit_cmd = f"limit -p bhard=0 bsoft=0 {project_id}"
-            clear_project_cmd = f"project -C -p {shlex.quote(log_file_path)} {project_id}"
-            for cmd in (clear_limit_cmd, clear_project_cmd):
-                result = subprocess.run(
-                    ["xfs_quota", "-x", "-c", cmd, mount_point],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                if result.returncode != 0:
-                    logger.warning(
-                        f"xfs_quota cleanup failed for {log_file_path!r} cmd={cmd!r}: {result.stderr.strip() or result.stdout.strip()}"
-                    )
-            logger.info(f"Cleaned up XFS project quota (prjid={project_id}) for {log_file_path!r}")
-        except Exception as e:
-            logger.warning(f"Failed to cleanup XFS project quota for {log_file_path!r}: {e}")
-        finally:
-            self.log_dir_xfs_prjid = None
-            self.log_dir_xfs_mountpoint = None
 
     def _cleanup_kata_disk(self) -> None:
         """Remove the kata disk image file from the host.
@@ -409,60 +376,115 @@ class DockerDeployment(AbstractDeployment):
             return ["--storage-opt", f"size={self._effective_disk_limit_rootfs}"]
         return []
 
-    def _try_set_log_dir_quota(self, log_file_path: str) -> None:
-        """Best-effort: set XFS project quota for sandbox log directory.
+    def _get_docker_rootfs_prjid_and_upper_dir(self) -> tuple[int | None, str | None]:
+        """Read the XFS project id docker assigned to the container's overlay2
+        upper dir, together with the upper dir path itself.
 
-        Requires the log path to be on an XFS mount with prjquota/pquota enabled.
-        This check is independent of Docker's storage driver (no overlay2 requirement).
+        Only meaningful after `docker create` (the upper dir exists by then).
+        Returns (None, None) on any failure — the caller should fall back to
+        an independent prjid path.
         """
-        if self._effective_disk_limit_log is None:
-            return
-
-        if not DockerUtil.is_xfs_prjquota_path(log_file_path):
-            logger.info(f"Log path {log_file_path!r} is not on XFS+prjquota, skipping quota setup")
-            self._effective_disk_limit_log = None
-            return
-
-        # Derive a deterministic project id from container name; reserve low ids.
-        project_id = (int(hashlib.sha1(self.container_name.encode("utf-8")).hexdigest()[:8], 16) % XFS_PRJID_RANGE) + XFS_PRJID_MIN
         try:
-            findmnt_result = subprocess.run(
-                ["findmnt", "-T", log_file_path, "-o", "TARGET", "--noheadings"],
+            inspect_result = subprocess.run(
+                ["docker", "inspect", "--format={{.GraphDriver.Data.UpperDir}}", self._container_name],
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
-            if findmnt_result.returncode != 0:
-                logger.warning(f"Failed to find mountpoint for log path {log_file_path!r}, skip quota setup")
-                self._effective_disk_limit_log = None
+            if inspect_result.returncode != 0 or not inspect_result.stdout.strip():
+                return None, None
+            upper_dir = inspect_result.stdout.strip()
+
+            lsproj_result = subprocess.run(
+                ["xfs_io", "-r", "-c", "lsproj", upper_dir],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if lsproj_result.returncode != 0:
+                return None, None
+            # output looks like: `projid = 12345` (or similar). Grab the trailing integer.
+            match = re.search(r"(\d+)\s*$", lsproj_result.stdout.strip())
+            if not match:
+                return None, None
+            prjid = int(match.group(1))
+            if prjid <= 0:
+                return None, None
+            return prjid, upper_dir
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+            logger.warning(f"Failed to read docker rootfs prjid for {self._container_name}: {e}")
+            return None, None
+
+    def _setup_log_dir_quota_shared(self, log_file_path: str) -> None:
+        """Attach the docker-allocated rootfs prjid to the host log dir so that
+        rootfs and log share a single XFS quota (the bhard already set by
+        `--storage-opt size=`).
+
+        Must be called between `docker create` and `docker start`. On any
+        failure (no rootfs prjid, log dir on a different filesystem, quota
+        command error) the log dir is simply left unbound —
+        `_effective_disk_limit_log` stays None.
+
+        We only `project -s` here (binds prjid + sets inherit flag); we do
+        NOT call `limit -p`. The bhard belongs to docker; setting a separate
+        limit would clobber it. Cleanup is also docker's responsibility:
+        `docker rm` resets the prjid's limit when the upper dir is torn down.
+        """
+        if self._effective_disk_limit_rootfs is None:
+            return
+
+        project_id, upper_dir = self._get_docker_rootfs_prjid_and_upper_dir()
+        logger.info(f"setup_log_dir_quota_shared: log={log_file_path!r}, prjid={project_id}, upper_dir={upper_dir!r}")
+        if project_id is None or upper_dir is None:
+            logger.info(f"docker rootfs prjid unavailable for {log_file_path!r}; cannot share, fall back")
+            return
+
+        try:
+            if os.stat(log_file_path).st_dev != os.stat(upper_dir).st_dev:
+                logger.info(
+                    f"log dir {log_file_path!r} on different filesystem from rootfs {upper_dir!r}; "
+                    f"cannot share prjid, fall back"
+                )
                 return
-            mount_point = findmnt_result.stdout.strip()
-            if not mount_point:
-                logger.warning(f"Empty mountpoint for log path {log_file_path!r}, skip quota setup")
-                self._effective_disk_limit_log = None
+        except OSError as e:
+            logger.warning(f"stat failed while checking prjid sharing for {log_file_path!r}: {e}")
+            return
+
+        try:
+            findmnt_result = subprocess.run(
+                ["findmnt", "-T", upper_dir, "-o", "TARGET", "--noheadings"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if findmnt_result.returncode != 0 or not findmnt_result.stdout.strip():
+                logger.warning(
+                    f"findmnt failed for upper_dir {upper_dir!r}: " f"{findmnt_result.stderr.strip() or 'empty output'}"
+                )
                 return
+            xfs_mountpoint = findmnt_result.stdout.strip()
 
             set_project_cmd = f"project -s -p {shlex.quote(log_file_path)} {project_id}"
-            set_limit_cmd = f"limit -p bhard={self._effective_disk_limit_log} {project_id}"
-            for cmd in (set_project_cmd, set_limit_cmd):
-                result = subprocess.run(
-                    ["xfs_quota", "-x", "-c", cmd, mount_point],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
+            result = subprocess.run(
+                ["xfs_quota", "-x", "-c", set_project_cmd, xfs_mountpoint],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    f"xfs_quota project -s failed for {log_file_path!r} prjid={project_id}: "
+                    f"{result.stderr.strip() or result.stdout.strip()}"
                 )
-                if result.returncode != 0:
-                    logger.warning(
-                        f"xfs_quota failed for {log_file_path!r} with cmd={cmd!r}: {result.stderr.strip() or result.stdout.strip()}"
-                    )
-                    self._effective_disk_limit_log = None
-                    return
-            self.log_dir_xfs_prjid = project_id
-            self.log_dir_xfs_mountpoint = mount_point
-            logger.info(f"Set XFS project quota {self._effective_disk_limit_log} for log path {log_file_path!r}")
-        except Exception as e:
-            logger.warning(f"Failed to set XFS project quota for {log_file_path!r}: {e}")
-            self._effective_disk_limit_log = None
+                return
+
+            self._effective_disk_limit_log = self._effective_disk_limit_rootfs
+            logger.info(
+                f"Attached log dir {log_file_path!r} to docker rootfs prjid={project_id} "
+                f"(shared rootfs+log quota, limit managed by docker --storage-opt)"
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+            logger.warning(f"Failed to share rootfs prjid with log dir {log_file_path!r}: {e}")
 
     async def start(self):
         """Starts the runtime."""
@@ -480,8 +502,8 @@ class DockerDeployment(AbstractDeployment):
             self._effective_disk_limit_rootfs = None
         else:
             self._effective_disk_limit_rootfs = self._config.disk_limit_rootfs
-        # Resolve effective log quota; _try_set_log_dir_quota will downgrade to None if XFS+prjquota is unavailable.
-        self._effective_disk_limit_log = self._config.disk_limit_log
+        # Default to None; _setup_log_dir_quota_shared() will set it on success.
+        self._effective_disk_limit_log = None
 
         if self._container_name is None:
             self.set_container_name(self._get_container_name())
@@ -508,13 +530,13 @@ class DockerDeployment(AbstractDeployment):
 
         env_arg = []
 
-        # Conditionally set up logging path mount based on ROCK_LOGGING_PATH
+        # Conditionally set up logging path mount based on ROCK_LOGGING_PATH.
+        log_file_path: str | None = None
         volume_args = self._prepare_volume_mounts()
         if env_vars.ROCK_LOGGING_PATH:  # Only mount if ROCK_LOGGING_PATH is set (not None or empty)
             log_file_path = f"{env_vars.ROCK_LOGGING_PATH}/{self.container_name}"
             os.makedirs(log_file_path, exist_ok=True)
             os.chmod(log_file_path, 0o777)
-            self._try_set_log_dir_quota(log_file_path)
             volume_args.extend(["-v", f"{log_file_path}:{env_vars.ROCK_LOGGING_PATH}"])
             env_arg = [
                 "-e",
@@ -574,6 +596,11 @@ class DockerDeployment(AbstractDeployment):
             # fails before _wait_until_alive sets _container_process up for _stop to manage, we own the
             # orphan and must remove it. _wait_until_alive's own failure path already calls self.stop().
             try:
+                # Bind log dir to the docker-allocated rootfs prjid in the create→start gap,
+                # before any container process can write. The bhard is set by `--storage-opt
+                # size=` on the rootfs prjid, so log and rootfs share one quota.
+                if log_file_path is not None:
+                    self._setup_log_dir_quota_shared(log_file_path)
                 self._container_process = await loop.run_in_executor(executor, self._docker_start)
             except Exception:
                 DockerUtil.remove_container_force(self._container_name)
@@ -685,7 +712,6 @@ class DockerDeployment(AbstractDeployment):
 
             self._container_process = None
             self._cleanup_kata_disk()
-            self._cleanup_log_dir_xfs_quota()
             self._container_name = None
 
         if self._check_stop_task is not None:
