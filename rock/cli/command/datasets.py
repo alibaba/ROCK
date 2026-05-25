@@ -59,20 +59,47 @@ class DatasetsCommand(Command):
     async def _list(self, args: argparse.Namespace) -> None:
         registry_info = self._build_oss_registry_info(args)
         client = DatasetClient(registry_info)
-        datasets = client.list_datasets(org=getattr(args, "org", None))
 
-        if not datasets:
-            print("No datasets found.")
+        if getattr(args, "org", None):
+            datasets = client.list_org_datasets(args.org)
+            pairs = [(args.org, d) for d in datasets]
+            self._render_org_dataset_pairs(pairs)
             return
 
-        col_id = max(len("Dataset"), max(len(d.id) for d in datasets))
-        col_split = max(len("Split"), max(len(d.split) for d in datasets))
+        if getattr(args, "depth", 2) == 1:
+            orgs = client.list_organizations()
+            self._render_orgs(orgs)
+            return
 
-        header = f"{'Dataset':<{col_id}}  {'Split':<{col_split}}  {'Tasks':>6}"
+        pairs = client.list_all_datasets()
+        self._render_org_dataset_pairs(pairs)
+
+    @staticmethod
+    def _render_org_dataset_pairs(pairs: list[tuple[str, str]]) -> None:
+        if not pairs:
+            print("No datasets found.")
+            return
+        col_org = max(len("Organization"), max(len(o) for o, _ in pairs))
+        col_ds = max(len("Dataset"), max(len(d) for _, d in pairs))
+        header = f"{'Organization':<{col_org}}  {'Dataset':<{col_ds}}"
         print(header)
         print("-" * len(header))
-        for ds in sorted(datasets, key=lambda d: (d.id, d.split)):
-            print(f"{ds.id:<{col_id}}  {ds.split:<{col_split}}  {len(ds.task_ids):>6}")
+        for o, d in pairs:
+            print(f"{o:<{col_org}}  {d:<{col_ds}}")
+        n_orgs = len({o for o, _ in pairs})
+        print(f"\n{len(pairs)} datasets in {n_orgs} organizations.")
+
+    @staticmethod
+    def _render_orgs(orgs: list[str]) -> None:
+        if not orgs:
+            print("No organizations found.")
+            return
+        width = max(len("Organization"), max(len(o) for o in orgs))
+        print(f"{'Organization':<{width}}")
+        print("-" * width)
+        for o in orgs:
+            print(o)
+        print(f"\n{len(orgs)} organizations.")
 
     async def _tasks(self, args: argparse.Namespace) -> None:
         registry_info = self._build_oss_registry_info(args)
@@ -142,7 +169,10 @@ class DatasetsCommand(Command):
             parser.add_argument("--region", help="OSS region (overrides config.ini)")
 
         list_parser = datasets_subparsers.add_parser("list", help="List datasets in OSS registry")
-        list_parser.add_argument("--org", help="Filter by organization")
+        list_group = list_parser.add_mutually_exclusive_group()
+        list_group.add_argument("--depth", type=int, choices=[1, 2], default=2,
+                                help="1: list orgs only. 2 (default): list orgs and datasets.")
+        list_group.add_argument("--org", help="List datasets under the given organization only")
         add_oss_args(list_parser)
         tasks_parser = datasets_subparsers.add_parser("tasks", help="List task IDs under one dataset split")
         tasks_parser.add_argument("--org", required=True, help="Organization name")
