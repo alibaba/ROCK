@@ -35,6 +35,8 @@ class DatasetsCommand(Command):
             await self._list(args)
         elif args.datasets_command == "tasks":
             await self._tasks(args)
+        elif args.datasets_command == "splits":
+            await self._splits(args)
         elif args.datasets_command == "upload":
             await self._upload(args)
         else:
@@ -130,6 +132,23 @@ class DatasetsCommand(Command):
         for task_id in shown_task_ids:
             print(task_id)
 
+    async def _splits(self, args: argparse.Namespace) -> None:
+        registry_info = self._build_oss_registry_info(args)
+        client = DatasetClient(registry_info)
+        splits = client.list_dataset_splits(args.org, args.dataset)
+
+        if not splits:
+            print(f"No splits found for dataset '{args.org}/{args.dataset}'.")
+            return
+
+        width = max(len("Split"), max(len(s) for s in splits))
+        print(f"{'Split':<{width}}")
+        print("-" * width)
+        for s in splits:
+            print(s)
+        word = "split" if len(splits) == 1 else "splits"
+        print(f"\n{len(splits)} {word}.")
+
     async def _upload(self, args: argparse.Namespace) -> None:
         local_dir = Path(args.dir)
         if not local_dir.is_dir():
@@ -181,6 +200,11 @@ class DatasetsCommand(Command):
         tasks_parser.add_argument("--offset", type=_non_negative_int, default=0, help="Skip first N tasks")
         tasks_parser.add_argument("--limit", type=_positive_int, default=None, help="Maximum number of tasks to show")
         add_oss_args(tasks_parser)
+
+        splits_parser = datasets_subparsers.add_parser("splits", help="List splits under one dataset")
+        splits_parser.add_argument("--org", required=True, help="Organization name")
+        splits_parser.add_argument("--dataset", required=True, help="Dataset name")
+        add_oss_args(splits_parser)
 
         upload_parser = datasets_subparsers.add_parser("upload", help="Upload local task dirs to OSS")
         upload_parser.add_argument("--org", required=True, help="Organization name")

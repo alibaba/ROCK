@@ -311,3 +311,66 @@ def test_list_parser_rejects_invalid_depth():
     parser = _build_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["datasets", "list", "--depth", "3"])
+
+
+# ---------------------------------------------------------------------------
+# splits subcommand tests
+# ---------------------------------------------------------------------------
+
+
+def test_splits_lists_split_names(capsys):
+    cmd = DatasetsCommand()
+    args = make_base_args(datasets_command="splits", org="alibaba", dataset="pinch")
+
+    with patch.object(DatasetsCommand, "_build_oss_registry_info", return_value=make_registry_info()):
+        with patch("rock.cli.command.datasets.DatasetClient") as MockClient:
+            MockClient.return_value.list_dataset_splits.return_value = ["test", "train"]
+            asyncio.run(cmd._splits(args))
+
+    MockClient.return_value.list_dataset_splits.assert_called_once_with("alibaba", "pinch")
+    out = capsys.readouterr().out
+    assert "Split" in out
+    assert "test" in out
+    assert "train" in out
+    assert "2 splits." in out
+
+
+def test_splits_empty_prints_no_splits_message(capsys):
+    cmd = DatasetsCommand()
+    args = make_base_args(datasets_command="splits", org="alibaba", dataset="missing")
+
+    with patch.object(DatasetsCommand, "_build_oss_registry_info", return_value=make_registry_info()):
+        with patch("rock.cli.command.datasets.DatasetClient") as MockClient:
+            MockClient.return_value.list_dataset_splits.return_value = []
+            asyncio.run(cmd._splits(args))
+
+    out = capsys.readouterr().out
+    assert "No splits found for dataset 'alibaba/missing'." in out
+
+
+def test_splits_singular_footer_for_one_split(capsys):
+    cmd = DatasetsCommand()
+    args = make_base_args(datasets_command="splits", org="alibaba", dataset="pinch")
+
+    with patch.object(DatasetsCommand, "_build_oss_registry_info", return_value=make_registry_info()):
+        with patch("rock.cli.command.datasets.DatasetClient") as MockClient:
+            MockClient.return_value.list_dataset_splits.return_value = ["test"]
+            asyncio.run(cmd._splits(args))
+
+    out = capsys.readouterr().out
+    assert "1 split." in out
+
+
+def test_splits_parser_requires_org_and_dataset():
+    parser = _build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["datasets", "splits"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["datasets", "splits", "--org", "alibaba"])
+
+
+def test_splits_parser_accepts_org_and_dataset():
+    parser = _build_parser()
+    parsed = parser.parse_args(["datasets", "splits", "--org", "alibaba", "--dataset", "pinch"])
+    assert parsed.org == "alibaba"
+    assert parsed.dataset == "pinch"
