@@ -539,7 +539,7 @@ class DockerDeployment(AbstractDeployment):
         runtime_args = self._build_runtime_args()
         cmds = [
             "docker",
-            "run",
+            "create",
             "--entrypoint",
             "",
             *env_arg,
@@ -568,8 +568,16 @@ class DockerDeployment(AbstractDeployment):
         )
         logger.info(f"Command: {cmd_str!r}")
         # shell=True required for && etc.
-        with StageTimer("startup_timing", f"[{self._container_name}] Docker run", logger):
-            self._container_process = await loop.run_in_executor(executor, self._docker_run, cmds)
+        with StageTimer("startup_timing", f"[{self._container_name}] Docker start", logger):
+            await loop.run_in_executor(executor, self._docker_create, cmds)
+            # After docker create succeeds, the container exists in `created` state. If anything below
+            # fails before _wait_until_alive sets _container_process up for _stop to manage, we own the
+            # orphan and must remove it. _wait_until_alive's own failure path already calls self.stop().
+            try:
+                self._container_process = await loop.run_in_executor(executor, self._docker_start)
+            except Exception:
+                DockerUtil.remove_container_force(self._container_name)
+                raise
         await loop.run_in_executor(executor, self._hooks.on_custom_step, DeploymentHookStep.STARTING_RUNTIME)
         logger.info(f"Starting runtime at {self._config.port}")
         self._runtime = RemoteSandboxRuntime.from_config(
@@ -603,9 +611,25 @@ class DockerDeployment(AbstractDeployment):
         logger.info(f"volume_args: {volume_args}")
         return volume_args
 
-    def _docker_run(self, cmd: list[str]):
+    def _docker_create(self, cmd: list[str]) -> None:
+        """Create the container without starting it."""
         try:
-            exec_rlt = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.check_call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=60)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            logger.error(f"Failed to create container {self._container_name}")
+            self._service_status.update_status(
+                phase_name="docker_run", status=Status.FAILED, message="docker run failed"
+            )
+            raise
+
+    def _docker_start(self) -> subprocess.Popen:
+        """Start a previously-created container with stdout/stderr attached."""
+        try:
+            exec_rlt = subprocess.Popen(
+                ["docker", "start", "-a", self._container_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
             self._service_status.update_status(
                 phase_name="docker_run", status=Status.RUNNING, message="docker run running"
             )

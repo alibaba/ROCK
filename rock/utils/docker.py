@@ -210,6 +210,22 @@ class DockerUtil:
         """Remove a Docker image"""
         return subprocess.check_output(["docker", "rmi", image], timeout=30)
 
+    @classmethod
+    def remove_container_force(cls, name: str, timeout: int = 10) -> None:
+        """Swallows errors (missing container, daemon hiccups, timeout) and only
+        warns — intended for cleanup paths where the caller's primary error
+        must still propagate.
+        """
+        try:
+            subprocess.run(
+                ["docker", "rm", "-f", name],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout,
+            )
+        except Exception as e:
+            logger.warning(f"Remove of container {name} failed: {e}")
+
 
 class ImageUtil:
     """Docker image name utilities"""
