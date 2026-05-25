@@ -27,10 +27,12 @@ def test_list_datasets_returns_all():
         make_list_result(prefixes=["datasets/qwen/"]),
         make_list_result(prefixes=["datasets/qwen/my-bench/"]),
         make_list_result(prefixes=["datasets/qwen/my-bench/train/"]),
-        make_list_result(prefixes=[
-            "datasets/qwen/my-bench/train/task-001/",
-            "datasets/qwen/my-bench/train/task-002/",
-        ]),
+        make_list_result(
+            prefixes=[
+                "datasets/qwen/my-bench/train/task-001/",
+                "datasets/qwen/my-bench/train/task-002/",
+            ]
+        ),
     ]
 
     with patch.object(registry, "_build_bucket", return_value=mock_bucket):
@@ -57,6 +59,7 @@ def test_list_datasets_filter_by_org():
     first_call_kwargs = mock_bucket.list_objects_v2.call_args_list[0][1]
     assert first_call_kwargs["prefix"] == "datasets/qwen/"
     assert len(datasets) == 1
+
 
 def test_list_datasets_counts_directory_and_file_tasks():
     registry = OssDatasetRegistry(make_registry_info())
@@ -104,6 +107,7 @@ def test_build_prefix_with_split():
     registry = OssDatasetRegistry(make_registry_info())
     assert registry._build_prefix("qwen", "my-bench", "train") == "datasets/qwen/my-bench/train"
 
+
 # ---------------------------------------------------------------------------
 # list_dataset_tasks tests
 # ---------------------------------------------------------------------------
@@ -112,10 +116,12 @@ def test_build_prefix_with_split():
 def test_list_dataset_tasks_uses_default_test_split_and_sorts_task_ids():
     registry = OssDatasetRegistry(make_registry_info())
     mock_bucket = MagicMock()
-    mock_bucket.list_objects_v2.return_value = make_list_result(prefixes=[
-        "datasets/qwen/my-bench/test/task-002/",
-        "datasets/qwen/my-bench/test/task-001/",
-    ])
+    mock_bucket.list_objects_v2.return_value = make_list_result(
+        prefixes=[
+            "datasets/qwen/my-bench/test/task-002/",
+            "datasets/qwen/my-bench/test/task-001/",
+        ]
+    )
 
     with patch.object(registry, "_build_bucket", return_value=mock_bucket):
         spec = registry.list_dataset_tasks("qwen", "my-bench")
@@ -132,9 +138,11 @@ def test_list_dataset_tasks_uses_default_test_split_and_sorts_task_ids():
 def test_list_dataset_tasks_supports_custom_split():
     registry = OssDatasetRegistry(make_registry_info())
     mock_bucket = MagicMock()
-    mock_bucket.list_objects_v2.return_value = make_list_result(prefixes=[
-        "datasets/qwen/my-bench/train/task-001/",
-    ])
+    mock_bucket.list_objects_v2.return_value = make_list_result(
+        prefixes=[
+            "datasets/qwen/my-bench/train/task-001/",
+        ]
+    )
 
     with patch.object(registry, "_build_bucket", return_value=mock_bucket):
         spec = registry.list_dataset_tasks("qwen", "my-bench", "train")
@@ -145,6 +153,7 @@ def test_list_dataset_tasks_supports_custom_split():
 
     first_call_kwargs = mock_bucket.list_objects_v2.call_args_list[0][1]
     assert first_call_kwargs["prefix"] == "datasets/qwen/my-bench/train/"
+
 
 def test_list_dataset_tasks_includes_directory_and_file_tasks_with_suffix_stripped():
     registry = OssDatasetRegistry(make_registry_info())
@@ -291,11 +300,13 @@ def test_upload_dataset_oss_key_format(tmp_path):
 def test_list_organizations_returns_sorted_org_names():
     registry = OssDatasetRegistry(make_registry_info())
     mock_bucket = MagicMock()
-    mock_bucket.list_objects_v2.return_value = make_list_result(prefixes=[
-        "datasets/qwen/",
-        "datasets/alibaba/",
-        "datasets/AoneBenchDev/",
-    ])
+    mock_bucket.list_objects_v2.return_value = make_list_result(
+        prefixes=[
+            "datasets/qwen/",
+            "datasets/alibaba/",
+            "datasets/AoneBenchDev/",
+        ]
+    )
 
     with patch.object(registry, "_build_bucket", return_value=mock_bucket):
         orgs = registry.list_organizations()
@@ -321,10 +332,12 @@ def test_list_organizations_returns_empty_when_no_orgs():
 def test_list_org_datasets_returns_sorted_dataset_names():
     registry = OssDatasetRegistry(make_registry_info())
     mock_bucket = MagicMock()
-    mock_bucket.list_objects_v2.return_value = make_list_result(prefixes=[
-        "datasets/qwen/bench-2/",
-        "datasets/qwen/bench-1/",
-    ])
+    mock_bucket.list_objects_v2.return_value = make_list_result(
+        prefixes=[
+            "datasets/qwen/bench-2/",
+            "datasets/qwen/bench-1/",
+        ]
+    )
 
     with patch.object(registry, "_build_bucket", return_value=mock_bucket):
         datasets = registry.list_org_datasets("qwen")
@@ -348,10 +361,12 @@ def test_list_org_datasets_returns_empty_when_org_missing():
 def test_list_dataset_splits_returns_sorted_split_names():
     registry = OssDatasetRegistry(make_registry_info())
     mock_bucket = MagicMock()
-    mock_bucket.list_objects_v2.return_value = make_list_result(prefixes=[
-        "datasets/qwen/bench/train/",
-        "datasets/qwen/bench/test/",
-    ])
+    mock_bucket.list_objects_v2.return_value = make_list_result(
+        prefixes=[
+            "datasets/qwen/bench/train/",
+            "datasets/qwen/bench/test/",
+        ]
+    )
 
     with patch.object(registry, "_build_bucket", return_value=mock_bucket):
         splits = registry.list_dataset_splits("qwen", "bench")
@@ -420,6 +435,7 @@ def test_list_all_datasets_default_concurrency_is_10():
 
 def test_list_all_datasets_propagates_exception_from_worker():
     import pytest as _pytest
+
     registry = OssDatasetRegistry(make_registry_info())
 
     def fake_list_org_datasets(org):

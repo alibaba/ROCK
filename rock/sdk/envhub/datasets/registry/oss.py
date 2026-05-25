@@ -14,7 +14,6 @@ logger = init_logger(__name__)
 
 
 class OssDatasetRegistry(BaseDatasetRegistry):
-
     def __init__(self, registry: OssRegistryInfo) -> None:
         self._registry = registry
 
@@ -58,7 +57,7 @@ class OssDatasetRegistry(BaseDatasetRegistry):
             if key.endswith("/"):
                 continue
             # Get the relative path from split_prefix
-            relative = key[len(split_prefix):]
+            relative = key[len(split_prefix) :]
             # Only direct files (no nested paths with "/")
             if "/" in relative:
                 continue
@@ -79,17 +78,13 @@ class OssDatasetRegistry(BaseDatasetRegistry):
     def list_org_datasets(self, organization: str) -> list[str]:
         bucket = self._build_bucket()
         base = self._registry.oss_dataset_path or "datasets"
-        result = bucket.list_objects_v2(
-            prefix=f"{base}/{organization}/", delimiter="/", max_keys=1000
-        )
+        result = bucket.list_objects_v2(prefix=f"{base}/{organization}/", delimiter="/", max_keys=1000)
         return sorted(self._last_segment(p) for p in result.prefix_list)
 
     def list_dataset_splits(self, organization: str, dataset: str) -> list[str]:
         bucket = self._build_bucket()
         base = self._registry.oss_dataset_path or "datasets"
-        result = bucket.list_objects_v2(
-            prefix=f"{base}/{organization}/{dataset}/", delimiter="/", max_keys=1000
-        )
+        result = bucket.list_objects_v2(prefix=f"{base}/{organization}/{dataset}/", delimiter="/", max_keys=1000)
         return sorted(self._last_segment(p) for p in result.prefix_list)
 
     def list_all_datasets(self, concurrency: int = 10) -> list[tuple[str, str]]:
@@ -128,11 +123,13 @@ class OssDatasetRegistry(BaseDatasetRegistry):
                     split = self._last_segment(split_prefix)
 
                     task_ids = self._extract_tasks_from_split(bucket, split_prefix)
-                    datasets.append(DatasetSpec(
-                        id=f"{org}/{name}",
-                        split=split,
-                        task_ids=task_ids,
-                    ))
+                    datasets.append(
+                        DatasetSpec(
+                            id=f"{org}/{name}",
+                            split=split,
+                            task_ids=task_ids,
+                        )
+                    )
 
         return datasets
 
@@ -192,10 +189,7 @@ class OssDatasetRegistry(BaseDatasetRegistry):
 
         raw: dict[str, int | None | Exception] = {}
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            futures = {
-                executor.submit(self._upload_task, bucket, org, name, split, d, overwrite): d
-                for d in task_dirs
-            }
+            futures = {executor.submit(self._upload_task, bucket, org, name, split, d, overwrite): d for d in task_dirs}
             for future, task_dir in futures.items():
                 try:
                     raw[task_dir.name] = future.result()

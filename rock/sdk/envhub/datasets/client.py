@@ -4,7 +4,6 @@ from rock.sdk.envhub.datasets.registry.oss import OssDatasetRegistry
 
 
 class DatasetClient:
-
     def __init__(self, registry: OssRegistryInfo) -> None:
         self._registry = OssDatasetRegistry(registry)
 

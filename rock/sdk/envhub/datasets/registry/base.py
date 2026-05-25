@@ -5,7 +5,6 @@ from rock.sdk.envhub.datasets.models import DatasetSpec, UploadResult
 
 
 class BaseDatasetRegistry(ABC):
-
     @abstractmethod
     def list_datasets(self, organization: str | None = None) -> list[DatasetSpec]:
         """List all datasets. Filtered to `organization` if provided."""

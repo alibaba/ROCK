@@ -121,8 +121,6 @@ class DatasetsCommand(Command):
             print("No tasks found after applying offset/limit.")
             return
 
-        limit_text = str(args.limit) if args.limit is not None else "all"
-
         print()
         print("=" * 80)
         print(f"Dataset: {spec.id}  Split: {spec.split}  Total: {total}  Shown: {len(shown_task_ids)}")
@@ -181,16 +179,23 @@ class DatasetsCommand(Command):
         def add_oss_args(parser: argparse.ArgumentParser) -> None:
             parser.add_argument("--bucket", help="OSS bucket name (overrides config.ini)")
             parser.add_argument("--endpoint", help="OSS endpoint URL (overrides config.ini)")
-            parser.add_argument("--access-key-id", dest="access_key_id",
-                                help="OSS access key ID (overrides config.ini)")
-            parser.add_argument("--access-key-secret", dest="access_key_secret",
-                                help="OSS access key secret (overrides config.ini)")
+            parser.add_argument(
+                "--access-key-id", dest="access_key_id", help="OSS access key ID (overrides config.ini)"
+            )
+            parser.add_argument(
+                "--access-key-secret", dest="access_key_secret", help="OSS access key secret (overrides config.ini)"
+            )
             parser.add_argument("--region", help="OSS region (overrides config.ini)")
 
         list_parser = datasets_subparsers.add_parser("list", help="List datasets in OSS registry")
         list_group = list_parser.add_mutually_exclusive_group()
-        list_group.add_argument("--depth", type=int, choices=[1, 2], default=2,
-                                help="1: list orgs only. 2 (default): list orgs and datasets.")
+        list_group.add_argument(
+            "--depth",
+            type=int,
+            choices=[1, 2],
+            default=2,
+            help="1: list orgs only. 2 (default): list orgs and datasets.",
+        )
         list_group.add_argument("--org", help="List datasets under the given organization only")
         add_oss_args(list_parser)
         tasks_parser = datasets_subparsers.add_parser("tasks", help="List task IDs under one dataset split")
@@ -210,11 +215,16 @@ class DatasetsCommand(Command):
         upload_parser.add_argument("--org", required=True, help="Organization name")
         upload_parser.add_argument("--dataset", required=True, help="Dataset name")
         upload_parser.add_argument("--split", required=True, help="Split name (e.g. train, test, v1.0)")
-        upload_parser.add_argument("--dir", required=True,
-                                   help="Local directory containing {task_id}/ subdirectories")
-        upload_parser.add_argument("--concurrency", type=int, default=4,
-                                   choices=range(1, 17), metavar="[1-16]",
-                                   help="Upload concurrency (default: 4)")
-        upload_parser.add_argument("--overwrite", action="store_true",
-                                   help="Overwrite existing tasks in OSS (default: skip)")
+        upload_parser.add_argument("--dir", required=True, help="Local directory containing {task_id}/ subdirectories")
+        upload_parser.add_argument(
+            "--concurrency",
+            type=int,
+            default=4,
+            choices=range(1, 17),
+            metavar="[1-16]",
+            help="Upload concurrency (default: 4)",
+        )
+        upload_parser.add_argument(
+            "--overwrite", action="store_true", help="Overwrite existing tasks in OSS (default: skip)"
+        )
         add_oss_args(upload_parser)

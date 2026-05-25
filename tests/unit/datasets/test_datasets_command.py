@@ -29,6 +29,7 @@ def make_base_args(**kwargs):
         setattr(args, k, v)
     return args
 
+
 def make_registry_info():
     return OssRegistryInfo(oss_bucket="b", oss_access_key_id="k", oss_access_key_secret="s")
 
@@ -46,7 +47,9 @@ def test_command_name():
 
 def test_build_oss_registry_info_from_cli_args():
     cmd = DatasetsCommand()
-    args = make_base_args(bucket="cli-bucket", endpoint="https://oss.example.com", access_key_id="kid", access_key_secret="ksec")
+    args = make_base_args(
+        bucket="cli-bucket", endpoint="https://oss.example.com", access_key_id="kid", access_key_secret="ksec"
+    )
 
     with patch("rock.cli.command.datasets.ConfigManager") as mock_mgr:
         ds_cfg = mock_mgr.return_value.get_config.return_value.dataset_config
