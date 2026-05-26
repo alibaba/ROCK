@@ -133,13 +133,34 @@ class CgroupMemStats:
 
         return self._cgroup_version
 
+    def _read_mem_stat(self, stat_path: str, key: str) -> int:
+        """Read a single counter from a cgroup memory.stat file. Returns 0 on any error."""
+        try:
+            for line in Path(stat_path).read_text().splitlines():
+                parts = line.split()
+                if len(parts) >= 2 and parts[0] == key:
+                    return int(parts[1])
+        except Exception:
+            pass
+        return 0
+
     def _read_mem_usage_bytes(self) -> int | None:
+        """Return container memory usage minus reclaimable page cache (inactive_file).
+
+        Raw cgroup usage counters include page cache, which is reclaimable and not
+        a meaningful signal of application memory pressure. Subtracting inactive_file
+        matches the working-set definition used by docker stats and kubelet.
+        """
         try:
             ver = self._detect_cgroup_version()
             if ver == 2:
-                return int(Path("/sys/fs/cgroup/memory.current").read_text().strip())
+                usage = int(Path("/sys/fs/cgroup/memory.current").read_text().strip())
+                inactive_file = self._read_mem_stat("/sys/fs/cgroup/memory.stat", "inactive_file")
+                return max(usage - inactive_file, 0)
             elif ver == 1:
-                return int(Path("/sys/fs/cgroup/memory/memory.usage_in_bytes").read_text().strip())
+                usage = int(Path("/sys/fs/cgroup/memory/memory.usage_in_bytes").read_text().strip())
+                inactive_file = self._read_mem_stat("/sys/fs/cgroup/memory/memory.stat", "total_inactive_file")
+                return max(usage - inactive_file, 0)
             return None
         except Exception:
             return None

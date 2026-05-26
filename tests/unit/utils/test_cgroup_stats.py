@@ -414,3 +414,71 @@ class TestMemPercent:
         ):
             mock_vmem.return_value.percent = 60.0
             assert stats.mem_percent() == 60.0
+
+    def test_v2_subtracts_inactive_file_cache(self):
+        """memory.current includes page cache; inactive_file should be subtracted."""
+        stats = CgroupMemStats()
+        stats._cgroup_version = 2
+        read_map = {
+            "/sys/fs/cgroup/memory.current": "1073741824\n",
+            "/sys/fs/cgroup/memory.stat": "anon 524288000\nfile 400000000\ninactive_file 262144000\nactive_file 137856000\n",
+            "/sys/fs/cgroup/memory.max": "2147483648\n",
+        }
+        with patch.object(Path, "read_text", _mock_path_read_text(read_map)):
+            result = stats.mem_percent()
+        # (1073741824 - 262144000) / 2147483648 * 100 = 37.8%
+        assert result == 37.8
+
+    def test_v1_subtracts_total_inactive_file_cache(self):
+        """memory.usage_in_bytes includes page cache; total_inactive_file should be subtracted."""
+        stats = CgroupMemStats()
+        stats._cgroup_version = 1
+        read_map = {
+            "/sys/fs/cgroup/memory/memory.usage_in_bytes": "1073741824\n",
+            "/sys/fs/cgroup/memory/memory.stat": "cache 400000000\ntotal_cache 400000000\ntotal_inactive_file 262144000\n",
+            "/sys/fs/cgroup/memory/memory.limit_in_bytes": "2147483648\n",
+        }
+        with patch.object(Path, "read_text", _mock_path_read_text(read_map)):
+            result = stats.mem_percent()
+        # (1073741824 - 262144000) / 2147483648 * 100 = 37.8%
+        assert result == 37.8
+
+    def test_v2_no_subtraction_when_memory_stat_missing(self):
+        """If memory.stat is unreadable, fall back to raw usage rather than crashing."""
+        stats = CgroupMemStats()
+        stats._cgroup_version = 2
+        # No memory.stat entry — _mock_path_read_text raises FileNotFoundError.
+        read_map = {
+            "/sys/fs/cgroup/memory.current": "524288000\n",
+            "/sys/fs/cgroup/memory.max": "1073741824\n",
+        }
+        with patch.object(Path, "read_text", _mock_path_read_text(read_map)):
+            result = stats.mem_percent()
+        assert result == 48.8
+
+    def test_v2_inactive_file_larger_than_usage_clamped_to_zero(self):
+        """Sanity guard: subtraction must not produce a negative usage."""
+        stats = CgroupMemStats()
+        stats._cgroup_version = 2
+        read_map = {
+            "/sys/fs/cgroup/memory.current": "100\n",
+            "/sys/fs/cgroup/memory.stat": "inactive_file 9999\n",
+            "/sys/fs/cgroup/memory.max": "1000\n",
+        }
+        with patch.object(Path, "read_text", _mock_path_read_text(read_map)):
+            result = stats.mem_percent()
+        assert result == 0.0
+
+    def test_v2_ignores_malformed_memory_stat_lines(self):
+        """memory.stat parser should skip blank/malformed lines without raising."""
+        stats = CgroupMemStats()
+        stats._cgroup_version = 2
+        read_map = {
+            "/sys/fs/cgroup/memory.current": "1000\n",
+            "/sys/fs/cgroup/memory.stat": "\nmalformed\ninactive_file 200\nanon\n",
+            "/sys/fs/cgroup/memory.max": "10000\n",
+        }
+        with patch.object(Path, "read_text", _mock_path_read_text(read_map)):
+            result = stats.mem_percent()
+        # (1000 - 200) / 10000 * 100 = 8.0%
+        assert result == 8.0
