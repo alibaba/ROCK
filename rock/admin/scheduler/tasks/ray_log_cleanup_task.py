@@ -1,4 +1,17 @@
-"""Drop stale /data/tmp/ray/session_* dirs on each worker."""
+"""Clean up Ray temp dir on each worker.
+
+Three layers of cleanup, run together in one shell pipeline:
+  1. Stale full ``session_<ts>_<pid>`` dirs (excluding the live session).
+  2. Inside ``session_latest/logs/``: per-file PID-aware cleanup
+     (delete files whose PID is no longer alive) plus an mtime fallback
+     for non-PID, non-daemon files.
+  3. Inside ``session_latest/logs/old/``: time-based cleanup of Ray's
+     own rotation backups.
+
+Daemon-written files (raylet*, gcs_server*, runtime_env_agent*, etc.)
+are NEVER deleted while the session is alive — Ray holds open fds, so
+removing the inode wouldn't free disk and breaks log following.
+"""
 
 import textwrap
 
@@ -12,18 +25,23 @@ logger = init_logger(name="ray_log_cleanup", file_name=SCHEDULER_LOG_NAME)
 
 
 class RayLogCleanupTask(BaseTask):
-    """Drop /data/tmp/ray/session_* dirs that are NOT the live session.
+    """Clean Ray temp dir: stale session dirs + active session per-file cleanup.
 
     Ray restarts (cluster up/down, head failover) leave dozens of
-    session_<timestamp>_<pid> dirs behind. The currently active one is
-    symlinked as `session_latest`; we resolve that link and skip its target.
-    Sessions younger than `min_age_hours` are also kept as a buffer against
-    a stale symlink.
+    ``session_<timestamp>_<pid>`` dirs behind. The currently active one is
+    symlinked as ``session_latest``; we resolve that link and skip its target
+    when removing stale session dirs.
+
+    Inside the live ``session_latest/logs/``, Ray accumulates per-worker
+    logs (named after the worker PID) that are never reaped after the
+    worker exits, plus its own rotation backups under ``logs/old/`` that
+    Ray never cleans. Without intervention, file count grows to tens or
+    hundreds of thousands on long-running clusters.
 
     NOTE: This is the WORKER side. The ray-head's /data/tmp/ray is cleaned
     by a daily cron baked into the head Dockerfile (rock-internal repo);
     rocklet is not deployed on the head and the worker scheduler does not
-    reach it.
+    reach it. The cron script mirrors this task's shell pipeline.
     """
 
     def __init__(
@@ -31,6 +49,8 @@ class RayLogCleanupTask(BaseTask):
         interval_seconds: int = 86400,
         ray_temp_dir: str = "/data/tmp/ray",
         min_age_hours: int = 24,
+        live_log_keep_days: int = 7,
+        old_logs_keep_hours: int = 24,
     ):
         """
         Args:
@@ -38,6 +58,11 @@ class RayLogCleanupTask(BaseTask):
             ray_temp_dir: Ray's --temp-dir, default /data/tmp/ray.
             min_age_hours: Only delete session dirs whose mtime is older than
                 this AND that are not session_latest. Default 24h.
+            live_log_keep_days: Mtime threshold for non-PID, non-daemon files
+                in session_latest/logs/. Default 7 days.
+            old_logs_keep_hours: Mtime threshold for files under
+                session_latest/logs/old/ (Ray's own rotation backups).
+                Default 24 hours.
         """
         super().__init__(
             type="ray_log_cleanup",
@@ -46,8 +71,14 @@ class RayLogCleanupTask(BaseTask):
         )
         if min_age_hours < 1:
             raise ValueError(f"ray_log_cleanup.min_age_hours must be >= 1, got {min_age_hours}")
+        if live_log_keep_days < 1:
+            raise ValueError(f"ray_log_cleanup.live_log_keep_days must be >= 1, got {live_log_keep_days}")
+        if old_logs_keep_hours < 1:
+            raise ValueError(f"ray_log_cleanup.old_logs_keep_hours must be >= 1, got {old_logs_keep_hours}")
         self.ray_temp_dir = ray_temp_dir.rstrip("/")
         self.min_age_hours = min_age_hours
+        self.live_log_keep_days = live_log_keep_days
+        self.old_logs_keep_hours = old_logs_keep_hours
 
     @classmethod
     def from_config(cls, task_config) -> "RayLogCleanupTask":
@@ -55,44 +86,116 @@ class RayLogCleanupTask(BaseTask):
             interval_seconds=task_config.interval_seconds,
             ray_temp_dir=task_config.params.get("ray_temp_dir", "/data/tmp/ray"),
             min_age_hours=task_config.params.get("min_age_hours", 24),
+            live_log_keep_days=task_config.params.get("live_log_keep_days", 7),
+            old_logs_keep_hours=task_config.params.get("old_logs_keep_hours", 24),
         )
 
     async def run_action(self, runtime: RemoteSandboxRuntime) -> dict:
         ray_dir = self.ray_temp_dir
-        max_age_min = self.min_age_hours * 60
-        # Resolve session_latest -> live basename, then list session_* dirs
-        # older than threshold and rm -rf those that are not the live one.
+        session_age_min = self.min_age_hours * 60
+        live_age_min = self.live_log_keep_days * 24 * 60
+        old_age_min = self.old_logs_keep_hours * 60
+
+        # 3-stage shell pipeline:
+        #   PART 1 — drop stale full session_<ts>_<pid> dirs
+        #   PART 2 — session_latest/logs/ per-file: PID-aware + mtime fallback
+        #   PART 3 — session_latest/logs/old/ time-based
+        #
         # textwrap.dedent strips common leading whitespace so source can be
         # indented for readability without polluting the emitted shell.
         command = textwrap.dedent(
             f"""\
-            if [ -d "{ray_dir}" ]; then
-              LIVE=$(readlink "{ray_dir}/session_latest" 2>/dev/null | xargs -I{{}} basename {{}} 2>/dev/null)
-              echo "live_session=${{LIVE:-<none>}}"
-              find "{ray_dir}" -maxdepth 1 -type d -name "session_*" \\
-                ! -name "session_latest" -mmin +{max_age_min} \\
-              | while read -r d; do
-                  bn=$(basename "$d")
-                  if [ "$bn" != "$LIVE" ]; then
-                    rm -rf "$d" && echo "removed=$bn"
+            set +e
+            if [ ! -d "{ray_dir}" ]; then
+              echo "ray_temp_dir_not_found"
+              exit 0
+            fi
+
+            # PART 1: stale full session_<ts>_<pid> dirs (not session_latest)
+            LIVE=$(readlink "{ray_dir}/session_latest" 2>/dev/null | xargs -I{{}} basename {{}} 2>/dev/null)
+            echo "live_session=${{LIVE:-<none>}}"
+            find "{ray_dir}" -maxdepth 1 -type d -name "session_*" \\
+              ! -name "session_latest" -mmin +{session_age_min} \\
+            | while read -r d; do
+                bn=$(basename "$d")
+                if [ "$bn" != "$LIVE" ]; then
+                  rm -rf "$d" && echo "removed=$bn"
+                fi
+              done
+
+            LOGS="{ray_dir}/session_latest/logs"
+            if [ -d "$LOGS" ]; then
+              # PART 2a: PID-aware — files matching *[_-]<pid>.{{log,err,out}}
+              # Probe `kill -0 <pid>`; if PID is dead, remove. Only files older
+              # than 60 minutes are considered, to avoid racing with new
+              # worker startups still writing their first log line.
+              find "$LOGS" -maxdepth 1 -type f -mmin +60 \\
+                  -regextype posix-extended \\
+                  -regex '.*[_-][0-9]+\\.(log|err|out)$' \\
+              | while read -r f; do
+                  bn=$(basename "$f")
+                  pid=$(echo "$bn" | grep -oE '[_-][0-9]+\\.(log|err|out)$' | grep -oE '[0-9]+' | head -1)
+                  [ -z "$pid" ] && continue
+                  if ! kill -0 "$pid" 2>/dev/null; then
+                    rm -f "$f" && echo "removed_dead_pid_log=$bn"
                   fi
                 done
-              echo "ray_log_cleanup_done"
-            else
-              echo "ray_temp_dir_not_found"
-            fi"""
+
+              # PART 2b: non-PID, non-daemon stale files older than
+              # {self.live_log_keep_days} days. Daemon files (raylet*,
+              # gcs_server*, runtime_env_agent*, dashboard*, monitor*,
+              # log_monitor*) are NEVER deleted while session is alive —
+              # Ray holds open fds, removal wouldn't free disk.
+              find "$LOGS" -maxdepth 1 -type f -mmin +{live_age_min} \\
+                  -regextype posix-extended \\
+                  ! -regex '.*[_-][0-9]+\\.(log|err|out)$' \\
+                  ! -name 'raylet*' \\
+                  ! -name 'gcs_server*' \\
+                  ! -name 'runtime_env_agent*' \\
+                  ! -name 'dashboard*' \\
+                  ! -name 'monitor*' \\
+                  ! -name 'log_monitor*' \\
+              | while read -r f; do
+                  rm -f "$f" && echo "removed_stale_file=$(basename "$f")"
+                done
+            fi
+
+            # PART 3: session_latest/logs/old/ — Ray's own rotation backups
+            OLD="$LOGS/old"
+            if [ -d "$OLD" ]; then
+              find "$OLD" -type f -mmin +{old_age_min} \\
+              | while read -r f; do
+                  rm -f "$f" && echo "removed_old=$(basename "$f")"
+                done
+            fi
+
+            echo "ray_log_cleanup_done"
+            """
         )
         result = await runtime.execute(Command(command=command, shell=True, check=False))
         output = (result.stdout or "").strip()
-        removed = [line.split("=", 1)[1] for line in output.splitlines() if line.startswith("removed=")]
+
+        # Parse per-category removal counts from output.
+        # `removed=<sess>` retained for backward compat (PART 1 session dirs).
+        removed_sessions = [line.split("=", 1)[1] for line in output.splitlines() if line.startswith("removed=")]
+        removed_dead_pid = sum(1 for line in output.splitlines() if line.startswith("removed_dead_pid_log="))
+        removed_stale = sum(1 for line in output.splitlines() if line.startswith("removed_stale_file="))
+        removed_old = sum(1 for line in output.splitlines() if line.startswith("removed_old="))
+
         logger.info(
             f"[{self.type}] [{runtime._config.host}] ray_log_cleanup done: "
-            f"removed={len(removed)} sessions, output_head={output[:300]}"
+            f"sessions={len(removed_sessions)}, dead_pid={removed_dead_pid}, "
+            f"stale={removed_stale}, old={removed_old}, output_head={output[:300]}"
         )
         return {
             "status": TaskStatusEnum.SUCCESS,
             "exit_code": result.exit_code,
-            "removed_count": len(removed),
-            "removed_sessions": removed,
-            "output_head": output[:1000],
+            # Backward-compatible fields (session-level removal):
+            "removed_count": len(removed_sessions),
+            "removed_sessions": removed_sessions,
+            # New per-category counters:
+            "removed_dead_pid_count": removed_dead_pid,
+            "removed_stale_count": removed_stale,
+            "removed_old_count": removed_old,
+            "output_head": output[:1500],
         }

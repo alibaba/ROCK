@@ -1,4 +1,4 @@
-"""Tests for RayLogCleanupTask."""
+"""Tests for RayLogCleanupTask (3-stage: stale sessions + logs/ PID-aware + logs/old/)."""
 
 from unittest.mock import AsyncMock
 
@@ -27,12 +27,19 @@ def _runtime(stdout="ray_log_cleanup_done", exit_code=0):
     return rt
 
 
+# ---------------------------------------------------------------------------
+# Init / from_config
+# ---------------------------------------------------------------------------
+
+
 class TestInit:
     def test_default(self):
         task = RayLogCleanupTask()
         assert task.type == "ray_log_cleanup"
         assert task.ray_temp_dir == "/data/tmp/ray"
         assert task.min_age_hours == 24
+        assert task.live_log_keep_days == 7
+        assert task.old_logs_keep_hours == 24
 
     def test_strips_trailing_slash(self):
         task = RayLogCleanupTask(ray_temp_dir="/data/ray/")
@@ -42,27 +49,54 @@ class TestInit:
         with pytest.raises(ValueError, match="min_age_hours must be >= 1"):
             RayLogCleanupTask(min_age_hours=0)
 
+    def test_rejects_live_log_keep_days_below_one(self):
+        with pytest.raises(ValueError, match="live_log_keep_days must be >= 1"):
+            RayLogCleanupTask(live_log_keep_days=0)
+
+    def test_rejects_old_logs_keep_hours_below_one(self):
+        with pytest.raises(ValueError, match="old_logs_keep_hours must be >= 1"):
+            RayLogCleanupTask(old_logs_keep_hours=0)
+
+    def test_custom_thresholds(self):
+        task = RayLogCleanupTask(live_log_keep_days=3, old_logs_keep_hours=12)
+        assert task.live_log_keep_days == 3
+        assert task.old_logs_keep_hours == 12
+
 
 class TestFromConfig:
     def test_from_config_defaults(self):
         task = RayLogCleanupTask.from_config(_FakeTaskConfig())
         assert task.ray_temp_dir == "/data/tmp/ray"
         assert task.min_age_hours == 24
+        assert task.live_log_keep_days == 7
+        assert task.old_logs_keep_hours == 24
 
     def test_from_config_custom(self):
         cfg = _FakeTaskConfig(
-            params={"ray_temp_dir": "/data/ray", "min_age_hours": 48},
+            params={
+                "ray_temp_dir": "/data/ray",
+                "min_age_hours": 48,
+                "live_log_keep_days": 14,
+                "old_logs_keep_hours": 6,
+            },
             interval_seconds=3600,
         )
         task = RayLogCleanupTask.from_config(cfg)
         assert task.ray_temp_dir == "/data/ray"
         assert task.min_age_hours == 48
+        assert task.live_log_keep_days == 14
+        assert task.old_logs_keep_hours == 6
         assert task.interval_seconds == 3600
 
 
-class TestRunAction:
+# ---------------------------------------------------------------------------
+# Shell command shape — verify the 3 stages and their parameters
+# ---------------------------------------------------------------------------
+
+
+class TestCommandShape:
     @pytest.mark.asyncio
-    async def test_command_skips_session_latest(self):
+    async def test_part1_skips_session_latest(self):
         task = RayLogCleanupTask()
         runtime = _runtime()
         await task.run_action(runtime)
@@ -75,7 +109,7 @@ class TestRunAction:
         assert 'name "session_*"' in cmd
 
     @pytest.mark.asyncio
-    async def test_command_uses_min_age_in_minutes(self):
+    async def test_part1_uses_min_age_in_minutes(self):
         task = RayLogCleanupTask(min_age_hours=48)
         runtime = _runtime()
         await task.run_action(runtime)
@@ -92,9 +126,78 @@ class TestRunAction:
 
         cmd = runtime.execute.await_args.args[0].command
         assert '"/data/ray"' in cmd
+        assert "/data/ray/session_latest/logs" in cmd
 
     @pytest.mark.asyncio
-    async def test_extracts_removed_count_from_output(self):
+    async def test_part2a_uses_kill_zero_pid_probe(self):
+        """PART 2a must probe PID with `kill -0` (no-signal liveness check)."""
+        task = RayLogCleanupTask()
+        runtime = _runtime()
+        await task.run_action(runtime)
+
+        cmd = runtime.execute.await_args.args[0].command
+        assert "kill -0" in cmd
+        # PID regex must match Ray's worker file naming
+        assert "[_-][0-9]+" in cmd
+        # Only files older than 60 min are candidates (race-window guard)
+        assert "-mmin +60" in cmd
+
+    @pytest.mark.asyncio
+    async def test_part2b_uses_live_log_keep_days(self):
+        """PART 2b stale-file mtime threshold = live_log_keep_days * 24 * 60 minutes."""
+        task = RayLogCleanupTask(live_log_keep_days=7)
+        runtime = _runtime()
+        await task.run_action(runtime)
+
+        cmd = runtime.execute.await_args.args[0].command
+        # 7d * 24h * 60min = 10080
+        assert "-mmin +10080" in cmd
+
+    @pytest.mark.asyncio
+    async def test_part2b_daemon_whitelist_protected(self):
+        """raylet*, gcs_server*, runtime_env_agent*, dashboard*, monitor*,
+        log_monitor* must all be excluded by name (regression guard — Ray
+        holds fds; deletion wouldn't free disk)."""
+        task = RayLogCleanupTask()
+        runtime = _runtime()
+        await task.run_action(runtime)
+
+        cmd = runtime.execute.await_args.args[0].command
+        for daemon in ("raylet", "gcs_server", "runtime_env_agent", "dashboard", "monitor", "log_monitor"):
+            assert f"! -name '{daemon}*'" in cmd, f"daemon whitelist missing: {daemon}"
+
+    @pytest.mark.asyncio
+    async def test_part3_uses_old_logs_keep_hours(self):
+        """PART 3 old-dir mtime threshold = old_logs_keep_hours * 60 minutes."""
+        task = RayLogCleanupTask(old_logs_keep_hours=24)
+        runtime = _runtime()
+        await task.run_action(runtime)
+
+        cmd = runtime.execute.await_args.args[0].command
+        # 24h * 60 = 1440
+        assert "-mmin +1440" in cmd
+        assert "session_latest/logs/old" in cmd
+
+    @pytest.mark.asyncio
+    async def test_part3_uses_old_logs_keep_hours_custom(self):
+        task = RayLogCleanupTask(old_logs_keep_hours=6)
+        runtime = _runtime()
+        await task.run_action(runtime)
+
+        cmd = runtime.execute.await_args.args[0].command
+        # 6h * 60 = 360
+        assert "-mmin +360" in cmd
+
+
+# ---------------------------------------------------------------------------
+# Output parsing — per-category counters
+# ---------------------------------------------------------------------------
+
+
+class TestOutputParsing:
+    @pytest.mark.asyncio
+    async def test_extracts_part1_removed_sessions(self):
+        """PART 1 session removals reported via `removed=<sess>` (backward compat)."""
         stdout = (
             "live_session=session_2026_03_01_xyz_111\n"
             "removed=session_2026_02_15_aaa_222\n"
@@ -111,6 +214,62 @@ class TestRunAction:
         assert "session_2026_02_20_bbb_333" in result["removed_sessions"]
 
     @pytest.mark.asyncio
+    async def test_extracts_part2a_dead_pid_count(self):
+        stdout = (
+            "live_session=session_xxx\n"
+            "removed_dead_pid_log=python-core-worker-aaaa_12345.log\n"
+            "removed_dead_pid_log=worker-bbbb-c205-67890.err\n"
+            "removed_dead_pid_log=worker-bbbb-c205-67890.out\n"
+            "ray_log_cleanup_done"
+        )
+        task = RayLogCleanupTask()
+        runtime = _runtime(stdout=stdout)
+
+        result = await task.run_action(runtime)
+        assert result["removed_dead_pid_count"] == 3
+
+    @pytest.mark.asyncio
+    async def test_extracts_part2b_stale_count(self):
+        stdout = (
+            "live_session=session_xxx\n"
+            "removed_stale_file=runtime_env_setup-60010000.log\n"
+            "removed_stale_file=runtime_env_setup-5c010000.log\n"
+            "ray_log_cleanup_done"
+        )
+        task = RayLogCleanupTask()
+        runtime = _runtime(stdout=stdout)
+
+        result = await task.run_action(runtime)
+        assert result["removed_stale_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_extracts_part3_old_count(self):
+        stdout = (
+            "live_session=session_xxx\n"
+            "removed_old=python-core-worker-aaa.log.1\n"
+            "removed_old=python-core-worker-aaa.log.2\n"
+            "removed_old=raylet.out.1\n"
+            "ray_log_cleanup_done"
+        )
+        task = RayLogCleanupTask()
+        runtime = _runtime(stdout=stdout)
+
+        result = await task.run_action(runtime)
+        assert result["removed_old_count"] == 3
+
+    @pytest.mark.asyncio
+    async def test_all_counters_zero_when_nothing_removed(self):
+        stdout = "live_session=session_xxx\nray_log_cleanup_done"
+        task = RayLogCleanupTask()
+        runtime = _runtime(stdout=stdout)
+
+        result = await task.run_action(runtime)
+        assert result["removed_count"] == 0
+        assert result["removed_dead_pid_count"] == 0
+        assert result["removed_stale_count"] == 0
+        assert result["removed_old_count"] == 0
+
+    @pytest.mark.asyncio
     async def test_handles_missing_ray_dir(self):
         task = RayLogCleanupTask()
         runtime = _runtime(stdout="ray_temp_dir_not_found")
@@ -118,3 +277,36 @@ class TestRunAction:
         result = await task.run_action(runtime)
         assert result["status"] == TaskStatusEnum.SUCCESS
         assert result["removed_count"] == 0
+        assert result["removed_dead_pid_count"] == 0
+        assert result["removed_stale_count"] == 0
+        assert result["removed_old_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Regression guards — must-have command properties
+# ---------------------------------------------------------------------------
+
+
+class TestRegressionGuards:
+    @pytest.mark.asyncio
+    async def test_command_does_not_recurse_into_session_dirs_at_top_level(self):
+        """Top-level walk MUST keep `-maxdepth 1`; we explicitly DO recurse
+        into `session_latest/logs/old/` in PART 3 but never into other
+        `session_<ts>_<pid>` internals (only whole-dir rm -rf for those)."""
+        task = RayLogCleanupTask()
+        runtime = _runtime()
+        await task.run_action(runtime)
+
+        cmd = runtime.execute.await_args.args[0].command
+        # PART 1 stale-session walk: must have maxdepth 1
+        assert '-maxdepth 1 -type d -name "session_*"' in cmd
+
+    @pytest.mark.asyncio
+    async def test_command_uses_session_latest_logs_path(self):
+        """PART 2/3 must scope to session_latest/logs explicitly, not arbitrary session dirs."""
+        task = RayLogCleanupTask()
+        runtime = _runtime()
+        await task.run_action(runtime)
+
+        cmd = runtime.execute.await_args.args[0].command
+        assert "session_latest/logs" in cmd
