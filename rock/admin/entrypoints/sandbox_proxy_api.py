@@ -28,9 +28,10 @@ from rock.admin.proto.request import (
 from rock.admin.proto.response import BatchSandboxStatusResponse, SandboxListResponse
 from rock.common.exception import handle_exceptions
 from rock.common.port_validation import validate_port_forward_port
+from rock.common.validation import validate_required_str
 from rock.logger import init_logger
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
-from rock.sdk.common.exceptions import BadRequestRockError
+from rock.sdk.common.exceptions import BadRequestRockError, InvalidParameterRockError
 
 logger = init_logger(__name__)
 
@@ -148,6 +149,7 @@ async def close_session(request: SandboxCloseBashSessionRequest) -> RockResponse
 @sandbox_proxy_router.get("/is_alive")
 @handle_exceptions(error_message="get sandbox is alive failed")
 async def is_alive(sandbox_id: str):
+    validate_required_str(sandbox_id, "sandbox_id")
     return RockResponse(result=await sandbox_proxy_service.is_alive(sandbox_id))
 
 
@@ -170,6 +172,7 @@ async def upload(
     target_path: str = Form(...),
     sandbox_id: str | None = Form(None),
 ) -> RockResponse[UploadResponse]:
+    validate_required_str(sandbox_id, "sandbox_id")
     return RockResponse(result=await sandbox_proxy_service.upload(file, target_path, sandbox_id))
 
 
@@ -409,5 +412,5 @@ async def host_proxy_post(
 ):
     host_ip = request.headers.get("rock-host-ip")
     if not host_ip:
-        raise BadRequestRockError("rock-host-ip is required in request headers")
+        raise InvalidParameterRockError("rock-host-ip is required in request headers")
     return await sandbox_proxy_service.host_proxy(host_ip, path, body, request.headers)

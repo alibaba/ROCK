@@ -38,11 +38,12 @@ from rock.config import OssConfig, ProxyServiceConfig, RockConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
 from rock.common.port_validation import validate_port_forward_port
+from rock.common.validation import validate_required_str
 from rock.logger import init_logger
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.utils.proxy import build_upstream_ws_headers
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
-from rock.sdk.common.exceptions import BadRequestRockError
+from rock.sdk.common.exceptions import InvalidParameterRockError
 from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var
 
 logger = init_logger(__name__)
@@ -201,9 +202,9 @@ class SandboxProxyService:
     @monitor_sandbox_operation()
     async def batch_get_sandbox_status(self, sandbox_ids: list[str]) -> list[SandboxStatusResponse]:
         if sandbox_ids is None:
-            raise BadRequestRockError(message="sandbox_ids is None")
+            raise InvalidParameterRockError(message="sandbox_ids is None")
         if len(sandbox_ids) > self._batch_get_status_max_count:
-            raise BadRequestRockError(
+            raise InvalidParameterRockError(
                 message=f"sandbox_ids count too large, max count is {self._batch_get_status_max_count}"
             )
         logger.info(f"batch_get_sandbox_status, sandbox_ids count is {len(sandbox_ids)}")
@@ -222,9 +223,9 @@ class SandboxProxyService:
         page = int(query_params.pop("page", "1"))
         page_size = int(query_params.pop("page_size", "500"))
         if page < 1 or page_size < 1:
-            raise BadRequestRockError(f"page parameter invalid, page is {page}, page_size is {page_size}")
+            raise InvalidParameterRockError(f"page parameter invalid, page is {page}, page_size is {page_size}")
         if page_size > self._batch_get_status_max_count:
-            raise BadRequestRockError(f"page_size exceeds maximum {self._batch_get_status_max_count}")
+            raise InvalidParameterRockError(f"page_size exceeds maximum {self._batch_get_status_max_count}")
         logger.info(f"list sandboxes with filters: {query_params}, page: {page}, page_size: {page_size}")
         try:
             all_sandbox_data = await self.list_all_sandboxes_by_query_params(query_params)
@@ -629,6 +630,7 @@ class SandboxProxyService:
             logger.info(f"Connection closed in {direction}: {e}")
 
     async def get_service_status(self, sandbox_id: str):
+        validate_required_str(sandbox_id, "sandbox_id")
         sandbox_info = await self._meta_store.get(sandbox_id)
         if not sandbox_info or sandbox_info.get("host_ip") is None:
             raise Exception(f"sandbox {sandbox_id} not started")
@@ -805,6 +807,7 @@ class SandboxProxyService:
             logger.error(f"Error forwarding message {direction}: {e}")
 
     async def _update_expire_time(self, sandbox_id):
+        validate_required_str(sandbox_id, "sandbox_id")
         timeout_info = await self._meta_store.get_timeout(sandbox_id)
         if timeout_info is None:
             return

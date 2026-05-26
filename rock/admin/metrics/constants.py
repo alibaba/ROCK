@@ -4,6 +4,7 @@ class MetricsConstants:
     SANDBOX_REQUEST_TOTAL = "request.total"
     SANDBOX_REQUEST_SUCCESS = "request.success"
     SANDBOX_REQUEST_FAILURE = "request.failure"
+    SANDBOX_REQUEST_INVALID_PARAM = "request.invalid_param"
 
     SANDBOX_REQUEST_RT = "request.rt"
 

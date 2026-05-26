@@ -5,6 +5,7 @@ from .sdk.common.exceptions import (
     BadRequestRockError,
     CommandRockError,
     InternalServerRockError,
+    InvalidParameterRockError,
     RockException,
     raise_for_code,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "codes",
     "RockException",
     "BadRequestRockError",
+    "InvalidParameterRockError",
     "InternalServerRockError",
     "CommandRockError",
     "raise_for_code",

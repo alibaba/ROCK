@@ -26,6 +26,16 @@ class BadRequestRockError(RockException):
         super().__init__(message, code)
 
 
+class InvalidParameterRockError(BadRequestRockError):
+    """Unambiguous client-side parameter / request-shape error.
+
+    Reserved for callers' input mistakes that cannot be caused by server
+    state (e.g. missing required field, value out of allowed range).
+    Server-side metrics treat this as neither a `failure` nor a generic
+    `client_error`, so it does not pollute either bucket.
+    """
+
+
 class InternalServerRockError(RockException):
     def __init__(self, message, code: codes = codes.INTERNAL_SERVER_ERROR):
         super().__init__(message, code)
