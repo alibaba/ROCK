@@ -12,6 +12,7 @@ from statemachine import StateChart
 from rock.actions.sandbox.response import State as RockState
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.metrics.billing import log_billing_info
+from rock.common.constants import StopReason
 from rock.logger import init_logger
 from rock.utils.system import get_iso8601_timestamp
 
@@ -53,8 +54,8 @@ class SandboxStateMachine(StateChart):
 
     # Callbacks
 
-    async def on_stop(self, sandbox_id: str, operator, meta_store) -> None:
-        logger.info(f"stop sandbox {sandbox_id}")
+    async def on_stop(self, sandbox_id: str, operator, meta_store, reason: StopReason = StopReason.MANUAL) -> None:
+        logger.info(f"stop sandbox {sandbox_id} (reason={reason.value})")
         sandbox_info = self.sandbox_info or {}
 
         # Initialize sandbox_info with default values if not set
@@ -67,7 +68,7 @@ class SandboxStateMachine(StateChart):
             log_billing_info(sandbox_info=sandbox_info)
 
         try:
-            await operator.stop(sandbox_id)
+            await operator.stop(sandbox_id, reason=reason)
         except ValueError as e:
             logger.error(f"ray get actor, actor {sandbox_id} not exist", exc_info=e)
 

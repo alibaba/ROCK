@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from rock.actions.sandbox.response import State
+from rock.common.constants import StopReason
 from rock.sandbox.sandbox_statemachine import SandboxStateMachine
 
 # ---------------------------------------------------------------------------
@@ -158,7 +159,7 @@ class TestOnStop:
     async def test_stops_operator_and_archives(self, mock_operator, mock_meta_store):
         sm = await SandboxStateMachine.from_state_value(State.RUNNING, sandbox_info={})
         await sm.send("stop", sandbox_id="sb-1", operator=mock_operator, meta_store=mock_meta_store)
-        mock_operator.stop.assert_awaited_once_with("sb-1")
+        mock_operator.stop.assert_awaited_once_with("sb-1", reason=StopReason.MANUAL)
         mock_meta_store.archive.assert_awaited_once()
 
     @pytest.mark.asyncio

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from rock.actions.sandbox.response import State
+from rock.common.constants import StopReason
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
 
@@ -75,7 +76,7 @@ class TestManagerStop:
     async def test_stop_not_found_attempts_cleanup(self, mgr, mock_meta_store, mock_operator):
         mock_meta_store.get.return_value = None
         await mgr.stop("sb-1")
-        mock_operator.stop.assert_awaited_once_with("sb-1")
+        mock_operator.stop.assert_awaited_once_with("sb-1", reason=StopReason.MANUAL)
         mock_meta_store.archive.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -95,14 +96,14 @@ class TestManagerStop:
     async def test_stop_running_calls_operator_and_archives(self, mgr, mock_meta_store, mock_operator):
         mock_meta_store.get.return_value = {"state": State.RUNNING}
         await mgr.stop("sb-1")
-        mock_operator.stop.assert_awaited_once_with("sb-1")
+        mock_operator.stop.assert_awaited_once_with("sb-1", reason=StopReason.MANUAL)
         mock_meta_store.archive.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_stop_pending_calls_operator_and_archives(self, mgr, mock_meta_store, mock_operator):
         mock_meta_store.get.return_value = {"state": State.PENDING}
         await mgr.stop("sb-1")
-        mock_operator.stop.assert_awaited_once_with("sb-1")
+        mock_operator.stop.assert_awaited_once_with("sb-1", reason=StopReason.MANUAL)
         mock_meta_store.archive.assert_awaited_once()
 
     @pytest.mark.asyncio
