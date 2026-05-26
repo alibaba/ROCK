@@ -15,6 +15,7 @@ No sentinel files; single source of truth is sandbox_record.
 Credentials are passed via SandboxCommand.env, never argv.
 """
 
+import asyncio
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -37,6 +38,12 @@ logger = init_logger(name="sandbox_log_archive", file_name=SCHEDULER_LOG_NAME)
 # not a stale snapshot — config can be hot-reloaded via Nacos.
 _sandbox_table_provider = None  # callable[[], SandboxTable | None]
 _rock_config_provider = None  # callable[[], RockConfig | None]
+# Main event loop (uvicorn's loop where lifespan + HTTP handlers run).
+# Required because this task runs inside SchedulerThread's child loop, but
+# `sandbox_table` (asyncpg/SQLAlchemy) has a pool bound to the main loop —
+# awaiting it directly from the child loop pollutes pool affinity and breaks
+# subsequent HTTP handlers with "Future attached to a different loop".
+_main_loop_provider = None  # callable[[], asyncio.AbstractEventLoop | None]
 
 
 def set_sandbox_table_provider(provider) -> None:
@@ -47,6 +54,34 @@ def set_sandbox_table_provider(provider) -> None:
 def set_rock_config_provider(provider) -> None:
     global _rock_config_provider
     _rock_config_provider = provider
+
+
+def set_main_loop_provider(provider) -> None:
+    global _main_loop_provider
+    _main_loop_provider = provider
+
+
+async def _run_on_main_loop(coro):
+    """Dispatch ``coro`` to the main event loop if we're on a different one.
+
+    Why: SchedulerThread runs tasks inside its own asyncio loop. asyncpg /
+    SQLAlchemy pool is bound to whichever loop first uses it (the main loop,
+    via lifespan ``create_tables`` + HTTP handlers). Calling ``await
+    sandbox_table.xxx()`` directly from the scheduler's child loop binds the
+    pool to *that* loop instead, breaking subsequent HTTP requests on the
+    main loop with ``Future attached to a different loop``.
+    """
+    main_loop = _main_loop_provider() if _main_loop_provider else None
+    try:
+        current = asyncio.get_running_loop()
+    except RuntimeError:
+        current = None
+    if main_loop is None or current is main_loop:
+        # No main loop wired, or we're already on it — direct await is safe.
+        return await coro
+    # We're on a child loop. Dispatch to main loop and await via wrap_future.
+    future = asyncio.run_coroutine_threadsafe(coro, main_loop)
+    return await asyncio.wrap_future(future)
 
 
 class SandboxLogArchiveTask(BaseTask):
@@ -114,7 +149,8 @@ class SandboxLogArchiveTask(BaseTask):
             }
 
         # Step 2: batch query DB for state + stop_time
-        rows = await sandbox_table.list_by_in("sandbox_id", candidate_ids)
+        # Dispatch DB query to main loop (see _run_on_main_loop docstring).
+        rows = await _run_on_main_loop(sandbox_table.list_by_in("sandbox_id", candidate_ids))
         rows_by_id = {r["sandbox_id"]: r for r in rows}
 
         now = datetime.now(timezone.utc)
