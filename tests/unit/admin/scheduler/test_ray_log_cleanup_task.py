@@ -156,8 +156,8 @@ class TestCommandShape:
     @pytest.mark.asyncio
     async def test_part2b_daemon_whitelist_protected(self):
         """raylet*, gcs_server*, runtime_env_agent*, dashboard*, monitor*,
-        log_monitor* must all be excluded by name (regression guard — Ray
-        holds fds; deletion wouldn't free disk)."""
+        log_monitor*, agent-* must all be excluded by name (regression guard
+        — Ray holds fds; deletion wouldn't free disk)."""
         task = RayLogCleanupTask()
         runtime = _runtime()
         await task.run_action(runtime)
@@ -165,6 +165,39 @@ class TestCommandShape:
         cmd = runtime.execute.await_args.args[0].command
         for daemon in ("raylet", "gcs_server", "runtime_env_agent", "dashboard", "monitor", "log_monitor"):
             assert f"! -name '{daemon}*'" in cmd, f"daemon whitelist missing: {daemon}"
+        assert "! -name 'agent-*'" in cmd, "daemon whitelist missing: agent-*"
+
+    @pytest.mark.asyncio
+    async def test_part2a_daemon_whitelist_protects_agent_files(self):
+        """CORE REGRESSION (task #25): PART 2a (PID-aware) MUST also exclude
+        daemon-named files BEFORE the kill -0 probe. Without this guard,
+        `agent-<id>.err` matches the PID regex; kill -0 <id> fails because
+        <id> is a Ray-generated agent identifier (NOT a Linux PID) that
+        exceeds the PID range, so the file gets wrongly removed even though
+        Ray's runtime env agent is still writing to it."""
+        task = RayLogCleanupTask()
+        runtime = _runtime()
+        await task.run_action(runtime)
+
+        cmd = runtime.execute.await_args.args[0].command
+        # PART 2a section starts with `-mmin +60` (race-window guard).
+        # Find the segment from "+60" up to the next pipe (end of find expr).
+        idx = cmd.find("-mmin +60")
+        assert idx >= 0, "PART 2a -mmin +60 marker not found"
+        part2a = cmd[idx : cmd.find("| while read -r f", idx)]
+        # All daemon whitelist names must appear in PART 2a's find filter,
+        # not just PART 2b. Otherwise agent-* / runtime_env_agent* etc. get
+        # wrongly probed and removed.
+        for daemon in (
+            "raylet",
+            "gcs_server",
+            "runtime_env_agent",
+            "dashboard",
+            "monitor",
+            "log_monitor",
+            "agent-",
+        ):
+            assert f"! -name '{daemon}*'" in part2a, f"PART 2a missing daemon whitelist: {daemon}"
 
     @pytest.mark.asyncio
     async def test_part3_uses_old_logs_keep_hours(self):

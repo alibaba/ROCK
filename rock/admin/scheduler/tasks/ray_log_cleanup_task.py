@@ -129,9 +129,23 @@ class RayLogCleanupTask(BaseTask):
               # Probe `kill -0 <pid>`; if PID is dead, remove. Only files older
               # than 60 minutes are considered, to avoid racing with new
               # worker startups still writing their first log line.
+              #
+              # Daemon files are excluded by name FIRST (same whitelist as
+              # PART 2b). Without this guard, names like `agent-<id>.err` —
+              # where <id> is a Ray-generated agent identifier, NOT a PID —
+              # match the PID regex; kill -0 <id> fails because <id> exceeds
+              # the Linux PID range, so the file gets wrongly removed even
+              # though Ray's runtime env agent is still writing to it.
               find "$LOGS" -maxdepth 1 -type f -mmin +60 \\
                   -regextype posix-extended \\
                   -regex '.*[_-][0-9]+\\.(log|err|out)$' \\
+                  ! -name 'raylet*' \\
+                  ! -name 'gcs_server*' \\
+                  ! -name 'runtime_env_agent*' \\
+                  ! -name 'dashboard*' \\
+                  ! -name 'monitor*' \\
+                  ! -name 'log_monitor*' \\
+                  ! -name 'agent-*' \\
               | while read -r f; do
                   bn=$(basename "$f")
                   pid=$(echo "$bn" | grep -oE '[_-][0-9]+\\.(log|err|out)$' | grep -oE '[0-9]+' | head -1)
@@ -144,8 +158,8 @@ class RayLogCleanupTask(BaseTask):
               # PART 2b: non-PID, non-daemon stale files older than
               # {self.live_log_keep_days} days. Daemon files (raylet*,
               # gcs_server*, runtime_env_agent*, dashboard*, monitor*,
-              # log_monitor*) are NEVER deleted while session is alive —
-              # Ray holds open fds, removal wouldn't free disk.
+              # log_monitor*, agent-*) are NEVER deleted while session is
+              # alive — Ray holds open fds, removal wouldn't free disk.
               find "$LOGS" -maxdepth 1 -type f -mmin +{live_age_min} \\
                   -regextype posix-extended \\
                   ! -regex '.*[_-][0-9]+\\.(log|err|out)$' \\
@@ -155,6 +169,7 @@ class RayLogCleanupTask(BaseTask):
                   ! -name 'dashboard*' \\
                   ! -name 'monitor*' \\
                   ! -name 'log_monitor*' \\
+                  ! -name 'agent-*' \\
               | while read -r f; do
                   rm -f "$f" && echo "removed_stale_file=$(basename "$f")"
                 done
