@@ -33,7 +33,9 @@ from rock.admin.entrypoints.sandbox_api import sandbox_router, set_sandbox_manag
 from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_sandbox_proxy_service
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
 from rock.admin.gem.api import gem_router, set_env_service
-from rock.admin.scheduler.scheduler import SchedulerThread
+from rock.admin.scheduler.scheduler import SchedulerThread, WorkerIPCache
+from rock.admin.scheduler.task_base import BaseTask
+from rock.admin.scheduler.task_factory import TaskFactory
 from rock.admin.scheduler.tasks.sandbox_log_archive_task import (
     set_main_loop_provider as set_archive_main_loop_provider,
 )
@@ -177,13 +179,26 @@ async def lifespan(app: FastAPI):
         elif rock_config.scheduler.enabled:
             logger.info("Scheduler thread skipped on non-primary pod")
 
-        # Wire admin_ops_router to scheduler. Providers are called per-request so
-        # they always see the *current* task set (Nacos may mutate it) and worker
-        # IPs. On non-primary pods scheduler_thread is None — providers return
-        # empty registry, POST will report rejected/empty; GET still works via DB.
-        if scheduler_thread is not None:
-            set_ops_task_registry_provider(scheduler_thread.get_task_registry)
-            set_ops_alive_workers_provider(scheduler_thread.get_alive_workers)
+        # Wire admin_ops_router with task registry + worker cache built INDEPENDENTLY
+        # of scheduler_thread, so every admin pod (not just primary) can resolve
+        # tasks and execute on demand. The scheduler thread itself stays
+        # primary-only for periodic triggers (avoids duplicate fires); one-shot
+        # ops triggers are gated by the 60s cross-pod DB rate limit in
+        # admin_ops_api, so it's safe for any pod to execute.
+        ops_task_registry: dict[str, BaseTask] = {}
+        if rock_config.scheduler.enabled:
+            for task_config in rock_config.scheduler.tasks:
+                if not getattr(task_config, "enabled", True):
+                    continue
+                try:
+                    task = TaskFactory.create_task(task_config)
+                    ops_task_registry[task.type] = task
+                except Exception as e:
+                    logger.warning(f"ops_jobs: failed to instantiate '{task_config.task_class}': {e}")
+        set_ops_task_registry_provider(lambda: ops_task_registry)
+
+        ops_worker_cache = WorkerIPCache(cache_ttl=rock_config.scheduler.worker_cache_ttl)
+        set_ops_alive_workers_provider(ops_worker_cache.get_alive_workers)
 
     else:
         sandbox_manager = SandboxProxyService(rock_config=rock_config, meta_store=meta_store)
