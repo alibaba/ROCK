@@ -61,6 +61,13 @@ def set_main_loop_provider(provider) -> None:
     _main_loop_provider = provider
 
 
+# Safety cap on cross-loop dispatch: if the main loop is gone (e.g. admin
+# was SIGKILLed before SchedulerThread had a chance to stop), the child
+# loop's await on the dispatched future would hang forever. 60s is generous
+# for any reasonable sandbox_table query; raises TimeoutError if exceeded.
+_CROSS_LOOP_DISPATCH_TIMEOUT = 60.0
+
+
 async def _run_on_main_loop(coro):
     """Dispatch ``coro`` to the main event loop if we're on a different one.
 
@@ -70,6 +77,9 @@ async def _run_on_main_loop(coro):
     sandbox_table.xxx()`` directly from the scheduler's child loop binds the
     pool to *that* loop instead, breaking subsequent HTTP requests on the
     main loop with ``Future attached to a different loop``.
+
+    The dispatched future is bounded by ``_CROSS_LOOP_DISPATCH_TIMEOUT``
+    to prevent the child loop from hanging if the main loop has stopped.
     """
     main_loop = _main_loop_provider() if _main_loop_provider else None
     try:
@@ -79,9 +89,10 @@ async def _run_on_main_loop(coro):
     if main_loop is None or current is main_loop:
         # No main loop wired, or we're already on it — direct await is safe.
         return await coro
-    # We're on a child loop. Dispatch to main loop and await via wrap_future.
+    # We're on a child loop. Dispatch to main loop and await via wrap_future,
+    # bounded by a timeout so a dead main loop doesn't block us forever.
     future = asyncio.run_coroutine_threadsafe(coro, main_loop)
-    return await asyncio.wrap_future(future)
+    return await asyncio.wait_for(asyncio.wrap_future(future), timeout=_CROSS_LOOP_DISPATCH_TIMEOUT)
 
 
 class SandboxLogArchiveTask(BaseTask):
