@@ -675,6 +675,13 @@ class DockerDeployment(AbstractDeployment):
         is in a stopped/exited state. A nonexistent container surfaces via
         `docker start` failing — see is_alive()'s poll-based detection.
         """
+        # TODO: once a sandbox delete API exists, move _cleanup_kata_disk() there;
+        # until then kata restart is blocked because _stop() deletes the .img file.
+        if self._config.use_kata_runtime:
+            raise NotImplementedError(
+                f"Restart is not supported for kata runtime containers (container={self._container_name}). "
+            )
+
         executor = get_executor()
         loop = asyncio.get_running_loop()
 

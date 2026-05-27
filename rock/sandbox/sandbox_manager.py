@@ -158,7 +158,7 @@ class SandboxManager(BaseManager):
 
         state = sm.current_state.value
         if state != State.STOPPED:
-            raise BadRequestRockError(f"Sandbox {sandbox_id} cannot be restarted: current state is '{state}'")
+            raise BadRequestRockError(f"Sandbox {sandbox_id} cannot be restarted: current state is '{state.value}'")
 
         await sm.send(
             "restart",
