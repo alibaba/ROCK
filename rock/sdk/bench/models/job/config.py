@@ -230,16 +230,18 @@ class HarborJobConfig(_BaseJobConfig):
         import uuid as _uuid
 
         if self.job_name is not None:
+            if "/" in self.job_name:
+                raise ValueError("job_name must not contain '/'")
             return self
 
         parts: list[str] = []
         if self.datasets:
             ds = self.datasets[0]
             if getattr(ds, "name", None):
-                parts.append(ds.name)
+                parts.append(ds.name.rsplit("/", 1)[-1])
             task_names = getattr(ds, "task_names", None) or []
             if len(task_names) == 1:
-                parts.append(task_names[0])
+                parts.append(task_names[0].rsplit("/", 1)[-1])
 
         parts.append(_uuid.uuid4().hex[:8])
         self.job_name = "_".join(parts)
