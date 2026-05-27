@@ -177,8 +177,12 @@ class SandboxManager(BaseManager):
         if sandbox_info is None:
             sandbox_info = {}
         sandbox_info["state"] = State.STOPPED
+        # Always record stop_time — sandboxes that never started (e.g. image
+        # pull / docker run failed before sandbox_actor wrote start_time) also
+        # need this so SandboxLogArchiveTask can age them. Billing stays gated
+        # on start_time because it's only meaningful for started sandboxes.
+        sandbox_info["stop_time"] = get_iso8601_timestamp()
         if sandbox_info.get("start_time"):
-            sandbox_info["stop_time"] = get_iso8601_timestamp()
             log_billing_info(sandbox_info=sandbox_info)
         try:
             await self._operator.stop(sandbox_id, reason)
