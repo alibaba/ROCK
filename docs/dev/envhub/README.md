@@ -248,20 +248,52 @@ class DatasetClient:
 rock datasets list [OPTIONS]
 
 Options:
-  --org TEXT                 只列出指定 organization 的 datasets
+  --depth {1,2}              1: 只列出 organizations；2: 列出 organizations 和 datasets（默认）
+  --org TEXT                 只列出指定 organization 的 datasets（与 --depth 互斥）
   --bucket TEXT              OSS bucket 名称（覆盖 config.ini）
   --endpoint TEXT            OSS endpoint（覆盖 config.ini）
   --access-key-id TEXT       OSS access key ID（覆盖 config.ini）
   --access-key-secret TEXT   OSS access key secret（覆盖 config.ini）
+  --region TEXT              OSS region（覆盖 config.ini）
 ```
 
 输出示例：
 
 ```
-Dataset                            Split   Tasks
-qwen/my-bench                      train      42
-qwen/my-bench                      test       10
-alibaba/code-eval                  train     100
+Organization  Dataset
+--------------------------
+alibaba       code-eval
+qwen          my-bench
+
+2 datasets in 2 organizations.
+```
+
+#### rock datasets splits
+
+```
+rock datasets splits [OPTIONS]
+
+Required:
+  --org TEXT       Organization 名称
+  --dataset TEXT   Dataset 名称
+
+Options:
+  --bucket TEXT              OSS bucket 名称（覆盖 config.ini）
+  --endpoint TEXT            OSS endpoint（覆盖 config.ini）
+  --access-key-id TEXT       OSS access key ID（覆盖 config.ini）
+  --access-key-secret TEXT   OSS access key secret（覆盖 config.ini）
+  --region TEXT              OSS region（覆盖 config.ini）
+```
+
+输出示例：
+
+```
+Split
+-----
+test
+train
+
+2 splits.
 ```
 
 #### rock datasets upload

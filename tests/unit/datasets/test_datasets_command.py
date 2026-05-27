@@ -215,9 +215,9 @@ def test_tasks_prints_no_tasks_message_when_not_found(capsys):
 # ---------------------------------------------------------------------------
 
 
-def test_list_default_calls_list_all_datasets_and_renders_two_columns(capsys):
+def test_list_default_depth_calls_list_all_datasets_and_renders_two_columns(capsys):
     cmd = DatasetsCommand()
-    args = make_base_args(datasets_command="list", depth=2, org=None)
+    args = make_base_args(datasets_command="list", depth=None, org=None)
 
     with patch.object(DatasetsCommand, "_build_oss_registry_info", return_value=make_registry_info()):
         with patch("rock.cli.command.datasets.DatasetClient") as MockClient:
@@ -303,10 +303,10 @@ def test_list_parser_depth_and_org_mutually_exclusive():
         parser.parse_args(["datasets", "list", "--depth", "2", "--org", "alibaba"])
 
 
-def test_list_parser_depth_default_is_2():
+def test_list_parser_depth_default_is_deferred_to_runtime():
     parser = _build_parser()
     parsed = parser.parse_args(["datasets", "list"])
-    assert parsed.depth == 2
+    assert parsed.depth is None
     assert parsed.org is None
 
 

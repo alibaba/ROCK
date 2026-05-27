@@ -68,7 +68,8 @@ class DatasetsCommand(Command):
             self._render_org_dataset_pairs(pairs)
             return
 
-        if getattr(args, "depth", 2) == 1:
+        depth = getattr(args, "depth", None) or 2
+        if depth == 1:
             orgs = client.list_organizations()
             self._render_orgs(orgs)
             return
@@ -193,7 +194,7 @@ class DatasetsCommand(Command):
             "--depth",
             type=int,
             choices=[1, 2],
-            default=2,
+            default=None,
             help="1: list orgs only. 2 (default): list orgs and datasets.",
         )
         list_group.add_argument("--org", help="List datasets under the given organization only")
