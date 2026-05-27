@@ -38,7 +38,6 @@ from rock.config import OssConfig, ProxyServiceConfig, RockConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
 from rock.common.port_validation import validate_port_forward_port
-from rock.common.validation import validate_required_str
 from rock.logger import init_logger
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.utils.proxy import build_upstream_ws_headers
@@ -630,7 +629,6 @@ class SandboxProxyService:
             logger.info(f"Connection closed in {direction}: {e}")
 
     async def get_service_status(self, sandbox_id: str):
-        validate_required_str(sandbox_id, "sandbox_id")
         sandbox_info = await self._meta_store.get(sandbox_id)
         if not sandbox_info or sandbox_info.get("host_ip") is None:
             raise Exception(f"sandbox {sandbox_id} not started")
@@ -807,7 +805,6 @@ class SandboxProxyService:
             logger.error(f"Error forwarding message {direction}: {e}")
 
     async def _update_expire_time(self, sandbox_id):
-        validate_required_str(sandbox_id, "sandbox_id")
         timeout_info = await self._meta_store.get_timeout(sandbox_id)
         if timeout_info is None:
             return
