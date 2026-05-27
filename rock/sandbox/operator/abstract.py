@@ -36,6 +36,10 @@ class AbstractOperator(ABC):
     async def stop(self, sandbox_id: str, reason: StopReason = StopReason.MANUAL) -> bool:
         ...
 
+    @abstractmethod
+    async def delete(self, config: DeploymentConfig, host_ip: str | None = None) -> bool:
+        ...
+
     def set_redis_provider(self, redis_provider: RedisProvider):
         self._redis_provider = redis_provider
 

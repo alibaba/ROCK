@@ -106,6 +106,62 @@ async def test_sandbox_file_operations(admin_remote_server: RemoteServer):
 @pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
+async def test_sandbox_restart(admin_remote_server: RemoteServer):
+    """Test stop → restart → verify running → stop lifecycle."""
+    config = SandboxConfig(
+        image="python:3.11",
+        startup_timeout=60,
+        base_url=f"{admin_remote_server.endpoint}:{admin_remote_server.port}",
+    )
+    sandbox = Sandbox(config)
+    try:
+        await sandbox.start()
+        await sandbox.create_session(CreateBashSessionRequest(session="default"))
+
+        result = await sandbox.arun(cmd="echo before_restart", session="default")
+        assert "before_restart" in result.output
+
+        await sandbox.stop()
+        status = await sandbox.get_status(include_all_states=True)
+        assert status.state == "stopped"
+
+        await sandbox.restart()
+        status = await sandbox.get_status(include_all_states=True)
+        assert status.state in ("pending", "running")
+
+        await sandbox.create_session(CreateBashSessionRequest(session="default"))
+        result = await sandbox.arun(cmd="echo after_restart", session="default")
+        assert "after_restart" in result.output
+    finally:
+        await sandbox.stop()
+
+
+@pytest.mark.need_admin
+@SKIP_IF_NO_DOCKER
+@pytest.mark.asyncio
+async def test_sandbox_delete(admin_remote_server: RemoteServer):
+    """Test stop → delete lifecycle. Deleted sandbox should not be found."""
+    config = SandboxConfig(
+        image="python:3.11",
+        startup_timeout=60,
+        base_url=f"{admin_remote_server.endpoint}:{admin_remote_server.port}",
+    )
+    sandbox = Sandbox(config)
+    await sandbox.start()
+
+    await sandbox.stop()
+    status = await sandbox.get_status(include_all_states=True)
+    assert status.state == "stopped"
+
+    await sandbox.delete()
+
+    with pytest.raises(Exception):
+        await sandbox.get_status(include_all_states=True)
+
+
+@pytest.mark.need_admin
+@SKIP_IF_NO_DOCKER
+@pytest.mark.asyncio
 async def test_read_file_by_line_range_non_exist_file(sandbox_instance: Sandbox):
     file_path = "non_exist_file.txt"
     with pytest.raises(Exception):

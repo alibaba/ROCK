@@ -25,7 +25,7 @@ from rock.admin.proto.request import SandboxCreateSessionRequest as CreateSessio
 from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
-from rock.common.constants import StopReason
+from rock.common.constants import DeleteReason, StopReason
 from rock.config import RockConfig, RuntimeConfig
 from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
 from rock.logger import init_logger
@@ -209,6 +209,41 @@ class SandboxManager(BaseManager):
                 meta_store=self._meta_store,
                 reason=reason,
             )
+            # `--rm` containers are already gone after stop; cascade to DELETED
+            # so the metadata row doesn't linger in STOPPED.
+            # Redis keys are gone after archive; re-read from DB to get spec.
+            sm = await self._get_current_statemachine(sandbox_id)
+            spec = ((sm.sandbox_info or {}).get("spec") or {}) if sm else {}
+            if spec.get("remove_container"):
+                await sm.send(
+                    "delete",
+                    sandbox_id=sandbox_id,
+                    operator=self._operator,
+                    meta_store=self._meta_store,
+                    reason=DeleteReason.IMMEDIATE,
+                )
+
+    @monitor_sandbox_operation()
+    async def delete(self, sandbox_id: str, reason: DeleteReason = DeleteReason.MANUAL) -> None:
+        sm = await self._get_current_statemachine(sandbox_id)
+        if sm is None:
+            logger.info(f"delete: sandbox {sandbox_id} not found, noop")
+            return
+        state = sm.current_state.value
+        if state == State.DELETED:
+            logger.info(f"delete: sandbox {sandbox_id} already deleted, noop")
+            return
+        if state != State.STOPPED:
+            raise BadRequestRockError(
+                f"Sandbox {sandbox_id} cannot be deleted: current state is '{state.value}', must be stopped first"
+            )
+        await sm.send(
+            "delete",
+            sandbox_id=sandbox_id,
+            operator=self._operator,
+            meta_store=self._meta_store,
+            reason=reason,
+        )
 
     async def get_mount(self, sandbox_id):
         async with self._ray_service.get_ray_rwlock().read_lock():

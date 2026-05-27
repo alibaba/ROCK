@@ -16,6 +16,7 @@ class State(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
     STOPPED = "stopped"
+    DELETED = "deleted"
 
 
 class IsAliveResponse(BaseModel):

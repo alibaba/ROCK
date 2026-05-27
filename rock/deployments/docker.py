@@ -717,6 +717,24 @@ class DockerDeployment(AbstractDeployment):
 
         logger.info(f"Container {self._container_name} restarted successfully")
 
+    async def delete(self) -> None:
+        """Remove the container via ``docker rm -f``.
+
+        Idempotent — a container that doesn't exist counts as success because
+        nothing remains to clean up. The actor was previously stopped (or
+        freshly created without start), so there is no
+        ``self._container_process`` / ``self._runtime`` to unwind here.
+        Quota / log cleanup already ran during ``_stop`` and is not repeated.
+        """
+        container_name = self._container_name or (self._config.container_name if self._config else None)
+        if not container_name:
+            logger.warning("delete: no container_name available, skipping docker rm")
+            return
+
+        executor = get_executor()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(executor, DockerUtil.remove_container_force, container_name)
+
     def _get_rocklet_port_from_inspect(self) -> int | None:
         """Read the host-side port mapped to the rocklet (container port 22555) from docker inspect."""
         try:

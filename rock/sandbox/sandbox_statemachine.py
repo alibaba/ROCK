@@ -12,7 +12,7 @@ from statemachine import StateChart
 from rock.actions.sandbox.response import State as RockState
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.metrics.billing import log_billing_info
-from rock.common.constants import StopReason
+from rock.common.constants import DeleteReason, StopReason
 from rock.deployments.config import DockerDeploymentConfig
 from rock.logger import init_logger
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
@@ -30,11 +30,13 @@ class SandboxStateMachine(StateChart):
         - pending:   Sandbox is being created / starting
         - running:   Sandbox is actively running
         - stopped:   Sandbox has been stopped
+        - deleted:   Sandbox has been soft-deleted (DB record kept, state=deleted)
 
     Transitions:
         - stop:      pending/running → stopped  (stops operator, archives meta)
         - stop_noop: stopped → stopped  (idempotent; logs and returns)
         - alive:     pending → running  (called from get_status on pending→running; also usable by reconciler)
+        - delete:    stopped → deleted  (operator removes docker container, soft-deletes meta)
     """
 
     allow_event_without_transition = False  # raise TransitionNotAllowed instead of silently ignoring invalid events
@@ -44,12 +46,14 @@ class SandboxStateMachine(StateChart):
     pending = SMState("Pending", initial=True, value=RockState.PENDING)
     running = SMState("Running", value=RockState.RUNNING)
     stopped = SMState("Stopped", value=RockState.STOPPED)
+    deleted = SMState("Deleted", final=True, value=RockState.DELETED)
 
     # Transitions
     stop = pending.to(stopped) | running.to(stopped)
     stop_noop = stopped.to(stopped)
     alive = pending.to(running)
     restart = stopped.to(pending)
+    delete = stopped.to(deleted)
 
     def __init__(self, **kwargs):
         """Initialize with optional sandbox_info."""
@@ -135,6 +139,40 @@ class SandboxStateMachine(StateChart):
         await meta_store.update(sandbox_id, new_info)
         await meta_store.update_timeout(sandbox_id, timeout_info)
 
+    async def on_delete(
+        self,
+        sandbox_id: str,
+        operator,
+        meta_store,
+        reason: DeleteReason = DeleteReason.MANUAL,
+    ) -> None:
+        logger.info(f"delete sandbox {sandbox_id} (reason={reason.value})")
+        sandbox_info = self.sandbox_info or {}
+        if "sandbox_id" not in sandbox_info:
+            sandbox_info["sandbox_id"] = sandbox_id
+
+        host_ip = sandbox_info.get("host_ip")
+        if reason == DeleteReason.IMMEDIATE:
+            logger.info(f"sandbox {sandbox_id}: skip operator.delete (container already removed by --rm)")
+        else:
+            spec = sandbox_info.get("spec") or {}
+            if spec:
+                try:
+                    delete_config = DockerDeploymentConfig(**spec)
+                    await operator.delete(delete_config, host_ip=host_ip)
+                except Exception as e:
+                    logger.warning(f"operator.delete({sandbox_id}, {host_ip}) failed: {e}", exc_info=True)
+            else:
+                logger.warning(
+                    f"sandbox {sandbox_id} has no spec snapshot; skip operator.delete, "
+                    "rely on ContainerCleanupTask to reap docker container"
+                )
+
+        sandbox_info["state"] = RockState.DELETED
+        sandbox_info["delete_time"] = get_iso8601_timestamp()
+        await meta_store.archive(sandbox_id, sandbox_info)
+        self.sandbox_info = sandbox_info
+
     @classmethod
     async def from_state_value(cls, state_value: str | None, sandbox_info: SandboxInfo) -> "SandboxStateMachine":
         """Create a state machine restored to *state_value* (from Redis/DB)."""
@@ -142,6 +180,7 @@ class SandboxStateMachine(StateChart):
             RockState.PENDING: "pending",
             RockState.RUNNING: "running",
             RockState.STOPPED: "stopped",
+            RockState.DELETED: "deleted",
         }
         sm = (
             cls(start_value=state_map[state_value], sandbox_info=sandbox_info)
