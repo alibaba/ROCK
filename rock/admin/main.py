@@ -109,8 +109,10 @@ async def lifespan(app: FastAPI):
         logger.info("database.url is not configured, falling back to SQLite in-memory")
     db_provider = DatabaseProvider(db_config=DatabaseConfig(url=db_url))
     await db_provider.init()
-    if not rock_config.database.url:
-        await db_provider.create_tables()
+    # Idempotent (CREATE TABLE IF NOT EXISTS via Base.metadata.create_all);
+    # safe for existing tables and auto-creates new ORM models without per-
+    # table manual DDL. Run for ALL environments, not just sqlite fallback.
+    await db_provider.create_tables()
     sandbox_table = SandboxTable(db_provider, rock_config=rock_config)
     meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=sandbox_table, rock_config=rock_config)
 
