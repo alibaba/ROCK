@@ -63,8 +63,11 @@ class ImageCleanupTask(BaseTask):
         )
 
     async def run_action(self, runtime: RemoteSandboxRuntime) -> dict:
-        """Start docuum daemon, then synchronously prune dangling/build cache."""
-        # 1) docuum: LRU image eviction (long-running, nohup &)
+        """NON-idempotent path: launch docuum daemon (gated by should_run via base run_on_worker)."""
+        return await self._launch_docuum(runtime)
+
+    async def _launch_docuum(self, runtime: RemoteSandboxRuntime) -> dict:
+        """docuum: LRU image eviction (long-running, nohup &). NON-idempotent."""
         check_and_install_cmd = (
             f"command -v docuum > /dev/null 2>&1 || curl {env_vars.ROCK_DOCUUM_INSTALL_URL} -LSfs | sh"
         )
@@ -81,33 +84,53 @@ class ImageCleanupTask(BaseTask):
         result = await runtime.execute(Command(command=command, shell=True))
 
         pid = extract_nohup_pid(result.stdout)
-        logger.info(f"image cleanup task [{pid}] run successfully on worker[{runtime._config.host}]")
-
-        # 2) Dangling/BuildKit prune (sync, fail-soft so an old/missing docker
-        #    subcommand on one worker doesn't abort the rest of the pipeline).
-        prune_exit = None
-        prune_output = ""
-        if self.keep_build_storage:
-            prune_steps = [
-                "docker image prune -f --filter dangling=true",
-                f"docker builder prune -f --keep-storage {self.keep_build_storage}",
-            ]
-            prune_cmd = "; ".join(f"({s}) 2>&1 || true" for s in prune_steps)
-            prune_result = await runtime.execute(Command(command=prune_cmd, shell=True, check=False))
-            prune_output = (prune_result.stdout or "").strip()[:1000]
-            prune_exit = prune_result.exit_code
-            logger.info(
-                f"docker prune done on worker[{runtime._config.host}]: "
-                f"keep_build_storage={self.keep_build_storage}, exit={prune_exit}, "
-                f"output_head={prune_output[:300]}"
-            )
-
+        logger.info(f"docuum launched with PID [{pid}] on worker[{runtime._config.host}]")
         return {
             "pid": pid,
             "disk_threshold": self.disk_threshold,
             "image_whitelist": self.image_whitelist,
+            "status": TaskStatusEnum.RUNNING,
+        }
+
+    async def _run_prune(self, runtime: RemoteSandboxRuntime) -> dict:
+        """Dangling/BuildKit prune (sync, fail-soft). IDEMPOTENT — runs every cycle."""
+        if not self.keep_build_storage:
+            return {"prune_exit_code": None, "prune_output_head": ""}
+        prune_steps = [
+            "docker image prune -f --filter dangling=true",
+            f"docker builder prune -f --keep-storage {self.keep_build_storage}",
+        ]
+        prune_cmd = "; ".join(f"({s}) 2>&1 || true" for s in prune_steps)
+        prune_result = await runtime.execute(Command(command=prune_cmd, shell=True, check=False))
+        prune_output = (prune_result.stdout or "").strip()[:1000]
+        prune_exit = prune_result.exit_code
+        logger.info(
+            f"docker prune done on worker[{runtime._config.host}]: "
+            f"keep_build_storage={self.keep_build_storage}, exit={prune_exit}, "
+            f"output_head={prune_output[:300]}"
+        )
+        return {
             "keep_build_storage": self.keep_build_storage,
             "prune_exit_code": prune_exit,
             "prune_output_head": prune_output,
-            "status": TaskStatusEnum.RUNNING,
         }
+
+    async def run_on_worker(self, ip):
+        """Override base: prune unconditionally (idempotent), then gate docuum on should_run.
+
+        The base run_on_worker skips entire task when should_run returns False, which
+        correctly prevents docuum re-launch but wrongly blocks the idempotent prune
+        step (dangling layers / BuildKit cache pile up forever once docuum is alive).
+        """
+        runtime = self._get_runtime(ip)
+        # prune always runs — idempotent, fail-soft
+        try:
+            await self._run_prune(runtime)
+        except Exception as e:
+            logger.warning(f"[{self.type}] prune failed on worker[{ip}]: {e}")
+        # docuum gated by should_run — non-idempotent
+        if not await self.should_run(runtime):
+            logger.info(f"[{self.type}] docuum already running on worker[{ip}], skip launch")
+            return
+        logger.info(f"[{self.type}] launch docuum on worker[{ip}]")
+        await self.single_run(runtime, ip)
