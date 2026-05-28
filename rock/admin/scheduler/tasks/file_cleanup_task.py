@@ -83,9 +83,9 @@ class TargetDirConfig:
         """
         if not path or not isinstance(path, str):
             raise ValueError(f"target_dirs path must be a non-empty string, got: {path!r}")
-        if not os.path.isabs(path):
+        if not path.startswith("/"):
             raise ValueError(f"target_dirs path must be an absolute path, got: {path!r}")
-        if ".." in path.split(os.sep):
+        if ".." in path.split("/"):
             raise ValueError(f"target_dirs path must not contain '..', got: {path!r}")
 
 
@@ -134,9 +134,9 @@ class FileCleanupTask(BaseTask):
         which obviously is not the intent — only `target_dirs: ["/"]` itself
         should fail.
         """
-        normalized = os.path.normpath(path)
+        normalized = path.rstrip("/") or "/"
         for entry in _PATH_BLACKLIST:
-            in_subtree = entry != "/" and normalized.startswith(entry + "/")
+            in_subtree = entry != "/" and (normalized + "/").startswith(entry + "/")
             if normalized == entry or in_subtree:
                 raise ValueError(
                     f"FileCleanupTask refuses dangerous path {path!r} "
