@@ -6,7 +6,7 @@ import pytest
 
 from rock.admin.scheduler.task_base import TaskStatusEnum
 from rock.admin.scheduler.tasks.file_cleanup_task import (
-    _DANGEROUS_PATHS,
+    _PATH_BLACKLIST,
     FileCleanupTask,
     TargetDirConfig,
 )
@@ -99,9 +99,9 @@ class TestFileCleanupTaskBlacklist:
         task = FileCleanupTask(target_dirs=[TargetDirConfig(path="/etc")])
         assert task.target_dirs[0].path == "/etc"
 
-    def test_dangerous_blacklist_is_minimal(self):
+    def test_path_blacklist_is_minimal(self):
         # Exactly two entries — keep this list short on purpose.
-        assert _DANGEROUS_PATHS == ("/", "/tmp/miniforge")
+        assert _PATH_BLACKLIST == ("/", "/tmp/miniforge")
 
 
 # --------------------------------------------------------------------------- #

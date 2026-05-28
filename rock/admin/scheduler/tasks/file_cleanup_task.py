@@ -11,14 +11,15 @@ from rock.utils.format import parse_size_to_bytes
 
 logger = init_logger(name="file_cleanup", file_name=SCHEDULER_LOG_NAME)
 
-# Paths that must NEVER appear in target_dirs because deleting them takes the
-# whole worker (or worse, the host) down. Both entries are real incident sources:
+# Path blacklist: entries that must NEVER appear in target_dirs because deleting
+# them takes the whole worker (or worse, the host) down. Both entries are real
+# incident sources:
 #   - "/" : `find / -delete` is a full-OS wipe
 #   - "/tmp/miniforge" : uv-shared Python runtime; if removed, no sandbox can start
 # Other "obviously dangerous" OS dirs (/etc, /var, ...) are intentionally NOT here:
 # they're hypothetical mistakes, not observed ones, and a longer list raises the
 # cost of changing the policy later.
-_DANGEROUS_PATHS: tuple[str, ...] = (
+_PATH_BLACKLIST: tuple[str, ...] = (
     "/",
     "/tmp/miniforge",
 )
@@ -110,7 +111,7 @@ class FileCleanupTask(BaseTask):
             max_file_size: Max file size threshold (e.g. "500M", "1G"), files exceeding this will be removed
 
         Raises:
-            ValueError: a target_dirs entry hits _DANGEROUS_PATHS (config-time fail-fast).
+            ValueError: a target_dirs entry hits _PATH_BLACKLIST (config-time fail-fast).
         """
         super().__init__(
             type="file_cleanup",
@@ -134,12 +135,12 @@ class FileCleanupTask(BaseTask):
         should fail.
         """
         normalized = os.path.normpath(path)
-        for dangerous in _DANGEROUS_PATHS:
-            in_subtree = dangerous != "/" and normalized.startswith(dangerous + "/")
-            if normalized == dangerous or in_subtree:
+        for entry in _PATH_BLACKLIST:
+            in_subtree = entry != "/" and normalized.startswith(entry + "/")
+            if normalized == entry or in_subtree:
                 raise ValueError(
                     f"FileCleanupTask refuses dangerous path {path!r} "
-                    f"(matched blacklist entry {dangerous!r}); "
+                    f"(matched blacklist entry {entry!r}); "
                     f"these paths are managed by other components, "
                     f"not by file_cleanup."
                 )
