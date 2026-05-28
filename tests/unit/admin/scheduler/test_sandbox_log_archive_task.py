@@ -195,6 +195,28 @@ class TestDiscovery:
         assert result["archived"] == 0
         fake_table.list_by_in.assert_not_awaited()
 
+    @pytest.mark.asyncio
+    async def test_discover_uses_find_type_d_not_ls(self, fake_table):
+        """REGRESSION: _discover_candidates must use `find -type d`, not `ls`.
+
+        `ls` lists daemon-written files (docuum.log / rocklet.log / etc.)
+        directly under log_root alongside real sandbox subdirs; each file
+        then triggers a useless DB lookup and emits a spurious "orphan log
+        dir" warning. Verified in pre against real /data/logs that mixes
+        files + dirs.
+        """
+        set_sandbox_table_provider(lambda: fake_table)
+        set_rock_config_provider(lambda: _fake_rock_config())
+
+        task = SandboxLogArchiveTask(log_root="/data/logs")
+        runtime = _runtime([_FakeExecResult(stdout="")])
+        await task.run_action(runtime)
+
+        cmd = runtime.execute.await_args_list[0].args[0].command
+        assert "-type d" in cmd, "discovery must restrict to directories"
+        assert "-maxdepth 1" in cmd, "must not recurse into sandbox log subdirs"
+        assert cmd.lstrip().startswith("find "), f"expected find, got: {cmd[:50]}"
+
 
 # ---------------------------------------------------------------------------
 # Classification (orphan / alive / too_young / archived)

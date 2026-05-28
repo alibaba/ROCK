@@ -220,11 +220,17 @@ class SandboxLogArchiveTask(BaseTask):
     async def _discover_candidates(self, runtime: RemoteSandboxRuntime) -> list[str]:
         """List sandbox_ids that still have a log directory on this worker.
 
-        Top-level entries under ``log_root`` are treated as candidate
-        sandbox_ids. Non-sandbox entries (e.g. logrotate's own files) are
-        filtered out by the DB lookup step (Step 2) — orphans are logged.
+        Only **directories** directly under ``log_root`` are returned. The
+        daemon-written files in the same root (docuum.log, rocklet.log,
+        rock_worker.log, access.log, command.log, rsync_logs_to_host.log,
+        worker_metrics_monitor.log, image_pull.log, ...) must NOT be
+        treated as sandbox_ids — they would otherwise generate spurious
+        "orphan log dir" warnings and waste DB lookups.
+
+        ``find -maxdepth 1 -mindepth 1 -type d -printf '%f\\n'`` is GNU-find
+        portable (worker images are Linux-based; macOS not supported here).
         """
-        cmd = f"ls -1 {self.log_root} 2>/dev/null || true"
+        cmd = f"find {self.log_root} -maxdepth 1 -mindepth 1 -type d -printf '%f\\n' 2>/dev/null || true"
         result = await runtime.execute(Command(command=cmd, shell=True, check=False))
         if result.exit_code != 0:
             return []
