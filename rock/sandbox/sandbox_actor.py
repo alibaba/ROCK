@@ -130,7 +130,6 @@ class SandboxActor(GemActor):
             raise ex
         if isinstance(self._deployment, DockerDeployment):
             self._config.disk_limit_rootfs = self._deployment.effective_disk_limit_rootfs
-            self._config.disk_limit_log = self._deployment.effective_disk_limit_log
             self._clean_container_background()
         await self._setup_monitor()
 
@@ -280,6 +279,5 @@ class SandboxActor(GemActor):
                 "cpus": self._config.cpus,
                 "memory": self._config.memory,
                 "disk_limit_rootfs": self._config.disk_limit_rootfs,
-                "disk_limit_log": self._config.disk_limit_log,
             }
         return {}

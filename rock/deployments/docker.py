@@ -63,9 +63,6 @@ class DockerDeployment(AbstractDeployment):
         if registry_password:
             self._config.registry_password = registry_password
         self._effective_disk_limit_rootfs: str | None = self._config.disk_limit_rootfs
-        # Effective log limit equals the rootfs limit when shared-prjid setup succeeds in start();
-        # otherwise stays None. The log dir always shares the docker-allocated rootfs prjid.
-        self._effective_disk_limit_log: str | None = None
         self._runtime: RemoteSandboxRuntime | None = None
         self._container_process = None
         self._runtime_timeout = 0.15
@@ -422,8 +419,7 @@ class DockerDeployment(AbstractDeployment):
 
         Must be called between `docker create` and `docker start`. On any
         failure (no rootfs prjid, log dir on a different filesystem, quota
-        command error) the log dir is simply left unbound —
-        `_effective_disk_limit_log` stays None.
+        command error) the log dir is simply left unbound.
 
         We only `project -s` here (binds prjid + sets inherit flag); we do
         NOT call `limit -p`. The bhard belongs to docker; setting a separate
@@ -478,7 +474,6 @@ class DockerDeployment(AbstractDeployment):
                 )
                 return
 
-            self._effective_disk_limit_log = self._effective_disk_limit_rootfs
             logger.info(
                 f"Attached log dir {log_file_path!r} to docker rootfs prjid={project_id} "
                 f"(shared rootfs+log quota, limit managed by docker --storage-opt)"
@@ -502,8 +497,6 @@ class DockerDeployment(AbstractDeployment):
             self._effective_disk_limit_rootfs = None
         else:
             self._effective_disk_limit_rootfs = self._config.disk_limit_rootfs
-        # Default to None; _setup_log_dir_quota_shared() will set it on success.
-        self._effective_disk_limit_log = None
 
         if self._container_name is None:
             self.set_container_name(self._get_container_name())
@@ -745,11 +738,6 @@ class DockerDeployment(AbstractDeployment):
     def effective_disk_limit_rootfs(self) -> str | None:
         """Returns the actual rootfs quota in effect after runtime capability checks (may differ from config.disk_limit_rootfs)."""
         return self._effective_disk_limit_rootfs
-
-    @property
-    def effective_disk_limit_log(self) -> str | None:
-        """Returns the actual log-dir quota in effect after runtime capability checks (may differ from config.disk_limit_log)."""
-        return self._effective_disk_limit_log
 
     async def _check_stop(self):
         logger.info(f"Start check container to stop: {self._container_name}")
