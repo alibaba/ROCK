@@ -51,6 +51,7 @@ class RayLogCleanupTask(BaseTask):
         min_age_hours: int = 24,
         live_log_keep_days: int = 7,
         old_logs_keep_hours: int = 24,
+        setup_log_keep_minutes: int = 60,
     ):
         """
         Args:
@@ -63,6 +64,11 @@ class RayLogCleanupTask(BaseTask):
             old_logs_keep_hours: Mtime threshold for files under
                 session_latest/logs/old/ (Ray's own rotation backups).
                 Default 24 hours.
+            setup_log_keep_minutes: Mtime threshold for runtime_env_setup-*
+                files. These are one-shot Ray runtime-env materialisation
+                scripts whose trailing token is a Ray job id (digit OR hex),
+                NOT a Linux PID — PART 2a's PID probe is meaningless for them.
+                Default 60min (matches PART 2a race-window guard).
         """
         super().__init__(
             type="ray_log_cleanup",
@@ -75,10 +81,13 @@ class RayLogCleanupTask(BaseTask):
             raise ValueError(f"ray_log_cleanup.live_log_keep_days must be >= 1, got {live_log_keep_days}")
         if old_logs_keep_hours < 1:
             raise ValueError(f"ray_log_cleanup.old_logs_keep_hours must be >= 1, got {old_logs_keep_hours}")
+        if setup_log_keep_minutes < 1:
+            raise ValueError(f"ray_log_cleanup.setup_log_keep_minutes must be >= 1, got {setup_log_keep_minutes}")
         self.ray_temp_dir = ray_temp_dir.rstrip("/")
         self.min_age_hours = min_age_hours
         self.live_log_keep_days = live_log_keep_days
         self.old_logs_keep_hours = old_logs_keep_hours
+        self.setup_log_keep_minutes = setup_log_keep_minutes
 
     @classmethod
     def from_config(cls, task_config) -> "RayLogCleanupTask":
@@ -88,6 +97,7 @@ class RayLogCleanupTask(BaseTask):
             min_age_hours=task_config.params.get("min_age_hours", 24),
             live_log_keep_days=task_config.params.get("live_log_keep_days", 7),
             old_logs_keep_hours=task_config.params.get("old_logs_keep_hours", 24),
+            setup_log_keep_minutes=task_config.params.get("setup_log_keep_minutes", 60),
         )
 
     async def run_action(self, runtime: RemoteSandboxRuntime) -> dict:
@@ -95,11 +105,14 @@ class RayLogCleanupTask(BaseTask):
         session_age_min = self.min_age_hours * 60
         live_age_min = self.live_log_keep_days * 24 * 60
         old_age_min = self.old_logs_keep_hours * 60
+        setup_age_min = self.setup_log_keep_minutes
 
-        # 3-stage shell pipeline:
-        #   PART 1 — drop stale full session_<ts>_<pid> dirs
-        #   PART 2 — session_latest/logs/ per-file: PID-aware + mtime fallback
-        #   PART 3 — session_latest/logs/old/ time-based
+        # 4-stage shell pipeline:
+        #   PART 1  — drop stale full session_<ts>_<pid> dirs
+        #   PART 2a — session_latest/logs/ PID-aware (worker/runtime_env_setup with digit pid)
+        #   PART 2c — session_latest/logs/ runtime_env_setup-* mtime-only (covers hex variant)
+        #   PART 2b — session_latest/logs/ non-PID, non-daemon stale (long tail)
+        #   PART 3  — session_latest/logs/old/ time-based
         #
         # textwrap.dedent strips common leading whitespace so source can be
         # indented for readability without polluting the emitted shell.
@@ -155,6 +168,21 @@ class RayLogCleanupTask(BaseTask):
                   fi
                 done
 
+              # PART 2c: runtime_env_setup-* — one-shot Ray runtime-env
+              # materialisation scripts. Trailing token is a Ray job id,
+              # NOT a PID; comes in two flavours:
+              #   - pure digits: `runtime_env_setup-31050000.log` — accidentally
+              #     removed by PART 2a (digit > pid_max → kill -0 fails)
+              #   - hex: `runtime_env_setup-f4060000.log` — skipped by PART 2a
+              #     (regex needs digits) and waited 7d for PART 2b
+              # Same retention window as PART 2a ({setup_age_min}min default)
+              # to avoid races with in-flight setups while clearing the bulk.
+              find "$LOGS" -maxdepth 1 -type f -mmin +{setup_age_min} \\
+                  -name 'runtime_env_setup-*' \\
+              | while read -r f; do
+                  rm -f "$f" && echo "removed_setup=$(basename "$f")"
+                done
+
               # PART 2b: non-PID, non-daemon stale files older than
               # {self.live_log_keep_days} days. Daemon files (raylet*,
               # gcs_server*, runtime_env_agent*, dashboard*, monitor*,
@@ -194,13 +222,15 @@ class RayLogCleanupTask(BaseTask):
         # `removed=<sess>` retained for backward compat (PART 1 session dirs).
         removed_sessions = [line.split("=", 1)[1] for line in output.splitlines() if line.startswith("removed=")]
         removed_dead_pid = sum(1 for line in output.splitlines() if line.startswith("removed_dead_pid_log="))
+        removed_setup = sum(1 for line in output.splitlines() if line.startswith("removed_setup="))
         removed_stale = sum(1 for line in output.splitlines() if line.startswith("removed_stale_file="))
         removed_old = sum(1 for line in output.splitlines() if line.startswith("removed_old="))
 
         logger.info(
             f"[{self.type}] [{runtime._config.host}] ray_log_cleanup done: "
             f"sessions={len(removed_sessions)}, dead_pid={removed_dead_pid}, "
-            f"stale={removed_stale}, old={removed_old}, output_head={output[:300]}"
+            f"setup={removed_setup}, stale={removed_stale}, old={removed_old}, "
+            f"output_head={output[:300]}"
         )
         return {
             "status": TaskStatusEnum.SUCCESS,
@@ -210,6 +240,7 @@ class RayLogCleanupTask(BaseTask):
             "removed_sessions": removed_sessions,
             # New per-category counters:
             "removed_dead_pid_count": removed_dead_pid,
+            "removed_setup_count": removed_setup,
             "removed_stale_count": removed_stale,
             "removed_old_count": removed_old,
             "output_head": output[:1500],

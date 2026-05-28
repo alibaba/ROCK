@@ -40,6 +40,7 @@ class TestInit:
         assert task.min_age_hours == 24
         assert task.live_log_keep_days == 7
         assert task.old_logs_keep_hours == 24
+        assert task.setup_log_keep_minutes == 60
 
     def test_strips_trailing_slash(self):
         task = RayLogCleanupTask(ray_temp_dir="/data/ray/")
@@ -57,6 +58,10 @@ class TestInit:
         with pytest.raises(ValueError, match="old_logs_keep_hours must be >= 1"):
             RayLogCleanupTask(old_logs_keep_hours=0)
 
+    def test_rejects_setup_log_keep_minutes_below_one(self):
+        with pytest.raises(ValueError, match="setup_log_keep_minutes must be >= 1"):
+            RayLogCleanupTask(setup_log_keep_minutes=0)
+
     def test_custom_thresholds(self):
         task = RayLogCleanupTask(live_log_keep_days=3, old_logs_keep_hours=12)
         assert task.live_log_keep_days == 3
@@ -70,6 +75,7 @@ class TestFromConfig:
         assert task.min_age_hours == 24
         assert task.live_log_keep_days == 7
         assert task.old_logs_keep_hours == 24
+        assert task.setup_log_keep_minutes == 60
 
     def test_from_config_custom(self):
         cfg = _FakeTaskConfig(
@@ -78,6 +84,7 @@ class TestFromConfig:
                 "min_age_hours": 48,
                 "live_log_keep_days": 14,
                 "old_logs_keep_hours": 6,
+                "setup_log_keep_minutes": 30,
             },
             interval_seconds=3600,
         )
@@ -86,6 +93,7 @@ class TestFromConfig:
         assert task.min_age_hours == 48
         assert task.live_log_keep_days == 14
         assert task.old_logs_keep_hours == 6
+        assert task.setup_log_keep_minutes == 30
         assert task.interval_seconds == 3600
 
 
@@ -200,6 +208,33 @@ class TestCommandShape:
             assert f"! -name '{daemon}*'" in part2a, f"PART 2a missing daemon whitelist: {daemon}"
 
     @pytest.mark.asyncio
+    async def test_part2c_uses_setup_log_keep_minutes(self):
+        """PART 2c (runtime_env_setup-*) mtime threshold = setup_log_keep_minutes."""
+        task = RayLogCleanupTask(setup_log_keep_minutes=30)
+        runtime = _runtime()
+        await task.run_action(runtime)
+
+        cmd = runtime.execute.await_args.args[0].command
+        # The first textual occurrence is the comment block; search for the
+        # actual filter line "-name 'runtime_env_setup-*'" to skip past it.
+        idx = cmd.find("-name 'runtime_env_setup-*'")
+        assert idx >= 0, "PART 2c -name 'runtime_env_setup-*' filter not found"
+        window = cmd[max(0, idx - 150):idx]
+        assert "-mmin +30" in window, f"PART 2c missing -mmin +30 in nearby window: {window!r}"
+
+    @pytest.mark.asyncio
+    async def test_part2c_targets_runtime_env_setup_glob(self):
+        """PART 2c must use -name 'runtime_env_setup-*' (covers both digit and hex suffix)."""
+        task = RayLogCleanupTask()
+        runtime = _runtime()
+        await task.run_action(runtime)
+
+        cmd = runtime.execute.await_args.args[0].command
+        assert "-name 'runtime_env_setup-*'" in cmd
+        # Emits removed_setup= marker so output parser can count it
+        assert "removed_setup=" in cmd
+
+    @pytest.mark.asyncio
     async def test_part3_uses_old_logs_keep_hours(self):
         """PART 3 old-dir mtime threshold = old_logs_keep_hours * 60 minutes."""
         task = RayLogCleanupTask(old_logs_keep_hours=24)
@@ -276,6 +311,25 @@ class TestOutputParsing:
         assert result["removed_stale_count"] == 2
 
     @pytest.mark.asyncio
+    async def test_extracts_part2c_setup_count_digit_and_hex(self):
+        """REGRESSION: PART 2c must count both digit-suffix AND hex-suffix
+        runtime_env_setup files. Pre-fix, only the digit variant was cleaned
+        (accidentally by PART 2a's pid_max overflow); hex variant waited 7d
+        for PART 2b."""
+        stdout = (
+            "live_session=session_xxx\n"
+            "removed_setup=runtime_env_setup-31050000.log\n"   # pure digits
+            "removed_setup=runtime_env_setup-f4060000.log\n"   # hex — the main fix
+            "removed_setup=runtime_env_setup-b6000000.log\n"   # hex
+            "ray_log_cleanup_done"
+        )
+        task = RayLogCleanupTask()
+        runtime = _runtime(stdout=stdout)
+
+        result = await task.run_action(runtime)
+        assert result["removed_setup_count"] == 3
+
+    @pytest.mark.asyncio
     async def test_extracts_part3_old_count(self):
         stdout = (
             "live_session=session_xxx\n"
@@ -299,6 +353,7 @@ class TestOutputParsing:
         result = await task.run_action(runtime)
         assert result["removed_count"] == 0
         assert result["removed_dead_pid_count"] == 0
+        assert result["removed_setup_count"] == 0
         assert result["removed_stale_count"] == 0
         assert result["removed_old_count"] == 0
 
