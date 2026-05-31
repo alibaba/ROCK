@@ -136,7 +136,7 @@ class K8sTemplateLoader:
 
         rendered = render_node(config, self._jinja_env, ctx)
 
-        enable_resource_speedup = rendered.get("enable_resource_speedup", True)
+        enable_resource_speedup = rendered.get("enable_resource_speedup", False)
         pod_template = rendered.get("template", {})
         template_metadata = pod_template.get("metadata", {})
         pod_spec = pod_template.get("spec", {})
