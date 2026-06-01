@@ -67,8 +67,13 @@ class SandboxStateMachine(StateChart):
             sandbox_info["sandbox_id"] = sandbox_id
 
         sandbox_info["state"] = RockState.STOPPED
+        # Always record stop_time — sandboxes that never started (e.g. image
+        # pull / docker run failed before sandbox_actor wrote start_time) also
+        # need this for downstream consumers like SandboxLogArchiveTask. The
+        # billing call below stays gated on start_time because billing is
+        # only meaningful for actually-started sandboxes.
+        sandbox_info["stop_time"] = get_iso8601_timestamp()
         if sandbox_info.get("start_time"):
-            sandbox_info["stop_time"] = get_iso8601_timestamp()
             log_billing_info(sandbox_info=sandbox_info)
 
         try:

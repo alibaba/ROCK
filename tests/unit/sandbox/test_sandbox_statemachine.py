@@ -206,6 +206,21 @@ class TestOnStop:
         await sm.send("stop", sandbox_id="sb-1", operator=mock_operator, meta_store=store)
         store.archive.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_stop_time_always_written_even_when_start_failed(self, mock_operator, mock_meta_store):
+        """REGRESSION: sandboxes that fail before sandbox_actor writes start_time
+        (image pull / docker run errors) still get stop_time. Without this,
+        SandboxLogArchiveTask can't age them and their log dirs leak forever.
+        Billing stays gated on start_time (billing only meaningful for started)."""
+        sm = await SandboxStateMachine.from_state_value(State.RUNNING, sandbox_info={})  # no start_time
+        with patch("rock.sandbox.sandbox_statemachine.log_billing_info") as mock_billing:
+            await sm.send("stop", sandbox_id="sb-failed", operator=mock_operator, meta_store=mock_meta_store)
+
+        archived = mock_meta_store.archive.call_args[0][1]
+        assert archived["state"] == State.STOPPED
+        assert archived.get("stop_time"), "stop_time must be set even when start_time absent"
+        mock_billing.assert_not_called()  # no billing when start_time absent
+
 
 # ---------------------------------------------------------------------------
 # restart transitions
