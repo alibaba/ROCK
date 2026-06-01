@@ -36,6 +36,8 @@ class SandboxConfig(BaseConfig):
     memory: str = "8g"
     cpus: float = 2
     limit_cpus: float | None = None
+    num_gpus: float | None = None
+    accelerator_type: str | None = None
     user_id: str | None = None
     experiment_id: str | None = None
     cluster: str = env_vars.ROCK_DEFAULT_CLUSTER
