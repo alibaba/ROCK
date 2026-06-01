@@ -275,7 +275,10 @@ async def local_registry():
         check=True,
     )
 
-    # 4. Wait for registry to be ready
+    # 4. Wait for registry to be ready. Use `localhost` so the registry name falls in
+    # the `127.0.0.0/8` CIDR that both outer dockerd and inner builder dockerd trust by
+    # default. Tests using this fixture from inside a builder sandbox must inject an
+    # iptables NAT rule mapping 127.0.0.1:port → host_ip:port (see test_image_build.py).
     registry_url = f"localhost:{port}"
     for _ in range(30):
         try:

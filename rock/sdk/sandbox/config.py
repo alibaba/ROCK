@@ -3,6 +3,7 @@ import warnings
 from pydantic import BaseModel, Field, field_validator
 
 from rock import env_vars
+from rock.sdk.sandbox.image import Image
 
 
 class BaseConfig(BaseModel):
@@ -28,7 +29,7 @@ class BaseConfig(BaseModel):
 
 
 class SandboxConfig(BaseConfig):
-    image: str = "python:3.11"
+    image: str | Image = "python:3.11"
     image_os: str = "linux"
     auto_clear_seconds: int = 60 * 5
     route_key: str | None = None
@@ -45,6 +46,20 @@ class SandboxConfig(BaseConfig):
     use_kata_runtime: bool = False
     sandbox_id: str | None = None
     auto_delete_seconds: int | None = None
+
+    @field_validator("image", mode="before")
+    @classmethod
+    def _coerce_image(cls, v):
+        from rock.sdk.sandbox.image import Image
+
+        if isinstance(v, str | Image):
+            return v
+        if isinstance(v, dict):
+            try:
+                return Image(**v)
+            except Exception:
+                pass
+        return v
 
     @field_validator("auto_delete_seconds")
     @classmethod

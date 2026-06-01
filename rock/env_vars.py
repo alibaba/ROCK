@@ -73,6 +73,11 @@ if TYPE_CHECKING:
 
     ROCK_MODEL_SERVICE_INSTALL_CMD: str
 
+    # Image Registry Config
+    ROCK_IMAGE_REGISTRY: str | None = None
+    ROCK_IMAGE_REGISTRY_USERNAME: str | None = None
+    ROCK_IMAGE_REGISTRY_PASSWORD: str | None = None
+
 
 environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_LOGGING_PATH": lambda: os.getenv("ROCK_LOGGING_PATH"),
@@ -89,6 +94,10 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_CODE_SANDBOX_BASE_URL": lambda: os.getenv("ROCK_CODE_SANDBOX_BASE_URL", ""),
     "ROCK_ENVHUB_BASE_URL": lambda: os.getenv("ROCK_ENVHUB_BASE_URL", "http://localhost:8081"),
     "ROCK_ENVHUB_DEFAULT_DOCKER_IMAGE": lambda: os.getenv("ROCK_ENVHUB_DEFAULT_DOCKER_IMAGE", "python:3.11"),
+    "ROCK_IMAGE_BUILDER_IMAGE": lambda: os.getenv(
+        "ROCK_IMAGE_BUILDER_IMAGE",
+        "rock-n-roll-registry.cn-hangzhou.cr.aliyuncs.com/rock/rock-env-builder:latest",
+    ),
     "ROCK_ENVHUB_DB_URL": lambda: os.getenv(
         "ROCK_ENVHUB_DB_URL", f"sqlite:///{Path.home() / '.rock' / 'rock_envs.db'}"
     ),
@@ -147,6 +156,10 @@ environment_variables: dict[str, Callable[[], Any]] = {
     ),
     # Docker temp auth directory
     "ROCK_DOCKER_TEMP_AUTH_DIR": lambda: os.getenv("ROCK_DOCKER_TEMP_AUTH_DIR"),
+    # Image Registry Config
+    "ROCK_IMAGE_REGISTRY": lambda: os.getenv("ROCK_IMAGE_REGISTRY"),
+    "ROCK_IMAGE_REGISTRY_USERNAME": lambda: os.getenv("ROCK_IMAGE_REGISTRY_USERNAME"),
+    "ROCK_IMAGE_REGISTRY_PASSWORD": lambda: os.getenv("ROCK_IMAGE_REGISTRY_PASSWORD"),
 }
 
 
