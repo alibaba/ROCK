@@ -13,7 +13,10 @@ from rock.actions.sandbox.response import State as RockState
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.metrics.billing import log_billing_info
 from rock.common.constants import StopReason
+from rock.deployments.config import DockerDeploymentConfig
 from rock.logger import init_logger
+from rock.sandbox.utils.timeout import SandboxTimeoutHelper
+from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils.system import get_iso8601_timestamp
 
 logger = init_logger(__name__)
@@ -46,6 +49,7 @@ class SandboxStateMachine(StateChart):
     stop = pending.to(stopped) | running.to(stopped)
     stop_noop = stopped.to(stopped)
     alive = pending.to(running)
+    restart = stopped.to(pending)
 
     def __init__(self, **kwargs):
         """Initialize with optional sandbox_info."""
@@ -87,8 +91,44 @@ class SandboxStateMachine(StateChart):
             sandbox_info["start_time"] = get_iso8601_timestamp()
         await meta_store.update(sandbox_id, sandbox_info)
 
-        # Update self.sandbox_info for potential future use
-        self.sandbox_info = sandbox_info
+    async def on_restart(self, sandbox_id: str, operator, meta_store) -> None:
+        info = self.sandbox_info or {}
+
+        host_ip = info.get("host_ip")
+        if not host_ip:
+            raise BadRequestRockError(f"Sandbox {sandbox_id} has no host_ip; cannot pin restart to original node")
+
+        # Prefer the spec snapshot (DockerDeploymentConfig.model_dump persisted to
+        # the DB at start time) so the new actor wraps the existing container with
+        # the exact same config.
+        spec = info.get("spec") or {}
+        if spec:
+            restart_config = DockerDeploymentConfig(**spec)
+        else:
+            logger.warning(
+                f"sandbox {sandbox_id} has no spec snapshot; rebuilding config from flat fields with model defaults"
+            )
+            restart_config = DockerDeploymentConfig(
+                container_name=sandbox_id,
+                image=info.get("image") or DockerDeploymentConfig.model_fields["image"].default,
+                memory=info.get("memory") or DockerDeploymentConfig.model_fields["memory"].default,
+                cpus=float(info.get("cpus") or DockerDeploymentConfig.model_fields["cpus"].default),
+            )
+        timeout_info = SandboxTimeoutHelper.make_timeout_info(restart_config.auto_clear_time)
+
+        logger.info(f"restart sandbox {sandbox_id} (pin host_ip={host_ip})")
+        await operator.restart(restart_config, host_ip=host_ip)
+
+        # The previous stop() called meta_store.archive() which removed the Redis
+        # alive key, so a partial update would lose every field except `state`.
+        # Re-seed Redis with the full sandbox_info restored from the DB.
+        # meta_store.update filters to SandboxInfo-declared keys, so DB-only
+        # fields (spec/status) won't pollute the alive key.
+        new_info = dict(info)
+        new_info["state"] = RockState.PENDING
+        new_info.pop("stop_time", None)
+        await meta_store.update(sandbox_id, new_info)
+        await meta_store.update_timeout(sandbox_id, timeout_info)
 
     @classmethod
     async def from_state_value(cls, state_value: str | None, sandbox_info: SandboxInfo) -> "SandboxStateMachine":

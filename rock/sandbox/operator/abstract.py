@@ -19,6 +19,16 @@ class AbstractOperator(ABC):
         ...
 
     @abstractmethod
+    async def restart(self, config: DeploymentConfig, host_ip: str | None = None) -> SandboxInfo:
+        """Restart an existing stopped container using docker start.
+
+        The actor for this sandbox has already been killed by stop().
+        Implementations must create a new actor and invoke docker start
+        on the existing (stopped) container — not docker run.
+        """
+        ...
+
+    @abstractmethod
     async def get_status(self, sandbox_id: str) -> SandboxInfo | None:
         ...
 

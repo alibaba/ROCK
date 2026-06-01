@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import json
 import logging
 import os
 import re
@@ -8,7 +9,6 @@ import subprocess
 import time
 import zoneinfo
 from pathlib import Path
-from threading import Lock
 
 from rock import env_vars
 from rock.common.constants import PID_PREFIX
@@ -17,7 +17,13 @@ logger = logging.getLogger(__name__)
 
 
 _REGISTERED_PORTS = set()
-_REGISTERED_PORTS_LOCK = Lock()
+
+# Scratchpad cache for docker-published host ports. Populated by
+# `refresh_docker_used_ports()` (typically at the top of a batch port
+# allocation like `do_port_mapping`) so we don't re-shell out for every
+# `find_free_port` call inside the batch. Stale across batches is fine —
+# each batch refreshes.
+_DOCKER_USED_PORTS: set[int] = set()
 
 
 def run_command_with_output(cmd, wait=False):
@@ -86,8 +92,96 @@ def extract_nohup_pid(nohup_output: str) -> int:
         return None
 
 
+def _get_docker_used_host_ports() -> set[int]:
+    """Return host ports reserved by any docker container (running OR stopped).
+
+    If the module-level ``_DOCKER_USED_PORTS`` cache has been populated by a
+    recent ``refresh_docker_used_ports()`` call (e.g. at the top of
+    ``do_port_mapping``), return the cached snapshot to avoid re-shelling
+    out for each ``find_free_port`` in the same batch.
+
+    Stopped containers keep their ``HostConfig.PortBindings`` metadata; on
+    ``docker start`` the daemon re-binds the same host port. If we handed that
+    port out to another sandbox in the meantime, the later restart would fail
+    with ``address already in use``. ``docker ps`` ``Ports`` column hides this
+    for stopped containers, so we inspect ``HostConfig.PortBindings`` directly.
+    """
+    if _DOCKER_USED_PORTS:
+        return set(_DOCKER_USED_PORTS)
+    used: set[int] = set()
+    try:
+        ls = subprocess.run(
+            ["docker", "ps", "-aq"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if ls.returncode != 0:
+            logger.debug(f"docker ps failed ({ls.returncode}): {ls.stderr.strip()}")
+            return used
+        ids = ls.stdout.split()
+        if not ids:
+            return used
+        inspect = subprocess.run(
+            ["docker", "inspect", "--format", "{{json .HostConfig.PortBindings}}", *ids],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if inspect.returncode != 0:
+            logger.debug(f"docker inspect failed ({inspect.returncode}): {inspect.stderr.strip()}")
+            return used
+        for line in inspect.stdout.splitlines():
+            line = line.strip()
+            if not line or line == "null":
+                continue
+            try:
+                bindings = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(bindings, dict):
+                continue
+            # bindings == {"22555/tcp": [{"HostIp": "", "HostPort": "55555"}, ...], ...}
+            for host_specs in bindings.values():
+                for spec in host_specs or []:
+                    p = (spec or {}).get("HostPort")
+                    if p and p.isdigit():
+                        used.add(int(p))
+    except Exception as e:
+        logger.warning(f"failed to enumerate docker-used ports: {e}")
+    return used
+
+
+def refresh_docker_used_ports() -> set[int]:
+    """Refresh the module-level ``_DOCKER_USED_PORTS`` cache from docker.
+
+    Call this once at the start of a batch port allocation (e.g.
+    ``do_port_mapping``) so subsequent ``find_free_port`` calls in the same
+    batch reuse a single docker scan. Returns a snapshot of the cache.
+
+    No locking: each Ray sandbox actor is a single-threaded asyncio process
+    and ``do_port_mapping`` calls this once per sandbox creation; there are no
+    concurrent writers in practice.
+    """
+    _DOCKER_USED_PORTS.clear()
+    _DOCKER_USED_PORTS.update(_get_docker_used_host_ports())
+    return set(_DOCKER_USED_PORTS)
+
+
 async def find_free_port(max_attempts: int = 10, sleep_between_attempts: float = 0.1) -> int:
-    """Find a free port that is not yet registered
+    """Find a free port avoiding three classes of collisions:
+
+      1. **Same-process concurrent callers** — via in-memory ``_REGISTERED_PORTS``.
+      2. **Restart-safety across processes** — via ``_DOCKER_USED_PORTS``.
+         Callers that need protection against stopped docker containers
+         reclaiming a port on restart MUST call ``refresh_docker_used_ports()``
+         before their batch; this function reads the cache as-is and does not
+         refresh on its own. Callers that only need an OS-listenable port
+         (e.g. binding a test server) may skip the refresh.
+      3. **Kernel-level races on currently-listening ports** — OS
+         ``bind(("", 0))`` only hands out a port the kernel considers free,
+         so we don't need to enumerate listeners separately; on collision
+         we just retry.
 
     Args:
         max_attempts: Maximum number of attempts to find a port
@@ -99,16 +193,18 @@ async def find_free_port(max_attempts: int = 10, sleep_between_attempts: float =
     Raises:
         RuntimeError: If unable to find a free port after max_attempts
     """
+    cached = set(_DOCKER_USED_PORTS)
     for _ in range(max_attempts):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            with _REGISTERED_PORTS_LOCK:
-                s.bind(("", 0))
-                port = s.getsockname()[1]
-                if port not in _REGISTERED_PORTS:
-                    _REGISTERED_PORTS.add(port)
-                    logger.debug(f"Found free port {port}")
-                    return port
-            logger.debug(f"Port {port} already registered, trying again after {sleep_between_attempts}s")
+            s.bind(("", 0))
+            port = s.getsockname()[1]
+            if port not in _REGISTERED_PORTS and port not in cached:
+                _REGISTERED_PORTS.add(port)
+                logger.debug(f"Found free port {port}")
+                return port
+            logger.debug(
+                f"Port {port} already registered or held by docker, " f"trying again after {sleep_between_attempts}s"
+            )
         time.sleep(sleep_between_attempts)
     msg = f"Failed to find a unique free port after {max_attempts} attempts"
     raise RuntimeError(msg)

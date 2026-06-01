@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from rock.actions.sandbox.response import State
-from rock.actions.sandbox.sandbox_info import SandboxInfo
+from rock.actions.sandbox.sandbox_info import SandboxInfo, pick_sandbox_info_fields
 from rock.admin.core.redis_key import alive_sandbox_key, timeout_sandbox_key
 from rock.admin.core.sandbox_table import SandboxTable
 from rock.admin.metrics.decorator import monitor_metastore_operation
@@ -71,8 +71,13 @@ class SandboxMetaStore:
         deployment_config:
             ``DockerDeploymentConfig`` snapshot written once to the ``spec`` DB column.
             Redis does not store this.
+
+        The Redis payload is filtered to keys declared in ``SandboxInfo`` so any
+        DB-only fields the caller may carry (e.g. ``spec`` / ``status`` from a
+        prior DB-fallback read) cannot leak into the alive key.
         """
-        await self._redis.json_set(alive_sandbox_key(sandbox_id), "$", sandbox_info)
+        redis_payload = pick_sandbox_info_fields(sandbox_info)
+        await self._redis.json_set(alive_sandbox_key(sandbox_id), "$", redis_payload)
         if timeout_info is not None:
             await self._redis.json_set(timeout_sandbox_key(sandbox_id), "$", timeout_info)
 
@@ -80,9 +85,16 @@ class SandboxMetaStore:
 
     @monitor_metastore_operation
     async def update(self, sandbox_id: str, sandbox_info: SandboxInfo) -> None:
-        """Merge *sandbox_info* into the existing Redis alive key and await DB update."""
+        """Merge *sandbox_info* into the existing Redis alive key and await DB update.
+
+        The Redis-side merge uses only keys declared in ``SandboxInfo``; DB-only
+        fields like ``spec`` / ``status`` are dropped so they don't pollute the
+        alive key. The DB write keeps the full dict — the DB layer has its own
+        column-based filtering.
+        """
+        redis_payload = pick_sandbox_info_fields(sandbox_info)
         current = await self._redis.json_get(alive_sandbox_key(sandbox_id), "$")
-        merged: dict[str, Any] = {**(current[0] if current else {}), **sandbox_info}
+        merged: dict[str, Any] = {**(current[0] if current else {}), **redis_payload}
         await self._redis.json_set(alive_sandbox_key(sandbox_id), "$", merged)
 
         await self._db.update(sandbox_id, sandbox_info)
@@ -96,20 +108,20 @@ class SandboxMetaStore:
         await self._db.delete(sandbox_id)
 
     @monitor_metastore_operation
-    async def archive(self, sandbox_id: str, final_info: SandboxInfo) -> None:
-        """Persist final state to DB, then remove sandbox from Redis.
+    async def archive(self, sandbox_id: str, final_info: SandboxInfo | None = None) -> None:
+        """Snapshot Redis state to DB, then evict Redis keys.
 
-        Unlike ``delete``, the DB record is preserved and updated with
-        ``final_info`` (e.g. ``stop_time``, ``state``).  Use this when a
-        sandbox has finished its lifecycle and the final state should be
-        queryable from the DB.
+        Reads the current alive-key from Redis, merges *final_info* on top
+        (e.g. ``stop_time``, ``state``), persists the result to the DB, and
+        then deletes the Redis alive + timeout keys.
 
         The DB write is awaited before the Redis keys are deleted so that
-        the final state is always durably stored before the alive key
-        disappears.  If the DB write fails the exception propagates and
-        Redis cleanup is skipped.
+        the snapshot is always durably stored before the cache disappears.
         """
-        await self._db.update(sandbox_id, final_info)
+        current = await self._redis.json_get(alive_sandbox_key(sandbox_id), "$")
+        merged: dict[str, Any] = {**(current[0] if current else {}), **(final_info or {})}
+        if merged:
+            await self._db.update(sandbox_id, merged)
 
         await self._redis.json_delete(alive_sandbox_key(sandbox_id))
         await self._redis.json_delete(timeout_sandbox_key(sandbox_id))
