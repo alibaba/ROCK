@@ -302,3 +302,61 @@ class TestManagerRestart:
         mock_operator.restart = AsyncMock(side_effect=BadRequestRockError("docker start failed"))
         with pytest.raises(BadRequestRockError, match="docker start failed"):
             await mgr_restart.restart_async("sb-1")
+
+
+# ---------------------------------------------------------------------------
+# TestManagerStart
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mgr_start(mgr, mock_meta_store, mock_operator, mock_docker_config):
+    mgr.deployment_manager = MagicMock()
+    mgr.deployment_manager.init_config = AsyncMock(return_value=mock_docker_config)
+    mgr._check_sandbox_exists_in_redis = AsyncMock()
+    mgr.validate_sandbox_spec = MagicMock()
+    mgr.rock_config = MagicMock()
+    mgr.rock_config.runtime.use_standard_spec_only = False
+
+    mgr.start_async = SandboxManager.start_async.__wrapped__.__get__(mgr)
+    mgr._build_sandbox_info_metadata = AsyncMock()
+    mgr.start = SandboxManager.start.__wrapped__.__get__(mgr)
+    mgr.get_status = AsyncMock(return_value=MagicMock(is_alive=True, state=State.RUNNING))
+    return mgr
+
+
+class TestManagerStart:
+    @pytest.mark.asyncio
+    async def test_start_writes_meta_store_and_waits_running(self, mgr_start, mock_meta_store, mock_operator):
+        config = MagicMock()
+        config.image = "python:3.11"
+        result = await mgr_start.start(config)
+        assert isinstance(result, SandboxStartResponse)
+        assert result.sandbox_id == "sb-1"
+        mock_meta_store.create.assert_awaited_once()
+        mgr_start.get_status.assert_awaited_once_with("sb-1")
+
+    @pytest.mark.asyncio
+    async def test_start_retries_until_sandbox_running(self, mgr_start):
+        call_count = 0
+
+        async def running_after_retries(sandbox_id):
+            nonlocal call_count
+            call_count += 1
+            return MagicMock(is_alive=call_count >= 3, state=State.RUNNING if call_count >= 3 else State.PENDING)
+
+        mgr_start.get_status = running_after_retries
+        config = MagicMock()
+        config.image = "python:3.11"
+        result = await mgr_start.start(config)
+        assert isinstance(result, SandboxStartResponse)
+        assert call_count >= 3
+
+    @pytest.mark.asyncio
+    async def test_start_timeout_raises(self, mgr_start):
+        mgr_start.get_status = AsyncMock(return_value=MagicMock(is_alive=False, state=State.PENDING))
+        config = MagicMock()
+        config.image = "python:3.11"
+        with patch("rock.sandbox.sandbox_manager.REQUEST_TIMEOUT_SECONDS", 0):
+            with pytest.raises(TimeoutError, match="not running after"):
+                await mgr_start.start(config)

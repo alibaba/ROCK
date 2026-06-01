@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 from fastapi import UploadFile
 
@@ -38,7 +39,7 @@ from rock.sandbox.sandbox_statemachine import SandboxStateMachine
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
-from rock.utils import StageTimer
+from rock.utils import REQUEST_TIMEOUT_SECONDS, StageTimer
 from rock.utils.crypto_utils import AESEncryption
 from rock.utils.format import convert_to_gb, parse_size_to_bytes
 from rock.utils.system import get_iso8601_timestamp
@@ -176,30 +177,18 @@ class SandboxManager(BaseManager):
 
     @monitor_sandbox_operation()
     async def start(self, config: DeploymentConfig) -> SandboxStartResponse:
-        docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(config)
-
-        sandbox_id = docker_deployment_config.container_name
-        actor_name = self.deployment_manager.get_actor_name(sandbox_id)
-        deployment = docker_deployment_config.get_deployment()
-
-        sandbox_actor: SandboxActor = await deployment.creator_actor(actor_name)
-
-        with StageTimer("startup_timing", f"[{sandbox_id}] Actor start", logger):
-            await self._ray_service.async_ray_get(sandbox_actor.start.remote())
-        logger.info(f"sandbox {sandbox_id} is started")
-
-        with StageTimer("startup_timing", f"[{sandbox_id}] Wait actor alive", logger):
-            while not await self._is_actor_alive(sandbox_id):
-                logger.debug(f"wait actor for sandbox alive, sandbox_id: {sandbox_id}")
-                # TODO: timeout check
+        response = await self.start_async(config)
+        sandbox_id = response.sandbox_id
+        deadline = time.time() + REQUEST_TIMEOUT_SECONDS
+        with StageTimer("startup_timing", f"[{sandbox_id}] Wait sandbox running", logger):
+            while True:
+                status = await self.get_status(sandbox_id)
+                if status.is_alive:
+                    break
+                if time.time() >= deadline:
+                    raise TimeoutError(f"sandbox {sandbox_id} not running after {REQUEST_TIMEOUT_SECONDS}s")
                 await asyncio.sleep(1)
-        await self.get_status(sandbox_id)
-
-        return SandboxStartResponse(
-            sandbox_id=sandbox_id,
-            host_name=await self._ray_service.async_ray_get(sandbox_actor.host_name.remote()),
-            host_ip=await self._ray_service.async_ray_get(sandbox_actor.host_ip.remote()),
-        )
+        return response
 
     @monitor_sandbox_operation()
     async def stop(self, sandbox_id: str, reason: StopReason = StopReason.MANUAL):
