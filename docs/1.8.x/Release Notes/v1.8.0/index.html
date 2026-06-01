@@ -7,8 +7,8 @@
 <link rel="preconnect" href="https://www.googletagmanager.com">
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-26LMNFB70V"></script>
 <script>function gtag(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],gtag("js",new Date),gtag("config","G-26LMNFB70V",{anonymize_ip:!0})</script><link rel="stylesheet" href="/ROCK/assets/css/styles.c27f374e.css">
-<script src="/ROCK/assets/js/runtime~main.bedf1b87.js" defer="defer"></script>
-<script src="/ROCK/assets/js/main.c77c04eb.js" defer="defer"></script>
+<script src="/ROCK/assets/js/runtime~main.f8efdeec.js" defer="defer"></script>
+<script src="/ROCK/assets/js/main.2c567805.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -26,10 +26,10 @@
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="bug-fixes">Bug Fixes<a href="#bug-fixes" class="hash-link" aria-label="Direct link to Bug Fixes" title="Direct link to Bug Fixes" translate="no">​</a></h3>
 <ul>
 <li class="">
-<p><strong>SDK</strong>: Add runtime config type validation in <code>PythonRuntimeEnv</code> (#652)</p>
+<p><strong>SDK</strong>: Add runtime config type validation in <code>PythonRuntimeEnv</code> (<a href="https://github.com/alibaba/ROCK/pull/652" target="_blank" rel="noopener noreferrer" class="">#652</a>)</p>
 </li>
 <li class="">
-<p><strong>SDK</strong>: <code>mkdir</code> target parent dir before <code>wget</code> in OSS upload path (#940)</p>
+<p><strong>SDK</strong>: <code>mkdir</code> target parent dir before <code>wget</code> in OSS upload path (<a href="https://github.com/alibaba/ROCK/pull/940" target="_blank" rel="noopener noreferrer" class="">#940</a>)</p>
 </li>
 </ul>
 <hr>
@@ -37,13 +37,13 @@
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="new-features-1">New Features<a href="#new-features-1" class="hash-link" aria-label="Direct link to New Features" title="Direct link to New Features" translate="no">​</a></h3>
 <ul>
 <li class="">
-<p>CPU overcommit with grayscale rollout, lifecycle summary, and absolute-cores CPU gauge (#978)</p>
+<p>CPU overcommit with grayscale rollout, lifecycle summary, and absolute-cores CPU gauge (<a href="https://github.com/alibaba/ROCK/pull/978" target="_blank" rel="noopener noreferrer" class="">#978</a>)</p>
 </li>
 <li class="">
-<p><code>get_status</code> API supports <code>include_all_states</code> parameter — query sandboxes in all states (#951)</p>
+<p><code>get_status</code> API supports <code>include_all_states</code> parameter — query sandboxes in all states (<a href="https://github.com/alibaba/ROCK/pull/951" target="_blank" rel="noopener noreferrer" class="">#951</a>)</p>
 </li>
 <li class="">
-<p>Account / bucket migration for sandbox upload/download (backward compatible — legacy bucket still supported) (#953)</p>
+<p>Account / bucket migration for sandbox upload/download (backward compatible — legacy bucket still supported) (<a href="https://github.com/alibaba/ROCK/pull/953" target="_blank" rel="noopener noreferrer" class="">#953</a>)</p>
 </li>
 <li class="">
 <p>Fix transfer file being stored directly under bucket root (backward compatible)</p>
@@ -54,7 +54,7 @@
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="new-features-2">New Features<a href="#new-features-2" class="hash-link" aria-label="Direct link to New Features" title="Direct link to New Features" translate="no">​</a></h3>
 <ul>
 <li class="">
-<p><strong>Kubernetes</strong>: GPU support with Jinja2 templates and extensible accelerator types (#981)</p>
+<p><strong>Kubernetes</strong>: GPU support with Jinja2 templates and extensible accelerator types (<a href="https://github.com/alibaba/ROCK/pull/981" target="_blank" rel="noopener noreferrer" class="">#981</a>)</p>
 </li>
 <li class="">
 <p>Region cluster config refactor: extract common config, reduce maintenance cost</p>
@@ -69,7 +69,7 @@
 <p><strong>Docker</strong>: Cleanup XFS project quota on container stop</p>
 </li>
 <li class="">
-<p><strong>Docker</strong>: Remove dead <code>remove_images</code> branch + add CLS log support to image removal (#965)</p>
+<p><strong>Docker</strong>: Remove dead <code>remove_images</code> branch + add CLS log support to image removal (<a href="https://github.com/alibaba/ROCK/pull/965" target="_blank" rel="noopener noreferrer" class="">#965</a>)</p>
 </li>
 <li class="">
 <p>Fix <code>remove_image</code> missing <code>cls</code> parameter bug</p>
@@ -79,7 +79,7 @@
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="-proxy">🔀 Proxy<a href="#-proxy" class="hash-link" aria-label="Direct link to 🔀 Proxy" title="Direct link to 🔀 Proxy" translate="no">​</a></h2>
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="new-features-3">New Features<a href="#new-features-3" class="hash-link" aria-label="Direct link to New Features" title="Direct link to New Features" translate="no">​</a></h3>
 <ul>
-<li class="">Model-service proxy supports streaming and replay — byte passthrough, with Forward and Replay backends (#935)</li>
+<li class="">Model-service proxy supports streaming and replay — byte passthrough, with Forward and Replay backends (<a href="https://github.com/alibaba/ROCK/pull/935" target="_blank" rel="noopener noreferrer" class="">#935</a>)</li>
 </ul>
 <hr>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="-metrics">📊 Metrics<a href="#-metrics" class="hash-link" aria-label="Direct link to 📊 Metrics" title="Direct link to 📊 Metrics" translate="no">​</a></h2>
@@ -101,7 +101,7 @@
 <p>Pass <code>rock_config</code> to <code>SandboxTable</code> / <code>SandboxMetaStore</code> so <code>MetricsMonitor</code> uses the correct endpoint</p>
 </li>
 <li class="">
-<p>Fix <code>_get_user_info</code> metrics issue (#911)</p>
+<p>Fix <code>_get_user_info</code> metrics issue (<a href="https://github.com/alibaba/ROCK/pull/911" target="_blank" rel="noopener noreferrer" class="">#911</a>)</p>
 </li>
 </ul>
 <hr>
@@ -109,7 +109,7 @@
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="new-features-5">New Features<a href="#new-features-5" class="hash-link" aria-label="Direct link to New Features" title="Direct link to New Features" translate="no">​</a></h3>
 <ul>
 <li class="">
-<p>Dynamic config reloading via Nacos (#888)</p>
+<p>Dynamic config reloading via Nacos (<a href="https://github.com/alibaba/ROCK/pull/888" target="_blank" rel="noopener noreferrer" class="">#888</a>)</p>
 </li>
 <li class="">
 <p>Add <code>RayLogCleanupTask</code> and disable worker-to-driver log forwarding</p>
@@ -118,7 +118,7 @@
 <p>Add <code>BuildCacheCleanupTask</code> for pruning uv/pip caches</p>
 </li>
 <li class="">
-<p>Merge dangling-layer and BuildKit prune into <code>ImageCleanupTask</code> (#970)</p>
+<p>Merge dangling-layer and BuildKit prune into <code>ImageCleanupTask</code> (<a href="https://github.com/alibaba/ROCK/pull/970" target="_blank" rel="noopener noreferrer" class="">#970</a>)</p>
 </li>
 <li class="">
 <p>Improve <code>FileCleanupTask</code> performance and config safety validation</p>
@@ -132,7 +132,7 @@
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="-rocklet">🎯 Rocklet<a href="#-rocklet" class="hash-link" aria-label="Direct link to 🎯 Rocklet" title="Direct link to 🎯 Rocklet" translate="no">​</a></h2>
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="new-features-6">New Features<a href="#new-features-6" class="hash-link" aria-label="Direct link to New Features" title="Direct link to New Features" translate="no">​</a></h3>
 <ul>
-<li class="">Add Windows PowerShell support (#921)</li>
+<li class="">Add Windows PowerShell support (<a href="https://github.com/alibaba/ROCK/pull/921" target="_blank" rel="noopener noreferrer" class="">#921</a>)</li>
 </ul>
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="bug-fixes-4">Bug Fixes<a href="#bug-fixes-4" class="hash-link" aria-label="Direct link to Bug Fixes" title="Direct link to Bug Fixes" translate="no">​</a></h3>
 <ul>
@@ -140,7 +140,7 @@
 <p>Mount loop disk to Docker data-root instead of hardcoded path</p>
 </li>
 <li class="">
-<p>Symlink mount into <code>/bin</code> for Nix images with Kata runtime (#936)</p>
+<p>Symlink mount into <code>/bin</code> for Nix images with Kata runtime (<a href="https://github.com/alibaba/ROCK/pull/936" target="_blank" rel="noopener noreferrer" class="">#936</a>)</p>
 </li>
 <li class="">
 <p>Use cgroup metrics for container CPU instead of psutil</p>
@@ -165,12 +165,12 @@
 </ul>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="️-refactoring">♻️ Refactoring<a href="#️-refactoring" class="hash-link" aria-label="Direct link to ♻️ Refactoring" title="Direct link to ♻️ Refactoring" translate="no">​</a></h2>
 <ul>
-<li class=""><strong>OSS</strong>: Decouple OSS upload/download from client env vars; implement 3-layer config resolution (#943)</li>
+<li class=""><strong>OSS</strong>: Decouple OSS upload/download from client env vars; implement 3-layer config resolution (<a href="https://github.com/alibaba/ROCK/pull/943" target="_blank" rel="noopener noreferrer" class="">#943</a>)</li>
 </ul>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="-build--tooling">🔧 Build &amp; Tooling<a href="#-build--tooling" class="hash-link" aria-label="Direct link to 🔧 Build &amp; Tooling" title="Direct link to 🔧 Build &amp; Tooling" translate="no">​</a></h2>
 <ul>
-<li class="">Remove <code>need_database</code> test marker (#901)</li>
+<li class="">Remove <code>need_database</code> test marker (<a href="https://github.com/alibaba/ROCK/pull/901" target="_blank" rel="noopener noreferrer" class="">#901</a>)</li>
 </ul>
-<hr></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col noPrint_WFHX"><a href="https://github.com/alibaba/ROCK/tree/master/docs/versioned_docs/version-1.8.x/Release Notes/v1.8.0.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"><span class="theme-last-updated">Last updated<!-- --> on <b><time datetime="2026-05-28T07:02:14.000Z" itemprop="dateModified">May 28, 2026</time></b></span></div></div></footer></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/ROCK/docs/1.8.x/Release Notes/"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Release Notes</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#release-date" class="table-of-contents__link toc-highlight">Release Date</a></li><li><a href="#-sdk-changes" class="table-of-contents__link toc-highlight">🐍 SDK Changes</a><ul><li><a href="#new-features" class="table-of-contents__link toc-highlight">New Features</a></li><li><a href="#bug-fixes" class="table-of-contents__link toc-highlight">Bug Fixes</a></li></ul></li><li><a href="#-sandbox" class="table-of-contents__link toc-highlight">📦 Sandbox</a><ul><li><a href="#new-features-1" class="table-of-contents__link toc-highlight">New Features</a></li></ul></li><li><a href="#-deployments" class="table-of-contents__link toc-highlight">🚀 Deployments</a><ul><li><a href="#new-features-2" class="table-of-contents__link toc-highlight">New Features</a></li><li><a href="#bug-fixes-1" class="table-of-contents__link toc-highlight">Bug Fixes</a></li></ul></li><li><a href="#-proxy" class="table-of-contents__link toc-highlight">🔀 Proxy</a><ul><li><a href="#new-features-3" class="table-of-contents__link toc-highlight">New Features</a></li></ul></li><li><a href="#-metrics" class="table-of-contents__link toc-highlight">📊 Metrics</a><ul><li><a href="#new-features-4" class="table-of-contents__link toc-highlight">New Features</a></li><li><a href="#bug-fixes-2" class="table-of-contents__link toc-highlight">Bug Fixes</a></li></ul></li><li><a href="#️-scheduler" class="table-of-contents__link toc-highlight">⚙️ Scheduler</a><ul><li><a href="#new-features-5" class="table-of-contents__link toc-highlight">New Features</a></li><li><a href="#bug-fixes-3" class="table-of-contents__link toc-highlight">Bug Fixes</a></li></ul></li><li><a href="#-rocklet" class="table-of-contents__link toc-highlight">🎯 Rocklet</a><ul><li><a href="#new-features-6" class="table-of-contents__link toc-highlight">New Features</a></li><li><a href="#bug-fixes-4" class="table-of-contents__link toc-highlight">Bug Fixes</a></li></ul></li><li><a href="#-other-new-features" class="table-of-contents__link toc-highlight">✨ Other New Features</a></li><li><a href="#-other-bug-fixes" class="table-of-contents__link toc-highlight">🐛 Other Bug Fixes</a></li><li><a href="#️-refactoring" class="table-of-contents__link toc-highlight">♻️ Refactoring</a></li><li><a href="#-build--tooling" class="table-of-contents__link toc-highlight">🔧 Build &amp; Tooling</a></li></ul></div></div></div></div></main></div></div></div><footer class="theme-layout-footer footer footer--dark"><div class="container container-fluid"><div class="row footer__links"><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/ROCK/docs/overview">Overview</a></li><li class="footer__item"><a class="footer__link-item" href="/ROCK/docs/Getting Started/quickstart">Quick Start</a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/alibaba/ROCK" target="_blank" rel="noopener noreferrer" class="footer__link-item">GitHub<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">Copyright © 2026 Alibaba.</div></div></div></footer></div>
+<hr></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col noPrint_WFHX"><a href="https://github.com/alibaba/ROCK/tree/master/docs/versioned_docs/version-1.8.x/Release Notes/v1.8.0.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"><span class="theme-last-updated">Last updated<!-- --> on <b><time datetime="2026-06-01T07:18:14.000Z" itemprop="dateModified">Jun 1, 2026</time></b></span></div></div></footer></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/ROCK/docs/1.8.x/Release Notes/"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Release Notes</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#release-date" class="table-of-contents__link toc-highlight">Release Date</a></li><li><a href="#-sdk-changes" class="table-of-contents__link toc-highlight">🐍 SDK Changes</a><ul><li><a href="#new-features" class="table-of-contents__link toc-highlight">New Features</a></li><li><a href="#bug-fixes" class="table-of-contents__link toc-highlight">Bug Fixes</a></li></ul></li><li><a href="#-sandbox" class="table-of-contents__link toc-highlight">📦 Sandbox</a><ul><li><a href="#new-features-1" class="table-of-contents__link toc-highlight">New Features</a></li></ul></li><li><a href="#-deployments" class="table-of-contents__link toc-highlight">🚀 Deployments</a><ul><li><a href="#new-features-2" class="table-of-contents__link toc-highlight">New Features</a></li><li><a href="#bug-fixes-1" class="table-of-contents__link toc-highlight">Bug Fixes</a></li></ul></li><li><a href="#-proxy" class="table-of-contents__link toc-highlight">🔀 Proxy</a><ul><li><a href="#new-features-3" class="table-of-contents__link toc-highlight">New Features</a></li></ul></li><li><a href="#-metrics" class="table-of-contents__link toc-highlight">📊 Metrics</a><ul><li><a href="#new-features-4" class="table-of-contents__link toc-highlight">New Features</a></li><li><a href="#bug-fixes-2" class="table-of-contents__link toc-highlight">Bug Fixes</a></li></ul></li><li><a href="#️-scheduler" class="table-of-contents__link toc-highlight">⚙️ Scheduler</a><ul><li><a href="#new-features-5" class="table-of-contents__link toc-highlight">New Features</a></li><li><a href="#bug-fixes-3" class="table-of-contents__link toc-highlight">Bug Fixes</a></li></ul></li><li><a href="#-rocklet" class="table-of-contents__link toc-highlight">🎯 Rocklet</a><ul><li><a href="#new-features-6" class="table-of-contents__link toc-highlight">New Features</a></li><li><a href="#bug-fixes-4" class="table-of-contents__link toc-highlight">Bug Fixes</a></li></ul></li><li><a href="#-other-new-features" class="table-of-contents__link toc-highlight">✨ Other New Features</a></li><li><a href="#-other-bug-fixes" class="table-of-contents__link toc-highlight">🐛 Other Bug Fixes</a></li><li><a href="#️-refactoring" class="table-of-contents__link toc-highlight">♻️ Refactoring</a></li><li><a href="#-build--tooling" class="table-of-contents__link toc-highlight">🔧 Build &amp; Tooling</a></li></ul></div></div></div></div></main></div></div></div><footer class="theme-layout-footer footer footer--dark"><div class="container container-fluid"><div class="row footer__links"><div class="theme-layout-footer-column col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/ROCK/docs/overview">Overview</a></li><li class="footer__item"><a class="footer__link-item" href="/ROCK/docs/Getting Started/quickstart">Quick Start</a></li></ul></div><div class="theme-layout-footer-column col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/alibaba/ROCK" target="_blank" rel="noopener noreferrer" class="footer__link-item">GitHub<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="iconExternalLink_nPIU"><use href="#theme-svg-external-link"></use></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">Copyright © 2026 Alibaba.</div></div></div></footer></div>
 </body>
 </html>
