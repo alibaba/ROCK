@@ -13,7 +13,6 @@ readme = "README.md"
 dependencies = [
     # Core dependencies needed by all modules
     "httpx",
-    "uuid",
     "anyio",
     "build",
     "opentelemetry-api",
@@ -26,7 +25,6 @@ dependencies = [
     "rich",
     "oss2",
     "pyyaml",
-    "jinja2",
     "tzdata",
 ]
 
@@ -52,6 +50,7 @@ admin = [
     "fakeredis[json]",
     "kubernetes>=35.0.0",  # For K8S operator support
     "aiolimiter>=1.2.1",  # For rate limiting
+    "jinja2",
 ]
 
 rocklet = [

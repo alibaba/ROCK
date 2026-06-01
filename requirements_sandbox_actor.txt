@@ -361,8 +361,6 @@ tzlocal==5.3.1
     # via apscheduler
 urllib3==2.5.0
     # via requests
-uuid==1.30
-    # via rl-rock
 yarl==1.22.0
     # via aiohttp
 zipp==3.23.0
