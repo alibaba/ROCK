@@ -41,6 +41,7 @@ class TestInit:
         assert task.live_log_keep_days == 7
         assert task.old_logs_keep_hours == 24
         assert task.setup_log_keep_minutes == 60
+        assert task.rotated_daemon_keep_hours == 24
 
     def test_strips_trailing_slash(self):
         task = RayLogCleanupTask(ray_temp_dir="/data/ray/")
@@ -62,6 +63,10 @@ class TestInit:
         with pytest.raises(ValueError, match="setup_log_keep_minutes must be >= 1"):
             RayLogCleanupTask(setup_log_keep_minutes=0)
 
+    def test_rejects_rotated_daemon_keep_hours_below_one(self):
+        with pytest.raises(ValueError, match="rotated_daemon_keep_hours must be >= 1"):
+            RayLogCleanupTask(rotated_daemon_keep_hours=0)
+
     def test_custom_thresholds(self):
         task = RayLogCleanupTask(live_log_keep_days=3, old_logs_keep_hours=12)
         assert task.live_log_keep_days == 3
@@ -76,6 +81,7 @@ class TestFromConfig:
         assert task.live_log_keep_days == 7
         assert task.old_logs_keep_hours == 24
         assert task.setup_log_keep_minutes == 60
+        assert task.rotated_daemon_keep_hours == 24
 
     def test_from_config_custom(self):
         cfg = _FakeTaskConfig(
@@ -85,6 +91,7 @@ class TestFromConfig:
                 "live_log_keep_days": 14,
                 "old_logs_keep_hours": 6,
                 "setup_log_keep_minutes": 30,
+                "rotated_daemon_keep_hours": 12,
             },
             interval_seconds=3600,
         )
@@ -94,6 +101,7 @@ class TestFromConfig:
         assert task.live_log_keep_days == 14
         assert task.old_logs_keep_hours == 6
         assert task.setup_log_keep_minutes == 30
+        assert task.rotated_daemon_keep_hours == 12
         assert task.interval_seconds == 3600
 
 
@@ -235,6 +243,51 @@ class TestCommandShape:
         assert "removed_setup=" in cmd
 
     @pytest.mark.asyncio
+    async def test_part2d_uses_rotated_daemon_keep_hours(self):
+        """PART 2d mtime threshold = rotated_daemon_keep_hours * 60 minutes."""
+        task = RayLogCleanupTask(rotated_daemon_keep_hours=48)
+        runtime = _runtime()
+        await task.run_action(runtime)
+
+        cmd = runtime.execute.await_args.args[0].command
+        # 48h * 60 = 2880
+        assert "-mmin +2880" in cmd
+
+    @pytest.mark.asyncio
+    async def test_part2d_matches_rotated_daemon_pattern(self):
+        """PART 2d must match <daemon>.<N>.<ext> but NOT the active file <daemon>.<ext>."""
+        task = RayLogCleanupTask()
+        runtime = _runtime()
+        await task.run_action(runtime)
+
+        cmd = runtime.execute.await_args.args[0].command
+        # Must use regex matching rotated copies (daemon.N.ext)
+        assert "raylet|gcs_server|runtime_env_agent|dashboard|monitor|log_monitor" in cmd
+        assert r"\.[0-9]+\." in cmd
+        # Emits removed_rotated_daemon= marker
+        assert "removed_rotated_daemon=" in cmd
+
+    @pytest.mark.asyncio
+    async def test_part2d_does_not_match_active_daemon_files(self):
+        """Active daemon files (raylet.out, raylet.err) must NOT match PART 2d regex.
+
+        The regex requires a numeric segment between daemon name and extension:
+        raylet.1.out matches, raylet.out does NOT."""
+        import re
+
+        task = RayLogCleanupTask()
+        runtime = _runtime()
+        await task.run_action(runtime)
+
+        # The regex uses \.[0-9]+ between daemon name and extension,
+        # so `raylet.out` (no number) can never match.
+        pattern = r"(raylet|gcs_server|runtime_env_agent|dashboard|monitor|log_monitor)\.[0-9]+\.(out|err|log)"
+        assert not re.match(pattern, "raylet.out")
+        assert not re.match(pattern, "raylet.err")
+        assert re.match(pattern, "raylet.1.out")
+        assert re.match(pattern, "gcs_server.2.err")
+
+    @pytest.mark.asyncio
     async def test_part3_uses_old_logs_keep_hours(self):
         """PART 3 old-dir mtime threshold = old_logs_keep_hours * 60 minutes."""
         task = RayLogCleanupTask(old_logs_keep_hours=24)
@@ -330,6 +383,24 @@ class TestOutputParsing:
         assert result["removed_setup_count"] == 3
 
     @pytest.mark.asyncio
+    async def test_extracts_part2d_rotated_daemon_count(self):
+        """PART 2d must count rotated daemon log files (raylet.N.out etc.)."""
+        stdout = (
+            "live_session=session_xxx\n"
+            "removed_rotated_daemon=raylet.1.out\n"
+            "removed_rotated_daemon=raylet.2.out\n"
+            "removed_rotated_daemon=raylet.3.out\n"
+            "removed_rotated_daemon=gcs_server.1.err\n"
+            "removed_rotated_daemon=dashboard.1.log\n"
+            "ray_log_cleanup_done"
+        )
+        task = RayLogCleanupTask()
+        runtime = _runtime(stdout=stdout)
+
+        result = await task.run_action(runtime)
+        assert result["removed_rotated_daemon_count"] == 5
+
+    @pytest.mark.asyncio
     async def test_extracts_part3_old_count(self):
         stdout = (
             "live_session=session_xxx\n"
@@ -354,6 +425,7 @@ class TestOutputParsing:
         assert result["removed_count"] == 0
         assert result["removed_dead_pid_count"] == 0
         assert result["removed_setup_count"] == 0
+        assert result["removed_rotated_daemon_count"] == 0
         assert result["removed_stale_count"] == 0
         assert result["removed_old_count"] == 0
 
@@ -366,6 +438,7 @@ class TestOutputParsing:
         assert result["status"] == TaskStatusEnum.SUCCESS
         assert result["removed_count"] == 0
         assert result["removed_dead_pid_count"] == 0
+        assert result["removed_rotated_daemon_count"] == 0
         assert result["removed_stale_count"] == 0
         assert result["removed_old_count"] == 0
 

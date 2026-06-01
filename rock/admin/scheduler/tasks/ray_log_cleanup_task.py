@@ -52,6 +52,7 @@ class RayLogCleanupTask(BaseTask):
         live_log_keep_days: int = 7,
         old_logs_keep_hours: int = 24,
         setup_log_keep_minutes: int = 60,
+        rotated_daemon_keep_hours: int = 24,
     ):
         """
         Args:
@@ -69,6 +70,11 @@ class RayLogCleanupTask(BaseTask):
                 scripts whose trailing token is a Ray job id (digit OR hex),
                 NOT a Linux PID — PART 2a's PID probe is meaningless for them.
                 Default 60min (matches PART 2a race-window guard).
+            rotated_daemon_keep_hours: Mtime threshold for rotated daemon log
+                files (raylet.N.out, gcs_server.N.err, etc.). Ray performs
+                in-place rotation: active file (raylet.out) stays open with
+                an fd held; rotated copies (raylet.1.out, raylet.2.out, ...)
+                have NO open fd and are safe to delete. Default 24h.
         """
         super().__init__(
             type="ray_log_cleanup",
@@ -83,11 +89,14 @@ class RayLogCleanupTask(BaseTask):
             raise ValueError(f"ray_log_cleanup.old_logs_keep_hours must be >= 1, got {old_logs_keep_hours}")
         if setup_log_keep_minutes < 1:
             raise ValueError(f"ray_log_cleanup.setup_log_keep_minutes must be >= 1, got {setup_log_keep_minutes}")
+        if rotated_daemon_keep_hours < 1:
+            raise ValueError(f"ray_log_cleanup.rotated_daemon_keep_hours must be >= 1, got {rotated_daemon_keep_hours}")
         self.ray_temp_dir = ray_temp_dir.rstrip("/")
         self.min_age_hours = min_age_hours
         self.live_log_keep_days = live_log_keep_days
         self.old_logs_keep_hours = old_logs_keep_hours
         self.setup_log_keep_minutes = setup_log_keep_minutes
+        self.rotated_daemon_keep_hours = rotated_daemon_keep_hours
 
     @classmethod
     def from_config(cls, task_config) -> "RayLogCleanupTask":
@@ -98,6 +107,7 @@ class RayLogCleanupTask(BaseTask):
             live_log_keep_days=task_config.params.get("live_log_keep_days", 7),
             old_logs_keep_hours=task_config.params.get("old_logs_keep_hours", 24),
             setup_log_keep_minutes=task_config.params.get("setup_log_keep_minutes", 60),
+            rotated_daemon_keep_hours=task_config.params.get("rotated_daemon_keep_hours", 24),
         )
 
     async def run_action(self, runtime: RemoteSandboxRuntime) -> dict:
@@ -106,11 +116,13 @@ class RayLogCleanupTask(BaseTask):
         live_age_min = self.live_log_keep_days * 24 * 60
         old_age_min = self.old_logs_keep_hours * 60
         setup_age_min = self.setup_log_keep_minutes
+        rotated_age_min = self.rotated_daemon_keep_hours * 60
 
-        # 4-stage shell pipeline:
+        # 5-stage shell pipeline:
         #   PART 1  — drop stale full session_<ts>_<pid> dirs
         #   PART 2a — session_latest/logs/ PID-aware (worker/runtime_env_setup with digit pid)
         #   PART 2c — session_latest/logs/ runtime_env_setup-* mtime-only (covers hex variant)
+        #   PART 2d — session_latest/logs/ rotated daemon logs (raylet.N.out, gcs_server.N.err, etc.)
         #   PART 2b — session_latest/logs/ non-PID, non-daemon stale (long tail)
         #   PART 3  — session_latest/logs/old/ time-based
         #
@@ -183,6 +195,21 @@ class RayLogCleanupTask(BaseTask):
                   rm -f "$f" && echo "removed_setup=$(basename "$f")"
                 done
 
+              # PART 2d: rotated daemon log backups — Ray performs in-place
+              # rotation for long-running daemon processes: the active file
+              # (e.g. raylet.out) keeps its fd open; rotated copies
+              # (raylet.1.out, raylet.2.out, ...) have NO open fd and are
+              # safe to delete. Without this stage the daemon whitelist
+              # (! -name 'raylet*') protects rotated copies indefinitely,
+              # causing multi-GB accumulation on long-running clusters.
+              # Pattern: <daemon>.<N>.<ext> where N is a positive integer.
+              find "$LOGS" -maxdepth 1 -type f -mmin +{rotated_age_min} \\
+                  -regextype posix-extended \\
+                  -regex '.*/((raylet|gcs_server|runtime_env_agent|dashboard|monitor|log_monitor)\\.[0-9]+\\.(out|err|log))$' \\
+              | while read -r f; do
+                  rm -f "$f" && echo "removed_rotated_daemon=$(basename "$f")"
+                done
+
               # PART 2b: non-PID, non-daemon stale files older than
               # {self.live_log_keep_days} days. Daemon files (raylet*,
               # gcs_server*, runtime_env_agent*, dashboard*, monitor*,
@@ -223,13 +250,15 @@ class RayLogCleanupTask(BaseTask):
         removed_sessions = [line.split("=", 1)[1] for line in output.splitlines() if line.startswith("removed=")]
         removed_dead_pid = sum(1 for line in output.splitlines() if line.startswith("removed_dead_pid_log="))
         removed_setup = sum(1 for line in output.splitlines() if line.startswith("removed_setup="))
+        removed_rotated_daemon = sum(1 for line in output.splitlines() if line.startswith("removed_rotated_daemon="))
         removed_stale = sum(1 for line in output.splitlines() if line.startswith("removed_stale_file="))
         removed_old = sum(1 for line in output.splitlines() if line.startswith("removed_old="))
 
         logger.info(
             f"[{self.type}] [{runtime._config.host}] ray_log_cleanup done: "
             f"sessions={len(removed_sessions)}, dead_pid={removed_dead_pid}, "
-            f"setup={removed_setup}, stale={removed_stale}, old={removed_old}, "
+            f"setup={removed_setup}, rotated_daemon={removed_rotated_daemon}, "
+            f"stale={removed_stale}, old={removed_old}, "
             f"output_head={output[:300]}"
         )
         return {
@@ -241,6 +270,7 @@ class RayLogCleanupTask(BaseTask):
             # New per-category counters:
             "removed_dead_pid_count": removed_dead_pid,
             "removed_setup_count": removed_setup,
+            "removed_rotated_daemon_count": removed_rotated_daemon,
             "removed_stale_count": removed_stale,
             "removed_old_count": removed_old,
             "output_head": output[:1500],
