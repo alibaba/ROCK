@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import json
 import logging
 import time
@@ -22,6 +23,15 @@ from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_s
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
 from rock.admin.gem.api import gem_router, set_env_service
 from rock.admin.scheduler.scheduler import SchedulerThread
+from rock.admin.scheduler.tasks.sandbox_log_archive_task import (
+    set_main_loop_provider as set_archive_main_loop_provider,
+)
+from rock.admin.scheduler.tasks.sandbox_log_archive_task import (
+    set_rock_config_provider as set_archive_rock_config_provider,
+)
+from rock.admin.scheduler.tasks.sandbox_log_archive_task import (
+    set_sandbox_table_provider as set_archive_sandbox_table_provider,
+)
 from rock.common.exception import request_validation_exception_handler
 from rock.config import DatabaseConfig, RockConfig, SchedulerConfig
 from rock.logger import init_logger
@@ -90,6 +100,17 @@ async def lifespan(app: FastAPI):
         await db_provider.create_tables()
     sandbox_table = SandboxTable(db_provider, rock_config=rock_config)
     meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=sandbox_table, rock_config=rock_config)
+
+    # Wire SandboxLogArchiveTask deps. Providers (vs static set) so Nacos
+    # config reload propagates to the next task run without re-injection.
+    set_archive_sandbox_table_provider(lambda: sandbox_table)
+    set_archive_rock_config_provider(lambda: rock_config)
+    # Capture lifespan loop (uvicorn main loop). SandboxLogArchiveTask runs
+    # inside SchedulerThread's child loop; it must dispatch DB calls back to
+    # this main loop so asyncpg pool stays bound here and HTTP handlers don't
+    # break with "Future attached to a different loop".
+    _main_loop = asyncio.get_running_loop()
+    set_archive_main_loop_provider(lambda: _main_loop)
 
     # init scheduler thread
     scheduler_thread = None

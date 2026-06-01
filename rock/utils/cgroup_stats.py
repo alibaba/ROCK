@@ -1,4 +1,4 @@
-"""Container-aware CPU metrics via cgroup v1/v2.
+"""Container-aware CPU/memory metrics via cgroup v1/v2.
 
 Falls back to psutil when cgroup files are unavailable (e.g. running
 outside a container or on non-Linux platforms).
@@ -111,3 +111,95 @@ class CgroupCpuStats:
 
         num_cpus = self._read_cpu_quota()
         return min(round((delta_usage / delta_time) / num_cpus * 100, 1), 100.0)
+
+
+class CgroupMemStats:
+    """Reads container memory utilization from cgroup v1/v2 pseudo-files."""
+
+    def __init__(self):
+        self._cgroup_version: int | None = None
+        self._mem_limit: int | None = None
+
+    def _detect_cgroup_version(self) -> int:
+        if self._cgroup_version is not None:
+            return self._cgroup_version
+
+        if Path("/sys/fs/cgroup/cgroup.controllers").exists():
+            self._cgroup_version = 2
+        elif Path("/sys/fs/cgroup/memory/memory.usage_in_bytes").exists():
+            self._cgroup_version = 1
+        else:
+            self._cgroup_version = 0
+
+        return self._cgroup_version
+
+    def _read_mem_stat(self, stat_path: str, key: str) -> int:
+        """Read a single counter from a cgroup memory.stat file. Returns 0 on any error."""
+        try:
+            for line in Path(stat_path).read_text().splitlines():
+                parts = line.split()
+                if len(parts) >= 2 and parts[0] == key:
+                    return int(parts[1])
+        except Exception:
+            pass
+        return 0
+
+    def _read_mem_usage_bytes(self) -> int | None:
+        """Return container memory usage minus reclaimable page cache (inactive_file).
+
+        Raw cgroup usage counters include page cache, which is reclaimable and not
+        a meaningful signal of application memory pressure. Subtracting inactive_file
+        matches the working-set definition used by docker stats and kubelet.
+        """
+        try:
+            ver = self._detect_cgroup_version()
+            if ver == 2:
+                usage = int(Path("/sys/fs/cgroup/memory.current").read_text().strip())
+                inactive_file = self._read_mem_stat("/sys/fs/cgroup/memory.stat", "inactive_file")
+                return max(usage - inactive_file, 0)
+            elif ver == 1:
+                usage = int(Path("/sys/fs/cgroup/memory/memory.usage_in_bytes").read_text().strip())
+                inactive_file = self._read_mem_stat("/sys/fs/cgroup/memory/memory.stat", "total_inactive_file")
+                return max(usage - inactive_file, 0)
+            return None
+        except Exception:
+            return None
+
+    def _read_mem_limit_bytes(self) -> int | None:
+        if self._mem_limit is not None:
+            return self._mem_limit
+
+        try:
+            ver = self._detect_cgroup_version()
+            if ver == 2:
+                text = Path("/sys/fs/cgroup/memory.max").read_text().strip()
+                if text == "max":
+                    return None
+                limit = int(text)
+                if limit <= 0:
+                    return None
+                self._mem_limit = limit
+                return self._mem_limit
+            elif ver == 1:
+                limit = int(Path("/sys/fs/cgroup/memory/memory.limit_in_bytes").read_text().strip())
+                # cgroup v1 uses a very large number (like PAGE_COUNTER_MAX) for unlimited
+                if limit <= 0 or limit >= (1 << 62):
+                    return None
+                self._mem_limit = limit
+                return self._mem_limit
+        except Exception:
+            pass
+        return None
+
+    def mem_percent(self) -> float:
+        """Return container memory utilization %.
+
+        Falls back to psutil if cgroup files are unavailable or memory is unlimited.
+        """
+        usage = self._read_mem_usage_bytes()
+        limit = self._read_mem_limit_bytes()
+
+        if usage is None or limit is None:
+            return psutil.virtual_memory().percent
+
+        return min(round(usage / limit * 100, 1), 100.0)

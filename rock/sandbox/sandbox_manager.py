@@ -151,6 +151,30 @@ class SandboxManager(BaseManager):
         )
 
     @monitor_sandbox_operation()
+    async def restart_async(self, sandbox_id: str) -> SandboxStartResponse:
+        sm = await self._get_current_statemachine(sandbox_id)
+        if sm is None:
+            raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
+
+        state = sm.current_state.value
+        if state != State.STOPPED:
+            raise BadRequestRockError(f"Sandbox {sandbox_id} cannot be restarted: current state is '{state.value}'")
+
+        await sm.send(
+            "restart",
+            sandbox_id=sandbox_id,
+            operator=self._operator,
+            meta_store=self._meta_store,
+        )
+
+        info: SandboxInfo = sm.sandbox_info or {}
+        return SandboxStartResponse(
+            sandbox_id=sandbox_id,
+            host_name=info.get("host_name"),
+            host_ip=info.get("host_ip"),
+        )
+
+    @monitor_sandbox_operation()
     async def start(self, config: DeploymentConfig) -> SandboxStartResponse:
         docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(config)
 
@@ -178,20 +202,24 @@ class SandboxManager(BaseManager):
         )
 
     @monitor_sandbox_operation()
-    async def stop(self, sandbox_id: str):
+    async def stop(self, sandbox_id: str, reason: StopReason = StopReason.MANUAL):
         sm = await self._get_current_statemachine(sandbox_id)
         if sm is None:
             logger.info(f"stop dangling sandbox {sandbox_id}")
-            sandbox_info: SandboxInfo = {"state": State.STOPPED}
             try:
-                await self._operator.stop(sandbox_id)
+                await self._operator.stop(sandbox_id, reason=reason)
             except ValueError as e:
                 logger.error(f"ray get actor, actor {sandbox_id} not exist", exc_info=e)
-            await self._meta_store.archive(sandbox_id, sandbox_info)
         elif sm.current_state.value == State.STOPPED:
             await sm.send("stop_noop", sandbox_id=sandbox_id)
         else:
-            await sm.send("stop", sandbox_id=sandbox_id, operator=self._operator, meta_store=self._meta_store)
+            await sm.send(
+                "stop",
+                sandbox_id=sandbox_id,
+                operator=self._operator,
+                meta_store=self._meta_store,
+                reason=reason,
+            )
 
     async def get_mount(self, sandbox_id):
         async with self._ray_service.get_ray_rwlock().read_lock():
@@ -264,7 +292,6 @@ class SandboxManager(BaseManager):
             cpus=sandbox_info.get("cpus"),
             memory=sandbox_info.get("memory"),
             disk_limit_rootfs=sandbox_info.get("disk_limit_rootfs"),
-            disk_limit_log=sandbox_info.get("disk_limit_log"),
             start_time=sandbox_info.get("start_time"),
             stop_time=sandbox_info.get("stop_time"),
             create_time=sandbox_info.get("create_time"),

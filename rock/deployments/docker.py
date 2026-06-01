@@ -1,8 +1,8 @@
 import asyncio
 import datetime
-import hashlib
 import os
 import random
+import re
 import shlex
 import subprocess
 import time
@@ -35,6 +35,7 @@ from rock.utils import (
     StageTimer,
     find_free_port,
     get_executor,
+    refresh_docker_used_ports,
     release_port,
     sandbox_id_ctx_var,
     timeout,
@@ -43,8 +44,6 @@ from rock.utils import (
 
 __all__ = ["DockerDeployment", "DockerDeploymentConfig"]
 CHECK_CLEAR_INTERVAL_SECONDS = 300
-XFS_PRJID_MIN = (1 << 31)                      # low project IDs are reserved for Docker
-XFS_PRJID_RANGE = (1 << 32) - XFS_PRJID_MIN   # use remaining 32-bit space: [XFS_PRJID_MIN, 2^32)
 
 
 logger = init_logger(__name__)
@@ -65,7 +64,6 @@ class DockerDeployment(AbstractDeployment):
         if registry_password:
             self._config.registry_password = registry_password
         self._effective_disk_limit_rootfs: str | None = self._config.disk_limit_rootfs
-        self._effective_disk_limit_log: str | None = self._config.disk_limit_log
         self._runtime: RemoteSandboxRuntime | None = None
         self._container_process = None
         self._runtime_timeout = 0.15
@@ -89,8 +87,6 @@ class DockerDeployment(AbstractDeployment):
             raise Exception(f"Invalid ROCK_WORKER_ENV_TYPE: {env_vars.ROCK_WORKER_ENV_TYPE}")
 
         self.sandbox_validator: DockerSandboxValidator | None = DockerSandboxValidator()
-        self.log_dir_xfs_prjid: int | None = None
-        self.log_dir_xfs_mountpoint: str | None = None
 
     def add_hook(self, hook: DeploymentHook):
         self._hooks.add_hook(hook)
@@ -211,37 +207,6 @@ class DockerDeployment(AbstractDeployment):
             if os.path.exists(disk_path):
                 os.remove(disk_path)
             raise
-
-    def _cleanup_log_dir_xfs_quota(self) -> None:
-        """Remove XFS project quota for the sandbox log directory on exit."""
-        if self.log_dir_xfs_prjid is None or self.log_dir_xfs_mountpoint is None:
-            return
-        if not self._container_name:
-            return
-
-        log_file_path = f"{env_vars.ROCK_LOGGING_PATH}/{self._container_name}"
-        project_id = self.log_dir_xfs_prjid
-        mount_point = self.log_dir_xfs_mountpoint
-        try:
-            clear_limit_cmd = f"limit -p bhard=0 bsoft=0 {project_id}"
-            clear_project_cmd = f"project -C -p {shlex.quote(log_file_path)} {project_id}"
-            for cmd in (clear_limit_cmd, clear_project_cmd):
-                result = subprocess.run(
-                    ["xfs_quota", "-x", "-c", cmd, mount_point],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                if result.returncode != 0:
-                    logger.warning(
-                        f"xfs_quota cleanup failed for {log_file_path!r} cmd={cmd!r}: {result.stderr.strip() or result.stdout.strip()}"
-                    )
-            logger.info(f"Cleaned up XFS project quota (prjid={project_id}) for {log_file_path!r}")
-        except Exception as e:
-            logger.warning(f"Failed to cleanup XFS project quota for {log_file_path!r}: {e}")
-        finally:
-            self.log_dir_xfs_prjid = None
-            self.log_dir_xfs_mountpoint = None
 
     def _cleanup_kata_disk(self) -> None:
         """Remove the kata disk image file from the host.
@@ -409,60 +374,113 @@ class DockerDeployment(AbstractDeployment):
             return ["--storage-opt", f"size={self._effective_disk_limit_rootfs}"]
         return []
 
-    def _try_set_log_dir_quota(self, log_file_path: str) -> None:
-        """Best-effort: set XFS project quota for sandbox log directory.
+    def _get_docker_rootfs_prjid_and_upper_dir(self) -> tuple[int | None, str | None]:
+        """Read the XFS project id docker assigned to the container's overlay2
+        upper dir, together with the upper dir path itself.
 
-        Requires the log path to be on an XFS mount with prjquota/pquota enabled.
-        This check is independent of Docker's storage driver (no overlay2 requirement).
+        Only meaningful after `docker create` (the upper dir exists by then).
+        Returns (None, None) on any failure — the caller should fall back to
+        an independent prjid path.
         """
-        if self._effective_disk_limit_log is None:
-            return
-
-        if not DockerUtil.is_xfs_prjquota_path(log_file_path):
-            logger.info(f"Log path {log_file_path!r} is not on XFS+prjquota, skipping quota setup")
-            self._effective_disk_limit_log = None
-            return
-
-        # Derive a deterministic project id from container name; reserve low ids.
-        project_id = (int(hashlib.sha1(self.container_name.encode("utf-8")).hexdigest()[:8], 16) % XFS_PRJID_RANGE) + XFS_PRJID_MIN
         try:
-            findmnt_result = subprocess.run(
-                ["findmnt", "-T", log_file_path, "-o", "TARGET", "--noheadings"],
+            inspect_result = subprocess.run(
+                ["docker", "inspect", "--format={{.GraphDriver.Data.UpperDir}}", self._container_name],
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
-            if findmnt_result.returncode != 0:
-                logger.warning(f"Failed to find mountpoint for log path {log_file_path!r}, skip quota setup")
-                self._effective_disk_limit_log = None
+            if inspect_result.returncode != 0 or not inspect_result.stdout.strip():
+                return None, None
+            upper_dir = inspect_result.stdout.strip()
+
+            lsproj_result = subprocess.run(
+                ["xfs_io", "-r", "-c", "lsproj", upper_dir],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if lsproj_result.returncode != 0:
+                return None, None
+            # output looks like: `projid = 12345` (or similar). Grab the trailing integer.
+            match = re.search(r"(\d+)\s*$", lsproj_result.stdout.strip())
+            if not match:
+                return None, None
+            prjid = int(match.group(1))
+            if prjid <= 0:
+                return None, None
+            return prjid, upper_dir
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+            logger.warning(f"Failed to read docker rootfs prjid for {self._container_name}: {e}")
+            return None, None
+
+    def _setup_log_dir_quota_shared(self, log_file_path: str) -> None:
+        """Attach the docker-allocated rootfs prjid to the host log dir so that
+        rootfs and log share a single XFS quota (the bhard already set by
+        `--storage-opt size=`).
+
+        Must be called between `docker create` and `docker start`. On any
+        failure (no rootfs prjid, log dir on a different filesystem, quota
+        command error) the log dir is simply left unbound.
+
+        We only `project -s` here (binds prjid + sets inherit flag); we do
+        NOT call `limit -p`. The bhard belongs to docker; setting a separate
+        limit would clobber it. Cleanup is also docker's responsibility:
+        `docker rm` resets the prjid's limit when the upper dir is torn down.
+        """
+        if self._effective_disk_limit_rootfs is None:
+            return
+
+        project_id, upper_dir = self._get_docker_rootfs_prjid_and_upper_dir()
+        logger.info(f"setup_log_dir_quota_shared: log={log_file_path!r}, prjid={project_id}, upper_dir={upper_dir!r}")
+        if project_id is None or upper_dir is None:
+            logger.info(f"docker rootfs prjid unavailable for {log_file_path!r}; cannot share, fall back")
+            return
+
+        try:
+            if os.stat(log_file_path).st_dev != os.stat(upper_dir).st_dev:
+                logger.info(
+                    f"log dir {log_file_path!r} on different filesystem from rootfs {upper_dir!r}; "
+                    f"cannot share prjid, fall back"
+                )
                 return
-            mount_point = findmnt_result.stdout.strip()
-            if not mount_point:
-                logger.warning(f"Empty mountpoint for log path {log_file_path!r}, skip quota setup")
-                self._effective_disk_limit_log = None
+        except OSError as e:
+            logger.warning(f"stat failed while checking prjid sharing for {log_file_path!r}: {e}")
+            return
+
+        try:
+            findmnt_result = subprocess.run(
+                ["findmnt", "-T", upper_dir, "-o", "TARGET", "--noheadings"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if findmnt_result.returncode != 0 or not findmnt_result.stdout.strip():
+                logger.warning(
+                    f"findmnt failed for upper_dir {upper_dir!r}: " f"{findmnt_result.stderr.strip() or 'empty output'}"
+                )
                 return
+            xfs_mountpoint = findmnt_result.stdout.strip()
 
             set_project_cmd = f"project -s -p {shlex.quote(log_file_path)} {project_id}"
-            set_limit_cmd = f"limit -p bhard={self._effective_disk_limit_log} {project_id}"
-            for cmd in (set_project_cmd, set_limit_cmd):
-                result = subprocess.run(
-                    ["xfs_quota", "-x", "-c", cmd, mount_point],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
+            result = subprocess.run(
+                ["xfs_quota", "-x", "-c", set_project_cmd, xfs_mountpoint],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    f"xfs_quota project -s failed for {log_file_path!r} prjid={project_id}: "
+                    f"{result.stderr.strip() or result.stdout.strip()}"
                 )
-                if result.returncode != 0:
-                    logger.warning(
-                        f"xfs_quota failed for {log_file_path!r} with cmd={cmd!r}: {result.stderr.strip() or result.stdout.strip()}"
-                    )
-                    self._effective_disk_limit_log = None
-                    return
-            self.log_dir_xfs_prjid = project_id
-            self.log_dir_xfs_mountpoint = mount_point
-            logger.info(f"Set XFS project quota {self._effective_disk_limit_log} for log path {log_file_path!r}")
-        except Exception as e:
-            logger.warning(f"Failed to set XFS project quota for {log_file_path!r}: {e}")
-            self._effective_disk_limit_log = None
+                return
+
+            logger.info(
+                f"Attached log dir {log_file_path!r} to docker rootfs prjid={project_id} "
+                f"(shared rootfs+log quota, limit managed by docker --storage-opt)"
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+            logger.warning(f"Failed to share rootfs prjid with log dir {log_file_path!r}: {e}")
 
     async def start(self):
         """Starts the runtime."""
@@ -480,8 +498,6 @@ class DockerDeployment(AbstractDeployment):
             self._effective_disk_limit_rootfs = None
         else:
             self._effective_disk_limit_rootfs = self._config.disk_limit_rootfs
-        # Resolve effective log quota; _try_set_log_dir_quota will downgrade to None if XFS+prjquota is unavailable.
-        self._effective_disk_limit_log = self._config.disk_limit_log
 
         if self._container_name is None:
             self.set_container_name(self._get_container_name())
@@ -508,13 +524,13 @@ class DockerDeployment(AbstractDeployment):
 
         env_arg = []
 
-        # Conditionally set up logging path mount based on ROCK_LOGGING_PATH
+        # Conditionally set up logging path mount based on ROCK_LOGGING_PATH.
+        log_file_path: str | None = None
         volume_args = self._prepare_volume_mounts()
         if env_vars.ROCK_LOGGING_PATH:  # Only mount if ROCK_LOGGING_PATH is set (not None or empty)
             log_file_path = f"{env_vars.ROCK_LOGGING_PATH}/{self.container_name}"
             os.makedirs(log_file_path, exist_ok=True)
             os.chmod(log_file_path, 0o777)
-            self._try_set_log_dir_quota(log_file_path)
             volume_args.extend(["-v", f"{log_file_path}:{env_vars.ROCK_LOGGING_PATH}"])
             env_arg = [
                 "-e",
@@ -539,7 +555,7 @@ class DockerDeployment(AbstractDeployment):
         runtime_args = self._build_runtime_args()
         cmds = [
             "docker",
-            "run",
+            "create",
             "--entrypoint",
             "",
             *env_arg,
@@ -568,8 +584,21 @@ class DockerDeployment(AbstractDeployment):
         )
         logger.info(f"Command: {cmd_str!r}")
         # shell=True required for && etc.
-        with StageTimer("startup_timing", f"[{self._container_name}] Docker run", logger):
-            self._container_process = await loop.run_in_executor(executor, self._docker_run, cmds)
+        with StageTimer("startup_timing", f"[{self._container_name}] Docker start", logger):
+            await loop.run_in_executor(executor, self._docker_create, cmds)
+            # After docker create succeeds, the container exists in `created` state. If anything below
+            # fails before _wait_until_alive sets _container_process up for _stop to manage, we own the
+            # orphan and must remove it. _wait_until_alive's own failure path already calls self.stop().
+            try:
+                # Bind log dir to the docker-allocated rootfs prjid in the create→start gap,
+                # before any container process can write. The bhard is set by `--storage-opt
+                # size=` on the rootfs prjid, so log and rootfs share one quota.
+                if log_file_path is not None:
+                    self._setup_log_dir_quota_shared(log_file_path)
+                self._container_process = await loop.run_in_executor(executor, self._docker_start)
+            except Exception:
+                DockerUtil.remove_container_force(self._container_name)
+                raise
         await loop.run_in_executor(executor, self._hooks.on_custom_step, DeploymentHookStep.STARTING_RUNTIME)
         logger.info(f"Starting runtime at {self._config.port}")
         self._runtime = RemoteSandboxRuntime.from_config(
@@ -603,9 +632,25 @@ class DockerDeployment(AbstractDeployment):
         logger.info(f"volume_args: {volume_args}")
         return volume_args
 
-    def _docker_run(self, cmd: list[str]):
+    def _docker_create(self, cmd: list[str]) -> None:
+        """Create the container without starting it."""
         try:
-            exec_rlt = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.check_call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=60)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            logger.error(f"Failed to create container {self._container_name}")
+            self._service_status.update_status(
+                phase_name="docker_run", status=Status.FAILED, message="docker run failed"
+            )
+            raise
+
+    def _docker_start(self) -> subprocess.Popen:
+        """Start a previously-created container with stdout/stderr attached."""
+        try:
+            exec_rlt = subprocess.Popen(
+                ["docker", "start", "-a", self._container_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
             self._service_status.update_status(
                 phase_name="docker_run", status=Status.RUNNING, message="docker run running"
             )
@@ -622,6 +667,78 @@ class DockerDeployment(AbstractDeployment):
         loop = asyncio.get_running_loop()
         if self._runtime:
             await loop.run_in_executor(stop_executor, self._stop)
+
+    async def restart(self):
+        """Restart an existing stopped container using docker start.
+
+        Precondition: caller (SandboxStateMachine) guarantees the container
+        is in a stopped/exited state. A nonexistent container surfaces via
+        `docker start` failing — see is_alive()'s poll-based detection.
+        """
+        # TODO: once a sandbox delete API exists, move _cleanup_kata_disk() there;
+        # until then kata restart is blocked because _stop() deletes the .img file.
+        if self._config.use_kata_runtime:
+            raise NotImplementedError(
+                f"Restart is not supported for kata runtime containers (container={self._container_name}). "
+            )
+
+        executor = get_executor()
+        loop = asyncio.get_running_loop()
+
+        logger.info(f"Restarting container {self._container_name} with docker start")
+
+        # Reuse the same Popen-based attached start used by start(), so the
+        # restart path also produces a valid self._container_process. Without
+        # this, _stop() would skip its `if self._container_process is not None`
+        # branch and never call docker kill / cleanup.
+        self._container_process = await loop.run_in_executor(executor, self._docker_start)
+
+        # Recover the rocklet port from the container's port bindings if not set in config.
+        # When a new actor is created for restart, config.port may be None.
+        if self._config.port is None:
+            self._config.port = await loop.run_in_executor(executor, self._get_rocklet_port_from_inspect)
+        if self._config.port is None:
+            raise Exception(f"Cannot determine rocklet port for container {self._container_name}")
+
+        # Re-establish runtime connection
+        logger.info(f"Starting runtime at {self._config.port}")
+        self._runtime = RemoteSandboxRuntime.from_config(
+            RemoteSandboxRuntimeConfig(port=self._config.port, timeout=self._runtime_timeout)
+        )
+        self._runtime.set_executor(executor)
+
+        # Wait until container is alive
+        with StageTimer("startup_timing", f"[{self._container_name}] Wait until alive", logger):
+            await self._wait_until_alive(timeout=self._config.startup_timeout)
+
+        # Re-enable auto-clear if configured
+        if self._config.enable_auto_clear:
+            self._check_stop_task = asyncio.create_task(self._check_stop())
+
+        logger.info(f"Container {self._container_name} restarted successfully")
+
+    def _get_rocklet_port_from_inspect(self) -> int | None:
+        """Read the host-side port mapped to the rocklet (container port 22555) from docker inspect."""
+        try:
+            result = subprocess.run(
+                [
+                    "docker",
+                    "inspect",
+                    "--format",
+                    '{{(index (index .HostConfig.PortBindings "22555/tcp") 0).HostPort}}',
+                    self._container_name,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                port_str = result.stdout.strip()
+                if port_str.isdigit():
+                    return int(port_str)
+        except Exception as e:
+            logger.warning(f"Failed to get rocklet port from inspect for {self._container_name}: {e}")
+        return None
 
     def _stop(self):
         """Stops the runtime."""
@@ -661,7 +778,6 @@ class DockerDeployment(AbstractDeployment):
 
             self._container_process = None
             self._cleanup_kata_disk()
-            self._cleanup_log_dir_xfs_quota()
             self._container_name = None
 
         if self._check_stop_task is not None:
@@ -696,11 +812,6 @@ class DockerDeployment(AbstractDeployment):
         """Returns the actual rootfs quota in effect after runtime capability checks (may differ from config.disk_limit_rootfs)."""
         return self._effective_disk_limit_rootfs
 
-    @property
-    def effective_disk_limit_log(self) -> str | None:
-        """Returns the actual log-dir quota in effect after runtime capability checks (may differ from config.disk_limit_log)."""
-        return self._effective_disk_limit_log
-
     async def _check_stop(self):
         logger.info(f"Start check container to stop: {self._container_name}")
         try:
@@ -734,6 +845,7 @@ class DockerDeployment(AbstractDeployment):
         return self._service_status
 
     async def do_port_mapping(self):
+        refresh_docker_used_ports()
         proxy_port = await find_free_port()
         self._service_status.add_port_mapping(Port.PROXY, proxy_port)
         ssh_port = await find_free_port()

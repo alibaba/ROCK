@@ -90,6 +90,9 @@ class K8sOperator(AbstractOperator):
         """
         return await self._provider.submit(config, user_info)
 
+    async def restart(self, config: DockerDeploymentConfig, host_ip: str | None = None) -> SandboxInfo:
+        raise NotImplementedError("K8sOperator does not support container-reuse restart")
+
     async def get_status(self, sandbox_id: str) -> SandboxInfo | None:
         """Get sandbox status with user info from Redis.
 

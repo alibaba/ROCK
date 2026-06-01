@@ -32,19 +32,25 @@ class RayOperator(AbstractOperator):
     def _get_actor_name(self, sandbox_id: str) -> str:
         return f"sandbox-{sandbox_id}"
 
-    async def create_actor(self, config: DockerDeploymentConfig):
-        actor_options = self._generate_actor_options(config)
+    async def create_actor(self, config: DockerDeploymentConfig, pin_to_host_ip: str | None = None):
+        actor_options = self._generate_actor_options(config, pin_to_host_ip=pin_to_host_ip)
         deployment: DockerDeployment = config.get_deployment()
         sandbox_actor = SandboxActor.options(**actor_options).remote(config, deployment)
         return sandbox_actor
 
-    def _generate_actor_options(self, config: DockerDeploymentConfig) -> dict:
+    def _generate_actor_options(self, config: DockerDeploymentConfig, pin_to_host_ip: str | None = None) -> dict:
         actor_name = self._get_actor_name(config.container_name)
         actor_options = {"name": actor_name, "lifetime": "detached"}
         try:
             memory = parse_size_to_bytes(config.memory)
             actor_options["num_cpus"] = config.cpus
             actor_options["memory"] = memory
+            # Pin to a specific node via Ray's implicit `node:<ip>` resource
+            # (registered automatically per node with value 1.0; we consume a
+            # negligible 0.001 so we don't block other actors). Used by restart
+            # to land on the host that owns the existing container.
+            if pin_to_host_ip:
+                actor_options["resources"] = {f"node:{pin_to_host_ip}": 0.001}
             return actor_options
         except ValueError as e:
             logger.warning(f"Invalid memory size: {config.memory}", exc_info=e)
@@ -113,6 +119,33 @@ class RayOperator(AbstractOperator):
             logger.info(f"run time stop over {sandbox_id}")
             ray.kill(actor)
             return True
+
+    async def restart(self, config: DockerDeploymentConfig, host_ip: str | None = None) -> SandboxInfo:
+        """Restart an existing sandbox using docker start (container is preserved).
+
+        Flow:
+          1. Create a fresh detached actor pinned to ``host_ip`` (the node that
+             owns the existing container) — without this Ray would schedule the
+             new actor on any free node and `docker inspect <container>` would
+             fail with "container does not exist" on that wrong node.
+          2. actor.restart() → deployment.restart() — DockerDeployment.restart()
+             handles a still-running container by issuing `docker kill` first.
+        """
+        async with self._ray_service.get_ray_rwlock().read_lock():
+            sandbox_id = config.container_name
+
+            if not host_ip:
+                logger.warning(
+                    f"restart for {sandbox_id} called without host_ip; new actor "
+                    f"may be scheduled on a node that does not own the container"
+                )
+            sandbox_actor: SandboxActor = await self.create_actor(config, pin_to_host_ip=host_ip)
+            await self._ray_service.async_ray_get(sandbox_actor.restart.remote())
+
+            sandbox_info: SandboxInfo = await self._ray_service.async_ray_get(sandbox_actor.sandbox_info.remote())
+            sandbox_info["state"] = State.PENDING
+            logger.info(f"sandbox {sandbox_id} restarted")
+            return sandbox_info
 
     async def _check_alive_status(self, sandbox_id: str, host_ip: str, remote_status: ServiceStatus) -> bool:
         """Check if sandbox is alive"""

@@ -147,8 +147,8 @@ class TestRemove:
 
 
 class TestArchive:
-    async def test_archive_removes_redis_and_updates_db(self, repo, redis, db):
-        """archive() should update DB first, then remove Redis keys."""
+    async def test_archive_merges_redis_and_updates_db(self, repo, redis, db):
+        """archive() should read Redis, merge final_info, write DB, then evict Redis keys."""
         await repo.create(SANDBOX_ID, SANDBOX_INFO)
         await redis.json_set(timeout_sandbox_key(SANDBOX_ID), "$", {"auto_clear_time": "30", "expire_time": "9999"})
         await asyncio.sleep(0.1)  # let the create fire-and-forget DB insert settle
@@ -169,14 +169,13 @@ class TestArchive:
         assert db_record["user_id"] == "user-1"  # original fields preserved
 
     async def test_archive_db_written_before_redis_deleted(self, repo, redis, db):
-        """DB must be durably updated before the Redis alive key is removed."""
+        """DB must be durably updated before the Redis alive key is evicted."""
         await repo.create(SANDBOX_ID, SANDBOX_INFO)
         await asyncio.sleep(0.1)
 
-        # Intercept: check DB state immediately after archive returns (no extra sleep).
         await repo.archive(SANDBOX_ID, {"state": "stopped"})
 
-        # At this point archive() has already awaited the DB write and deleted Redis.
+        # At this point archive() has already awaited the DB write and evicted Redis.
         assert await redis.json_get(alive_sandbox_key(SANDBOX_ID), "$") is None
         db_record = await db.get(SANDBOX_ID)
         assert db_record is not None
