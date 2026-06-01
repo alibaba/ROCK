@@ -12,19 +12,27 @@ class Image(BaseModel):
     示例：
         Image.base("python:3.11")
         Image.from_dockerfile("/path/to/env_dir")
-        Image.from_dockerfile("/path/to/env_dir", image_name="reg.io/my-img:v1",
-                              registry_username="user", registry_password="pass")
+        Image.from_dockerfile(
+            "/path/to/env_dir",
+            registry_url="reg.io",
+            namespace="rock",
+            repository="my-env",
+            registry_username="user",
+            registry_password="pass",
+        )
     """
 
-    # TODO: 
-    ## image_name的方式需要修改下
-        # registry_url: 由用户传入或者使用系统默认的
-        # namespace: 由用户传入或者使用系统默认的
-        # repository: 使用user_id
-        # tag: 使用content_hash，先不允许用户传入，
-            #  需要调研下，使用content_hash是否会有冲突概率，也即是否可以认为当前方案是完备的
-    image_name: str | None = None
+    # ── base() 路径 ──
+    image_name: str | None = None  # 仅 Image.base() 使用
+
+    # ── from_dockerfile() 路径，4 段拼接 ──
     dockerfile_path: str | None = None
+    registry_url: str | None = None  # 默认 env_vars.ROCK_IMAGE_REGISTRY
+    namespace: str | None = None  # 默认 env_vars.ROCK_IMAGE_NAMESPACE ("rock")
+    repository: str | None = None  # 默认 SandboxConfig.user_id（Sandbox.start() 注入）
+    # tag = content_hash()（完整 64 hex SHA-256），不暴露字段
+
+    # ── 通用 ──
     force_build: bool = False
     build_args: dict[str, str] = Field(default_factory=dict)
     registry_username: str | None = None
@@ -39,7 +47,9 @@ class Image(BaseModel):
     def from_dockerfile(
         path: str | Path,
         *,
-        image_name: str | None = None,
+        registry_url: str | None = None,
+        namespace: str | None = None,
+        repository: str | None = None,
         registry_username: str | None = None,
         registry_password: str | None = None,
         force_build: bool = False,
@@ -47,10 +57,15 @@ class Image(BaseModel):
     ) -> Image:
         """从包含 Dockerfile 的本地目录创建。
 
+        镜像名按 4 段拼接：`{registry_url}/{namespace}/{repository}:{tag}`，
+        其中 tag = build context 的完整 SHA-256 (64 hex)。
+
         Args:
             path: 本地目录，包含 Dockerfile 和构建上下文文件。
-            image_name: 目标镜像全名。不传则自动生成：
-                {ROCK_IMAGE_REGISTRY}:{content_hash[:20]}
+            registry_url: registry host。不传则使用 ROCK_IMAGE_REGISTRY。
+            namespace: 命名空间。不传则使用 ROCK_IMAGE_NAMESPACE（默认 "rock"）。
+            repository: 仓库名。不传则在 Sandbox.start() 时使用 SandboxConfig.user_id
+                （都缺失则退化为 "default"）。
             registry_username: 镜像仓库用户名。不传则使用 ROCK_IMAGE_REGISTRY_USERNAME。
             registry_password: 镜像仓库密码。不传则使用 ROCK_IMAGE_REGISTRY_PASSWORD。
             force_build: 强制重新构建，即使镜像已存在。
@@ -58,7 +73,9 @@ class Image(BaseModel):
         """
         return Image(
             dockerfile_path=str(Path(path).resolve()),
-            image_name=image_name,
+            registry_url=registry_url,
+            namespace=namespace,
+            repository=repository,
             registry_username=registry_username,
             registry_password=registry_password,
             force_build=force_build,
@@ -75,14 +92,6 @@ class Image(BaseModel):
                 raise ValueError(f"dockerfile_path is not a directory: {self.dockerfile_path}")
             if not (p / "Dockerfile").exists():
                 raise ValueError(f"No Dockerfile found in: {self.dockerfile_path}")
-            if self.image_name is None:
-                from rock import env_vars
-
-                registry = env_vars.ROCK_IMAGE_REGISTRY
-                if not registry:
-                    raise ValueError("image_name is required when ROCK_IMAGE_REGISTRY is not set")
-                content_hash = self.content_hash()
-                self.image_name = f"{registry}:{content_hash[:20]}"
             if self.registry_username is None or self.registry_password is None:
                 from rock import env_vars
 
@@ -97,7 +106,7 @@ class Image(BaseModel):
         return self.dockerfile_path is not None
 
     def content_hash(self) -> str:
-        """计算 dockerfile_path 目录的内容哈希（SHA-256）。"""
+        """计算 dockerfile_path 目录的内容哈希（SHA-256, 64 hex）。"""
         if not self.dockerfile_path:
             return ""
         h = hashlib.sha256()
@@ -107,6 +116,29 @@ class Image(BaseModel):
                 h.update(str(f.relative_to(env_dir)).encode())
                 h.update(f.read_bytes())
         return h.hexdigest()
+
+    def _resolve_full_name(self) -> str:
+        """拼接 registry_url/namespace/repository:tag。
+        由 Sandbox.start() 在注入 repository 之后调用。
+        """
+        from rock import env_vars
+
+        registry_url = self.registry_url or env_vars.ROCK_IMAGE_REGISTRY
+        namespace = self.namespace or env_vars.ROCK_IMAGE_NAMESPACE
+        repository = self.repository
+        if not (registry_url and namespace and repository):
+            missing = [
+                k
+                for k, v in [
+                    ("registry_url", registry_url),
+                    ("namespace", namespace),
+                    ("repository", repository),
+                ]
+                if not v
+            ]
+            raise ValueError(f"Cannot resolve image name, missing: {missing}")
+        tag = self.content_hash()
+        return f"{registry_url.rstrip('/')}/{namespace}/{repository}:{tag}"
 
     async def build(
         self,

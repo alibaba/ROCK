@@ -166,6 +166,8 @@ class Sandbox(AbstractSandbox):
 
         if isinstance(self.config.image, Image):
             image_obj = self.config.image
+            if image_obj.needs_build and image_obj.repository is None:
+                image_obj.repository = self.config.user_id or "default"
             self.config.image = await image_obj.build(
                 base_url=self.config.base_url,
                 cluster=self.config.cluster,

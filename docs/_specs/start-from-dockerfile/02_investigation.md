@@ -714,6 +714,39 @@ E2B 后端把 Dockerfile 拆成阶段流水线 `BaseBuilder → UserBuilder → 
 >
 > **观察三**：除 GKE 和 Docker 外，存储位置都在平台侧；Runloop 还会持续计费，意味着调用方需要主动管理生命周期。
 
+### 用户可见标识与 Hash 编码
+
+聚焦"调用方在自己的代码里实际持有/打印的标识"以及"hash 是否进入这个标识"。Rock 选 tag 方案时这是最直接的对照面。
+
+| 平台 | 用户可见标识 | 是否原生 OCI tag | hash 进入标识 | hash 长度 |
+|------|------------|--------------|-------------|---------|
+| **GKE** | 镜像 URL `repo/{env_name}:latest` | ✅ | ❌ | — |
+| **Docker** | `docker-compose.yaml` 中写死的镜像名 | ✅ | ❌ | — |
+| Runloop | Blueprint name（`harbor_{name}_blueprint`） | ❌（平台 ID） | ❌ | — |
+| Daytona | Snapshot name（`harbor__{name}__snapshot`） | ❌（平台 ID） | ❌ | — |
+| **E2B** | Template alias（`{env_name}__{sha256[:8]}`） | ❌（平台 alias） | ✅ | **8 hex / 32 bit** |
+| Modal | 无（SDK 不返回 image_id） | ❌（不暴露） | — | — |
+
+**观察四**：让用户拿到原生 docker tag 的两个平台（GKE / Docker）都不在 tag 里编码 hash，缓存逻辑要么靠固定 `:latest` + 平台/Daemon 自身的 layer cache，要么靠调用方手动管理命名约定。
+
+**观察五**：在六个平台里只有 **E2B** 把 hash 嵌入到用户可见的标识，长度仅 **8 hex（32 bit）**。E2B 选 8 hex 的关键前提是 alias 还有 `env_name` 前缀做隔离 —— 碰撞只在"同名 env"内才发生。Rock "用 `user_id` 作为 repository" 的隔离思路与之同构。
+
+**观察六**：服务端**不可见**的内部 hash（Daytona 的 `dockerfile_content + context_hashes`、Modal 的 image_definition protobuf、E2B 服务端每构建阶段的 SHA-256）普遍取**全长**或**长哈希**，因为服务端无人眼读。用户可见 hash 才会牺牲部分熵换可读。
+
+**Rock 选择空间（同一 repository 内、按 birthday bound `n²/(2·2^bits)` 估，n=10⁶）**：
+
+| 长度 | 例 | 同 repo 内 1M 镜像碰撞概率 |
+|------|------|-----------|
+| 8 hex（E2B 同款） | `3a7bd3e2` | ~3% |
+| 16 hex | `3a7bd3e2360a3d29` | 5×10⁻⁸ |
+| 20 hex | `3a7bd3e2360a3d29eea4` | 8×10⁻¹³ |
+| 32 hex | `3a7bd3e2360a3d29eea436fcfb7e44c7` | 4×10⁻²⁰ |
+| 64 hex | 完整 SHA-256 | 0 |
+
+实际单个 user_id 下的环境数远小于 1M（通常 <1k），实际碰撞比表中数值再低 6 个数量级。对照下，E2B 的 8 hex 在量级上就已"工程零风险"；Rock 取 16 hex 以上即可在所有合理场景获得碰撞 negligible。
+
+---
+
 ### Harbor 使用方式参考
 
 Harbor 的 `BaseEnvironment` 通过 `start(force_build: bool)` 统一入口，各环境在 `start()` 内部完成从 Dockerfile 到沙箱运行的完整流程。构建上下文统一为 `environment_dir`，Dockerfile 位于 `environment_dir / "Dockerfile"`。

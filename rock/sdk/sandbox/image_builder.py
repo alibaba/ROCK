@@ -155,6 +155,7 @@ class ImageBuilder:
         if not image.needs_build:
             return image.image_name
 
+        full_name = image._resolve_full_name()
         session = self.BUILD_SESSION
         await builder.create_session(CreateBashSessionRequest(session=session))
 
@@ -164,18 +165,18 @@ class ImageBuilder:
         # ── Phase 2: Build image ──
         content_hash = image.content_hash()
         context_path = await self._upload_context(builder, session, image)
-        build_script = self._gen_build_script(image, content_hash, context_path)
+        build_script = self._gen_build_script(image, full_name, content_hash, context_path)
         build_output = await self._run_script(builder, session, build_script, "/tmp/rock_build.sh", "BUILD_OK", 600)
         if "CACHE_HIT" in build_output:
-            logger.info("Image %s cache hit, skipping push", image.image_name)
-            return image.image_name
+            logger.info("Image %s cache hit, skipping push", full_name)
+            return full_name
 
         # ── Phase 3: Login and push ──
-        push_script = self._gen_push_script(image)
+        push_script = self._gen_push_script(image, full_name)
         await self._run_script(builder, session, push_script, "/tmp/rock_push.sh", "PUSH_OK", 300)
 
-        logger.info("Successfully built and pushed image %s", image.image_name)
-        return image.image_name
+        logger.info("Successfully built and pushed image %s", full_name)
+        return full_name
 
     async def _run_script(
         self, builder, session: str, script: str, remote_path: str, success_marker: str, timeout: int
@@ -187,20 +188,20 @@ class ImageBuilder:
             raise RuntimeError(f"Script {remote_path} failed (exit_code={obs.exit_code}): {output}")
         return output
 
-    def _gen_build_script(self, image: Image, content_hash: str, context_path: str) -> str:
+    def _gen_build_script(self, image: Image, full_name: str, content_hash: str, context_path: str) -> str:
         build_arg_flags = " ".join(f"--build-arg {shlex.quote(f'{k}={v}')}" for k, v in image.build_args.items())
         return _BUILD_SCRIPT_TEMPLATE.format(
-            image_name=shlex.quote(image.image_name),
+            image_name=shlex.quote(full_name),
             content_hash=shlex.quote(content_hash),
             force_build="true" if image.force_build else "false",
             build_arg_flags=build_arg_flags,
             context_path=shlex.quote(context_path),
         )
 
-    def _gen_push_script(self, image: Image) -> str:
-        registry, _ = ImageUtil.parse_registry_and_others(image.image_name)
+    def _gen_push_script(self, image: Image, full_name: str) -> str:
+        registry, _ = ImageUtil.parse_registry_and_others(full_name)
         return _PUSH_SCRIPT_TEMPLATE.format(
-            image_name=shlex.quote(image.image_name),
+            image_name=shlex.quote(full_name),
             registry=shlex.quote(registry or "docker.io"),
             registry_username=shlex.quote(image.registry_username or ""),
             registry_password=shlex.quote(image.registry_password or ""),

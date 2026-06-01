@@ -75,6 +75,7 @@ if TYPE_CHECKING:
 
     # Image Registry Config
     ROCK_IMAGE_REGISTRY: str | None = None
+    ROCK_IMAGE_NAMESPACE: str = "rock"
     ROCK_IMAGE_REGISTRY_USERNAME: str | None = None
     ROCK_IMAGE_REGISTRY_PASSWORD: str | None = None
 
@@ -158,6 +159,7 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_DOCKER_TEMP_AUTH_DIR": lambda: os.getenv("ROCK_DOCKER_TEMP_AUTH_DIR"),
     # Image Registry Config
     "ROCK_IMAGE_REGISTRY": lambda: os.getenv("ROCK_IMAGE_REGISTRY"),
+    "ROCK_IMAGE_NAMESPACE": lambda: os.getenv("ROCK_IMAGE_NAMESPACE", "rock"),
     "ROCK_IMAGE_REGISTRY_USERNAME": lambda: os.getenv("ROCK_IMAGE_REGISTRY_USERNAME"),
     "ROCK_IMAGE_REGISTRY_PASSWORD": lambda: os.getenv("ROCK_IMAGE_REGISTRY_PASSWORD"),
 }

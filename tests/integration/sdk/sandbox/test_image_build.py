@@ -19,7 +19,6 @@ from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.sandbox.config import SandboxConfig
 from rock.sdk.sandbox.image import Image
 from rock.sdk.sandbox.image_builder import ImageBuilder
-from rock.utils import ImageUtil
 
 logger = init_logger(__name__)
 
@@ -34,7 +33,9 @@ MODIFIED_CONTENT = "rock-content-changed"
 def _create_image(env_dir, registry_info, **kwargs):
     return Image.from_dockerfile(
         env_dir,
-        image_name=registry_info["image_tag"],
+        registry_url=registry_info["registry_url"],
+        namespace=registry_info["namespace"],
+        repository=registry_info["repository"],
         registry_username=registry_info["registry_username"],
         registry_password=registry_info["registry_password"],
         **kwargs,
@@ -117,8 +118,8 @@ async def _build_with_loopback_nat(image: Image, admin_remote_server) -> str:
     await builder.start()
     try:
         await builder.create_session(CreateBashSessionRequest(session=ImageBuilder.BUILD_SESSION))
-        registry, _ = ImageUtil.parse_registry_and_others(image.image_name)
-        host_part, _, port_part = (registry or "").partition(":")
+        registry = image.registry_url or ""
+        host_part, _, port_part = registry.partition(":")
         if (host_part.startswith("127.") or host_part == "localhost") and port_part:
             await _inject_loopback_nat(builder, int(port_part))
         return await image_builder.build_with_builder(image, builder)
@@ -133,7 +134,9 @@ async def _build_with_loopback_nat(image: Image, admin_remote_server) -> str:
 def local_registry_info(local_registry):
     registry_url, username, password = local_registry
     return {
-        "image_tag": f"{registry_url}/rock-test/image-from-dockerfile:latest",
+        "registry_url": registry_url,
+        "namespace": "rock-test",
+        "repository": "image-from-dockerfile",
         "registry_username": username,
         "registry_password": password,
     }

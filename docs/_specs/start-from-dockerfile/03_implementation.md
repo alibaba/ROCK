@@ -14,11 +14,12 @@ ROCK SDK 目前只支持通过预构建镜像名（`SandboxConfig.image: str`）
 
 | 文件 | 修改类型 | 说明 |
 |------|------|------|
-| `rock/sdk/sandbox/image.py` | 新增 | `Image` 类 — 含 `base()` 和 `from_dockerfile()` 工厂方法，纯声明类型 |
+| `rock/sdk/sandbox/image.py` | 新增 | `Image` 类 — 含 `base()` 和 `from_dockerfile()` 工厂方法，纯声明类型；命名走 4 段拼接（`registry_url/namespace/repository:tag`） |
 | `rock/sdk/sandbox/image_resolver.py` | 新增 | `_ImageResolver` — DinD 构建编排：缓存检查 + docker build + push |
 | `rock/sdk/sandbox/config.py` | 修改 | `SandboxConfig.image` 类型从 `str` 改为 `str \| Image`，添加 Pydantic validator |
-| `rock/sdk/sandbox/client.py` | 修改 | `Sandbox.start()` 中增加 Image 解析逻辑；`__str__` 兼容 Image 类型 |
-| `tests/unit/sdk/sandbox/test_image.py` | 新增 | `Image` 类单元测试 |
+| `rock/sdk/sandbox/client.py` | 修改 | `Sandbox.start()` 中增加 Image 解析逻辑（含 `repository` 注入）；`__str__` 兼容 Image 类型 |
+| `rock/env_vars.py` | 修改 | 新增 `ROCK_IMAGE_NAMESPACE`，默认 `"rock"` |
+| `tests/unit/sdk/sandbox/test_image.py` | 新增 | `Image` 类单元测试（含 4 段拼接 + repository 注入 + tag 长度/格式断言） |
 | `tests/unit/sdk/sandbox/test_image_resolver.py` | 新增 | `_ImageResolver` 单元测试（mock sandbox） |
 | `tests/integration/sdk/sandbox/test_image_build.py` | 新增 | 端到端集成测试：from_dockerfile → start → 验证 COPY 文件 |
 
@@ -45,13 +46,28 @@ class Image(BaseModel):
 
     示例：
         Image.base("python:3.11")
-        Image.from_dockerfile("/path/to/env_dir")  # 使用默认 ROCK_IMAGE_REGISTRY
-        Image.from_dockerfile("/path/to/env_dir", image_name="reg.io/my-img:v1",
-                              registry_username="user", registry_password="pass")
+        Image.from_dockerfile("/path/to/env_dir")
+        Image.from_dockerfile(
+            "/path/to/env_dir",
+            registry_url="reg.io",
+            namespace="rock",
+            repository="my-env",
+            registry_username="user",
+            registry_password="pass",
+        )
     """
 
-    image_name: str | None = None
+    # ── base() 路径 ──
+    image_name: str | None = None        # 仅 Image.base() 使用；from_dockerfile 不写
+
+    # ── from_dockerfile() 路径，4 段拼接 ──
     dockerfile_path: str | None = None
+    registry_url: str | None = None      # 默认 env_vars.ROCK_IMAGE_REGISTRY
+    namespace:    str | None = None      # 默认 env_vars.ROCK_IMAGE_NAMESPACE（"rock"）
+    repository:   str | None = None      # 默认 SandboxConfig.user_id（Sandbox.start() 注入）
+    # tag = content_hash()（完整 64 hex SHA-256），不暴露字段，build 时计算
+
+    # ── 通用 ──
     force_build: bool = False
     build_args: dict[str, str] = Field(default_factory=dict)
     registry_username: str | None = None
@@ -66,7 +82,9 @@ class Image(BaseModel):
     def from_dockerfile(
         path: str | Path,
         *,
-        image_name: str | None = None,
+        registry_url: str | None = None,
+        namespace: str | None = None,
+        repository: str | None = None,
         registry_username: str | None = None,
         registry_password: str | None = None,
         force_build: bool = False,
@@ -74,18 +92,28 @@ class Image(BaseModel):
     ) -> Image:
         """从包含 Dockerfile 的本地目录创建。
 
+        镜像名按 4 段拼接：`{registry_url}/{namespace}/{repository}:{tag}`，
+        其中 tag = build context 的完整 SHA-256（64 hex）。
+
         Args:
             path: 本地目录，包含 Dockerfile 和构建上下文文件。
-            image_name: 目标镜像全名。不传则自动生成：
-                {ROCK_IMAGE_REGISTRY}:{content_hash[:20]}
+            registry_url: registry host。不传则使用 ROCK_IMAGE_REGISTRY。
+            namespace: 命名空间。不传则使用 ROCK_IMAGE_NAMESPACE（默认 "rock"）。
+            repository: 仓库名。不传则在 Sandbox.start() 时使用 SandboxConfig.user_id
+                （都缺失则退化为 "default"）。
             registry_username: 镜像仓库用户名。不传则使用 ROCK_IMAGE_REGISTRY_USERNAME。
             registry_password: 镜像仓库密码。不传则使用 ROCK_IMAGE_REGISTRY_PASSWORD。
             force_build: 强制重新构建，即使镜像已存在。
             build_args: Docker build 参数（--build-arg）。
+
+        Note:
+            不接受 image_name= 参数。如需完整字符串入口，使用 Image.base()。
         """
         return Image(
             dockerfile_path=str(Path(path).resolve()),
-            image_name=image_name,
+            registry_url=registry_url,
+            namespace=namespace,
+            repository=repository,
             registry_username=registry_username,
             registry_password=registry_password,
             force_build=force_build,
@@ -94,6 +122,7 @@ class Image(BaseModel):
 
     @model_validator(mode="after")
     def _validate(self) -> Image:
+        # 二选一：image_name (base) 与 dockerfile_path (from_dockerfile) 有且仅有一个
         if self.image_name is None and self.dockerfile_path is None:
             raise ValueError("Image must have either 'image_name' or 'dockerfile_path'")
         if self.dockerfile_path is not None:
@@ -102,16 +131,7 @@ class Image(BaseModel):
                 raise ValueError(f"dockerfile_path is not a directory: {self.dockerfile_path}")
             if not (p / "Dockerfile").exists():
                 raise ValueError(f"No Dockerfile found in: {self.dockerfile_path}")
-            # 自动生成 image_name
-            if self.image_name is None:
-                from rock import env_vars
-
-                registry = env_vars.ROCK_IMAGE_REGISTRY
-                if not registry:
-                    raise ValueError("image_name is required when ROCK_IMAGE_REGISTRY is not set")
-                content_hash = self.content_hash()
-                self.image_name = f"{registry}:{content_hash[:20]}"
-            # 自动填充默认凭证
+            # 自动填充默认凭证（不在此处拼 image_name，推迟到 _resolve_full_name）
             if self.registry_username is None or self.registry_password is None:
                 from rock import env_vars
 
@@ -126,8 +146,8 @@ class Image(BaseModel):
         return self.dockerfile_path is not None
 
     def content_hash(self) -> str:
-        """计算 dockerfile_path 目录的内容哈希（SHA-256）。
-        用于检测 env_dir 内容变化，即使 image_name 不变也能触发重建。
+        """计算 dockerfile_path 目录的内容哈希（SHA-256, 64 hex）。
+        用作镜像 tag，内容变化即触发新 tag → 自动重建。
         """
         import hashlib
 
@@ -140,6 +160,23 @@ class Image(BaseModel):
                 h.update(str(f.relative_to(env_dir)).encode())
                 h.update(f.read_bytes())
         return h.hexdigest()
+
+    def _resolve_full_name(self) -> str:
+        """拼接 registry_url/namespace/repository:tag。
+        由 Sandbox.start() 在注入 repository 之后调用。
+        """
+        from rock import env_vars
+
+        registry_url = self.registry_url or env_vars.ROCK_IMAGE_REGISTRY
+        namespace    = self.namespace    or env_vars.ROCK_IMAGE_NAMESPACE
+        repository   = self.repository    # 由 Sandbox.start() 注入
+        if not (registry_url and namespace and repository):
+            missing = [k for k, v in [("registry_url", registry_url),
+                                      ("namespace", namespace),
+                                      ("repository", repository)] if not v]
+            raise ValueError(f"Cannot resolve image name, missing: {missing}")
+        tag = self.content_hash()  # 完整 64 hex SHA-256
+        return f"{registry_url.rstrip('/')}/{namespace}/{repository}:{tag}"
 
     @model_serializer(mode="wrap")
     def _serialize(self, handler):
@@ -374,6 +411,12 @@ async def start(self):
     if isinstance(self.config.image, Image):
         image_obj = self.config.image
         if image_obj.needs_build:
+            # 注入 repository = config.user_id（缺失则用 "default"）
+            # SandboxConfig.user_id 默认值不动（保持 None 以维持 X-User-Id header 现状），
+            # 仅在 Image 4 段拼接需要 repository 时本地 fallback。
+            if image_obj.repository is None:
+                image_obj.repository = self.config.user_id or "default"
+
             from rock.sdk.sandbox.image_resolver import _ImageResolver
 
             resolver = _ImageResolver(
@@ -430,9 +473,69 @@ def __str__(self):
 
 7. **Pydantic 序列化兼容**：`Image` 的 `model_serializer(mode="wrap")` 在 `model_dump(mode="json")` 时输出 image_name 字符串。确保 `HarborJobConfig.to_harbor_yaml()` 和 `RockEnvironmentConfig.to_harbor_environment()` 的序列化路径不受影响。
 
-8. **image_name 自动生成**：`from_dockerfile()` 不要求调用方传入 `image_name`。当 `image_name` 为空时，从环境变量 `ROCK_IMAGE_REGISTRY` 读取镜像名（不含 tag），拼接 content_hash 前 20 位作为 tag，生成 `{ROCK_IMAGE_REGISTRY}:{content_hash[:20]}`。content_hash 作为 tag 意味着内容变化自动产生新 tag，无需额外的 label 对比即可识别缓存。凭证同理：`registry_username` / `registry_password` 为空时自动从 `ROCK_IMAGE_REGISTRY_USERNAME` / `ROCK_IMAGE_REGISTRY_PASSWORD` 读取。
+8. **image_name 4 段拼接**：`from_dockerfile()` 不再接受 `image_name=` 参数，命名一律走 4 段拼接 `{registry_url}/{namespace}/{repository}:{tag}`：
+    - `registry_url` 默认 `ROCK_IMAGE_REGISTRY`（仅 registry host，如 `registry.cn-hangzhou.aliyuncs.com`）
+    - `namespace` 默认 `ROCK_IMAGE_NAMESPACE`（默认值 `"rock"`）
+    - `repository` 默认 `SandboxConfig.user_id`（缺失时 `"default"`），由 `Sandbox.start()` 注入
+    - `tag` 强制 = `content_hash()`（完整 64 hex SHA-256），不允许用户传入
 
-9. **Builder 镜像选择**：`_ImageResolver` 启动 builder sandbox 时默认使用 `docker:28.3.3-dind`（Docker 官方 DinD 镜像），与 Harbor Daytona 环境使用的构建镜像一致。可通过 `ROCK_IMAGE_BUILDER_IMAGE` 环境变量或 `builder_image` 参数覆盖。
+   content_hash 作为 tag 意味着内容变化自动产生新 tag，无需额外的 label 对比即可识别缓存。凭证 `registry_username` / `registry_password` 为空时自动从 `ROCK_IMAGE_REGISTRY_USERNAME` / `ROCK_IMAGE_REGISTRY_PASSWORD` 读取。
+
+9. **`SandboxConfig.user_id` 默认值保持不变**：`user_id` 仍是 `None` 默认，避免影响 `_add_user_defined_tag_into_headers` 当前的 `if self.config.user_id:` 判断（None 时不发 `X-User-Id` header）。仅在 `Sandbox.start()` 注入 `image.repository` 时本地 fallback 到 `"default"`。
+
+10. **Builder 镜像选择**：`_ImageResolver` 启动 builder sandbox 时默认使用 `docker:28.3.3-dind`（Docker 官方 DinD 镜像），与 Harbor Daytona 环境使用的构建镜像一致。可通过 `ROCK_IMAGE_BUILDER_IMAGE` 环境变量或 `builder_image` 参数覆盖。
+
+---
+
+## Env Vars
+
+| 变量 | 现状 | 新方案 |
+|---|---|---|
+| `ROCK_IMAGE_REGISTRY` | 已有，旧实现把它当成完整镜像前缀直接拼 `:tag`（拼出 `host:tag` 缺 namespace/repo 段，docker push 必失败） | 重新定义为**仅 registry host**，参与 4 段拼接的第一段 |
+| `ROCK_IMAGE_NAMESPACE` | 不存在 | **新增**，默认 `"rock"`，作为 4 段拼接的第二段 |
+| `ROCK_IMAGE_REGISTRY_USERNAME` | 已有 | 不变 |
+| `ROCK_IMAGE_REGISTRY_PASSWORD` | 已有 | 不变 |
+
+[rock/env_vars.py](../../../rock/env_vars.py) 改动：
+
+```python
+ROCK_IMAGE_NAMESPACE: str = "rock"
+...
+"ROCK_IMAGE_NAMESPACE": lambda: os.getenv("ROCK_IMAGE_NAMESPACE", "rock"),
+```
+
+---
+
+## Tag 长度决策（content_hash 截断长度）
+
+### 碰撞概率（Birthday paradox）
+
+| 截断长度 | bit | 50% 碰撞所需镜像数 | ROCK 实际场景（user < 10⁴ 镜像）下的碰撞概率 |
+|---|---|---|---|
+| 12 hex | 48 | ~ 2 × 10⁷ | ~ 1.8 × 10⁻¹ ⚠️ |
+| 16 hex | 64 | ~ 5 × 10⁹ | ~ 2.7 × 10⁻¹² |
+| 20 hex | 80 | ~ 1.1 × 10¹² | ~ 4.1 × 10⁻¹⁷ |
+| 24 hex | 96 | ~ 7 × 10¹⁴ | ~ 6.3 × 10⁻²² |
+| **64 hex** | **256** | **~ 4 × 10³⁸** | **~ 0** ✅ |
+
+### 业界基线
+
+| 系统 | 短哈希长度 | bit | 哈希算法 | 说明 |
+|---|---|---|---|---|
+| Docker short image ID | 12 hex | 48 | SHA-256 截断 | `docker images` 默认显示，仅本地肉眼识别，靠 daemon 索引去重 |
+| Git short SHA | 默认 7 hex | 28 | SHA-1 | 不够长时会自动延长（`core.abbrev` + 冲突检测） |
+| Kubernetes pod-template-hash | 10 字符 base32 | ~50 | FNV-1a | ReplicaSet 区分模板，依赖 controller 重试 |
+| OCI image digest (`sha256:...`) | 64 hex | 256 | SHA-256 | registry 标准，完全去重 |
+| Modal image hash | 平台内部，不暴露 | — | — | 用户不感知，平台层处理碰撞 |
+| Daytona snapshot hash | 平台内部 24h 缓存 | — | — | 同上 |
+
+### 决策
+
+ROCK 场景属于 **"registry-stored、跨进程持久化、不靠中心去重"**：不同于 Docker short ID（仅本地肉眼）和 Git short SHA（有自动延长机制），我们没有冲突回退机制。
+
+**采用 OCI digest 标准长度（64 hex / 256 bit SHA-256，不截断）。** 碰撞概率 ~10⁻⁶⁵，与 OCI manifest digest 完全一致的安全级别。
+
+位置仍是 `:<tag>` 而非 OCI 标准的 `@sha256:<digest>`：OCI digest 是 push 完成后 registry 端算的 manifest digest，我们的 `content_hash` 是 build context 的 SHA-256，必须在 build 前作缓存键，所以放 tag 位。代价是 tag 总长 ~70 字符，registry UI 不如短哈希好读，但用户主要通过 `Image.from_dockerfile()` 接口操作，可接受。
 
 ---
 
@@ -444,7 +547,35 @@ def __str__(self):
 
 包含最小构建上下文：`Dockerfile`（`FROM python:3.11` + `COPY hello.txt`）和 `hello.txt` 标记文件。
 
+### 单元测试 — `tests/unit/sdk/sandbox/test_image.py`
+
+| 用例 | 断言 |
+|---|---|
+| `from_dockerfile` 拒绝 `image_name=` kwarg | 抛 `TypeError` |
+| `_resolve_full_name` 缺 `registry_url` / `namespace` / `repository` | 抛 `ValueError`，message 列出缺失字段 |
+| `_resolve_full_name` 正确拼接 | 等于 `f"{registry_url}/{namespace}/{repository}:{hash}"` |
+| `registry_url` 末尾 `/` 被剥掉 | 拼接结果不出现 `//` |
+| env vars 默认生效 | 不传 `registry_url`/`namespace` 走 env；`namespace` 默认 `"rock"` |
+| Tag 长度 = 64 | `len(tag) == 64`，`re.fullmatch(r"[0-9a-f]{64}", tag)` |
+| `Sandbox.start()` 注入 user_id | `image.repository is None` 时被设为 `config.user_id`；都缺则用 `"default"` |
+| `Image.base("python:3.11")` 不走 4 段解析 | `_resolve_full_name` 不被调用，`build()` 直接返回 `image_name` |
+
 ### 集成测试 — `tests/integration/sdk/sandbox/test_image_build.py`
+
+测试 helper `_create_image` 与 `local_registry_info` fixture 按 4 段字段构造（不再传 `image_name=`）：
+
+```python
+def _create_image(env_dir, registry_info, **kwargs):
+    return Image.from_dockerfile(
+        env_dir,
+        registry_url=registry_info["registry_url"],
+        namespace=registry_info["namespace"],
+        repository=registry_info["repository"],
+        registry_username=registry_info["registry_username"],
+        registry_password=registry_info["registry_password"],
+        **kwargs,
+    )
+```
 
 | 测试名 | 验证点 | marker |
 |--------|--------|--------|
@@ -464,5 +595,6 @@ uv run pytest -m "not need_ray and not need_admin and not need_admin_and_network
 
 - 删除新文件 `rock/sdk/sandbox/image.py`、`rock/sdk/sandbox/image_resolver.py` 及对应测试
 - 还原 `rock/sdk/sandbox/config.py`（`image: str | Image` → `image: str`，移除 validator）
-- 还原 `rock/sdk/sandbox/client.py`（移除 `start()` 中的 Image 解析、`__str__` 类型检查）
+- 还原 `rock/sdk/sandbox/client.py`（移除 `start()` 中的 Image 解析与 `repository` 注入、`__str__` 类型检查）
+- 还原 `rock/env_vars.py`（移除 `ROCK_IMAGE_NAMESPACE`）
 - Admin 侧无变更需回滚
