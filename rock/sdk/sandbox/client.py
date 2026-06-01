@@ -171,6 +171,8 @@ class Sandbox(AbstractSandbox):
             "startup_timeout": self.config.startup_timeout,
             "memory": self.config.memory,
             "cpus": self.config.cpus,
+            "num_gpus": self.config.num_gpus,
+            "accelerator_type": self.config.accelerator_type,
             "registry_username": self.config.registry_username,
             "registry_password": self.config.registry_password,
             "use_kata_runtime": self.config.use_kata_runtime,
