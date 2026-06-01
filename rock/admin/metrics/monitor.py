@@ -72,10 +72,6 @@ class MetricsMonitor:
         # Request count metrics
         self._register_counter(MetricsConstants.SANDBOX_REQUEST_SUCCESS, "Number of successful requests")
         self._register_counter(MetricsConstants.SANDBOX_REQUEST_FAILURE, "Number of failed requests")
-        self._register_counter(
-            MetricsConstants.SANDBOX_REQUEST_INVALID_PARAM,
-            "Number of requests rejected by unambiguous client-side parameter validation",
-        )
         self._register_counter(MetricsConstants.SANDBOX_REQUEST_TOTAL, "Number of total requests")
         # Sandbox metrics
         self._register_gauge(MetricsConstants.SANDBOX_TOTAL_COUNT, "Number of sandbox")

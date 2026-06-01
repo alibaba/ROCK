@@ -31,7 +31,7 @@ from rock.common.port_validation import validate_port_forward_port
 from rock.common.validation import NonBlankStr
 from rock.logger import init_logger
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
-from rock.sdk.common.exceptions import BadRequestRockError, InvalidParameterRockError
+from rock.sdk.common.exceptions import BadRequestRockError
 
 logger = init_logger(__name__)
 
@@ -410,5 +410,5 @@ async def host_proxy_post(
 ):
     host_ip = request.headers.get("rock-host-ip")
     if not host_ip:
-        raise InvalidParameterRockError("rock-host-ip is required in request headers")
+        raise BadRequestRockError("rock-host-ip is required in request headers")
     return await sandbox_proxy_service.host_proxy(host_ip, path, body, request.headers)

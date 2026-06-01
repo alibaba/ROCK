@@ -37,7 +37,7 @@ from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.sandbox_statemachine import SandboxStateMachine
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
-from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError, InvalidParameterRockError
+from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
 from rock.utils import StageTimer
 from rock.utils.crypto_utils import AESEncryption
 from rock.utils.format import convert_to_gb, parse_size_to_bytes
@@ -368,16 +368,16 @@ class SandboxManager(BaseManager):
             memory = parse_size_to_bytes(deployment_config.memory)
             max_memory = parse_size_to_bytes(runtime_config.max_allowed_spec.memory)
             if deployment_config.cpus > runtime_config.max_allowed_spec.cpus:
-                raise InvalidParameterRockError(
+                raise BadRequestRockError(
                     f"Requested CPUs {deployment_config.cpus} exceed the maximum allowed {runtime_config.max_allowed_spec.cpus}"
                 )
             if memory > max_memory:
-                raise InvalidParameterRockError(
+                raise BadRequestRockError(
                     f"Requested memory {deployment_config.memory} exceed the maximum allowed {runtime_config.max_allowed_spec.memory}"
                 )
         except ValueError as e:
             logger.warning(f"Invalid memory size: {deployment_config.memory}", exc_info=e)
-            raise InvalidParameterRockError(f"Invalid memory size: {deployment_config.memory}")
+            raise BadRequestRockError(f"Invalid memory size: {deployment_config.memory}")
 
         # Validate disk_limit_rootfs format
         if deployment_config.disk_limit_rootfs is not None:
@@ -385,6 +385,6 @@ class SandboxManager(BaseManager):
                 parse_size_to_bytes(deployment_config.disk_limit_rootfs)
             except ValueError as e:
                 logger.warning(f"Invalid disk_limit_rootfs size: {deployment_config.disk_limit_rootfs}", exc_info=e)
-                raise InvalidParameterRockError(
+                raise BadRequestRockError(
                     f"Invalid disk_limit_rootfs size: {deployment_config.disk_limit_rootfs}"
                 )

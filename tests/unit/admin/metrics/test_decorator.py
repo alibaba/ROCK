@@ -13,7 +13,7 @@ from rock.admin.metrics.decorator import (
 )
 from rock.admin.metrics.monitor import MetricsMonitor
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
-from rock.sdk.common.exceptions import BadRequestRockError, InvalidParameterRockError
+from rock.sdk.common.exceptions import BadRequestRockError
 
 
 class SampleObject:
@@ -189,39 +189,13 @@ async def test_decorator_retrieves_user_info_from_meta_store(redis_provider, _me
     assert attrs["namespace"] == "n1"
 
 
-def test_record_metrics_invalid_parameter_goes_to_invalid_param_bucket():
-    """InvalidParameterRockError (unambiguous client fault) lands in `.invalid_param`,
-    not in `.failure` — so failure rate stays a clean signal for server bugs."""
+def test_record_metrics_bad_request_goes_to_failure():
+    """BadRequestRockError lands in the generic `.failure` bucket along with
+    every other exception type — there is no separate client-fault bucket."""
     mock_metrics_monitor = Mock(spec=MetricsMonitor)
     attributes = {"operation": "test_op"}
     start_time = 0
-    exception = InvalidParameterRockError("sandbox_id is required")
-
-    with patch("rock.admin.metrics.decorator.time.perf_counter", return_value=1.0):
-        with pytest.raises(InvalidParameterRockError):
-            _record_metrics(mock_metrics_monitor, exception, attributes, start_time, "test")
-
-    error_attrs = {**attributes, "error_type": "InvalidParameterRockError"}
-    mock_metrics_monitor.record_counter_by_name.assert_any_call("test.invalid_param", 1, error_attrs)
-
-    # Verify failure counter was NOT called
-    failure_calls = [
-        call for call in mock_metrics_monitor.record_counter_by_name.call_args_list if call[0][0] == "test.failure"
-    ]
-    assert len(failure_calls) == 0
-
-    # Verify rt and total metrics were still recorded
-    mock_metrics_monitor.record_gauge_by_name.assert_called_once_with("test.rt", 1000.0, error_attrs)
-    mock_metrics_monitor.record_counter_by_name.assert_any_call("test.total", 1, error_attrs)
-
-
-def test_record_metrics_bad_request_falls_back_to_failure():
-    """Plain BadRequestRockError no longer gets a special bucket — it is treated
-    like any other server-side exception. Only InvalidParameterRockError is exempt."""
-    mock_metrics_monitor = Mock(spec=MetricsMonitor)
-    attributes = {"operation": "test_op"}
-    start_time = 0
-    exception = BadRequestRockError("ambiguous bad request")
+    exception = BadRequestRockError("sandbox_id is required")
 
     with patch("rock.admin.metrics.decorator.time.perf_counter", return_value=1.0):
         with pytest.raises(BadRequestRockError):
@@ -229,10 +203,5 @@ def test_record_metrics_bad_request_falls_back_to_failure():
 
     error_attrs = {**attributes, "error_type": "BadRequestRockError"}
     mock_metrics_monitor.record_counter_by_name.assert_any_call("test.failure", 1, error_attrs)
-
-    invalid_param_calls = [
-        call
-        for call in mock_metrics_monitor.record_counter_by_name.call_args_list
-        if call[0][0] == "test.invalid_param"
-    ]
-    assert len(invalid_param_calls) == 0
+    mock_metrics_monitor.record_gauge_by_name.assert_called_once_with("test.rt", 1000.0, error_attrs)
+    mock_metrics_monitor.record_counter_by_name.assert_any_call("test.total", 1, error_attrs)
