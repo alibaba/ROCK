@@ -1,18 +1,10 @@
-"""Admin ops API: submit and query ops jobs (DB-backed, multi-pod safe).
+"""Admin ops API: create and query TaskSets (DB-backed, multi-pod safe).
 
-Endpoints
-- POST /apis/v1/admin/ops/jobs              submit a job
-- GET  /apis/v1/admin/ops/jobs/{job_id}     query job state
+Endpoints (relative to prefix /apis/envs/sandbox/v1/ops):
+- POST /tasksets             Create a TaskSet (triggers tasks on workers)
+- GET  /tasksets/{taskset_id}  Query TaskSet with child tasks
 
-Design notes
-- All responses return ResponseStatus.SUCCESS once the server has processed
-  the request (including rejection / rate-limit / not-found). Business state
-  goes in ``result.status``.
-- Job state is persisted in PostgreSQL via OpsJobTable so multi-pod admin
-  deployments work consistently (no process-local dict).
-- Whitelist (suffix ``_cleanup`` / ``_prune`` / ``_archive``) and 60s
-  cross-pod rate limit protect against misuse during incidents.
-- Registered only when ``--role=admin``, never on proxy.
+Single-table design: one row per task_type per API call, grouped by taskset_id.
 """
 
 import asyncio
@@ -22,53 +14,87 @@ import uuid
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Body, Request
+from pydantic import BaseModel
 
 from rock.actions.response import ResponseStatus, RockResponse
-from rock.admin.core.ops_job_table import (
-    JOB_STATUS_ACCEPTED,
-    JOB_STATUS_COMPLETED,
-    JOB_STATUS_FAILED,
-    JOB_STATUS_NOT_FOUND,
-    JOB_STATUS_RATE_LIMITED,
-    JOB_STATUS_REJECTED,
-    JOB_STATUS_RUNNING,
+from rock.admin.core.scheduler_task_table import (
+    PHASE_FAILED,
+    PHASE_NOT_FOUND,
+    PHASE_PENDING,
+    PHASE_RATE_LIMITED,
+    PHASE_REJECTED,
+    PHASE_RUNNING,
+    PHASE_SUCCEEDED,
 )
-from rock.admin.proto.request import OpsJobRequest
+from rock.admin.proto.request import CreateTaskSetRequest, TaskSetSpec
 from rock.admin.scheduler.task_base import BaseTask
 from rock.common.exception import handle_exceptions
 from rock.logger import init_logger
 
 if TYPE_CHECKING:
-    from rock.admin.core.ops_job_table import OpsJobTable
+    from rock.admin.core.scheduler_task_table import SchedulerTaskTable
 
 logger = init_logger(__name__)
 audit_logger = init_logger("admin_ops_audit")
 
 admin_ops_router = APIRouter()
 
-# Cross-pod rate-limit window (seconds). Same task can't be re-submitted within
-# this window. Stored in DB (via OpsJobTable.list_recent_by_tasks), not in
-# process memory, so the gate applies across all admin pods.
 _RATE_LIMIT_SECONDS = 60
-
-# Whitelist suffixes — only tasks ending in these may be triggered via this API.
-# Kept in lockstep with the description of OpsJobRequest.tasks in
-# rock/admin/proto/request.py (single source of truth lives here).
 _WHITELIST_SUFFIXES = ("_cleanup", "_prune", "_archive")
 
 
-# dependency injection (set by main.py at lifespan startup)
-# Providers are callables so we always read the *current* registry / workers,
-# not a stale snapshot — scheduler thread mutates _tasks_by_class on Nacos
-# config reload, and worker IPs change over time.
-_ops_job_table: "OpsJobTable | None" = None
-_task_registry_provider = None  # callable[[], dict[str, BaseTask]]
-_alive_workers_provider = None  # callable[[], list[str]]
+class TaskSetMetadata(BaseModel):
+    tasksetId: str
+    creationTimestamp: float
 
 
-def set_ops_job_table(table: "OpsJobTable | None") -> None:
-    global _ops_job_table
-    _ops_job_table = table
+class TaskSetStatusModel(BaseModel):
+    phase: str
+    assignedPod: str = ""
+    active: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    startTime: float | None = None
+    completionTime: float | None = None
+
+
+class TaskMetadata(BaseModel):
+    taskId: str
+    tasksetId: str
+    creationTimestamp: float
+
+
+class TaskStatusModel(BaseModel):
+    phase: str
+    startTime: float | None = None
+    completionTime: float | None = None
+    conditions: list[dict] | None = None
+    result: list[dict] | None = None
+
+
+class TaskResponse(BaseModel):
+    metadata: TaskMetadata
+    spec: dict
+    status: TaskStatusModel
+
+
+class TaskSetResponse(BaseModel):
+    metadata: TaskSetMetadata
+    spec: TaskSetSpec
+    status: TaskSetStatusModel
+    tasks: list[TaskResponse] | None = None
+
+
+# --- Dependency injection ---
+
+_task_table: "SchedulerTaskTable | None" = None
+_task_registry_provider = None
+_alive_workers_provider = None
+
+
+def set_scheduler_task_table(table: "SchedulerTaskTable | None") -> None:
+    global _task_table
+    _task_table = table
 
 
 def set_task_registry_provider(provider) -> None:
@@ -96,10 +122,6 @@ def _is_whitelisted(task_type: str) -> bool:
 
 
 def _resolve_tasks(requested: list[str] | None) -> tuple[list[BaseTask], list[str]]:
-    """Return (allowed_tasks, rejected_types).
-
-    requested=None means "all whitelisted tasks in registry".
-    """
     registry = _current_registry()
     if requested is None:
         return [t for name, t in registry.items() if _is_whitelisted(name)], []
@@ -120,31 +142,84 @@ def _pod_id() -> str:
     return os.environ.get("HOSTNAME") or "unknown"
 
 
-@admin_ops_router.post("/admin/ops/jobs")
-@handle_exceptions(error_message="submit ops job failed")
-async def submit_ops_job(
-    request: Request,
-    payload: OpsJobRequest = Body(default_factory=OpsJobRequest),
-) -> RockResponse[dict]:
-    """Submit an ops job. Always returns SUCCESS once the server has processed
-    the request. Business state goes in ``result.status``:
-      - accepted       — job stored in DB, background execution started
-      - rate_limited   — all requested tasks within cooldown window
-      - rejected       — all requested tasks failed whitelist
-    """
-    caller = request.client.host if request.client else "unknown"
-    audit_logger.info(f"submit_ops_job: caller={caller}, tasks={payload.tasks}, workers={payload.worker_ips}")
+def _aggregate_taskset(taskset_id: str, tasks: list[dict]) -> TaskSetResponse:
+    """Build a TaskSetResponse by aggregating task rows."""
+    task_responses = [
+        TaskResponse(
+            metadata=TaskMetadata(
+                taskId=t["task_id"],
+                tasksetId=t["taskset_id"],
+                creationTimestamp=t["creation_timestamp"],
+            ),
+            spec={"taskType": t["task_type"], "targetWorkers": t["target_workers"]},
+            status=TaskStatusModel(
+                phase=t["phase"],
+                startTime=t.get("start_time"),
+                completionTime=t.get("completion_time"),
+                conditions=t.get("conditions"),
+                result=t.get("result"),
+            ),
+        )
+        for t in tasks
+    ]
 
-    if _ops_job_table is None:
+    succeeded = sum(1 for t in tasks if t["phase"] == PHASE_SUCCEEDED)
+    failed = sum(1 for t in tasks if t["phase"] == PHASE_FAILED)
+    active = len(tasks) - succeeded - failed
+
+    if active > 0:
+        phase = PHASE_RUNNING
+    elif failed > 0:
+        phase = PHASE_FAILED
+    else:
+        phase = PHASE_SUCCEEDED
+
+    start_times = [t["start_time"] for t in tasks if t.get("start_time")]
+    completion_times = [t["completion_time"] for t in tasks if t.get("completion_time")]
+
+    return TaskSetResponse(
+        metadata=TaskSetMetadata(
+            tasksetId=taskset_id,
+            creationTimestamp=min(t["creation_timestamp"] for t in tasks),
+        ),
+        spec=TaskSetSpec(
+            targetWorkers=tasks[0]["target_workers"] if tasks else None,
+        ),
+        status=TaskSetStatusModel(
+            phase=phase,
+            assignedPod=tasks[0].get("assigned_pod", "") if tasks else "",
+            active=active,
+            succeeded=succeeded,
+            failed=failed,
+            startTime=min(start_times) if start_times else None,
+            completionTime=max(completion_times) if completion_times and active == 0 else None,
+        ),
+        tasks=task_responses,
+    )
+
+
+# --- Endpoints ---
+
+
+@admin_ops_router.post("/tasksets")
+@handle_exceptions(error_message="create taskset failed")
+async def create_taskset(
+    request: Request,
+    payload: CreateTaskSetRequest = Body(default_factory=CreateTaskSetRequest),
+) -> RockResponse[dict]:
+    caller = request.client.host if request.client else "unknown"
+    audit_logger.info(f"create_taskset: caller={caller}, spec={payload.spec.model_dump()}")
+
+    if _task_table is None:
         return RockResponse(
             status=ResponseStatus.FAILED,
-            message="ops job table not initialised",
+            message="scheduler task table not initialised",
             error="server misconfigured",
         )
 
     # 1) Resolve worker IPs
-    if payload.worker_ips is not None:
-        worker_ips = list(payload.worker_ips)
+    if payload.spec.targetWorkers is not None:
+        worker_ips = list(payload.spec.targetWorkers)
     elif _alive_workers_provider is not None:
         try:
             worker_ips = list(_alive_workers_provider())
@@ -155,119 +230,127 @@ async def submit_ops_job(
         worker_ips = []
 
     # 2) Resolve tasks against whitelist + registry
-    allowed, rejected = _resolve_tasks(payload.tasks)
+    allowed, rejected = _resolve_tasks(payload.spec.taskTypes)
 
     if not allowed:
-        return RockResponse(
-            status=ResponseStatus.SUCCESS,
-            message="ok",
-            result={
-                "job_id": None,
-                "status": JOB_STATUS_REJECTED,
-                "rejected_tasks": rejected,
-            },
+        resp = TaskSetResponse(
+            metadata=TaskSetMetadata(tasksetId="", creationTimestamp=time.time()),
+            spec=payload.spec,
+            status=TaskSetStatusModel(
+                phase=PHASE_REJECTED,
+                conditions=[{"type": "Rejected", "rejectedTaskTypes": rejected}],
+            ),
         )
+        return RockResponse(status=ResponseStatus.SUCCESS, message="ok", result=resp.model_dump())
 
-    # 3) Cross-pod rate limit via DB query (last 60s)
-    requested_types = [t.type for t in allowed]
-    recent = await _ops_job_table.list_recent_by_tasks(requested_types, since_epoch=time.time() - _RATE_LIMIT_SECONDS)
-    in_cooldown: set[str] = set()
-    for r in recent:
-        in_cooldown.update(set(r.get("tasks") or []) & set(requested_types))
+    # 3) Cross-pod rate limit (per task_type, via indexed query)
+    since = time.time() - _RATE_LIMIT_SECONDS
+    in_cooldown: list[str] = []
+    for t in allowed:
+        if await _task_table.has_recent_task(t.type, since):
+            in_cooldown.append(t.type)
 
     runnable = [t for t in allowed if t.type not in in_cooldown]
-    rate_limited = sorted(in_cooldown)
 
     if not runnable:
-        return RockResponse(
-            status=ResponseStatus.SUCCESS,
-            message="ok",
-            result={
-                "job_id": None,
-                "status": JOB_STATUS_RATE_LIMITED,
-                "rate_limited_tasks": rate_limited,
-                "cooldown_seconds": _RATE_LIMIT_SECONDS,
-                "rejected_tasks": rejected,
-            },
+        resp = TaskSetResponse(
+            metadata=TaskSetMetadata(tasksetId="", creationTimestamp=time.time()),
+            spec=payload.spec,
+            status=TaskSetStatusModel(
+                phase=PHASE_RATE_LIMITED,
+                conditions=[
+                    {
+                        "type": "RateLimited",
+                        "rateLimitedTaskTypes": sorted(in_cooldown),
+                        "cooldownSeconds": _RATE_LIMIT_SECONDS,
+                        "rejectedTaskTypes": rejected,
+                    }
+                ],
+            ),
         )
+        return RockResponse(status=ResponseStatus.SUCCESS, message="ok", result=resp.model_dump())
 
-    # 4) Persist + fire-and-forget
-    job_id = uuid.uuid4().hex[:12]
-    submitted_at = time.time()
+    # 4) Persist task rows (one per runnable task_type, grouped by taskset_id)
+    now = time.time()
+    taskset_id = uuid.uuid4().hex
     pod_id = _pod_id()
-    await _ops_job_table.insert(
-        {
-            "job_id": job_id,
-            "submitted_by": caller,
-            "tasks": [t.type for t in runnable],
-            "worker_ips": worker_ips,
-            "status": JOB_STATUS_ACCEPTED,
-            "submitted_at": submitted_at,
-            "pod_id": pod_id,
-        }
-    )
-    asyncio.create_task(_run_job_async(job_id, runnable, worker_ips))
+
+    task_records = []
+    for t in runnable:
+        task_records.append(
+            {
+                "task_id": uuid.uuid4().hex,
+                "taskset_id": taskset_id,
+                "task_type": t.type,
+                "target_workers": worker_ips,
+                "creation_timestamp": now,
+                "phase": PHASE_PENDING,
+                "assigned_pod": pod_id,
+            }
+        )
+    await _task_table.insert_tasks(task_records)
+
+    asyncio.create_task(_run_tasks_async(taskset_id, runnable, worker_ips, task_records))
+
     audit_logger.info(
-        f"submit_ops_job accepted: job_id={job_id}, caller={caller}, "
+        f"create_taskset: taskset_id={taskset_id}, caller={caller}, "
         f"tasks={[t.type for t in runnable]}, workers={len(worker_ips)}, pod={pod_id}"
     )
 
-    return RockResponse(
-        status=ResponseStatus.SUCCESS,
-        message="ok",
-        result={
-            "job_id": job_id,
-            "status": JOB_STATUS_ACCEPTED,
-            "tasks": [t.type for t in runnable],
-            "worker_count": len(worker_ips),
-            "rejected_tasks": rejected,
-            "rate_limited_tasks": rate_limited,
-            "submitted_at": submitted_at,
-            "pod_id": pod_id,
-        },
-    )
+    # Build response
+    resp = _aggregate_taskset(taskset_id, task_records)
+    result = resp.model_dump()
+    if rejected or in_cooldown:
+        result["conditions"] = [{"type": "Partial", "rejectedTaskTypes": rejected, "rateLimitedTaskTypes": in_cooldown}]
+    return RockResponse(status=ResponseStatus.SUCCESS, message="ok", result=result)
 
 
-@admin_ops_router.get("/admin/ops/jobs/{job_id}")
-@handle_exceptions(error_message="get ops job failed")
-async def get_ops_job(job_id: str) -> RockResponse[dict]:
-    """Query ops job state. SUCCESS even when not found (result.status='not_found')."""
-    if _ops_job_table is None:
+@admin_ops_router.get("/tasksets/{taskset_id}")
+@handle_exceptions(error_message="get taskset failed")
+async def get_taskset(taskset_id: str) -> RockResponse[dict]:
+    if _task_table is None:
         return RockResponse(
             status=ResponseStatus.FAILED,
-            message="ops job table not initialised",
+            message="scheduler task table not initialised",
             error="server misconfigured",
         )
 
-    job = await _ops_job_table.get(job_id)
-    if job is None:
-        return RockResponse(
-            status=ResponseStatus.SUCCESS,
-            message="ok",
-            result={"job_id": job_id, "status": JOB_STATUS_NOT_FOUND},
+    tasks = await _task_table.get_tasks_by_group(taskset_id)
+    if not tasks:
+        resp = TaskSetResponse(
+            metadata=TaskSetMetadata(tasksetId=taskset_id, creationTimestamp=0),
+            spec=TaskSetSpec(),
+            status=TaskSetStatusModel(phase=PHASE_NOT_FOUND),
         )
-    return RockResponse(
-        status=ResponseStatus.SUCCESS,
-        message="ok",
-        result=job,
-    )
+        return RockResponse(status=ResponseStatus.SUCCESS, message="ok", result=resp.model_dump())
+
+    resp = _aggregate_taskset(taskset_id, tasks)
+    return RockResponse(status=ResponseStatus.SUCCESS, message="ok", result=resp.model_dump())
 
 
-async def _run_job_async(job_id: str, tasks: list[BaseTask], worker_ips: list[str]) -> None:
-    """Execute tasks on workers and persist outcome to DB. Best-effort: if DB
-    update fails we still log so operators can diagnose via audit log."""
-    await _ops_job_table.update_status(job_id, JOB_STATUS_RUNNING)
-    try:
-        results: dict[str, list] = {}
-        for task in tasks:
-            try:
-                await task.run(worker_ips)
-                results[task.type] = [{"ip": ip, "ok": True} for ip in worker_ips]
-            except Exception as e:
-                logger.exception(f"ops job '{job_id}' task '{task.type}' failed")
-                results[task.type] = [{"ip": ip, "ok": False, "error": str(e)} for ip in worker_ips]
-        await _ops_job_table.update_status(job_id, JOB_STATUS_COMPLETED, results=results)
-        audit_logger.info(f"ops job '{job_id}' completed")
-    except Exception as e:
-        logger.exception(f"ops job '{job_id}' failed catastrophically")
-        await _ops_job_table.update_status(job_id, JOB_STATUS_FAILED, error=str(e))
+# --- Background execution ---
+
+
+async def _run_tasks_async(
+    taskset_id: str,
+    tasks: list[BaseTask],
+    worker_ips: list[str],
+    task_records: list[dict],
+) -> None:
+    """Execute each task and update its row."""
+    for task, record in zip(tasks, task_records):
+        tid = record["task_id"]
+        await _task_table.update_task(tid, phase=PHASE_RUNNING, start_time=time.time())
+        try:
+            await task.run(worker_ips)
+            result = [{"worker": ip, "success": True} for ip in worker_ips]
+            await _task_table.update_task(tid, phase=PHASE_SUCCEEDED, completion_time=time.time(), result=result)
+        except Exception as e:
+            logger.exception(f"taskset '{taskset_id}' task '{task.type}' failed")
+            result = [{"worker": ip, "success": False, "message": str(e)} for ip in worker_ips]
+            conditions = [{"type": "Failed", "reason": "ExecutionError", "message": str(e)[:2048]}]
+            await _task_table.update_task(
+                tid, phase=PHASE_FAILED, completion_time=time.time(), result=result, conditions=conditions
+            )
+
+    audit_logger.info(f"taskset '{taskset_id}' done")

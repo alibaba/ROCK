@@ -104,25 +104,19 @@ class SandboxRecord(Base):
         return {c.key: getattr(self, c.key) for c in self.__table__.columns if getattr(self, c.key) is not None}
 
 
-class OpsJobRecord(Base):
-    """Persistence model for admin ops jobs submitted via /admin/ops/jobs.
+class SchedulerTaskRecord(Base):
+    """One row per scheduled task execution. Grouped by taskset_id."""
 
-    Shared across all admin pods so POST → DB write, GET → DB read works
-    consistently regardless of which pod handles each request. Replaces the
-    previous in-memory ``_async_jobs`` dict that was process-local.
-    """
+    __tablename__ = "scheduler_task"
 
-    __tablename__ = "admin_ops_job"
-
-    job_id = Column(String(64), primary_key=True)
-    submitted_by = Column(String(128), nullable=False, default="")  # caller IP / identity
-    tasks = Column(_JSONB_VARIANT, nullable=False, default=list)  # list[str]
-    worker_ips = Column(_JSONB_VARIANT, nullable=False, default=list)  # list[str]
-    status = Column(String(32), nullable=False, default="accepted")
-    results = Column(_JSONB_VARIANT, nullable=True)  # per-task outcome
-    error = Column(String(2048), nullable=True)
-    submitted_at = Column(Float, nullable=False)  # epoch seconds
-    completed_at = Column(Float, nullable=True)
-    pod_id = Column(String(128), nullable=False, default="")  # which admin pod handled
-
-    __table_args__ = (Index("ix_admin_ops_job_submitted_at", "submitted_at"),)
+    task_id = Column(String(32), primary_key=True)
+    taskset_id = Column(String(32), nullable=True, index=True)
+    task_type = Column(String(64), nullable=False, index=True)
+    target_workers = Column(_JSONB_VARIANT, nullable=True)
+    creation_timestamp = Column(Float, nullable=False)
+    phase = Column(String(32), nullable=False, default="Pending")
+    assigned_pod = Column(String(128), nullable=False, default="")
+    start_time = Column(Float, nullable=True)
+    completion_time = Column(Float, nullable=True)
+    conditions = Column(_JSONB_VARIANT, nullable=True)
+    result = Column(_JSONB_VARIANT, nullable=True)

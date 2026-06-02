@@ -16,12 +16,12 @@ from starlette.responses import JSONResponse
 
 from rock import env_vars
 from rock.admin.core.db_provider import DatabaseProvider
-from rock.admin.core.ops_job_table import OpsJobTable
 from rock.admin.core.ray_service import RayService
 from rock.admin.core.sandbox_table import SandboxTable
+from rock.admin.core.scheduler_task_table import SchedulerTaskTable
 from rock.admin.entrypoints.admin_ops_api import (
     admin_ops_router,
-    set_ops_job_table,
+    set_scheduler_task_table,
 )
 from rock.admin.entrypoints.admin_ops_api import (
     set_alive_workers_provider as set_ops_alive_workers_provider,
@@ -120,12 +120,12 @@ async def lifespan(app: FastAPI):
     # config reload propagates to the next task run without re-injection.
     set_archive_sandbox_table_provider(lambda: sandbox_table)
     set_archive_rock_config_provider(lambda: rock_config)
-    # Capture lifespan loop (uvicorn main loop). SandboxLogArchiveTask runs
-    # inside SchedulerThread's child loop; it must dispatch DB calls back to
-    # this main loop so asyncpg pool stays bound here and HTTP handlers don't
-    # break with "Future attached to a different loop".
     _main_loop = asyncio.get_running_loop()
     set_archive_main_loop_provider(lambda: _main_loop)
+
+    # init scheduler task table (DB-backed, multi-pod safe)
+    scheduler_task_table = SchedulerTaskTable(db_provider)
+    set_scheduler_task_table(scheduler_task_table)
 
     # init scheduler thread
     scheduler_thread = None
@@ -181,12 +181,6 @@ async def lifespan(app: FastAPI):
         elif rock_config.scheduler.enabled:
             logger.info("Scheduler thread skipped on non-primary pod")
 
-        # Wire admin_ops_router with task registry + worker cache built INDEPENDENTLY
-        # of scheduler_thread, so every admin pod (not just primary) can resolve
-        # tasks and execute on demand. The scheduler thread itself stays
-        # primary-only for periodic triggers (avoids duplicate fires); one-shot
-        # ops triggers are gated by the 60s cross-pod DB rate limit in
-        # admin_ops_api, so it's safe for any pod to execute.
         ops_task_registry: dict[str, BaseTask] = {}
         if rock_config.scheduler.enabled:
             for task_config in rock_config.scheduler.tasks:
@@ -196,7 +190,7 @@ async def lifespan(app: FastAPI):
                     task = TaskFactory.create_task(task_config)
                     ops_task_registry[task.type] = task
                 except Exception as e:
-                    logger.warning(f"ops_jobs: failed to instantiate '{task_config.task_class}': {e}")
+                    logger.warning(f"ops_taskset: failed to instantiate '{task_config.task_class}': {e}")
         set_ops_task_registry_provider(lambda: ops_task_registry)
 
         ops_worker_cache = WorkerIPCache(cache_ttl=rock_config.scheduler.worker_cache_ttl)
@@ -307,12 +301,11 @@ def main():
     # config router
     if args.role == "admin":
         app.include_router(sandbox_router, prefix="/apis/envs/sandbox/v1", tags=["sandbox"])
+        app.include_router(admin_ops_router, prefix="/apis/envs/sandbox/v1/ops", tags=["admin-ops"])
     else:
         app.include_router(sandbox_proxy_router, prefix="/apis/envs/sandbox/v1", tags=["sandbox"])
     app.include_router(warmup_router, prefix="/apis/envs/sandbox/v1", tags=["warmup"])
     app.include_router(gem_router, prefix="/apis/v1/envs/gem", tags=["gem"])
-    if args.role == "admin":
-        app.include_router(admin_ops_router, prefix="/apis/v1", tags=["admin-ops"])
 
     uvicorn.run(app, host="0.0.0.0", port=args.port, ws_ping_interval=None, ws_ping_timeout=None, timeout_keep_alive=30)
 
