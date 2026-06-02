@@ -13,13 +13,13 @@ from rock.sdk.sandbox.config import SandboxConfig
 
 def test_image_os_default_value():
     """SandboxStartRequest should default image_os to 'linux'."""
-    request = SandboxStartRequest()
+    request = SandboxStartRequest(image="ubuntu:22.04")
     assert request.image_os == "linux"
 
 
 def test_image_os_custom_value():
     """SandboxStartRequest should accept a custom image_os value."""
-    request = SandboxStartRequest(image_os="windows")
+    request = SandboxStartRequest(image="ubuntu:22.04", image_os="windows")
     assert request.image_os == "windows"
 
 
@@ -67,14 +67,14 @@ def test_all_fields_propagate_from_request_to_docker_config():
 
 def test_sandbox_id_becomes_container_name():
     """sandbox_id from SandboxStartRequest should map to container_name in DockerDeploymentConfig."""
-    request = SandboxStartRequest(sandbox_id="my-sandbox")
+    request = SandboxStartRequest(image="ubuntu:22.04", sandbox_id="my-sandbox")
     config = DockerDeploymentConfig.from_request(request)
     assert config.container_name == "my-sandbox"
 
 
 def test_none_sandbox_id_yields_none_container_name():
     """When sandbox_id is None, container_name in DockerDeploymentConfig should also be None."""
-    request = SandboxStartRequest(sandbox_id=None)
+    request = SandboxStartRequest(image="ubuntu:22.04", sandbox_id=None)
     config = DockerDeploymentConfig.from_request(request)
     assert config.container_name is None
 
@@ -82,7 +82,7 @@ def test_none_sandbox_id_yields_none_container_name():
 def test_image_os_default_matches_between_sdk_config_and_start_request():
     """SandboxConfig and SandboxStartRequest must share the same default value for image_os."""
     sdk_config = SandboxConfig()
-    start_request = SandboxStartRequest()
+    start_request = SandboxStartRequest(image="ubuntu:22.04")
     assert sdk_config.image_os == start_request.image_os
 
 

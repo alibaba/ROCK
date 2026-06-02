@@ -154,12 +154,14 @@ class BaseTask(ABC):
 
     async def get_task_status(self, runtime: RemoteSandboxRuntime) -> TaskStatus | None:
         """Get task status from worker."""
-        check_file_resp = await runtime.execute(Command(command=f"ls {self.status_file_path}", shell=True))
+        check_file_resp = await runtime.execute(
+            Command(command=f"ls {self.status_file_path}", shell=True, sandbox_id="scheduler-task")
+        )
         if check_file_resp.exit_code == 2:
             logger.info(f"task status file not exist: {self.status_file_path}")
             return None
 
-        response = await runtime.read_file(ReadFileRequest(path=self.status_file_path))
+        response = await runtime.read_file(ReadFileRequest(path=self.status_file_path, sandbox_id="scheduler-task"))
         if response.content:
             try:
                 return TaskStatus.from_json(response.content)
@@ -169,11 +171,15 @@ class BaseTask(ABC):
 
     async def save_task_status(self, runtime: RemoteSandboxRuntime, status: TaskStatus):
         """Save task status to worker file."""
-        await runtime.write_file(WriteFileRequest(path=self.status_file_path, content=status.to_json()))
+        await runtime.write_file(
+            WriteFileRequest(path=self.status_file_path, content=status.to_json(), sandbox_id="scheduler-task")
+        )
 
     async def _clear_task_status(self, runtime: RemoteSandboxRuntime) -> None:
         """Remove the status file from worker."""
-        await runtime.execute(Command(command=f"rm -f {self.status_file_path}", shell=True))
+        await runtime.execute(
+            Command(command=f"rm -f {self.status_file_path}", shell=True, sandbox_id="scheduler-task")
+        )
 
     async def cleanup_on_worker(self, ip: str) -> None:
         """Stop any long-running process spawned by this task on a single worker.
@@ -188,7 +194,7 @@ class BaseTask(ABC):
             return
         if await runtime.check_pid_exists(status.pid):
             kill_cmd = f"pkill -9 -P {status.pid}; kill -9 {status.pid}"
-            await runtime.execute(Command(command=kill_cmd, shell=True))
+            await runtime.execute(Command(command=kill_cmd, shell=True, sandbox_id="scheduler-task"))
             logger.info(f"[{self.type}] killed pid {status.pid} on worker[{ip}]")
         await self._clear_task_status(runtime)
 

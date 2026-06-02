@@ -231,7 +231,7 @@ class SandboxLogArchiveTask(BaseTask):
         portable (worker images are Linux-based; macOS not supported here).
         """
         cmd = f"find {self.log_root} -maxdepth 1 -mindepth 1 -type d -printf '%f\\n' 2>/dev/null || true"
-        result = await runtime.execute(Command(command=cmd, shell=True, check=False))
+        result = await runtime.execute(Command(command=cmd, shell=True, check=False, sandbox_id="scheduler-task"))
         if result.exit_code != 0:
             return []
         names = (result.stdout or "").strip().split("\n")
@@ -282,6 +282,7 @@ class SandboxLogArchiveTask(BaseTask):
                     "OSS_ACCESS_KEY_ID": access_key_id,
                     "OSS_ACCESS_KEY_SECRET": access_key_secret,
                 },
+                sandbox_id=sandbox_id,
             )
         )
         logger.info(f"[{self.type}] archived {sandbox_id} -> oss://{bucket}/{oss_key}")

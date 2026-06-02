@@ -37,6 +37,7 @@ from rock.common.constants import (
     SUPPORT_KATA_SWITCH,
 )
 from rock.common.exception import handle_exceptions
+from rock.common.validation import NonBlankStr
 from rock.deployments.config import AcceleratorType, DockerDeploymentConfig
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sdk.common.exceptions import BadRequestRockError
@@ -191,7 +192,7 @@ async def start_async(
 
 @sandbox_router.get("/is_alive")
 @handle_exceptions(error_message="get sandbox is alive failed")
-async def is_alive(sandbox_id: str):
+async def is_alive(sandbox_id: NonBlankStr):
     try:
         status_response = await sandbox_manager.get_status(sandbox_id)
         alive_response = IsAliveResponse(is_alive=status_response.is_alive, message=status_response.host_name)
@@ -203,13 +204,13 @@ async def is_alive(sandbox_id: str):
 
 @sandbox_router.get("/get_sandbox_statistics")
 @handle_exceptions(error_message="get sandbox statistics failed")
-async def get_sandbox_statistics(sandbox_id: str):
+async def get_sandbox_statistics(sandbox_id: NonBlankStr):
     return RockResponse(result=await sandbox_manager.get_sandbox_statistics(sandbox_id))
 
 
 @sandbox_router.get("/get_status")
 @handle_exceptions(error_message="get sandbox status failed")
-async def get_status(sandbox_id: str, include_all_states: bool = False):
+async def get_status(sandbox_id: NonBlankStr, include_all_states: bool = False):
     # TODO: do judgement inside operator
     if (
         sandbox_manager.rock_config.nacos_provider is not None
@@ -265,14 +266,14 @@ async def write_file(request: SandboxWriteFileRequest) -> RockResponse[WriteFile
 async def upload(
     file: UploadFile = File(...),
     target_path: str = Form(...),
-    sandbox_id: str | None = Form(None),
+    sandbox_id: Annotated[NonBlankStr, Form()] = ...,
 ) -> RockResponse[UploadResponse]:
     return RockResponse(result=await sandbox_manager.upload(file, target_path, sandbox_id))
 
 
 @sandbox_router.post("/stop")
 @handle_exceptions(error_message="stop sandbox failed")
-async def close(sandbox_id: str = Body(..., embed=True)) -> RockResponse[str]:
+async def close(sandbox_id: Annotated[NonBlankStr, Body(embed=True)]) -> RockResponse[str]:
     await sandbox_manager.stop(sandbox_id)
     return RockResponse(result=f"{sandbox_id} stopped")
 
@@ -287,13 +288,15 @@ async def restart(sandbox_id: str = Body(..., embed=True)) -> RockResponse[Sandb
 @sandbox_router.post("/commit")
 @handle_exceptions(error_message="commit sandbox failed")
 async def commit(
-    sandbox_id: str = Body(..., embed=True),
-    image_tag: str = Body(
-        ...,
-        embed=True,
-        example="docker.io/library/nginx:1.25",
-        description="commited image tag: <registry>/<repository>:<tag>",
-    ),
+    sandbox_id: Annotated[NonBlankStr, Body(embed=True)],
+    image_tag: Annotated[
+        NonBlankStr,
+        Body(
+            embed=True,
+            example="docker.io/library/nginx:1.25",
+            description="commited image tag: <registry>/<repository>:<tag>",
+        ),
+    ],
     username: str = Body(..., embed=True),
     password: str = Body(..., embed=True),
 ) -> RockResponse[str]:

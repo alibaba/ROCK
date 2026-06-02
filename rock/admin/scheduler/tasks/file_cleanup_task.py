@@ -231,7 +231,9 @@ class FileCleanupTask(BaseTask):
             target_dir = dir_config.path
             try:
                 command = self._build_cleanup_command(dir_config)
-                result = await runtime.execute(Command(command=command, shell=True, check=True))
+                result = await runtime.execute(
+                    Command(command=command, shell=True, check=True, sandbox_id="scheduler-task")
+                )
                 output = result.stdout.strip() if result.stdout else ""
                 results[target_dir] = {
                     "exit_code": result.exit_code,

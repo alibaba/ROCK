@@ -3,7 +3,10 @@ import os
 import pytest
 
 from rock import env_vars
-from rock.actions import BashAction, CloseBashSessionRequest, Command, CreateBashSessionRequest
+from rock.admin.proto.request import SandboxBashAction as BashAction
+from rock.admin.proto.request import SandboxCloseBashSessionRequest as CloseBashSessionRequest
+from rock.admin.proto.request import SandboxCommand as Command
+from rock.admin.proto.request import SandboxCreateBashSessionRequest as CreateBashSessionRequest
 from rock.deployments.config import DockerDeploymentConfig, get_deployment
 
 
@@ -18,31 +21,32 @@ async def test_docker_deployment(container_name):
         await d.is_alive()
     await d.start()
     assert await d.is_alive()
-    command = Command(command=["echo", "hello"])
+    sid = container_name
+    command = Command(command=["echo", "hello"], sandbox_id=sid)
     await d.runtime.execute(command)
 
     # test bash session with default env
-    create_session_request = CreateBashSessionRequest(session_type="bash")
+    create_session_request = CreateBashSessionRequest(session_type="bash", sandbox_id=sid)
     await d.runtime.create_session(create_session_request)
-    action = BashAction(command="echo $PATH")
+    action = BashAction(command="echo $PATH", sandbox_id=sid)
     path_result_with_env = await d.runtime.run_in_session(action)
     print(path_result_with_env.output)
-    action = BashAction(command="echo $HOME")
+    action = BashAction(command="echo $HOME", sandbox_id=sid)
     home_result_with_env = await d.runtime.run_in_session(action)
     print(home_result_with_env.output)
-    close_session_request = CloseBashSessionRequest(session_type="bash")
+    close_session_request = CloseBashSessionRequest(session_type="bash", sandbox_id=sid)
     await d.runtime.close_session(close_session_request)
 
     # test bash session without default env
-    create_session_request = CreateBashSessionRequest(session_type="bash", env_enable=False)
+    create_session_request = CreateBashSessionRequest(session_type="bash", env_enable=False, sandbox_id=sid)
     await d.runtime.create_session(create_session_request)
-    action = BashAction(command="echo $PATH")
+    action = BashAction(command="echo $PATH", sandbox_id=sid)
     path_result = await d.runtime.run_in_session(action)
     print(path_result.output)
-    action = BashAction(command="echo $HOME")
+    action = BashAction(command="echo $HOME", sandbox_id=sid)
     home_result = await d.runtime.run_in_session(action)
     print(home_result.output)
-    close_session_request = CloseBashSessionRequest(session_type="bash")
+    close_session_request = CloseBashSessionRequest(session_type="bash", sandbox_id=sid)
     await d.runtime.close_session(close_session_request)
     await d.stop()
 
@@ -58,14 +62,15 @@ async def test_docker_deployment_mounts_localtime_in_container(container_name):
     try:
         await d.start()
 
+        sid = container_name
         if host_has_zoneinfo:
-            result = await d.runtime.execute(Command(command=["/bin/sh", "-c", "date +%z"]))
+            result = await d.runtime.execute(Command(command=["/bin/sh", "-c", "date +%z"], sandbox_id=sid))
             import subprocess
 
             host_offset = subprocess.check_output(["date", "+%z"], env={**os.environ, "TZ": tz}).decode().strip()
             assert result.stdout.strip() == host_offset
         else:
-            result = await d.runtime.execute(Command(command=["/bin/sh", "-c", "date +%Z"]))
+            result = await d.runtime.execute(Command(command=["/bin/sh", "-c", "date +%Z"], sandbox_id=sid))
             assert result.stdout.strip() == "UTC"
     finally:
         await d.stop()

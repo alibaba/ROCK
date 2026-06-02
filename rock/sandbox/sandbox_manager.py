@@ -412,4 +412,6 @@ class SandboxManager(BaseManager):
                 parse_size_to_bytes(deployment_config.disk_limit_rootfs)
             except ValueError as e:
                 logger.warning(f"Invalid disk_limit_rootfs size: {deployment_config.disk_limit_rootfs}", exc_info=e)
-                raise BadRequestRockError(f"Invalid disk_limit_rootfs size: {deployment_config.disk_limit_rootfs}")
+                raise BadRequestRockError(
+                    f"Invalid disk_limit_rootfs size: {deployment_config.disk_limit_rootfs}"
+                )

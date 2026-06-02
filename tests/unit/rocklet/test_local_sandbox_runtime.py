@@ -23,7 +23,9 @@ async def test_upload_file(local_runtime: Rocklet, tmp_path: Path):
     file_path.write_text("test")
     tmp_target = tmp_path / "target.txt"
     await local_runtime.upload(UploadRequest(source_path=str(file_path), target_path=str(tmp_target)))
-    assert (await local_runtime.read_file(ReadFileRequest(path=str(tmp_target)))).content == "test"
+    assert (
+        await local_runtime.read_file(ReadFileRequest(path=str(tmp_target), sandbox_id="local-test"))
+    ).content == "test"
 
 
 @pytest.mark.asyncio
@@ -34,8 +36,13 @@ async def test_upload_directory(local_runtime: Rocklet, tmp_path: Path):
     (dir_path / "file2.txt").write_text("test2")
     tmp_target = tmp_path / "target_dir"
     await local_runtime.upload(UploadRequest(source_path=str(dir_path), target_path=str(tmp_target)))
-    assert (await local_runtime.read_file(ReadFileRequest(path=str(tmp_target / "file1.txt")))).content == "test1"
-    assert (await local_runtime.read_file(ReadFileRequest(path=str(tmp_target / "file2.txt")))).content == "test2"
+    sid = "local-test"
+    assert (
+        await local_runtime.read_file(ReadFileRequest(path=str(tmp_target / "file1.txt"), sandbox_id=sid))
+    ).content == "test1"
+    assert (
+        await local_runtime.read_file(ReadFileRequest(path=str(tmp_target / "file2.txt"), sandbox_id=sid))
+    ).content == "test2"
 
 
 @pytest.mark.asyncio
@@ -68,14 +75,19 @@ async def test_gem(local_runtime: Rocklet):
 @pytest.mark.asyncio
 async def test_prompt_command(local_runtime: Rocklet):
     prompt_command = "echo ROCK"
+    sid = "local-test"
     await local_runtime.create_session(
-        CreateBashSessionRequest(env={"PROMPT_COMMAND": prompt_command}, session_type="bash")
+        CreateBashSessionRequest(env={"PROMPT_COMMAND": prompt_command}, session_type="bash", sandbox_id=sid)
     )
-    without_prompt_command = await local_runtime.run_in_session(BashAction(command="echo hello", action_type="bash"))
+    without_prompt_command = await local_runtime.run_in_session(
+        BashAction(command="echo hello", action_type="bash", sandbox_id=sid)
+    )
     assert without_prompt_command.output == "hello"
     await local_runtime.run_in_session(
-        BashAction(command=f'export PROMPT_COMMAND="{prompt_command}"', action_type="bash")
+        BashAction(command=f'export PROMPT_COMMAND="{prompt_command}"', action_type="bash", sandbox_id=sid)
     )
-    with_prompt_command = await local_runtime.run_in_session(BashAction(command="echo hello", action_type="bash"))
+    with_prompt_command = await local_runtime.run_in_session(
+        BashAction(command="echo hello", action_type="bash", sandbox_id=sid)
+    )
     assert with_prompt_command.output.__contains__("ROCK")
-    await local_runtime.close_session(CloseBashSessionRequest(session_type="bash"))
+    await local_runtime.close_session(CloseBashSessionRequest(session_type="bash", sandbox_id=sid))

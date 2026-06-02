@@ -242,7 +242,7 @@ class RayLogCleanupTask(BaseTask):
             echo "ray_log_cleanup_done"
             """
         )
-        result = await runtime.execute(Command(command=command, shell=True, check=False))
+        result = await runtime.execute(Command(command=command, shell=True, check=False, sandbox_id="scheduler-task"))
         output = (result.stdout or "").strip()
 
         # Parse per-category removal counts from output.

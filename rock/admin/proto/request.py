@@ -12,10 +12,11 @@ from rock.actions import (
     ReadFileRequest,
     WriteFileRequest,
 )
+from rock.common.validation import NonBlankStr
 
 
 class SandboxStartRequest(BaseModel):
-    image: str = ""
+    image: NonBlankStr
     """image"""
     image_os: str = "linux"
     """The operating system of the image (e.g., 'linux', 'windows')."""
@@ -62,14 +63,14 @@ class SandboxCommand(Command):
     """Environment variables to pass to the command."""
     cwd: str | None = None
     """The current working directory to run the command in."""
-    sandbox_id: str | None = None
+    sandbox_id: NonBlankStr
     """The id of the sandbox."""
 
 
 class SandboxCreateBashSessionRequest(CreateBashSessionRequest):
     startup_timeout: float = 1.0
     max_read_size: int = 2000
-    sandbox_id: str | None = None
+    sandbox_id: NonBlankStr
     remote_user: str | None = Field(default=None)
 
 
@@ -77,7 +78,7 @@ SandboxCreateSessionRequest = Annotated[SandboxCreateBashSessionRequest, Field(d
 
 
 class SandboxBashAction(BashAction):
-    sandbox_id: str | None = None
+    sandbox_id: NonBlankStr
     """The id of the sandbox."""
     is_interactive_command: bool = False
     """For a non-exiting command to an interactive program
@@ -99,18 +100,18 @@ SandboxAction = Annotated[SandboxBashAction, Field(discriminator="action_type")]
 
 
 class SandboxCloseBashSessionRequest(CloseBashSessionRequest):
-    sandbox_id: str | None = None
+    sandbox_id: NonBlankStr
 
 
 SandboxCloseSessionRequest = Annotated[SandboxCloseBashSessionRequest, Field(discriminator="session_type")]
 
 
 class SandboxReadFileRequest(ReadFileRequest):
-    sandbox_id: str | None = None
+    sandbox_id: NonBlankStr
 
 
 class SandboxWriteFileRequest(WriteFileRequest):
-    sandbox_id: str | None = None
+    sandbox_id: NonBlankStr
 
 
 class WarmupRequest(BaseModel):

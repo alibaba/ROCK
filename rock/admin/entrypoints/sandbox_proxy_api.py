@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, File, Form, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse as _JSONResponse
@@ -28,6 +28,7 @@ from rock.admin.proto.request import (
 from rock.admin.proto.response import BatchSandboxStatusResponse, SandboxListResponse
 from rock.common.exception import handle_exceptions
 from rock.common.port_validation import validate_port_forward_port
+from rock.common.validation import NonBlankStr
 from rock.logger import init_logger
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sdk.common.exceptions import BadRequestRockError
@@ -147,7 +148,7 @@ async def close_session(request: SandboxCloseBashSessionRequest) -> RockResponse
 
 @sandbox_proxy_router.get("/is_alive")
 @handle_exceptions(error_message="get sandbox is alive failed")
-async def is_alive(sandbox_id: str):
+async def is_alive(sandbox_id: NonBlankStr):
     return RockResponse(result=await sandbox_proxy_service.is_alive(sandbox_id))
 
 
@@ -168,7 +169,7 @@ async def write_file(request: SandboxWriteFileRequest) -> RockResponse[WriteFile
 async def upload(
     file: UploadFile = File(...),
     target_path: str = Form(...),
-    sandbox_id: str | None = Form(None),
+    sandbox_id: Annotated[NonBlankStr, Form()] = ...,
 ) -> RockResponse[UploadResponse]:
     return RockResponse(result=await sandbox_proxy_service.upload(file, target_path, sandbox_id))
 

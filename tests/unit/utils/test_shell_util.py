@@ -20,10 +20,14 @@ async def mock_arun(cmd: str, response_limited_bytes: int = 1024 * 64):
     session_name = f"bash-{temp_id}"
     d = LocalDeployment()
     await d.start()
-    await d.runtime.create_session(SandboxCreateBashSessionRequest(session=session_name))
+    await d.runtime.create_session(
+        SandboxCreateBashSessionRequest(session=session_name, sandbox_id="local-test"),
+    )
     cmd = f"/bin/bash -c '{cmd}'"
     nohup_command = f"nohup {cmd} < /dev/null > {out_file} 2>&1 & echo {PID_PREFIX}$!{PID_SUFFIX};disown"
-    resp = await d.runtime.run_in_session(BashAction(command=nohup_command, session=session_name))
+    resp = await d.runtime.run_in_session(
+        BashAction(command=nohup_command, session=session_name, sandbox_id="local-test")
+    )
     logger.info(f"nohup_command response: {resp.output}")
     pid = extract_nohup_pid(resp.output)
     start_time = time.perf_counter()
@@ -31,7 +35,9 @@ async def mock_arun(cmd: str, response_limited_bytes: int = 1024 * 64):
     while time.perf_counter() < end_time:
         try:
             await asyncio.wait_for(
-                d.runtime.run_in_session(BashAction(command=f"kill -0 {pid}", session=session_name)),
+                d.runtime.run_in_session(
+                    BashAction(command=f"kill -0 {pid}", session=session_name, sandbox_id="local-test")
+                ),
                 timeout=30,
             )
             await asyncio.sleep(1)
@@ -39,10 +45,16 @@ async def mock_arun(cmd: str, response_limited_bytes: int = 1024 * 64):
             print(str(e))
             break
     nohup_resp = await d.runtime.run_in_session(
-        BashAction(command=f"head -c {response_limited_bytes} {out_file}", session=session_name)
+        BashAction(
+            command=f"head -c {response_limited_bytes} {out_file}",
+            session=session_name,
+            sandbox_id="local-test",
+        )
     )
     yield pid, nohup_resp.output
-    await d.runtime.run_in_session(BashAction(command=f"rm -rf {out_file}", session=session_name))
+    await d.runtime.run_in_session(
+        BashAction(command=f"rm -rf {out_file}", session=session_name, sandbox_id="local-test")
+    )
     await d.stop()
 
 

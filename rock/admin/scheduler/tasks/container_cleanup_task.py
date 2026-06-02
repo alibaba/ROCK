@@ -60,7 +60,7 @@ class ContainerCleanupTask(BaseTask):
             f'\' > "$CLEANUP_LOG" 2>&1 & echo {PID_PREFIX}${{!}}{PID_SUFFIX}'
         )
 
-        result = await runtime.execute(Command(command=command, shell=True))
+        result = await runtime.execute(Command(command=command, shell=True, sandbox_id="scheduler-task"))
 
         pid = extract_nohup_pid(result.stdout)
         logger.info(

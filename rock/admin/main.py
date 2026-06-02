@@ -10,6 +10,7 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 
@@ -31,6 +32,7 @@ from rock.admin.scheduler.tasks.sandbox_log_archive_task import (
 from rock.admin.scheduler.tasks.sandbox_log_archive_task import (
     set_sandbox_table_provider as set_archive_sandbox_table_provider,
 )
+from rock.common.exception import request_validation_exception_handler
 from rock.config import DatabaseConfig, RockConfig, SchedulerConfig
 from rock.logger import init_logger
 from rock.sandbox.gem_manager import GemManager
@@ -202,6 +204,12 @@ app.add_middleware(
     allow_headers=["*"],  # Allow all headers
 )
 # --- CORS configuration end ---
+
+
+# Pydantic validation errors are matched by FastAPI before the catch-all Exception
+# handler below — register an explicit override so they come out as RockResponse
+# envelopes instead of the default 422 ``{"detail": [...]}``.
+app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
 
 
 @app.exception_handler(Exception)

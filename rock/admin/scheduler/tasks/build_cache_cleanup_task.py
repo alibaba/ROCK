@@ -78,7 +78,7 @@ class BuildCacheCleanupTask(BaseTask):
         # non-zero exit from short-circuiting the rest.
         snippets = [_TOOL_COMMANDS[t] for t in self.tools]
         command = "; ".join(snippets) if snippets else "echo 'no tools configured'"
-        result = await runtime.execute(Command(command=command, shell=True, check=False))
+        result = await runtime.execute(Command(command=command, shell=True, check=False, sandbox_id="scheduler-task"))
         output = (result.stdout or "").strip()
         logger.info(
             f"[{self.type}] [{runtime._config.host}] cache prune done: "

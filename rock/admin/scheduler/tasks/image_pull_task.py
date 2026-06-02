@@ -183,7 +183,7 @@ class ImagePullTask(BaseTask):
                 f"echo {PID_PREFIX}${{!}}{PID_SUFFIX}"
             )
 
-            result = await runtime.execute(Command(command=command, shell=True))
+            result = await runtime.execute(Command(command=command, shell=True, sandbox_id="scheduler-task"))
 
             if result.exit_code != 0:
                 error_msg = f"Failed to start image pull task: exit_code={result.exit_code}, stderr={result.stderr}"
