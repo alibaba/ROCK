@@ -250,7 +250,7 @@ class Rocklet(AbstractSandbox, ABC):
         else:
             shutil.copy(request.source_path, request.target_path)
         self.command_logger.info("[upload output]: upload success!")
-        return UploadResponse()
+        return UploadResponse(success=True, file_name=Path(request.target_path).name)
 
     async def close(self) -> CloseResponse:
         """Closes the runtime."""

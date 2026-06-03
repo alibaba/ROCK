@@ -22,7 +22,9 @@ async def test_upload_file(local_runtime: Rocklet, tmp_path: Path):
     file_path = tmp_path / "source.txt"
     file_path.write_text("test")
     tmp_target = tmp_path / "target.txt"
-    await local_runtime.upload(UploadRequest(source_path=str(file_path), target_path=str(tmp_target)))
+    resp = await local_runtime.upload(UploadRequest(source_path=str(file_path), target_path=str(tmp_target)))
+    assert resp.success is True
+    assert resp.file_name == "target.txt"
     assert (
         await local_runtime.read_file(ReadFileRequest(path=str(tmp_target), sandbox_id="local-test"))
     ).content == "test"
@@ -35,7 +37,9 @@ async def test_upload_directory(local_runtime: Rocklet, tmp_path: Path):
     (dir_path / "file1.txt").write_text("test1")
     (dir_path / "file2.txt").write_text("test2")
     tmp_target = tmp_path / "target_dir"
-    await local_runtime.upload(UploadRequest(source_path=str(dir_path), target_path=str(tmp_target)))
+    resp = await local_runtime.upload(UploadRequest(source_path=str(dir_path), target_path=str(tmp_target)))
+    assert resp.success is True
+    assert resp.file_name == "target_dir"
     sid = "local-test"
     assert (
         await local_runtime.read_file(ReadFileRequest(path=str(tmp_target / "file1.txt"), sandbox_id=sid))

@@ -107,7 +107,7 @@ async def upload(
             file_path.unlink()
         else:
             shutil.move(file_path, target_path)
-    return UploadResponse()
+    return UploadResponse(success=True, file_name=target_path.name)
 
 
 @local_router.post("/close")
