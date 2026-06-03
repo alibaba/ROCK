@@ -34,14 +34,14 @@ class SchedulerTaskTable:
 
     @_retry_on_disconnect
     async def insert_tasks(self, records: list[SchedulerTaskRecord]) -> None:
-        async with AsyncSession(self._db.engine) as session:
+        async with AsyncSession(self._db.engine, expire_on_commit=False) as session:
             for r in records:
                 session.add(r)
             await session.commit()
 
     @_retry_on_disconnect
     async def get_tasks_by_group(self, taskset_id: str) -> list[SchedulerTaskRecord]:
-        async with AsyncSession(self._db.engine) as session:
+        async with AsyncSession(self._db.engine, expire_on_commit=False) as session:
             stmt = select(SchedulerTaskRecord).where(SchedulerTaskRecord.taskset_id == taskset_id)
             rows = (await session.execute(stmt)).scalars().all()
             return list(rows)
