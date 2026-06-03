@@ -1,5 +1,4 @@
 import functools
-import logging
 
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
@@ -48,18 +47,32 @@ def handle_exceptions(error_message: str = "error occurred"):
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
+            # Return JSONResponse directly on error so FastAPI skips response_model validation.
+            # Otherwise endpoints declared as RockResponse[str] (e.g. /stop, /commit) would
+            # 500 because the error payload is a SandboxResponse, not a str.
             try:
                 return await func(*args, **kwargs)
             except RockException as e:
-                logging.error(f"RockException in {func.__name__}: {str(e)}", exc_info=True)
-                return RockResponse(
-                    status=ResponseStatus.FAILED,
-                    message=error_message,
-                    result=from_rock_exception(e),
+                logger.error(f"RockException in {func.__name__}: {str(e)}", exc_info=True)
+                return JSONResponse(
+                    status_code=200,
+                    content=RockResponse(
+                        status=ResponseStatus.FAILED,
+                        message=error_message,
+                        result=from_rock_exception(e),
+                    ).model_dump(),
                 )
             except Exception as e:
                 logger.error(f"Error in {func.__name__}: {str(e)}", exc_info=True)
-                return RockResponse(status=ResponseStatus.FAILED, message=error_message, error=str(e), result=None)
+                return JSONResponse(
+                    status_code=200,
+                    content=RockResponse(
+                        status=ResponseStatus.FAILED,
+                        message=error_message,
+                        error=str(e),
+                        result=None,
+                    ).model_dump(),
+                )
 
         return wrapper
 
