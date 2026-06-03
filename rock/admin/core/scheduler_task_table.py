@@ -5,6 +5,8 @@ Tasks are grouped by taskset_id (one group per API call).
 
 from __future__ import annotations
 
+from enum import Enum
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,13 +17,15 @@ from rock.logger import init_logger
 
 logger = init_logger(__name__)
 
-PHASE_PENDING = "Pending"
-PHASE_RUNNING = "Running"
-PHASE_SUCCEEDED = "Succeeded"
-PHASE_FAILED = "Failed"
-PHASE_REJECTED = "Rejected"
-PHASE_RATE_LIMITED = "RateLimited"
-PHASE_NOT_FOUND = "NotFound"
+
+class Phase(str, Enum):
+    PENDING = "Pending"
+    RUNNING = "Running"
+    SUCCEEDED = "Succeeded"
+    FAILED = "Failed"
+    REJECTED = "Rejected"
+    RATE_LIMITED = "RateLimited"
+    NOT_FOUND = "NotFound"
 
 
 class SchedulerTaskTable:
@@ -29,18 +33,18 @@ class SchedulerTaskTable:
         self._db = db_provider
 
     @_retry_on_disconnect
-    async def insert_tasks(self, records: list[dict]) -> None:
+    async def insert_tasks(self, records: list[SchedulerTaskRecord]) -> None:
         async with AsyncSession(self._db.engine) as session:
             for r in records:
-                session.add(SchedulerTaskRecord(**r))
+                session.add(r)
             await session.commit()
 
     @_retry_on_disconnect
-    async def get_tasks_by_group(self, taskset_id: str) -> list[dict]:
+    async def get_tasks_by_group(self, taskset_id: str) -> list[SchedulerTaskRecord]:
         async with AsyncSession(self._db.engine) as session:
             stmt = select(SchedulerTaskRecord).where(SchedulerTaskRecord.taskset_id == taskset_id)
             rows = (await session.execute(stmt)).scalars().all()
-            return [_to_dict(r) for r in rows]
+            return list(rows)
 
     @_retry_on_disconnect
     async def update_task(self, task_id: str, **fields) -> bool:
@@ -58,12 +62,10 @@ class SchedulerTaskTable:
         async with AsyncSession(self._db.engine) as session:
             stmt = (
                 select(SchedulerTaskRecord.task_id)
-                .where(SchedulerTaskRecord.task_type == task_type, SchedulerTaskRecord.creation_timestamp >= since_epoch)
+                .where(
+                    SchedulerTaskRecord.task_type == task_type, SchedulerTaskRecord.creation_timestamp >= since_epoch
+                )
                 .limit(1)
             )
             row = (await session.execute(stmt)).first()
             return row is not None
-
-
-def _to_dict(row: SchedulerTaskRecord) -> dict:
-    return {c.name: getattr(row, c.name) for c in SchedulerTaskRecord.__table__.columns}

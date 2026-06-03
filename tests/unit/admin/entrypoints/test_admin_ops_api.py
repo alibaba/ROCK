@@ -1,4 +1,4 @@
-"""Tests for admin ops API (single-table scheduler_task, multi-pod safe)."""
+"""Tests for admin ops API (layered: api → OpsService → SchedulerTaskTable)."""
 
 from __future__ import annotations
 
@@ -8,19 +8,10 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from rock.admin.core.scheduler_task_table import (
-    PHASE_NOT_FOUND,
-    PHASE_RATE_LIMITED,
-    PHASE_REJECTED,
-    PHASE_RUNNING,
-    PHASE_SUCCEEDED,
-)
-from rock.admin.entrypoints.admin_ops_api import (
-    admin_ops_router,
-    set_alive_workers_provider,
-    set_scheduler_task_table,
-    set_task_registry_provider,
-)
+from rock.admin.core.scheduler_task_table import Phase
+from rock.admin.core.schema import SchedulerTaskRecord
+from rock.admin.entrypoints.admin_ops_api import admin_ops_router, set_ops_service
+from rock.admin.service.ops_service import OpsService
 
 
 def _fake_task(type_: str):
@@ -28,6 +19,31 @@ def _fake_task(type_: str):
     t.type = type_
     t.run = AsyncMock(return_value=None)
     return t
+
+
+class FakeTable:
+    """In-memory fake SchedulerTaskTable using SchedulerTaskRecord objects."""
+
+    def __init__(self):
+        self._tasks: dict[str, SchedulerTaskRecord] = {}
+
+    async def insert_tasks(self, records: list[SchedulerTaskRecord]):
+        for r in records:
+            self._tasks[r.task_id] = r
+
+    async def get_tasks_by_group(self, taskset_id: str) -> list[SchedulerTaskRecord]:
+        return [t for t in self._tasks.values() if t.taskset_id == taskset_id]
+
+    async def update_task(self, task_id: str, **fields) -> bool:
+        if task_id not in self._tasks:
+            return False
+        record = self._tasks[task_id]
+        for k, v in fields.items():
+            setattr(record, k, v)
+        return True
+
+    async def has_recent_task(self, task_type: str, since_epoch: float) -> bool:
+        return any(t.task_type == task_type and t.creation_timestamp >= since_epoch for t in self._tasks.values())
 
 
 @pytest.fixture
@@ -39,45 +55,24 @@ def app_with_router():
 
 @pytest.fixture
 def fake_table():
-    """In-memory fake SchedulerTaskTable simulating shared DB."""
-    tasks: dict[str, dict] = {}
-
-    class FakeTable:
-        async def insert_tasks(self, records):
-            for r in records:
-                tasks[r["task_id"]] = dict(r)
-
-        async def get_tasks_by_group(self, taskset_id):
-            return [dict(t) for t in tasks.values() if t["taskset_id"] == taskset_id]
-
-        async def update_task(self, task_id, **fields):
-            if task_id not in tasks:
-                return False
-            tasks[task_id].update(fields)
-            return True
-
-        async def has_recent_task(self, task_type, since_epoch):
-            return any(t["task_type"] == task_type and t["creation_timestamp"] >= since_epoch for t in tasks.values())
-
-    table = FakeTable()
-    table._tasks = tasks
-    return table
+    return FakeTable()
 
 
 @pytest.fixture(autouse=True)
 def setup_module(fake_table):
-    set_scheduler_task_table(fake_table)
     registry = {
         "image_cleanup": _fake_task("image_cleanup"),
         "build_cache_cleanup": _fake_task("build_cache_cleanup"),
         "ray_log_cleanup": _fake_task("ray_log_cleanup"),
     }
-    set_task_registry_provider(lambda: registry)
-    set_alive_workers_provider(lambda: ["10.0.0.1", "10.0.0.2"])
+    service = OpsService(
+        task_table=fake_table,
+        task_registry=registry,
+        alive_workers_provider=lambda: ["10.0.0.1", "10.0.0.2"],
+    )
+    set_ops_service(service)
     yield
-    set_scheduler_task_table(None)
-    set_task_registry_provider(None)
-    set_alive_workers_provider(None)
+    set_ops_service(None)
 
 
 @pytest.fixture
@@ -95,7 +90,7 @@ class TestCreateTaskSet:
         body = r.json()
         assert body["status"] == "Success"
         result = body["result"]
-        assert result["status"]["phase"] == PHASE_RUNNING
+        assert result["status"]["phase"] == Phase.RUNNING
         assert result["metadata"]["tasksetId"] != ""
         assert len(result["metadata"]["tasksetId"]) == 32
         assert result["status"]["active"] == 3
@@ -111,7 +106,7 @@ class TestCreateTaskSet:
         )
         body = r.json()
         assert body["status"] == "Success"
-        assert body["result"]["status"]["phase"] == PHASE_RUNNING
+        assert body["result"]["status"]["phase"] == Phase.RUNNING
         assert len(body["result"]["tasks"]) == 1
         assert body["result"]["tasks"][0]["spec"]["taskType"] == "image_cleanup"
 
@@ -123,7 +118,7 @@ class TestCreateTaskSet:
         )
         body = r.json()
         assert body["status"] == "Success"
-        assert body["result"]["status"]["phase"] == PHASE_REJECTED
+        assert body["result"]["status"]["phase"] == Phase.REJECTED
 
     @pytest.mark.asyncio
     async def test_rejected_unknown_whitelisted_task(self, client):
@@ -133,7 +128,7 @@ class TestCreateTaskSet:
         )
         body = r.json()
         assert body["status"] == "Success"
-        assert body["result"]["status"]["phase"] == PHASE_REJECTED
+        assert body["result"]["status"]["phase"] == Phase.REJECTED
 
     @pytest.mark.asyncio
     async def test_rate_limited(self, client):
@@ -147,7 +142,7 @@ class TestCreateTaskSet:
         )
         body = r.json()
         assert body["status"] == "Success"
-        assert body["result"]["status"]["phase"] == PHASE_RATE_LIMITED
+        assert body["result"]["status"]["phase"] == Phase.RATE_LIMITED
 
     @pytest.mark.asyncio
     async def test_partial_rate_limit_runs_remainder(self, client):
@@ -161,7 +156,7 @@ class TestCreateTaskSet:
         )
         body = r.json()
         assert body["status"] == "Success"
-        assert body["result"]["status"]["phase"] == PHASE_RUNNING
+        assert body["result"]["status"]["phase"] == Phase.RUNNING
         assert len(body["result"]["tasks"]) == 1
         assert body["result"]["tasks"][0]["spec"]["taskType"] == "build_cache_cleanup"
 
@@ -172,9 +167,9 @@ class TestCreateTaskSet:
             json={"spec": {"taskTypes": ["image_cleanup"]}},
         )
         taskset_id = r.json()["result"]["metadata"]["tasksetId"]
-        child_tasks = [t for t in fake_table._tasks.values() if t["taskset_id"] == taskset_id]
+        child_tasks = [t for t in fake_table._tasks.values() if t.taskset_id == taskset_id]
         assert len(child_tasks) == 1
-        assert child_tasks[0]["task_type"] == "image_cleanup"
+        assert child_tasks[0].task_type == "image_cleanup"
 
     @pytest.mark.asyncio
     async def test_taskset_id_is_128_bit_uuid(self, client):
@@ -208,7 +203,7 @@ class TestGetTaskSet:
         body = get.json()
         assert body["status"] == "Success"
         assert body["result"]["metadata"]["tasksetId"] == taskset_id
-        assert body["result"]["status"]["phase"] in (PHASE_RUNNING, PHASE_SUCCEEDED)
+        assert body["result"]["status"]["phase"] in (Phase.RUNNING, Phase.SUCCEEDED)
         assert len(body["result"]["tasks"]) == 1
 
     @pytest.mark.asyncio
@@ -216,7 +211,7 @@ class TestGetTaskSet:
         r = await client.get("/apis/envs/sandbox/v1/ops/tasksets/doesnotexist")
         body = r.json()
         assert body["status"] == "Success"
-        assert body["result"]["status"]["phase"] == PHASE_NOT_FOUND
+        assert body["result"]["status"]["phase"] == Phase.NOT_FOUND
 
 
 class TestMultiPod:
@@ -240,21 +235,21 @@ class TestMultiPod:
 
         assert body["status"] == "Success"
         assert body["result"]["metadata"]["tasksetId"] == taskset_id
-        assert body["result"]["status"]["phase"] != PHASE_NOT_FOUND
+        assert body["result"]["status"]["phase"] != Phase.NOT_FOUND
 
 
 class TestMisconfiguration:
     @pytest.mark.asyncio
-    async def test_post_returns_failed_when_table_unset(self, app_with_router):
-        set_scheduler_task_table(None)
+    async def test_post_returns_failed_when_service_unset(self, app_with_router):
+        set_ops_service(None)
         transport = ASGITransport(app=app_with_router)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             r = await c.post("/apis/envs/sandbox/v1/ops/tasksets", json={"spec": {}})
         assert r.json()["status"] == "Failed"
 
     @pytest.mark.asyncio
-    async def test_get_returns_failed_when_table_unset(self, app_with_router):
-        set_scheduler_task_table(None)
+    async def test_get_returns_failed_when_service_unset(self, app_with_router):
+        set_ops_service(None)
         transport = ASGITransport(app=app_with_router)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             r = await c.get("/apis/envs/sandbox/v1/ops/tasksets/x")

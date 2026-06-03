@@ -7,7 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from rock.admin.core.scheduler_task_table import SchedulerTaskTable
+from rock.admin.core.schema import SchedulerTaskRecord
+from rock.admin.core.scheduler_task_table import Phase, SchedulerTaskTable
 
 
 def _make_table_with_mock_session():
@@ -26,22 +27,20 @@ def _make_table_with_mock_session():
 async def test_insert_tasks():
     table, cm, session = _make_table_with_mock_session()
 
-    with patch("rock.admin.core.scheduler_task_table.AsyncSession", return_value=cm):
-        await table.insert_tasks(
-            [
-                {
-                    "task_id": "b" * 32,
-                    "taskset_id": "a" * 32,
-                    "task_type": "image_cleanup",
-                    "target_workers": ["10.0.0.1"],
-                    "creation_timestamp": time.time(),
-                    "phase": "Pending",
-                    "assigned_pod": "pod-x",
-                },
-            ]
-        )
+    record = SchedulerTaskRecord(
+        task_id="b" * 32,
+        taskset_id="a" * 32,
+        task_type="image_cleanup",
+        target_workers=["10.0.0.1"],
+        creation_timestamp=time.time(),
+        phase=Phase.PENDING,
+        assigned_pod="pod-x",
+    )
 
-    session.add.assert_called_once()
+    with patch("rock.admin.core.scheduler_task_table.AsyncSession", return_value=cm):
+        await table.insert_tasks([record])
+
+    session.add.assert_called_once_with(record)
     session.commit.assert_awaited_once()
 
 
@@ -49,46 +48,50 @@ async def test_insert_tasks():
 async def test_get_tasks_by_group():
     table, cm, session = _make_table_with_mock_session()
 
-    class Row:
-        task_id = "b" * 32
-        taskset_id = "a" * 32
-        phase = "Running"
+    mock_record = SchedulerTaskRecord(
+        task_id="b" * 32,
+        taskset_id="a" * 32,
+        task_type="image_cleanup",
+        target_workers=["10.0.0.1"],
+        creation_timestamp=time.time(),
+        phase=Phase.RUNNING,
+        assigned_pod="pod-x",
+    )
 
     scalars_mock = MagicMock()
-    scalars_mock.all.return_value = [Row()]
+    scalars_mock.all.return_value = [mock_record]
     result_mock = MagicMock()
     result_mock.scalars.return_value = scalars_mock
     session.execute = AsyncMock(return_value=result_mock)
 
-    with (
-        patch("rock.admin.core.scheduler_task_table.AsyncSession", return_value=cm),
-        patch(
-            "rock.admin.core.scheduler_task_table._to_dict",
-            return_value={"task_id": "b" * 32, "taskset_id": "a" * 32, "phase": "Running"},
-        ),
-    ):
+    with patch("rock.admin.core.scheduler_task_table.AsyncSession", return_value=cm):
         results = await table.get_tasks_by_group("a" * 32)
 
     assert len(results) == 1
-    assert results[0]["taskset_id"] == "a" * 32
+    assert isinstance(results[0], SchedulerTaskRecord)
+    assert results[0].taskset_id == "a" * 32
 
 
 @pytest.mark.asyncio
 async def test_update_task():
     table, cm, session = _make_table_with_mock_session()
 
-    class Row:
-        phase = "Pending"
-        start_time = None
-
-    row = Row()
+    row = SchedulerTaskRecord(
+        task_id="b" * 32,
+        taskset_id="a" * 32,
+        task_type="image_cleanup",
+        target_workers=["10.0.0.1"],
+        creation_timestamp=time.time(),
+        phase=Phase.PENDING,
+        assigned_pod="pod-x",
+    )
     session.get = AsyncMock(return_value=row)
 
     with patch("rock.admin.core.scheduler_task_table.AsyncSession", return_value=cm):
-        ok = await table.update_task("b" * 32, phase="Running", start_time=123.0)
+        ok = await table.update_task("b" * 32, phase=Phase.RUNNING, start_time=123.0)
 
     assert ok is True
-    assert row.phase == "Running"
+    assert row.phase == Phase.RUNNING
     assert row.start_time == 123.0
 
 
@@ -98,7 +101,7 @@ async def test_update_task_not_found():
     session.get = AsyncMock(return_value=None)
 
     with patch("rock.admin.core.scheduler_task_table.AsyncSession", return_value=cm):
-        ok = await table.update_task("nonexistent", phase="Running")
+        ok = await table.update_task("nonexistent", phase=Phase.RUNNING)
 
     assert ok is False
 

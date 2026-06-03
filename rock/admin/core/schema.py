@@ -119,4 +119,4 @@ class SchedulerTaskRecord(Base):
     start_time = Column(Float, nullable=True)
     completion_time = Column(Float, nullable=True)
     conditions = Column(_JSONB_VARIANT, nullable=True)
-    result = Column(_JSONB_VARIANT, nullable=True)
+    status = Column(_JSONB_VARIANT, nullable=True)

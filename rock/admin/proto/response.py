@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from rock.actions import SandboxResponse
 from rock.actions.sandbox.response import State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
+from rock.admin.proto.request import TaskSetSpec
 
 
 class SandboxStartResponse(SandboxResponse):
@@ -74,3 +75,45 @@ class SandboxListResponse(SandboxResponse):
     items: list[SandboxListStatusResponse] = []
     total: int = 0
     has_more: bool = False
+
+
+class TaskSetMetadata(BaseModel):
+    tasksetId: str
+    creationTimestamp: float
+
+
+class TaskSetStatusModel(BaseModel):
+    phase: str
+    assignedPod: str = ""
+    active: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    startTime: float | None = None
+    completionTime: float | None = None
+
+
+class TaskMetadata(BaseModel):
+    taskId: str
+    tasksetId: str
+    creationTimestamp: float
+
+
+class TaskStatusModel(BaseModel):
+    phase: str
+    startTime: float | None = None
+    completionTime: float | None = None
+    conditions: list[dict] | None = None
+    status: list[dict] | None = None
+
+
+class TaskResponse(BaseModel):
+    metadata: TaskMetadata
+    spec: dict
+    status: TaskStatusModel
+
+
+class TaskSetResponse(BaseModel):
+    metadata: TaskSetMetadata
+    spec: "TaskSetSpec"
+    status: TaskSetStatusModel
+    tasks: list[TaskResponse] | None = None

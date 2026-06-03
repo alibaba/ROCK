@@ -19,16 +19,7 @@ from rock.admin.core.db_provider import DatabaseProvider
 from rock.admin.core.ray_service import RayService
 from rock.admin.core.sandbox_table import SandboxTable
 from rock.admin.core.scheduler_task_table import SchedulerTaskTable
-from rock.admin.entrypoints.admin_ops_api import (
-    admin_ops_router,
-    set_scheduler_task_table,
-)
-from rock.admin.entrypoints.admin_ops_api import (
-    set_alive_workers_provider as set_ops_alive_workers_provider,
-)
-from rock.admin.entrypoints.admin_ops_api import (
-    set_task_registry_provider as set_ops_task_registry_provider,
-)
+from rock.admin.entrypoints.admin_ops_api import admin_ops_router, set_ops_service
 from rock.admin.entrypoints.sandbox_api import sandbox_router, set_sandbox_manager
 from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_sandbox_proxy_service
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
@@ -45,6 +36,7 @@ from rock.admin.scheduler.tasks.sandbox_log_archive_task import (
 from rock.admin.scheduler.tasks.sandbox_log_archive_task import (
     set_sandbox_table_provider as set_archive_sandbox_table_provider,
 )
+from rock.admin.service.ops_service import OpsService
 from rock.common.exception import request_validation_exception_handler
 from rock.config import DatabaseConfig, RockConfig, SchedulerConfig
 from rock.logger import init_logger
@@ -66,6 +58,30 @@ args = parser.parse_args()
 
 logger = init_logger("admin")
 logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+
+def _init_ops_service(
+    rock_config: RockConfig,
+    scheduler_task_table: "SchedulerTaskTable",
+) -> OpsService:
+    """Build OpsService with task registry from scheduler config."""
+    ops_task_registry: dict[str, BaseTask] = {}
+    if rock_config.scheduler.enabled:
+        for task_config in rock_config.scheduler.tasks:
+            if not getattr(task_config, "enabled", True):
+                continue
+            try:
+                task = TaskFactory.create_task(task_config)
+                ops_task_registry[task.type] = task
+            except Exception as e:
+                logger.warning(f"ops_taskset: failed to instantiate '{task_config.task_class}': {e}")
+
+    ops_worker_cache = WorkerIPCache(cache_ttl=rock_config.scheduler.worker_cache_ttl)
+    return OpsService(
+        task_table=scheduler_task_table,
+        task_registry=ops_task_registry,
+        alive_workers_provider=ops_worker_cache.get_alive_workers,
+    )
 
 
 @asynccontextmanager
@@ -109,10 +125,8 @@ async def lifespan(app: FastAPI):
         logger.info("database.url is not configured, falling back to SQLite in-memory")
     db_provider = DatabaseProvider(db_config=DatabaseConfig(url=db_url))
     await db_provider.init()
-    # Idempotent (CREATE TABLE IF NOT EXISTS via Base.metadata.create_all);
-    # safe for existing tables and auto-creates new ORM models without per-
-    # table manual DDL. Run for ALL environments, not just sqlite fallback.
-    await db_provider.create_tables()
+    if not rock_config.database.url:
+        await db_provider.create_tables()
     sandbox_table = SandboxTable(db_provider, rock_config=rock_config)
     meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=sandbox_table, rock_config=rock_config)
 
@@ -125,7 +139,6 @@ async def lifespan(app: FastAPI):
 
     # init scheduler task table (DB-backed, multi-pod safe)
     scheduler_task_table = SchedulerTaskTable(db_provider)
-    set_scheduler_task_table(scheduler_task_table)
 
     # init scheduler thread
     scheduler_thread = None
@@ -181,20 +194,7 @@ async def lifespan(app: FastAPI):
         elif rock_config.scheduler.enabled:
             logger.info("Scheduler thread skipped on non-primary pod")
 
-        ops_task_registry: dict[str, BaseTask] = {}
-        if rock_config.scheduler.enabled:
-            for task_config in rock_config.scheduler.tasks:
-                if not getattr(task_config, "enabled", True):
-                    continue
-                try:
-                    task = TaskFactory.create_task(task_config)
-                    ops_task_registry[task.type] = task
-                except Exception as e:
-                    logger.warning(f"ops_taskset: failed to instantiate '{task_config.task_class}': {e}")
-        set_ops_task_registry_provider(lambda: ops_task_registry)
-
-        ops_worker_cache = WorkerIPCache(cache_ttl=rock_config.scheduler.worker_cache_ttl)
-        set_ops_alive_workers_provider(ops_worker_cache.get_alive_workers)
+        set_ops_service(_init_ops_service(rock_config, scheduler_task_table))
 
     else:
         sandbox_manager = SandboxProxyService(rock_config=rock_config, meta_store=meta_store)
