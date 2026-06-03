@@ -94,7 +94,11 @@ class RayOperator(AbstractOperator):
             sandbox_info.update(remote_status.to_dict())
             return sandbox_info
         async with self._ray_service.get_ray_rwlock().read_lock():
-            actor: SandboxActor = await self._ray_service.async_ray_get_actor(self._get_actor_name(sandbox_id))
+            try:
+                actor: SandboxActor = await self._ray_service.async_ray_get_actor(self._get_actor_name(sandbox_id))
+            except (ValueError, Exception):
+                logger.debug(f"Actor for sandbox {sandbox_id} not found, returning None")
+                return None
             sandbox_info: SandboxInfo = await self._ray_service.async_ray_get(actor.sandbox_info.remote())
             remote_status: ServiceStatus = await self._ray_service.async_ray_get(actor.get_status.remote())
             sandbox_info["phases"] = {name: phase.to_dict() for name, phase in remote_status.phases.items()}
