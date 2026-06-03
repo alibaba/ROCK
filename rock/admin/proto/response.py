@@ -90,6 +90,7 @@ class TaskSetStatusModel(BaseModel):
     failed: int = 0
     startTime: float | None = None
     completionTime: float | None = None
+    conditions: list[dict] | None = None
 
 
 class TaskMetadata(BaseModel):

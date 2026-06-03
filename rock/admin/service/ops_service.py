@@ -107,9 +107,8 @@ class OpsService:
         )
 
         resp = _aggregate_taskset(taskset_id, records)
-        result = resp.model_dump()
         if rejected or in_cooldown:
-            result["conditions"] = [
+            resp.status.conditions = [
                 {"type": "Partial", "rejectedTaskTypes": rejected, "rateLimitedTaskTypes": in_cooldown}
             ]
         return resp
