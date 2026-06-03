@@ -307,3 +307,107 @@ class TestOnRestart:
         assert sandbox_id == "sb-1"
         # SandboxTimeoutHelper.make_timeout_info stores auto_clear_time as the env-var key
         assert any("30" == str(v) for v in timeout_info.values())
+
+
+# ---------------------------------------------------------------------------
+# delete transitions
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteTransitions:
+    def _kwargs(self, operator=None, meta_store=None):
+        return dict(
+            sandbox_id="sb",
+            operator=operator or AsyncMock(),
+            meta_store=meta_store or AsyncMock(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_delete_from_stopped_transitions_to_deleted(self):
+        sm = await SandboxStateMachine.from_state_value(State.STOPPED, sandbox_info={"host_ip": "1.2.3.4"})
+        await sm.send("delete", **self._kwargs())
+        assert sm.deleted.is_active
+
+    @pytest.mark.asyncio
+    async def test_delete_from_pending_raises(self):
+        sm = await SandboxStateMachine.from_state_value(State.PENDING, sandbox_info={})
+        with pytest.raises(TransitionNotAllowed):
+            await sm.send("delete", **self._kwargs())
+
+    @pytest.mark.asyncio
+    async def test_delete_from_running_raises(self):
+        sm = await SandboxStateMachine.from_state_value(State.RUNNING, sandbox_info={})
+        with pytest.raises(TransitionNotAllowed):
+            await sm.send("delete", **self._kwargs())
+
+    @pytest.mark.asyncio
+    async def test_deleted_is_final_no_transitions_allowed(self):
+        sm = await SandboxStateMachine.from_state_value(State.DELETED, sandbox_info={})
+        for event in ("stop", "stop_noop", "alive", "restart", "delete"):
+            with pytest.raises(TransitionNotAllowed):
+                await sm.send(event, **self._kwargs(), sandbox_info={})
+
+
+_VALID_DELETE_INFO = {
+    "host_ip": "10.0.0.1",
+    "spec": {
+        "container_name": "sb-1",
+        "image": "python:3.11",
+        "memory": "2g",
+        "cpus": 1,
+        "auto_clear_time_minutes": 30,
+    },
+}
+
+
+class TestOnDelete:
+    @pytest.fixture
+    def mock_meta_store(self):
+        return AsyncMock()
+
+    @pytest.mark.asyncio
+    async def test_calls_operator_delete_with_config_and_host_ip(self, mock_meta_store):
+        op = AsyncMock()
+        sm = await SandboxStateMachine.from_state_value(State.STOPPED, sandbox_info=dict(_VALID_DELETE_INFO))
+        await sm.send("delete", sandbox_id="sb-1", operator=op, meta_store=mock_meta_store)
+        op.delete.assert_awaited_once()
+        args, kwargs = op.delete.call_args
+        config = args[0]
+        assert config.container_name == "sb-1"
+        assert kwargs.get("host_ip") == "10.0.0.1"
+
+    @pytest.mark.asyncio
+    async def test_archives_with_state_deleted_and_delete_time(self, mock_meta_store):
+        op = AsyncMock()
+        sm = await SandboxStateMachine.from_state_value(State.STOPPED, sandbox_info=dict(_VALID_DELETE_INFO))
+        await sm.send("delete", sandbox_id="sb-1", operator=op, meta_store=mock_meta_store)
+        archived_info = mock_meta_store.archive.call_args[0][1]
+        assert archived_info["state"] == State.DELETED
+        assert archived_info["delete_time"]
+
+    @pytest.mark.asyncio
+    async def test_operator_delete_failure_still_archives(self, mock_meta_store):
+        op = AsyncMock()
+        op.delete = AsyncMock(side_effect=RuntimeError("worker unreachable"))
+        sm = await SandboxStateMachine.from_state_value(State.STOPPED, sandbox_info=dict(_VALID_DELETE_INFO))
+        await sm.send("delete", sandbox_id="sb-1", operator=op, meta_store=mock_meta_store)
+        mock_meta_store.archive.assert_awaited_once()
+        archived_info = mock_meta_store.archive.call_args[0][1]
+        assert archived_info["state"] == State.DELETED
+
+    @pytest.mark.asyncio
+    async def test_missing_spec_skips_operator_but_still_archives(self, mock_meta_store):
+        """No ``spec`` snapshot → cannot rebuild config → skip operator.delete,
+        still soft-delete the record (ContainerCleanupTask becomes fallback)."""
+        op = AsyncMock()
+        sm = await SandboxStateMachine.from_state_value(State.STOPPED, sandbox_info={"host_ip": "10.0.0.1"})
+        await sm.send("delete", sandbox_id="sb-1", operator=op, meta_store=mock_meta_store)
+        op.delete.assert_not_called()
+        mock_meta_store.archive.assert_awaited_once()
+        archived_info = mock_meta_store.archive.call_args[0][1]
+        assert archived_info["state"] == State.DELETED
+
+    @pytest.mark.asyncio
+    async def test_restores_deleted_from_state_value(self):
+        sm = await SandboxStateMachine.from_state_value(State.DELETED, sandbox_info={})
+        assert sm.deleted.is_active

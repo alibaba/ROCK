@@ -31,3 +31,15 @@ class StopReason(str, Enum):
 
     MANUAL = "manual"
     EXPIRED = "expired"
+
+
+class DeleteReason(str, Enum):
+    """Why a sandbox was deleted. Distinguishes operator-initiated /delete calls from
+    background scanner cleanups driven by ``auto_delete_seconds``.
+    """
+
+    MANUAL = "manual"
+    # TODO: implement background auto-delete scan driven by auto_delete_seconds
+    EXPIRED = "expired"
+    # `--rm` containers: cascade STOPPED → DELETED on stop since the container is already gone.
+    IMMEDIATE = "immediate"

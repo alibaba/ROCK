@@ -120,6 +120,32 @@ class RayOperator(AbstractOperator):
             ray.kill(actor)
             return True
 
+    async def delete(self, config: DockerDeploymentConfig, host_ip: str | None = None) -> bool:
+        async with self._ray_service.get_ray_rwlock().read_lock():
+            sandbox_id = config.container_name
+            actor_name = self._get_actor_name(sandbox_id)
+
+            try:
+                existing_actor = await self._ray_service.async_ray_get_actor(actor_name)
+                ray.kill(existing_actor)
+            except Exception:
+                logger.info(f"Actor {actor_name} already gone, proceeding with delete")
+
+            if not host_ip:
+                logger.warning(
+                    f"delete for {sandbox_id} called without host_ip; new actor "
+                    f"may be scheduled on a node that does not own the container"
+                )
+            config.cpus = 0.01
+            config.memory = "128m"
+            sandbox_actor: SandboxActor = await self.create_actor(config, pin_to_host_ip=host_ip)
+            try:
+                await self._ray_service.async_ray_get(sandbox_actor.delete.remote())
+                logger.info(f"sandbox {sandbox_id} deleted on host_ip={host_ip}")
+                return True
+            finally:
+                ray.kill(sandbox_actor)
+
     async def restart(self, config: DockerDeploymentConfig, host_ip: str | None = None) -> SandboxInfo:
         """Restart an existing sandbox using docker start (container is preserved).
 

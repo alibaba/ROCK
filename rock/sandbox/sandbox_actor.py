@@ -171,6 +171,15 @@ class SandboxActor(GemActor):
             )
             raise
 
+    async def delete(self):
+        container_name = self._config.container_name if self._config else None
+        logger.info(f"[{container_name}] start to delete")
+        try:
+            await self._deployment.delete()
+            logger.info(f"[{container_name}] deployment deleted")
+        except Exception as e:
+            logger.error(f"[{container_name}] Error occurred while deleting container: {e}", exc_info=True)
+
     async def commit(self, image_tag: str, username: str, password: str) -> CommandResponse:
         logger.info(f"start to commit {self._config.container_name} to {image_tag}")
         with tempfile.TemporaryDirectory() as docker_config_dir:

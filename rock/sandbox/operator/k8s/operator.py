@@ -130,3 +130,6 @@ class K8sOperator(AbstractOperator):
         """
         logger.info(f"[{sandbox_id}] k8s stop (reason={reason.value})")
         return await self._provider.stop(sandbox_id)
+
+    async def delete(self, config: DockerDeploymentConfig, host_ip: str | None = None) -> bool:
+        raise NotImplementedError("delete is not yet implemented for K8sOperator")

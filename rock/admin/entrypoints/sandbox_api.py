@@ -278,6 +278,24 @@ async def close(sandbox_id: Annotated[NonBlankStr, Body(embed=True)]) -> RockRes
     return RockResponse(result=f"{sandbox_id} stopped")
 
 
+@sandbox_router.post("/delete")
+@handle_exceptions(error_message="delete sandbox failed")
+async def delete(sandbox_id: str = Body(..., embed=True)) -> RockResponse:
+    """Soft-delete a stopped sandbox.
+
+    Returns 400-equivalent (status=Failed) when the sandbox is not in ``stopped``
+    state. Unknown sandbox is idempotent (Success). After this call the DB
+    record holds ``state='deleted'`` and the worker container has been removed
+    via ``operator.delete``.
+
+    Return type is the bare ``RockResponse`` (not ``RockResponse[str]``) so the
+    ``handle_exceptions`` decorator can fill ``result`` with a ``SandboxResponse``
+    on the failure path without tripping FastAPI's response_model validation.
+    """
+    await sandbox_manager.delete(sandbox_id)
+    return RockResponse(result=f"{sandbox_id} deleted")
+
+
 @sandbox_router.post("/restart")
 @handle_exceptions(error_message="restart sandbox failed")
 async def restart(sandbox_id: str = Body(..., embed=True)) -> RockResponse[SandboxStartResponse]:
