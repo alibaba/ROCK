@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import json
 import os
 import random
 import re
@@ -693,10 +694,19 @@ class DockerDeployment(AbstractDeployment):
         # branch and never call docker kill / cleanup.
         self._container_process = await loop.run_in_executor(executor, self._docker_start)
 
-        # Recover the rocklet port from the container's port bindings if not set in config.
-        # When a new actor is created for restart, config.port may be None.
+        # Recover port mappings from the persisted service status file.
+        # When a new actor is created for restart, _service_status is empty,
+        # but the file written by the original actor during start() is still on disk.
+        self._service_status.set_sandbox_id(self._container_name)
+        status_path = PersistedServiceStatus.gen_service_status_path(self._container_name)
+        if os.path.exists(status_path):
+            with open(status_path) as f:
+                data = json.load(f)
+            for port_value, mapping in data.get("port_mapping", {}).items():
+                self._service_status.add_port_mapping(int(port_value), mapping)
+
         if self._config.port is None:
-            self._config.port = await loop.run_in_executor(executor, self._get_rocklet_port_from_inspect)
+            self._config.port = self._service_status.port_mapping.get(Port.PROXY)
         if self._config.port is None:
             raise Exception(f"Cannot determine rocklet port for container {self._container_name}")
 
