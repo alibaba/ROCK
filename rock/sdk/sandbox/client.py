@@ -304,6 +304,20 @@ class Sandbox(AbstractSandbox):
                 raise_for_code(rock_response.code, f"Failed to restart sandbox: {response}")
             raise Exception(f"Failed to restart sandbox: {response}")
 
+        start_time = time.time()
+        while time.time() - start_time < self.config.startup_timeout:
+            sandbox_info = await self.get_status(include_all_states=True)
+            logging.debug(f"Restart get status response: {sandbox_info}")
+            if sandbox_info.is_alive:
+                return
+            error_msg = await self._parse_error_message_from_status(sandbox_info.status)
+            if error_msg:
+                raise InternalServerRockError(f"Failed to restart sandbox because {error_msg}, sandbox: {str(self)}")
+            await asyncio.sleep(3)
+        raise InternalServerRockError(
+            f"Failed to restart sandbox within {self.config.startup_timeout}s, sandbox: {str(self)}"
+        )
+
     async def commit(self, image_tag: str, username: str, password: str):
         if not self.sandbox_id:
             return
