@@ -112,6 +112,7 @@ async def test_sandbox_restart(admin_remote_server: RemoteServer):
         image="python:3.11",
         startup_timeout=60,
         base_url=f"{admin_remote_server.endpoint}:{admin_remote_server.port}",
+        auto_delete_seconds=300,
     )
     sandbox = Sandbox(config)
     try:
@@ -127,7 +128,7 @@ async def test_sandbox_restart(admin_remote_server: RemoteServer):
 
         await sandbox.restart()
         status = await sandbox.get_status(include_all_states=True)
-        assert status.state in ("pending", "running")
+        assert status.state == "running"
 
         await sandbox.create_session(CreateBashSessionRequest(session="default"))
         result = await sandbox.arun(cmd="echo after_restart", session="default")
@@ -145,6 +146,7 @@ async def test_sandbox_delete(admin_remote_server: RemoteServer):
         image="python:3.11",
         startup_timeout=60,
         base_url=f"{admin_remote_server.endpoint}:{admin_remote_server.port}",
+        auto_delete_seconds=300,
     )
     sandbox = Sandbox(config)
     await sandbox.start()
@@ -156,7 +158,7 @@ async def test_sandbox_delete(admin_remote_server: RemoteServer):
     await sandbox.delete()
 
     with pytest.raises(Exception):
-        await sandbox.get_status(include_all_states=True)
+        await sandbox.get_status(include_all_states=False)
 
 
 @pytest.mark.need_admin
