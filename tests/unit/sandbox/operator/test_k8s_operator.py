@@ -113,22 +113,31 @@ class TestK8sOperator:
 
     @pytest.mark.asyncio
     async def test_get_status_not_found(self, k8s_operator, mock_provider):
-        """Test status retrieval when sandbox not found in cache."""
+        """Test status retrieval returns None when sandbox not found in K8s."""
         mock_provider.get_status = AsyncMock(side_effect=Exception("Sandbox test-sandbox not found"))
 
-        with pytest.raises(Exception, match="not found"):
-            await k8s_operator.get_status("test-sandbox")
+        result = await k8s_operator.get_status("test-sandbox")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_status_k8s_api_404(self, k8s_operator, mock_provider):
+        """Test status retrieval returns None when K8s API returns 404."""
+        from kubernetes.client.exceptions import ApiException
+
+        mock_provider.get_status = AsyncMock(side_effect=ApiException(status=404, reason="Not Found"))
+
+        result = await k8s_operator.get_status("test-sandbox")
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_get_status_missing_ports_annotation(self, k8s_operator, mock_provider):
-        """Test that missing ports annotation raises error."""
-        # Mock get_status to raise ValueError for missing ports
+        """Test that missing ports annotation returns None."""
         mock_provider.get_status = AsyncMock(
             side_effect=ValueError("Sandbox 'test-sandbox' is missing required 'rock.sandbox/ports' annotation")
         )
 
-        with pytest.raises(Exception, match="missing required.*annotation"):
-            await k8s_operator.get_status("test-sandbox")
+        result = await k8s_operator.get_status("test-sandbox")
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_stop_success(self, k8s_operator, mock_provider):
@@ -195,6 +204,70 @@ class TestK8sOperator:
         # Sandbox not in Redis (no data stored) → returns None
         result = await k8s_operator.get_status("test-sandbox")
         assert result is None
+
+
+class TestK8sGetStatusWithManager:
+    """End-to-end test: K8sOperator + SandboxManager.get_status(include_all_states=True).
+
+    Verifies that when a sandbox exists in Redis/DB but the K8s CRD is deleted,
+    get_status(include_all_states=True) returns the stored stopped state instead of crashing.
+    """
+
+    @pytest.fixture
+    def mock_meta_store(self):
+        from unittest.mock import AsyncMock
+
+        store = AsyncMock()
+        store.get = AsyncMock(return_value=None)
+        store.create = AsyncMock()
+        store.update = AsyncMock()
+        store.archive = AsyncMock()
+        store.get_timeout = AsyncMock(return_value=None)
+        store.update_timeout = AsyncMock()
+        return store
+
+    @pytest.fixture
+    async def mgr_with_k8s_operator(self, k8s_operator, mock_meta_store):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from rock.sandbox.sandbox_manager import SandboxManager
+        from rock.sandbox.sandbox_statemachine import SandboxStateMachine
+
+        m = MagicMock(spec=SandboxManager)
+        m._meta_store = mock_meta_store
+        m._operator = k8s_operator
+
+        async def get_current_statemachine(sandbox_id: str):
+            info = await mock_meta_store.get(sandbox_id, check_db=True)
+            if info is None:
+                return None
+            return await SandboxStateMachine.from_state_value(info.get("state"), sandbox_info=info)
+
+        m._get_current_statemachine = AsyncMock(side_effect=get_current_statemachine)
+        m.get_status = SandboxManager.get_status.__get__(m, SandboxManager)
+        m._refresh_timeout = AsyncMock()
+        return m
+
+    @pytest.mark.asyncio
+    async def test_get_status_include_all_states_with_k8s_404(
+        self, mgr_with_k8s_operator, mock_meta_store, mock_provider
+    ):
+        """K8s CRD deleted + include_all_states=True → returns stopped state from meta_store."""
+        from kubernetes.client.exceptions import ApiException
+
+        mock_meta_store.get.return_value = {
+            "state": State.STOPPED,
+            "phases": {},
+            "port_mapping": {22: 41125, 8080: 51275, 22555: 43823},
+            "host_ip": "10.5.170.134",
+        }
+        mock_provider.get_status = AsyncMock(side_effect=ApiException(status=404, reason="Not Found"))
+
+        result = await mgr_with_k8s_operator.get_status("test-sandbox", include_all_states=True)
+
+        assert result.state == State.STOPPED
+        assert result.is_alive is False
+        assert result.port_mapping == {22: 41125, 8080: 51275, 22555: 43823}
 
 
 class TestMergeSandboxInfo:
