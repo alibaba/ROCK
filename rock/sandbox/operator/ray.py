@@ -200,7 +200,7 @@ class RayOperator(AbstractOperator):
         find_file_rsp = await HttpUtils.post(
             url=execute_url,
             headers=headers,
-            data={"command": ["ls", service_status_path]},
+            data={"command": ["ls", service_status_path], "sandbox_id": sandbox_id},
             read_timeout=60,
         )
 
@@ -211,7 +211,7 @@ class RayOperator(AbstractOperator):
         response: dict = await HttpUtils.post(
             url=read_file_url,
             headers=headers,
-            data={"path": service_status_path},
+            data={"path": service_status_path, "sandbox_id": sandbox_id},
             read_timeout=60,
         )
         if response.get("content"):

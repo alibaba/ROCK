@@ -252,7 +252,11 @@ class RemoteSandboxRuntime(AbstractSandbox):
     async def check_pid_exists(self, pid: int) -> bool:
         """Check if a process exists on the remote host."""
         result = await self.execute(
-            Command(command=f"kill -0 {pid} 2>/dev/null && echo 'exists' || echo 'not_exists'", shell=True)
+            Command(
+                command=f"kill -0 {pid} 2>/dev/null && echo 'exists' || echo 'not_exists'",
+                shell=True,
+                sandbox_id="scheduler-task",
+            )
         )
         return result.stdout.strip() == "exists"
 
