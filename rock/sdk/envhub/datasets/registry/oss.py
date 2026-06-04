@@ -1,28 +1,41 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import oss2
 
 from rock.logger import init_logger
 from rock.sdk.bench.models.job.config import LocalDatasetConfig, OssRegistryInfo, RegistryDatasetConfig
-from rock.sdk.envhub.datasets.models import DatasetSpec, UploadResult
+from rock.sdk.envhub.datasets.models import DatasetSpec, TaskFile, UploadResult
 from rock.sdk.envhub.datasets.registry.base import BaseDatasetRegistry
 
 logger = init_logger(__name__)
 
 
+@dataclass
+class _PaginationCache:
+    split_prefix: str = ""
+    tasks: list[str] = field(default_factory=list)
+    continuation_token: str = ""
+    is_exhausted: bool = False
+
+
 class OssDatasetRegistry(BaseDatasetRegistry):
     def __init__(self, registry: OssRegistryInfo) -> None:
         self._registry = registry
+        self._bucket: oss2.Bucket | None = None
+        self._page_cache = _PaginationCache()
 
     def _build_bucket(self) -> oss2.Bucket:
-        auth = oss2.Auth(
-            self._registry.oss_access_key_id or "",
-            self._registry.oss_access_key_secret or "",
-        )
-        return oss2.Bucket(auth, self._registry.oss_endpoint or "", self._registry.oss_bucket)
+        if self._bucket is None:
+            auth = oss2.Auth(
+                self._registry.oss_access_key_id or "",
+                self._registry.oss_access_key_secret or "",
+            )
+            self._bucket = oss2.Bucket(auth, self._registry.oss_endpoint or "", self._registry.oss_bucket)
+        return self._bucket
 
     def _build_prefix(self, org: str, name: str, split: str | None = None) -> str:
         base = self._registry.oss_dataset_path or "datasets"
@@ -31,11 +44,55 @@ class OssDatasetRegistry(BaseDatasetRegistry):
             parts.append(split)
         return "/".join(parts)
 
+    def _build_task_prefix(self, org: str, name: str, split: str, task_id: str) -> str:
+        return f"{self._build_prefix(org, name, split)}/{task_id}/"
+
     @staticmethod
     def _last_segment(prefix: str) -> str:
         return prefix.rstrip("/").rsplit("/", 1)[-1]
 
-    def _extract_tasks_from_split(self, bucket: oss2.Bucket, split_prefix: str) -> list[str]:
+    @staticmethod
+    def _normalize_task_path(path: str, *, allow_empty: bool = False, directory: bool = False) -> str:
+        raw = (path or "").replace("\\", "/")
+        if raw.startswith("/"):
+            raise ValueError("relative task path must not be absolute")
+
+        parts = [p for p in raw.split("/") if p and p != "."]
+        if any(p == ".." for p in parts):
+            raise ValueError("relative task path must not contain '..'")
+        if not parts:
+            if allow_empty:
+                return ""
+            raise ValueError("relative task path is required")
+
+        normalized = "/".join(parts)
+        if directory or raw.endswith("/"):
+            normalized += "/"
+        return normalized
+
+    @staticmethod
+    def _list_objects_v2_pages(bucket: oss2.Bucket, **kwargs):
+        token = ""
+        while True:
+            page_kwargs = dict(kwargs)
+            if token:
+                page_kwargs["continuation_token"] = token
+            result = bucket.list_objects_v2(**page_kwargs)
+            yield result
+            if not getattr(result, "is_truncated", False):
+                break
+            token = getattr(result, "next_continuation_token", "") or ""
+            if not token:
+                break
+
+    def _extract_tasks_from_split(
+        self,
+        bucket: oss2.Bucket,
+        split_prefix: str,
+        *,
+        max_items: int | None = None,
+        task_filter: str | None = None,
+    ) -> list[str]:
         """Extract tasks from a split prefix, combining directory and file tasks.
 
         Directory tasks: from prefix_list (e.g., "datasets/org/name/split/task-001/")
@@ -43,49 +100,100 @@ class OssDatasetRegistry(BaseDatasetRegistry):
 
         File tasks are stripped of their suffix (e.g., "task-001.json" -> "task-001").
         Placeholder objects (key ending with "/") and nested objects are ignored.
+
+        When *task_filter* is set, only tasks whose name starts with the filter
+        string are returned (pushed down to the OSS prefix for efficiency).
+
+        Uses an internal pagination cache: if the same query is repeated, results
+        are served from cache or resumed via continuation token.
         """
-        result = bucket.list_objects_v2(prefix=split_prefix, delimiter="/", max_keys=1000)
+        query_prefix = f"{split_prefix}{task_filter}" if task_filter else split_prefix
+        cache = self._page_cache
 
-        # Directory tasks from prefix_list
-        dir_tasks = [self._last_segment(p) for p in result.prefix_list]
+        # Cache hit: same query
+        if cache.split_prefix == query_prefix:
+            if cache.is_exhausted or (max_items is not None and len(cache.tasks) >= max_items):
+                return cache.tasks[:max_items] if max_items else list(cache.tasks)
+            tasks_set: set[str] = set(cache.tasks)
+            token = cache.continuation_token
+        else:
+            tasks_set = set()
+            token = ""
 
-        # File tasks from object_list: direct files under split, strip suffix
-        file_tasks = []
-        for obj in result.object_list:
-            key = obj.key
-            # Ignore directory placeholder objects (key ending with "/")
-            if key.endswith("/"):
-                continue
-            # Get the relative path from split_prefix
-            relative = key[len(split_prefix) :]
-            # Only direct files (no nested paths with "/")
-            if "/" in relative:
-                continue
-            # Strip suffix (e.g., "task-001.json" -> "task-001")
-            name = relative.rsplit(".", 1)[0] if "." in relative else relative
-            file_tasks.append(name)
+        while True:
+            mk = 1000
+            if max_items is not None:
+                mk = min(1000, max(max_items - len(tasks_set), 100))
 
-        # Merge and dedupe with stable sort
-        all_tasks = sorted(set(dir_tasks + file_tasks))
-        return all_tasks
+            kwargs: dict = {"prefix": query_prefix, "delimiter": "/", "max_keys": mk}
+            if token:
+                kwargs["continuation_token"] = token
+
+            result = bucket.list_objects_v2(**kwargs)
+
+            for p in result.prefix_list:
+                s = self._last_segment(p)
+                if not s.startswith("."):
+                    tasks_set.add(s)
+
+            for obj in result.object_list:
+                key = obj.key
+                if key.endswith("/"):
+                    continue
+                relative = key[len(split_prefix):]
+                if "/" in relative or relative.startswith("."):
+                    continue
+                name = relative.rsplit(".", 1)[0] if "." in relative else relative
+                tasks_set.add(name)
+
+            is_truncated = getattr(result, "is_truncated", False)
+            next_token = getattr(result, "next_continuation_token", "") or ""
+
+            if not is_truncated or not next_token:
+                sorted_tasks = sorted(tasks_set)
+                cache.split_prefix = query_prefix
+                cache.tasks = sorted_tasks
+                cache.continuation_token = ""
+                cache.is_exhausted = True
+                return sorted_tasks[:max_items] if max_items else sorted_tasks
+
+            if max_items is not None and len(tasks_set) >= max_items:
+                sorted_tasks = sorted(tasks_set)
+                cache.split_prefix = query_prefix
+                cache.tasks = sorted_tasks
+                cache.continuation_token = next_token
+                cache.is_exhausted = False
+                return sorted_tasks[:max_items]
+
+            token = next_token
 
     def list_organizations(self) -> list[str]:
         bucket = self._build_bucket()
         base = self._registry.oss_dataset_path or "datasets"
-        result = bucket.list_objects_v2(prefix=f"{base}/", delimiter="/", max_keys=1000)
-        return sorted(self._last_segment(p) for p in result.prefix_list)
+        prefixes = []
+        for result in self._list_objects_v2_pages(bucket, prefix=f"{base}/", delimiter="/", max_keys=1000):
+            prefixes.extend(result.prefix_list)
+        return sorted(s for p in prefixes if not (s := self._last_segment(p)).startswith("."))
 
     def list_org_datasets(self, organization: str) -> list[str]:
         bucket = self._build_bucket()
         base = self._registry.oss_dataset_path or "datasets"
-        result = bucket.list_objects_v2(prefix=f"{base}/{organization}/", delimiter="/", max_keys=1000)
-        return sorted(self._last_segment(p) for p in result.prefix_list)
+        prefixes = []
+        for result in self._list_objects_v2_pages(
+            bucket, prefix=f"{base}/{organization}/", delimiter="/", max_keys=1000
+        ):
+            prefixes.extend(result.prefix_list)
+        return sorted(s for p in prefixes if not (s := self._last_segment(p)).startswith("."))
 
     def list_dataset_splits(self, organization: str, dataset: str) -> list[str]:
         bucket = self._build_bucket()
         base = self._registry.oss_dataset_path or "datasets"
-        result = bucket.list_objects_v2(prefix=f"{base}/{organization}/{dataset}/", delimiter="/", max_keys=1000)
-        return sorted(self._last_segment(p) for p in result.prefix_list)
+        prefixes = []
+        for result in self._list_objects_v2_pages(
+            bucket, prefix=f"{base}/{organization}/{dataset}/", delimiter="/", max_keys=1000
+        ):
+            prefixes.extend(result.prefix_list)
+        return sorted(s for p in prefixes if not (s := self._last_segment(p)).startswith("."))
 
     def list_all_datasets(self, concurrency: int = 10) -> list[tuple[str, str]]:
         orgs = self.list_organizations()
@@ -107,20 +215,31 @@ class OssDatasetRegistry(BaseDatasetRegistry):
         if organization:
             org_prefixes = [f"{base}/{organization}/"]
         else:
-            result = bucket.list_objects_v2(prefix=f"{base}/", delimiter="/", max_keys=1000)
-            org_prefixes = result.prefix_list
+            org_prefixes = []
+            for result in self._list_objects_v2_pages(bucket, prefix=f"{base}/", delimiter="/", max_keys=1000):
+                org_prefixes.extend(result.prefix_list)
 
         datasets: list[DatasetSpec] = []
         for org_prefix in org_prefixes:
             org = self._last_segment(org_prefix)
+            if org.startswith("."):
+                continue
 
-            result = bucket.list_objects_v2(prefix=org_prefix, delimiter="/", max_keys=1000)
-            for name_prefix in result.prefix_list:
+            name_prefixes = []
+            for result in self._list_objects_v2_pages(bucket, prefix=org_prefix, delimiter="/", max_keys=1000):
+                name_prefixes.extend(result.prefix_list)
+            for name_prefix in name_prefixes:
                 name = self._last_segment(name_prefix)
+                if name.startswith("."):
+                    continue
 
-                result2 = bucket.list_objects_v2(prefix=name_prefix, delimiter="/", max_keys=1000)
-                for split_prefix in result2.prefix_list:
+                split_prefixes = []
+                for result2 in self._list_objects_v2_pages(bucket, prefix=name_prefix, delimiter="/", max_keys=1000):
+                    split_prefixes.extend(result2.prefix_list)
+                for split_prefix in split_prefixes:
                     split = self._last_segment(split_prefix)
+                    if split.startswith("."):
+                        continue
 
                     task_ids = self._extract_tasks_from_split(bucket, split_prefix)
                     datasets.append(
@@ -133,10 +252,22 @@ class OssDatasetRegistry(BaseDatasetRegistry):
 
         return datasets
 
-    def list_dataset_tasks(self, organization: str, dataset: str, split: str = "test") -> DatasetSpec | None:
+    def list_dataset_tasks(
+        self,
+        organization: str,
+        dataset: str,
+        split: str = "test",
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+        task_filter: str | None = None,
+    ) -> DatasetSpec | None:
         bucket = self._build_bucket()
         split_prefix = f"{self._build_prefix(organization, dataset, split)}/"
-        task_ids = self._extract_tasks_from_split(bucket, split_prefix)
+        max_items = offset + limit if limit is not None else None
+        task_ids = self._extract_tasks_from_split(
+            bucket, split_prefix, max_items=max_items, task_filter=task_filter
+        )
 
         if not task_ids:
             return None
@@ -144,12 +275,65 @@ class OssDatasetRegistry(BaseDatasetRegistry):
         return DatasetSpec(
             id=f"{organization}/{dataset}",
             split=split,
-            task_ids=task_ids,
+            task_ids=task_ids[offset:max_items],
         )
+
+    def list_task_files(
+        self, organization: str, dataset: str, split: str, task_id: str, path: str = ""
+    ) -> list[TaskFile]:
+        bucket = self._build_bucket()
+        task_prefix = self._build_task_prefix(organization, dataset, split, task_id)
+        relative_prefix = self._normalize_task_path(path, allow_empty=True, directory=bool(path)) if path else ""
+
+        files: list[TaskFile] = []
+        for result in self._list_objects_v2_pages(bucket, prefix=f"{task_prefix}{relative_prefix}", max_keys=1000):
+            for obj in result.object_list:
+                key = obj.key
+                if key.endswith("/") or not key.startswith(task_prefix):
+                    continue
+                relative = key[len(task_prefix) :]
+                if not relative:
+                    continue
+                files.append(TaskFile(path=relative, size=getattr(obj, "size", None)))
+        if not files and not relative_prefix:
+            split_prefix = f"{self._build_prefix(organization, dataset, split)}/"
+            for result in self._list_objects_v2_pages(bucket, prefix=f"{split_prefix}{task_id}", max_keys=1000):
+                for obj in result.object_list:
+                    key = obj.key
+                    if key.endswith("/") or not key.startswith(split_prefix):
+                        continue
+                    relative = key[len(split_prefix) :]
+                    if "/" in relative:
+                        continue
+                    name = relative.rsplit(".", 1)[0] if "." in relative else relative
+                    if name == task_id:
+                        files.append(TaskFile(path=relative, size=getattr(obj, "size", None)))
+        return sorted(files, key=lambda f: f.path)
+
+    def get_task_file(self, organization: str, dataset: str, split: str, task_id: str, path: str) -> bytes | None:
+        bucket = self._build_bucket()
+        relative = self._normalize_task_path(path)
+        key = f"{self._build_task_prefix(organization, dataset, split, task_id)}{relative}"
+        try:
+            return bucket.get_object(key).read()
+        except (oss2.exceptions.NoSuchKey, oss2.exceptions.NotFound):
+            if "/" not in relative:
+                direct_name = relative.rsplit(".", 1)[0] if "." in relative else relative
+                if direct_name == task_id:
+                    direct_key = f"{self._build_prefix(organization, dataset, split)}/{relative}"
+                    try:
+                        return bucket.get_object(direct_key).read()
+                    except (oss2.exceptions.NoSuchKey, oss2.exceptions.NotFound):
+                        return None
+            return None
 
     def _task_exists(self, bucket: oss2.Bucket, task_prefix: str) -> bool:
         result = bucket.list_objects_v2(prefix=task_prefix, max_keys=1)
         return len(result.object_list) > 0
+
+    def _object_exists(self, bucket: oss2.Bucket, key: str) -> bool:
+        result = bucket.list_objects_v2(prefix=key, max_keys=1)
+        return any(obj.key == key for obj in result.object_list)
 
     def _upload_task(
         self,
@@ -173,6 +357,23 @@ class OssDatasetRegistry(BaseDatasetRegistry):
             bucket.put_object(key, file.read_bytes())
         return len(files)
 
+    def _upload_task_file(
+        self,
+        bucket: oss2.Bucket,
+        org: str,
+        name: str,
+        split: str,
+        task_file: Path,
+        overwrite: bool,
+    ) -> int | None:
+        key = f"{self._build_prefix(org, name, split)}/{task_file.name}"
+
+        if not overwrite and self._object_exists(bucket, key):
+            return None
+
+        bucket.put_object(key, task_file.read_bytes())
+        return 1
+
     def upload_dataset(
         self,
         source: LocalDatasetConfig,
@@ -185,16 +386,25 @@ class OssDatasetRegistry(BaseDatasetRegistry):
         local_dir = source.path
 
         bucket = self._build_bucket()
-        task_dirs = sorted([d for d in local_dir.iterdir() if d.is_dir()])
+        if local_dir.is_file():
+            upload_items = [local_dir]
+        else:
+            upload_items = sorted([p for p in local_dir.iterdir() if p.is_dir() or p.is_file()])
 
         raw: dict[str, int | None | Exception] = {}
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            futures = {executor.submit(self._upload_task, bucket, org, name, split, d, overwrite): d for d in task_dirs}
-            for future, task_dir in futures.items():
+            futures = {}
+            for item in upload_items:
+                if item.is_dir():
+                    future = executor.submit(self._upload_task, bucket, org, name, split, item, overwrite)
+                else:
+                    future = executor.submit(self._upload_task_file, bucket, org, name, split, item, overwrite)
+                futures[future] = item
+            for future, item in futures.items():
                 try:
-                    raw[task_dir.name] = future.result()
+                    raw[item.name] = future.result()
                 except Exception as exc:
-                    raw[task_dir.name] = exc
+                    raw[item.name] = exc
 
         uploaded = skipped = failed = 0
         for task_id in sorted(raw):
