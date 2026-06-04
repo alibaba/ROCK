@@ -192,7 +192,7 @@ class BaseTask(ABC):
         status = await self.get_task_status(runtime)
         if status is None or not status.pid:
             return
-        if await runtime.check_pid_exists(status.pid):
+        if await runtime.check_pid_exists(status.pid, sandbox_id="scheduler-task"):
             kill_cmd = f"pkill -9 -P {status.pid}; kill -9 {status.pid}"
             await runtime.execute(Command(command=kill_cmd, shell=True, sandbox_id="scheduler-task"))
             logger.info(f"[{self.type}] killed pid {status.pid} on worker[{ip}]")
@@ -230,7 +230,7 @@ class BaseTask(ABC):
 
         # Check if process is still running
         if status.pid and status.status == TaskStatusEnum.RUNNING:
-            pid_exists = await runtime.check_pid_exists(status.pid)
+            pid_exists = await runtime.check_pid_exists(status.pid, sandbox_id="scheduler-task")
             if pid_exists:
                 return False  # Process still running, skip
         if status.pid is None and status.status == TaskStatusEnum.FAILED:

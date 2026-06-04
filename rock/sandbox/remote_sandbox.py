@@ -249,13 +249,18 @@ class RemoteSandboxRuntime(AbstractSandbox):
             msg += traceback.format_exc()
             return {}
 
-    async def check_pid_exists(self, pid: int) -> bool:
-        """Check if a process exists on the remote host."""
+    async def check_pid_exists(self, pid: int, sandbox_id: str) -> bool:
+        """Check if a process exists on the remote host.
+
+        ``sandbox_id`` satisfies the rocklet's NonBlankStr contract on
+        ``SandboxCommand`` (PR #985) and shows up in the rocklet access log
+        for tracing -- pass the caller's own context value.
+        """
         result = await self.execute(
             Command(
                 command=f"kill -0 {pid} 2>/dev/null && echo 'exists' || echo 'not_exists'",
                 shell=True,
-                sandbox_id="scheduler-task",
+                sandbox_id=sandbox_id,
             )
         )
         return result.stdout.strip() == "exists"
