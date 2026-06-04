@@ -429,7 +429,7 @@ async def upload(
 
 @sandbox_router.post("/stop")
 @handle_exceptions(error_message="stop sandbox failed")
-async def close(sandbox_id: Annotated[NonBlankStr, Body(embed=True)]) -> RockResponse[str]:
+async def close(sandbox_id: Annotated[NonBlankStr, Body(embed=True)]) -> RockResponse:
     await sandbox_manager.stop(sandbox_id)
     return RockResponse(result=f"{sandbox_id} stopped")
 
@@ -443,10 +443,6 @@ async def delete(sandbox_id: str = Body(..., embed=True)) -> RockResponse:
     state. Unknown sandbox is idempotent (Success). After this call the DB
     record holds ``state='deleted'`` and the worker container has been removed
     via ``operator.delete``.
-
-    Return type is the bare ``RockResponse`` (not ``RockResponse[str]``) so the
-    ``handle_exceptions`` decorator can fill ``result`` with a ``SandboxResponse``
-    on the failure path without tripping FastAPI's response_model validation.
     """
     await sandbox_manager.delete(sandbox_id)
     return RockResponse(result=f"{sandbox_id} deleted")
@@ -473,7 +469,7 @@ async def commit(
     ],
     username: str = Body(..., embed=True),
     password: str = Body(..., embed=True),
-) -> RockResponse[str]:
+) -> RockResponse:
     await sandbox_manager.commit(sandbox_id=sandbox_id, image_tag=image_tag, username=username, password=password)
     return RockResponse(result=f"{sandbox_id} commited")
 

@@ -34,6 +34,7 @@ export interface HttpConfig {
  */
 export interface HttpResponse<T = unknown> {
   status: string;
+  code?: number;
   result?: T;
   error?: string;
   headers: Record<string, string>;
@@ -82,11 +83,14 @@ export class HttpUtils {
     try {
       const response = await client.post<unknown>(url, snakeData);
       // Convert response to camelCase for SDK users
-      const camelData = objectToCamel(response.data as object) as { status?: string; result?: T; error?: string };
+      const camelData = objectToCamel(response.data as object) as { status?: string; code?: number; result?: T; error?: string };
       const httpResponse: HttpResponse<T> = {
         status: camelData.status ?? 'Success',
         headers: this.extractHeaders(response),
       };
+      if (camelData.code !== undefined) {
+        httpResponse.code = camelData.code;
+      }
       if (camelData.result !== undefined) {
         httpResponse.result = camelData.result;
       }
@@ -114,11 +118,14 @@ export class HttpUtils {
     try {
       const response = await client.get<unknown>(url);
       // Convert response to camelCase for SDK users
-      const camelData = objectToCamel(response.data as object) as { status?: string; result?: T; error?: string };
+      const camelData = objectToCamel(response.data as object) as { status?: string; code?: number; result?: T; error?: string };
       const httpResponse: HttpResponse<T> = {
         status: camelData.status ?? 'Success',
         headers: this.extractHeaders(response),
       };
+      if (camelData.code !== undefined) {
+        httpResponse.code = camelData.code;
+      }
       if (camelData.result !== undefined) {
         httpResponse.result = camelData.result;
       }
@@ -214,11 +221,14 @@ export class HttpUtils {
         },
       });
       // Convert response to camelCase for SDK users
-      const camelData = objectToCamel(response.data as object) as { status?: string; result?: T; error?: string };
+      const camelData = objectToCamel(response.data as object) as { status?: string; code?: number; result?: T; error?: string };
       const httpResponse: HttpResponse<T> = {
         status: camelData.status ?? 'Success',
         headers: this.extractHeaders(response),
       };
+      if (camelData.code !== undefined) {
+        httpResponse.code = camelData.code;
+      }
       if (camelData.result !== undefined) {
         httpResponse.result = camelData.result;
       }

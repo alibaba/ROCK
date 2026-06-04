@@ -2,10 +2,12 @@ from enum import Enum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
+from typing_extensions import deprecated
 
 from rock._codes import codes
 
 
+@deprecated("Use RockResponse.code and RockResponse.error instead")
 class SandboxResponse(BaseModel):
     code: codes | None = None
     exit_code: int | None = None

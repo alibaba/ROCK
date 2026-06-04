@@ -35,43 +35,40 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
 
 
 def handle_exceptions(error_message: str = "error occurred"):
-    """Exception handling decorator
+    """Exception handling decorator.
+
+    On error, ``code`` is surfaced on the envelope (preferred by new SDKs)
+    and ``result`` is always populated with a ``SandboxResponse`` payload
+    (preserved for older SDKs that read ``result.code``).
 
     Args:
-        error_message: Default error message to return
+        error_message: Default error message to return.
 
     Returns:
-        Decorator function
+        Decorator function.
     """
 
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
-            # Return JSONResponse directly on error so FastAPI skips response_model validation.
-            # Otherwise endpoints declared as RockResponse[str] (e.g. /stop, /commit) would
-            # 500 because the error payload is a SandboxResponse, not a str.
             try:
                 return await func(*args, **kwargs)
             except RockException as e:
                 logger.error(f"RockException in {func.__name__}: {str(e)}", exc_info=True)
-                return JSONResponse(
-                    status_code=200,
-                    content=RockResponse(
-                        status=ResponseStatus.FAILED,
-                        message=error_message,
-                        result=from_rock_exception(e),
-                    ).model_dump(),
+                return RockResponse(
+                    status=ResponseStatus.FAILED,
+                    message=error_message,
+                    code=e.code,
+                    error=str(e),
+                    result=from_rock_exception(e),
                 )
             except Exception as e:
                 logger.error(f"Error in {func.__name__}: {str(e)}", exc_info=True)
-                return JSONResponse(
-                    status_code=200,
-                    content=RockResponse(
-                        status=ResponseStatus.FAILED,
-                        message=error_message,
-                        error=str(e),
-                        result=None,
-                    ).model_dump(),
+                return RockResponse(
+                    status=ResponseStatus.FAILED,
+                    message=error_message,
+                    error=str(e),
+                    result=None,
                 )
 
         return wrapper

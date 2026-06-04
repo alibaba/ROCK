@@ -28,7 +28,6 @@ from rock.actions import (
     Observation,
     ReadFileRequest,
     ReadFileResponse,
-    SandboxResponse,
     SandboxStatusResponse,
     UploadMode,
     UploadRequest,
@@ -42,7 +41,7 @@ from rock.sdk.common.exceptions import (
     BadRequestRockError,
     InternalServerRockError,
     InvalidParameterRockException,
-    raise_for_code,
+    raise_for_envelope_or_result,
 )
 from rock.sdk.sandbox.agent.rock_agent import RockAgent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
@@ -213,11 +212,7 @@ class Sandbox(AbstractSandbox):
 
         logging.debug(f"Start sandbox response: {response}")
         if "Success" != response.get("status"):
-            result = response.get("result", None)
-            if result is not None:
-                rock_response = SandboxResponse(**result)
-                raise_for_code(rock_response.code, f"Failed to start container: {response}")
-            raise Exception(f"Failed to start sandbox: {response}")
+            raise_for_envelope_or_result(response, "Failed to start container", "Failed to start sandbox")
         self._sandbox_id = response.get("result").get("sandbox_id")
         self._host_name = response.get("result").get("host_name")
         self._host_ip = response.get("result").get("host_ip")
@@ -324,11 +319,7 @@ class Sandbox(AbstractSandbox):
         response = await HttpUtils.post(url, headers, data)
         logging.debug(f"Restart sandbox response: {response}")
         if "Success" != response.get("status"):
-            result = response.get("result", None)
-            if result is not None:
-                rock_response = SandboxResponse(**result)
-                raise_for_code(rock_response.code, f"Failed to restart sandbox: {response}")
-            raise Exception(f"Failed to restart sandbox: {response}")
+            raise_for_envelope_or_result(response, "Failed to restart sandbox", "Failed to restart sandbox")
 
         start_time = time.time()
         while time.time() - start_time < self.config.startup_timeout:

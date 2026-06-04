@@ -227,7 +227,7 @@ export class Sandbox extends AbstractSandbox {
     logger.debug(`Calling start_async API: ${url}`);
     logger.debug(`Request data: ${JSON.stringify(data)}`);
 
-    const response = await HttpUtils.post<{ sandboxId?: string; hostName?: string; hostIp?: string; code?: number }>(
+    const response = await HttpUtils.post<{ sandboxId?: string; hostName?: string; hostIp?: string }>(
       url,
       headers,
       data
@@ -237,9 +237,7 @@ export class Sandbox extends AbstractSandbox {
 
     if (response.status !== 'Success') {
       // Check for error code and throw appropriate exception
-      const code = response.result?.code;
-      raiseForCode(code, `Failed to start sandbox: ${JSON.stringify(response)}`);
-      // If no error code, throw generic error
+      raiseForCode(response.code, `Failed to start sandbox: ${JSON.stringify(response)}`);
       throw new Error(`Failed to start sandbox: ${JSON.stringify(response)}`);
     }
 
@@ -315,12 +313,11 @@ export class Sandbox extends AbstractSandbox {
   async getStatus(): Promise<SandboxStatusResponse> {
     const url = `${this.url}/get_status?sandbox_id=${this.sandboxId}`;
     const headers = this.buildHeaders();
-    const response = await HttpUtils.get<SandboxStatusResponse & { code?: number }>(url, headers);
+    const response = await HttpUtils.get<SandboxStatusResponse>(url, headers);
 
     if (response.status !== 'Success') {
       const errorDetail = response.error ? `, error=${response.error}` : '';
-      const code = response.result?.code;
-      raiseForCode(code, `Failed to get status: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
+      raiseForCode(response.code, `Failed to get status: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
       throw new Error(`Failed to get status: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
     }
 
@@ -347,7 +344,7 @@ export class Sandbox extends AbstractSandbox {
       env: command.env,
     };
 
-    const response = await HttpUtils.post<CommandResponse & { code?: number }>(
+    const response = await HttpUtils.post<CommandResponse>(
       url,
       headers,
       data
@@ -355,8 +352,7 @@ export class Sandbox extends AbstractSandbox {
 
     if (response.status !== 'Success') {
       const errorDetail = response.error ? `, error=${response.error}` : '';
-      const code = response.result?.code;
-      raiseForCode(code, `Failed to execute command: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
+      raiseForCode(response.code, `Failed to execute command: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
       throw new Error(`Failed to execute command: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
     }
 
@@ -373,7 +369,7 @@ export class Sandbox extends AbstractSandbox {
       ...request,
     };
 
-    const response = await HttpUtils.post<CreateSessionResponse & { code?: number }>(
+    const response = await HttpUtils.post<CreateSessionResponse>(
       url,
       headers,
       data
@@ -381,8 +377,7 @@ export class Sandbox extends AbstractSandbox {
 
     if (response.status !== 'Success') {
       const errorDetail = response.error ? `, error=${response.error}` : '';
-      const code = response.result?.code;
-      raiseForCode(code, `Failed to create session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
+      raiseForCode(response.code, `Failed to create session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
       throw new Error(`Failed to create session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
     }
 
@@ -398,7 +393,7 @@ export class Sandbox extends AbstractSandbox {
       ...request,
     };
 
-    const response = await HttpUtils.post<CloseSessionResponse & { code?: number }>(
+    const response = await HttpUtils.post<CloseSessionResponse>(
       url,
       headers,
       data
@@ -406,8 +401,7 @@ export class Sandbox extends AbstractSandbox {
 
     if (response.status !== 'Success') {
       const errorDetail = response.error ? `, error=${response.error}` : '';
-      const code = response.result?.code;
-      raiseForCode(code, `Failed to close session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
+      raiseForCode(response.code, `Failed to close session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
       throw new Error(`Failed to close session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
     }
 
@@ -458,7 +452,7 @@ export class Sandbox extends AbstractSandbox {
 
     // Convert timeout from seconds to milliseconds for axios
     const timeoutMs = action.timeout ? action.timeout * 1000 : undefined;
-    const response = await HttpUtils.post<Observation & { code?: number }>(
+    const response = await HttpUtils.post<Observation>(
       url,
       headers,
       data,
@@ -467,8 +461,7 @@ export class Sandbox extends AbstractSandbox {
 
     if (response.status !== 'Success') {
       const errorDetail = response.error ? `, error=${response.error}` : '';
-      const code = response.result?.code;
-      raiseForCode(code, `Failed to run in session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
+      raiseForCode(response.code, `Failed to run in session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
       throw new Error(`Failed to run in session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
     }
 
