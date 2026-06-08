@@ -198,34 +198,56 @@ class FileCleanupTask(BaseTask):
         return f'-name "{value}"'
 
     @staticmethod
+    def _build_not_path_pattern(value: str, target_dir: str, is_dir: bool) -> str:
+        """Build a -not -path pattern for a single exclusion value.
+
+        Args:
+            value: The exclusion value (plain name, relative path, or absolute path)
+            target_dir: The target directory for resolving relative paths
+            is_dir: If True, also exclude descendants (*/pattern/*)
+
+        Returns:
+            A string of -not -path expressions
+        """
+        if value.startswith("/"):
+            pattern = value.rstrip("/")
+        elif "/" in value:
+            normalized = value.lstrip("./").strip("/")
+            pattern = f"{target_dir.rstrip('/')}/{normalized}"
+        else:
+            pattern = f"*/{value}"
+
+        expr = f'-not -path "{pattern}"'
+        if is_dir:
+            expr += f' -not -path "{pattern}/*"'
+        return expr
+
+    @staticmethod
     def _build_exclude_expr(dir_config: "TargetDirConfig") -> str:
         """Build the find exclusion expression for directories and files.
 
-        Supports both name-based and path-based exclusions. Values containing '/'
-        are treated as relative paths under target_dir and matched via -path.
-        Plain names are matched via -name.
+        NOTE: -delete implies -depth (GNU find documented behavior), which
+        disables -prune. We use -not -path filtering instead.
 
         Args:
             dir_config: The target directory configuration with its exclusions
 
         Returns:
-            A string of find prune/exclude expressions, or empty string if nothing to exclude.
+            A string of -not -path exclusion expressions, or empty string if nothing to exclude.
         """
         parts = []
         target_dir = dir_config.path
 
         for exclude_dir in dir_config.exclude_dirs:
-            match_expr = FileCleanupTask._build_match_expr(exclude_dir, target_dir)
-            parts.append(f"{match_expr} -prune")
+            parts.append(FileCleanupTask._build_not_path_pattern(exclude_dir, target_dir, is_dir=True))
 
         for exclude_file in dir_config.exclude_files:
-            match_expr = FileCleanupTask._build_match_expr(exclude_file, target_dir)
-            parts.append(f"{match_expr} -prune")
+            parts.append(FileCleanupTask._build_not_path_pattern(exclude_file, target_dir, is_dir=False))
 
         if not parts:
             return ""
 
-        return "\\( " + " -o ".join(parts) + " \\) -o "
+        return " ".join(parts) + " "
 
     def _build_cleanup_command(self, dir_config: TargetDirConfig) -> str:
         """Build the shell command for cleaning up files in a single directory.
@@ -253,19 +275,9 @@ class FileCleanupTask(BaseTask):
         size_find_expr = f"-size +{size_bytes}c"
         exclude_expr = self._build_exclude_expr(dir_config)
 
-        # Build directory exclusion for empty dir cleanup.
-        # NOTE: -depth disables -prune (GNU find documented behavior), so we
-        # use -not -path to filter out excluded dirs and their descendants.
         dir_exclude_not_parts = []
         for exclude_dir in dir_config.exclude_dirs:
-            if exclude_dir.startswith("/"):
-                pattern = exclude_dir.rstrip("/")
-            elif "/" in exclude_dir:
-                normalized = exclude_dir.lstrip("./").strip("/")
-                pattern = f"{target_dir.rstrip('/')}/{normalized}"
-            else:
-                pattern = f"*/{exclude_dir}"
-            dir_exclude_not_parts.append(f'-not -path "{pattern}" -not -path "{pattern}/*"')
+            dir_exclude_not_parts.append(self._build_not_path_pattern(exclude_dir, target_dir, is_dir=True))
         dir_exclude_expr = " ".join(dir_exclude_not_parts) + " " if dir_exclude_not_parts else ""
 
         # Step 1: Delete files (with exclusions) older than max_age_mins OR exceeding max_file_size

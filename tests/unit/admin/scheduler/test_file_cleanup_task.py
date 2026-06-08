@@ -147,31 +147,69 @@ class TestBuildCleanupCommand:
         assert "-size +524288000c" in cmd
 
     def test_command_with_exclude_dirs(self):
+        """Regression: -delete implies -depth which disables -prune; must use -not -path."""
         dir_cfg = TargetDirConfig(path="/data/cache", exclude_dirs=["keep_me"])
         task = self._new_task(target_dirs=[dir_cfg])
         cmd = task._build_cleanup_command(dir_cfg)
-        # Step 1 (file deletion) still uses -prune (no -depth there)
-        assert '-name "keep_me" -prune' in cmd
+        assert "-prune" not in cmd
+        assert '-not -path "*/keep_me"' in cmd
+        assert '-not -path "*/keep_me/*"' in cmd
 
     def test_command_with_exclude_files(self):
         dir_cfg = TargetDirConfig(path="/data/cache", exclude_files=["important.log"])
         task = self._new_task(target_dirs=[dir_cfg])
         cmd = task._build_cleanup_command(dir_cfg)
-        assert '-name "important.log" -prune' in cmd
+        assert "-prune" not in cmd
+        assert '-not -path "*/important.log"' in cmd
 
-    def test_empty_dir_cleanup_uses_not_path_instead_of_prune(self):
-        """Regression: -depth disables -prune, so empty-dir cleanup must use -not -path."""
+    def test_command_no_prune_anywhere(self):
+        """Since both -delete (Step 1) and -depth (Step 2) disable -prune,
+        no generated command should ever contain -prune."""
+        dir_cfg = TargetDirConfig(
+            path="/data/logs",
+            exclude_dirs=["docker"],
+            exclude_files=["docuum.log", "./rocklet.log"],
+        )
+        task = self._new_task(target_dirs=[dir_cfg])
+        cmd = task._build_cleanup_command(dir_cfg)
+        assert "-prune" not in cmd
+
+    def test_step1_exclude_dirs_plain_name(self):
         dir_cfg = TargetDirConfig(path="/data/logs", exclude_dirs=["docker"])
         task = self._new_task(target_dirs=[dir_cfg])
         cmd = task._build_cleanup_command(dir_cfg)
-        # The second find (empty-dir cleanup) must NOT use -prune (it has -depth)
+        parts = cmd.split(";")
+        file_find = [p for p in parts if "-type f" in p][0]
+        assert '-not -path "*/docker"' in file_find
+        assert '-not -path "*/docker/*"' in file_find
+
+    def test_step1_exclude_dirs_absolute_path(self):
+        dir_cfg = TargetDirConfig(path="/data/logs", exclude_dirs=["/data/logs/special"])
+        task = self._new_task(target_dirs=[dir_cfg])
+        cmd = task._build_cleanup_command(dir_cfg)
+        parts = cmd.split(";")
+        file_find = [p for p in parts if "-type f" in p][0]
+        assert '-not -path "/data/logs/special"' in file_find
+        assert '-not -path "/data/logs/special/*"' in file_find
+
+    def test_step1_exclude_files_relative_path(self):
+        dir_cfg = TargetDirConfig(path="/data/logs", exclude_files=["./rocklet.log"])
+        task = self._new_task(target_dirs=[dir_cfg])
+        cmd = task._build_cleanup_command(dir_cfg)
+        parts = cmd.split(";")
+        file_find = [p for p in parts if "-type f" in p][0]
+        assert '-not -path "/data/logs/rocklet.log"' in file_find
+
+    def test_step2_exclude_dirs_plain_name(self):
+        dir_cfg = TargetDirConfig(path="/data/logs", exclude_dirs=["docker"])
+        task = self._new_task(target_dirs=[dir_cfg])
+        cmd = task._build_cleanup_command(dir_cfg)
         parts = cmd.split(";")
         empty_dir_find = [p for p in parts if "-type d -empty -delete" in p][0]
-        assert "-prune" not in empty_dir_find
         assert '-not -path "*/docker"' in empty_dir_find
         assert '-not -path "*/docker/*"' in empty_dir_find
 
-    def test_empty_dir_cleanup_exclude_absolute_path(self):
+    def test_step2_exclude_dirs_absolute_path(self):
         dir_cfg = TargetDirConfig(path="/data/logs", exclude_dirs=["/data/logs/special"])
         task = self._new_task(target_dirs=[dir_cfg])
         cmd = task._build_cleanup_command(dir_cfg)
@@ -180,7 +218,7 @@ class TestBuildCleanupCommand:
         assert '-not -path "/data/logs/special"' in empty_dir_find
         assert '-not -path "/data/logs/special/*"' in empty_dir_find
 
-    def test_empty_dir_cleanup_exclude_relative_path(self):
+    def test_step2_exclude_dirs_relative_path(self):
         dir_cfg = TargetDirConfig(path="/data/logs", exclude_dirs=["./sub/dir"])
         task = self._new_task(target_dirs=[dir_cfg])
         cmd = task._build_cleanup_command(dir_cfg)
