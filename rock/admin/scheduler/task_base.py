@@ -70,10 +70,12 @@ class BaseTask(ABC):
         type: str,
         interval_seconds: int,
         idempotency: IdempotencyType = IdempotencyType.IDEMPOTENT,
+        process_name: str | None = None,
     ):
         self.type = type
         self.interval_seconds = interval_seconds
         self.idempotency = idempotency
+        self.process_name = process_name
         self.status_file_path = f"{env_vars.ROCK_SCHEDULER_STATUS_DIR}/{type}_status.json"
         self._executor = ThreadPoolExecutor(max_workers=100)
 
@@ -192,7 +194,7 @@ class BaseTask(ABC):
         status = await self.get_task_status(runtime)
         if status is None or not status.pid:
             return
-        if await runtime.check_pid_exists(status.pid, sandbox_id="scheduler-task"):
+        if await runtime.check_pid_exists(status.pid, sandbox_id="scheduler-task", process_name=self.process_name):
             kill_cmd = f"pkill -9 -P {status.pid}; kill -9 {status.pid}"
             await runtime.execute(Command(command=kill_cmd, shell=True, sandbox_id="scheduler-task"))
             logger.info(f"[{self.type}] killed pid {status.pid} on worker[{ip}]")
@@ -230,7 +232,9 @@ class BaseTask(ABC):
 
         # Check if process is still running
         if status.pid and status.status == TaskStatusEnum.RUNNING:
-            pid_exists = await runtime.check_pid_exists(status.pid, sandbox_id="scheduler-task")
+            pid_exists = await runtime.check_pid_exists(
+                status.pid, sandbox_id="scheduler-task", process_name=self.process_name
+            )
             if pid_exists:
                 return False  # Process still running, skip
         if status.pid is None and status.status == TaskStatusEnum.FAILED:

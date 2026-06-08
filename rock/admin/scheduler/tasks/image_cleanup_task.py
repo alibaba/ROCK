@@ -47,6 +47,7 @@ class ImageCleanupTask(BaseTask):
             type="image_cleanup",
             interval_seconds=interval_seconds,
             idempotency=IdempotencyType.NON_IDEMPOTENT,
+            process_name="docuum",
         )
         self.disk_threshold = disk_threshold
         self.image_whitelist = image_whitelist or []

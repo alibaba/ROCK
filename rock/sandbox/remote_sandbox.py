@@ -249,16 +249,30 @@ class RemoteSandboxRuntime(AbstractSandbox):
             msg += traceback.format_exc()
             return {}
 
-    async def check_pid_exists(self, pid: int, sandbox_id: str) -> bool:
+    async def check_pid_exists(self, pid: int, sandbox_id: str, process_name: str | None = None) -> bool:
         """Check if a process exists on the remote host.
 
         ``sandbox_id`` satisfies the rocklet's NonBlankStr contract on
         ``SandboxCommand`` (PR #985) and shows up in the rocklet access log
         for tracing -- pass the caller's own context value.
+
+        When ``process_name`` is given, the check also verifies that the
+        process at ``pid`` matches the expected name via /proc/<pid>/cmdline.
+        This guards against PID reuse (another process or a thread of
+        another process occupying the same PID/TID after the original
+        process exited).
         """
+        if process_name:
+            cmd = (
+                f"kill -0 {pid} 2>/dev/null "
+                f"&& cat /proc/{pid}/cmdline 2>/dev/null | tr '\\0' ' ' | grep -q '{process_name}' "
+                f"&& echo 'exists' || echo 'not_exists'"
+            )
+        else:
+            cmd = f"kill -0 {pid} 2>/dev/null && echo 'exists' || echo 'not_exists'"
         result = await self.execute(
             Command(
-                command=f"kill -0 {pid} 2>/dev/null && echo 'exists' || echo 'not_exists'",
+                command=cmd,
                 shell=True,
                 sandbox_id=sandbox_id,
             )
