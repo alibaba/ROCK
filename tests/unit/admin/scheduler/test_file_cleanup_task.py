@@ -150,6 +150,7 @@ class TestBuildCleanupCommand:
         dir_cfg = TargetDirConfig(path="/data/cache", exclude_dirs=["keep_me"])
         task = self._new_task(target_dirs=[dir_cfg])
         cmd = task._build_cleanup_command(dir_cfg)
+        # Step 1 (file deletion) still uses -prune (no -depth there)
         assert '-name "keep_me" -prune' in cmd
 
     def test_command_with_exclude_files(self):
@@ -157,6 +158,36 @@ class TestBuildCleanupCommand:
         task = self._new_task(target_dirs=[dir_cfg])
         cmd = task._build_cleanup_command(dir_cfg)
         assert '-name "important.log" -prune' in cmd
+
+    def test_empty_dir_cleanup_uses_not_path_instead_of_prune(self):
+        """Regression: -depth disables -prune, so empty-dir cleanup must use -not -path."""
+        dir_cfg = TargetDirConfig(path="/data/logs", exclude_dirs=["docker"])
+        task = self._new_task(target_dirs=[dir_cfg])
+        cmd = task._build_cleanup_command(dir_cfg)
+        # The second find (empty-dir cleanup) must NOT use -prune (it has -depth)
+        parts = cmd.split(";")
+        empty_dir_find = [p for p in parts if "-type d -empty -delete" in p][0]
+        assert "-prune" not in empty_dir_find
+        assert '-not -path "*/docker"' in empty_dir_find
+        assert '-not -path "*/docker/*"' in empty_dir_find
+
+    def test_empty_dir_cleanup_exclude_absolute_path(self):
+        dir_cfg = TargetDirConfig(path="/data/logs", exclude_dirs=["/data/logs/special"])
+        task = self._new_task(target_dirs=[dir_cfg])
+        cmd = task._build_cleanup_command(dir_cfg)
+        parts = cmd.split(";")
+        empty_dir_find = [p for p in parts if "-type d -empty -delete" in p][0]
+        assert '-not -path "/data/logs/special"' in empty_dir_find
+        assert '-not -path "/data/logs/special/*"' in empty_dir_find
+
+    def test_empty_dir_cleanup_exclude_relative_path(self):
+        dir_cfg = TargetDirConfig(path="/data/logs", exclude_dirs=["./sub/dir"])
+        task = self._new_task(target_dirs=[dir_cfg])
+        cmd = task._build_cleanup_command(dir_cfg)
+        parts = cmd.split(";")
+        empty_dir_find = [p for p in parts if "-type d -empty -delete" in p][0]
+        assert '-not -path "/data/logs/sub/dir"' in empty_dir_find
+        assert '-not -path "/data/logs/sub/dir/*"' in empty_dir_find
 
 
 # --------------------------------------------------------------------------- #

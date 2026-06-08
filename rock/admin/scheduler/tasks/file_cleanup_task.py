@@ -253,14 +253,20 @@ class FileCleanupTask(BaseTask):
         size_find_expr = f"-size +{size_bytes}c"
         exclude_expr = self._build_exclude_expr(dir_config)
 
-        # Build directory exclusion for empty dir cleanup
-        dir_exclude_parts = []
+        # Build directory exclusion for empty dir cleanup.
+        # NOTE: -depth disables -prune (GNU find documented behavior), so we
+        # use -not -path to filter out excluded dirs and their descendants.
+        dir_exclude_not_parts = []
         for exclude_dir in dir_config.exclude_dirs:
-            match_expr = self._build_match_expr(exclude_dir, target_dir)
-            dir_exclude_parts.append(match_expr)
-        dir_exclude_expr = ""
-        if dir_exclude_parts:
-            dir_exclude_expr = "\\( " + " -o ".join(dir_exclude_parts) + " \\) -prune -o "
+            if exclude_dir.startswith("/"):
+                pattern = exclude_dir.rstrip("/")
+            elif "/" in exclude_dir:
+                normalized = exclude_dir.lstrip("./").strip("/")
+                pattern = f"{target_dir.rstrip('/')}/{normalized}"
+            else:
+                pattern = f"*/{exclude_dir}"
+            dir_exclude_not_parts.append(f'-not -path "{pattern}" -not -path "{pattern}/*"')
+        dir_exclude_expr = " ".join(dir_exclude_not_parts) + " " if dir_exclude_not_parts else ""
 
         # Step 1: Delete files (with exclusions) older than max_age_mins OR exceeding max_file_size
         # Step 2: Remove empty directories (bottom-up with -depth, excluding configured dirs)
