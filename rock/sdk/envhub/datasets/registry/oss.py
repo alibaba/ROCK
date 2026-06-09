@@ -13,6 +13,11 @@ from rock.sdk.envhub.datasets.registry.base import BaseDatasetRegistry
 
 logger = init_logger(__name__)
 
+# Hard upper bound on pagination pages. At 1000 keys/page this covers 10M keys,
+# far beyond any real split, while guaranteeing the loop always terminates even
+# if OSS (or a mock) keeps reporting truncation with a non-advancing token.
+_MAX_PAGINATION_PAGES = 10_000
+
 
 @dataclass
 class _PaginationCache:
@@ -73,7 +78,7 @@ class OssDatasetRegistry(BaseDatasetRegistry):
     @staticmethod
     def _list_objects_v2_pages(bucket: oss2.Bucket, **kwargs):
         token = ""
-        while True:
+        for _ in range(_MAX_PAGINATION_PAGES):
             page_kwargs = dict(kwargs)
             if token:
                 page_kwargs["continuation_token"] = token
@@ -81,9 +86,11 @@ class OssDatasetRegistry(BaseDatasetRegistry):
             yield result
             if not getattr(result, "is_truncated", False):
                 break
-            token = getattr(result, "next_continuation_token", "") or ""
-            if not token:
+            next_token = getattr(result, "next_continuation_token", "") or ""
+            # Stop if the token is empty or fails to advance (would loop forever).
+            if not next_token or next_token == token:
                 break
+            token = next_token
 
     def _extract_tasks_from_split(
         self,
@@ -120,7 +127,7 @@ class OssDatasetRegistry(BaseDatasetRegistry):
             tasks_set = set()
             token = ""
 
-        while True:
+        for _ in range(_MAX_PAGINATION_PAGES):
             mk = 1000
             if max_items is not None:
                 mk = min(1000, max(max_items - len(tasks_set), 100))
@@ -140,7 +147,7 @@ class OssDatasetRegistry(BaseDatasetRegistry):
                 key = obj.key
                 if key.endswith("/"):
                     continue
-                relative = key[len(split_prefix):]
+                relative = key[len(split_prefix) :]
                 if "/" in relative or relative.startswith("."):
                     continue
                 name = relative.rsplit(".", 1)[0] if "." in relative else relative
@@ -165,7 +172,25 @@ class OssDatasetRegistry(BaseDatasetRegistry):
                 cache.is_exhausted = False
                 return sorted_tasks[:max_items]
 
+            # Guard against a non-advancing continuation token: if OSS keeps
+            # returning the same token we would otherwise spin forever.
+            if next_token == token:
+                break
             token = next_token
+
+        # Page budget exhausted (or token stopped advancing): return what we
+        # have rather than looping forever.
+        logger.warning(
+            "Pagination stopped after %d pages for prefix %r; returning partial results",
+            _MAX_PAGINATION_PAGES,
+            query_prefix,
+        )
+        sorted_tasks = sorted(tasks_set)
+        cache.split_prefix = query_prefix
+        cache.tasks = sorted_tasks
+        cache.continuation_token = ""
+        cache.is_exhausted = True
+        return sorted_tasks[:max_items] if max_items else sorted_tasks
 
     def list_organizations(self) -> list[str]:
         bucket = self._build_bucket()
@@ -265,9 +290,7 @@ class OssDatasetRegistry(BaseDatasetRegistry):
         bucket = self._build_bucket()
         split_prefix = f"{self._build_prefix(organization, dataset, split)}/"
         max_items = offset + limit if limit is not None else None
-        task_ids = self._extract_tasks_from_split(
-            bucket, split_prefix, max_items=max_items, task_filter=task_filter
-        )
+        task_ids = self._extract_tasks_from_split(bucket, split_prefix, max_items=max_items, task_filter=task_filter)
 
         if not task_ids:
             return None
