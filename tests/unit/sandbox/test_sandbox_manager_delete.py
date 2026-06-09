@@ -13,6 +13,7 @@ import pytest
 from rock.actions.sandbox.response import State
 from rock.common.constants import DeleteReason
 from rock.config import RockConfig, SandboxConfig
+from rock.sandbox.operator.registry import OperatorRegistry
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sdk.common.exceptions import BadRequestRockError
 
@@ -27,6 +28,8 @@ def rock_config_min():
 @pytest.fixture
 def manager(rock_config_min):
     operator = AsyncMock()
+    registry = OperatorRegistry(default_name="test")
+    registry.register("test", operator)
     meta_store = AsyncMock()
     meta_store.get = AsyncMock(return_value=None)
     # Patch BaseManager scheduler setup so tests don't spawn APScheduler.
@@ -34,11 +37,16 @@ def manager(rock_config_min):
         m = SandboxManager(
             rock_config=rock_config_min,
             meta_store=meta_store,
+            registry=registry,
             ray_namespace="test",
             ray_service=MagicMock(),
             enable_runtime_auto_clear=False,
-            operator=operator,
         )
+    # Force every dispatch through the same mock operator regardless of the
+    # ``operator_name`` recorded on the meta record, and expose it under
+    # ``manager._operator`` so assertions stay readable.
+    m._operator = operator
+    m._get_operator_for_sandbox = AsyncMock(return_value=operator)
     return m
 
 

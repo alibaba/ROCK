@@ -33,6 +33,8 @@ from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
 from rock.sandbox.base_manager import BaseManager
 from rock.sandbox.operator.abstract import AbstractOperator
+from rock.sandbox.operator.registry import OperatorRegistry
+from rock.sandbox.operator.routing import RouteContext
 from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.sandbox_statemachine import SandboxStateMachine
@@ -54,10 +56,10 @@ class SandboxManager(BaseManager):
         self,
         rock_config: RockConfig,
         meta_store: SandboxMetaStore,
+        registry: OperatorRegistry,
         ray_namespace: str = env_vars.ROCK_RAY_NAMESPACE,
         ray_service: RayService | None = None,
         enable_runtime_auto_clear: bool = False,
-        operator: AbstractOperator | None = None,
     ):
         super().__init__(
             rock_config,
@@ -66,10 +68,40 @@ class SandboxManager(BaseManager):
         )
         self._ray_service = ray_service
         self._ray_namespace = ray_namespace
-        self._operator = operator
+        if not registry.loaded_names:
+            raise ValueError("SandboxManager requires a non-empty OperatorRegistry")
+        self._registry = registry
         self._aes_encrypter = AESEncryption()
         self._proxy_service = SandboxProxyService(rock_config=rock_config, meta_store=meta_store)
-        logger.info("sandbox service init success")
+        logger.info(
+            "sandbox service init success: operators=%s default=%s",
+            sorted(self._registry.loaded_names),
+            self._registry.default_name,
+        )
+
+    async def _get_operator_for_sandbox(self, sandbox_id: str) -> AbstractOperator:
+        """Resolve the operator that owns ``sandbox_id`` via meta.operator_name.
+
+        GET / stop / restart / delete must hit the same operator that
+        originally submitted the sandbox. Falls back to the registry default
+        when the meta record is missing or pre-dates the multi-operator
+        rollout (operator_name absent).
+        """
+        info = await self._meta_store.get(sandbox_id, check_db=True)
+        name = (info or {}).get("operator_name") if info else None
+        if not name:
+            return self._registry.get(self._registry.default_name)
+        try:
+            return self._registry.get(name)
+        except KeyError:
+            logger.warning(
+                "meta operator_name=%s for sandbox=%s is not loaded; falling back to default=%s",
+                name,
+                sandbox_id,
+                self._registry.default_name,
+            )
+            return self._registry.get(self._registry.default_name)
+
 
     async def _get_current_statemachine(self, sandbox_id: str) -> SandboxStateMachine | None:
         """Fetch current state from meta store and return a restored SandboxStateMachine, or None if not found."""
@@ -135,7 +167,12 @@ class SandboxManager(BaseManager):
             docker_deployment_config.cpus = self.rock_config.runtime.standard_spec.cpus
             docker_deployment_config.memory = self.rock_config.runtime.standard_spec.memory
         with StageTimer("startup_timing", f"[{sandbox_id}] Operator submit", logger):
-            sandbox_info: SandboxInfo = await self._operator.submit(docker_deployment_config, user_info)
+            route_ctx = RouteContext.from_deployment(docker_deployment_config, user_info, cluster_info)
+            operator_name, operator = self._registry.resolve(route_ctx)
+            sandbox_info: SandboxInfo = await operator.submit(docker_deployment_config, user_info)
+            # Bind sandbox → operator once, so all downstream GET/stop/delete
+            # dispatch via meta lookup hit the same operator instance.
+            sandbox_info["operator_name"] = operator_name
         await self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)
         timeout_info = SandboxTimeoutHelper.make_timeout_info(docker_deployment_config.auto_clear_time)
         with StageTimer("startup_timing", f"[{sandbox_id}] Meta store create", logger):
@@ -161,10 +198,11 @@ class SandboxManager(BaseManager):
         if state != State.STOPPED:
             raise BadRequestRockError(f"Sandbox {sandbox_id} cannot be restarted: current state is '{state.value}'")
 
+        operator = await self._get_operator_for_sandbox(sandbox_id)
         await sm.send(
             "restart",
             sandbox_id=sandbox_id,
-            operator=self._operator,
+            operator=operator,
             meta_store=self._meta_store,
         )
 
@@ -193,10 +231,11 @@ class SandboxManager(BaseManager):
     @monitor_sandbox_operation()
     async def stop(self, sandbox_id: str, reason: StopReason = StopReason.MANUAL):
         sm = await self._get_current_statemachine(sandbox_id)
+        operator = await self._get_operator_for_sandbox(sandbox_id)
         if sm is None:
             logger.info(f"stop dangling sandbox {sandbox_id}")
             try:
-                await self._operator.stop(sandbox_id, reason=reason)
+                await operator.stop(sandbox_id, reason=reason)
             except ValueError as e:
                 logger.error(f"ray get actor, actor {sandbox_id} not exist", exc_info=e)
         elif sm.current_state.value == State.STOPPED:
@@ -205,7 +244,7 @@ class SandboxManager(BaseManager):
             await sm.send(
                 "stop",
                 sandbox_id=sandbox_id,
-                operator=self._operator,
+                operator=operator,
                 meta_store=self._meta_store,
                 reason=reason,
             )
@@ -218,7 +257,7 @@ class SandboxManager(BaseManager):
                 await sm.send(
                     "delete",
                     sandbox_id=sandbox_id,
-                    operator=self._operator,
+                    operator=operator,
                     meta_store=self._meta_store,
                     reason=DeleteReason.IMMEDIATE,
                 )
@@ -237,10 +276,11 @@ class SandboxManager(BaseManager):
             raise BadRequestRockError(
                 f"Sandbox {sandbox_id} cannot be deleted: current state is '{state.value}', must be stopped first"
             )
+        operator = await self._get_operator_for_sandbox(sandbox_id)
         await sm.send(
             "delete",
             sandbox_id=sandbox_id,
-            operator=self._operator,
+            operator=operator,
             meta_store=self._meta_store,
             reason=reason,
         )
@@ -279,7 +319,8 @@ class SandboxManager(BaseManager):
 
         # update status from operator
         is_alive = False
-        operator_sandbox_info: SandboxInfo | None = await self._operator.get_status(sandbox_id=sandbox_id)
+        operator = await self._get_operator_for_sandbox(sandbox_id)
+        operator_sandbox_info: SandboxInfo | None = await operator.get_status(sandbox_id=sandbox_id)
         if operator_sandbox_info is not None:
             is_alive = operator_sandbox_info.get("state") == State.RUNNING
             if sm.current_state.value == State.PENDING and is_alive:
