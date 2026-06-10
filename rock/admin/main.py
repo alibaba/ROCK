@@ -42,6 +42,9 @@ from rock.admin.service.ops_service import OpsService
 from rock.common.exception import request_validation_exception_handler
 from rock.config import DatabaseConfig, RockConfig, SchedulerConfig
 from rock.logger import init_logger, reset_log_file
+from rock.sandbox.archive.oss_storage import OssDirStorage
+from rock.sandbox.archive.registry_v2 import DockerRegistryV2ImageStorage
+from rock.sandbox.archive.s3_storage import S3DirStorage
 from rock.sandbox.gem_manager import GemManager
 from rock.sandbox.operator.factory import OperatorContext, OperatorFactory
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
@@ -184,6 +187,37 @@ async def lifespan(app: FastAPI):
                 meta_store=meta_store,
             )
         set_sandbox_manager(sandbox_manager)
+
+        archive_cfg = rock_config.lifecycle.archive
+        if archive_cfg.enabled:
+            acr = archive_cfg.acr
+            ds = archive_cfg.dir_storage
+            acr_ready = acr.registry_url and acr.username and acr.password
+            ds_ready = ds.endpoint and ds.access_key_id and ds.access_key_secret
+            if not (acr_ready and ds_ready):
+                raise RuntimeError("archive.enabled=true but ACR or dir_storage credentials are missing")
+            if ds.type == "s3":
+                sandbox_manager._dir_storage = S3DirStorage(
+                    endpoint=ds.endpoint,
+                    bucket=ds.bucket,
+                    access_key_id=ds.access_key_id,
+                    access_key_secret=ds.access_key_secret,
+                    region=ds.region,
+                )
+            else:
+                sandbox_manager._dir_storage = OssDirStorage(
+                    endpoint=ds.endpoint,
+                    bucket=ds.bucket,
+                    access_key_id=ds.access_key_id,
+                    access_key_secret=ds.access_key_secret,
+                    region=ds.region,
+                )
+            sandbox_manager._image_storage = DockerRegistryV2ImageStorage(
+                registry_url=acr.registry_url,
+                username=acr.username,
+                password=acr.password,
+            )
+
         warmup_service = WarmupService(rock_config.warmup)
         await warmup_service.init()
         set_warmup_service(warmup_service)

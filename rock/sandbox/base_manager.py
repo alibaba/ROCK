@@ -37,6 +37,7 @@ class BaseManager:
         )
         self._report_interval = 10
         self._check_job_interval = 180
+        self._reconcile_interval = rock_config.lifecycle.reconcile_interval_sec
         self._setup_scheduler()
         self.deployment_manager = DeploymentManager(rock_config, enable_runtime_auto_clear)
 
@@ -62,7 +63,6 @@ class BaseManager:
         logger.info("APScheduler started for metrics collection")
 
     def _setup_job_check_scheduler(self):
-        """Set up scheduler"""
         self.scheduler = AsyncIOScheduler(
             timezone="UTC", job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 30}
         )
@@ -72,8 +72,14 @@ class BaseManager:
             id="job_check",
             name="Sandbox Job Check",
         )
+        self.scheduler.add_job(
+            func=self._reconcile,
+            trigger=IntervalTrigger(seconds=self._reconcile_interval),
+            id="reconcile",
+            name="Sandbox Reconcile",
+        )
         self.scheduler.start()
-        logger.info("APScheduler started for job check")
+        logger.info("APScheduler started for job check and reconcile")
 
     async def _collect_and_report_metrics(self):
         start_time = time.time()
