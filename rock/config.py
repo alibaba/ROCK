@@ -194,6 +194,8 @@ class ArchiveConfig:
     acr: ArchiveAcrConfig = field(default_factory=ArchiveAcrConfig)
     max_retries: int = 3
     prefix: str = "rock-archives/"
+    max_image_push_size: str = "16g"
+    max_dir_upload_size: str = "16g"
 
     def is_allowed(self, rock_authorization: str | None) -> bool:
         """Check if the caller is allowed to use archive. None = open to all."""
