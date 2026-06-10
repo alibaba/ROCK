@@ -203,6 +203,7 @@ class SandboxLifecycleConfig:
     reconcile_interval_sec: int = 30
     archive_timeout_sec: int = 1800
     restore_timeout_sec: int = 1800
+    auto_archive_after_sec: int = 0
     archive: ArchiveConfig = field(default_factory=ArchiveConfig)
 
     def __post_init__(self):

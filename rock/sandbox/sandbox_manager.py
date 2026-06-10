@@ -408,7 +408,7 @@ class SandboxManager(BaseManager):
             return False
 
     async def _auto_transition(self):
-        """Long-interval scan: expire RUNNING/PENDING → STOPPED (future: auto archive/delete)."""
+        """Long-interval scan: expire RUNNING/PENDING → STOPPED, auto-archive stale STOPPED."""
         logger.debug("auto_transition")
         async for sandbox_id in self._meta_store.iter_alive_sandbox_ids():
             try:
@@ -420,6 +420,43 @@ class SandboxManager(BaseManager):
             except Exception as e:
                 logger.error(f"[auto_transition] {sandbox_id}: {e}", exc_info=True)
                 continue
+
+        await self._auto_archive_stopped()
+
+    async def _auto_archive_stopped(self) -> None:
+        """Archive STOPPED sandboxes that have been idle longer than auto_archive_after_sec."""
+        auto_archive_sec = self.rock_config.lifecycle.auto_archive_after_sec
+        if not auto_archive_sec:
+            return
+        if not self._operator or not self._operator.supports_archive():
+            return
+        if not self._dir_storage or not self._image_storage:
+            return
+
+        try:
+            stopped_list = await self._meta_store.list_by("state", State.STOPPED.value)
+        except Exception as e:
+            logger.warning(f"[auto_archive] list_by failed: {e}")
+            return
+
+        now = datetime.datetime.now(timezone.utc)
+        for info in stopped_list:
+            sandbox_id = info.get("sandbox_id", "")
+            stop_time_str = info.get("stop_time", "")
+            if not sandbox_id or not stop_time_str:
+                continue
+            try:
+                stop_time = datetime.datetime.fromisoformat(stop_time_str.replace("Z", "+00:00"))
+                elapsed = (now - stop_time).total_seconds()
+            except (ValueError, TypeError):
+                continue
+            if elapsed < auto_archive_sec:
+                continue
+            try:
+                logger.info(f"[auto_archive] {sandbox_id} stopped for {int(elapsed)}s, archiving")
+                await self.archive_sandbox(sandbox_id)
+            except Exception as e:
+                logger.error(f"[auto_archive] {sandbox_id}: {e}", exc_info=True)
 
     async def _reconcile(self) -> None:
         """Reconcile intermediate states (PENDING, ARCHIVING) on short interval."""

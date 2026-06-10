@@ -14,17 +14,13 @@ from rock.sandbox.archive.abstract import AbstractImageStorage
 class DockerRegistryV2ImageStorage(AbstractImageStorage):
     """Docker Registry V2 image storage using docker CLI + HTTP API.
 
-    Supports both authenticated (username/password) and unauthenticated registries.
+    Requires username/password authentication.
     """
 
-    def __init__(self, registry_url: str, username: str | None = None, password: str | None = None):
+    def __init__(self, registry_url: str, username: str, password: str):
         self._registry_url = registry_url
         self._username = username
         self._password = password
-
-    @property
-    def _has_auth(self) -> bool:
-        return self._username is not None and self._password is not None
 
     @property
     def registry_url(self) -> str:
@@ -32,11 +28,11 @@ class DockerRegistryV2ImageStorage(AbstractImageStorage):
 
     @property
     def client_config(self) -> dict:
-        cfg = {"registry_url": self._registry_url}
-        if self._has_auth:
-            cfg["username"] = self._username
-            cfg["password"] = self._password
-        return cfg
+        return {
+            "registry_url": self._registry_url,
+            "username": self._username,
+            "password": self._password,
+        }
 
     async def push_from_local(self, local_image_tag: str, remote_image_ref: str) -> None:
         async with self._docker_auth() as env:
@@ -109,7 +105,7 @@ class DockerRegistryV2ImageStorage(AbstractImageStorage):
                 return False
 
     def _docker_auth(self):
-        return _DockerAuthContext(self) if self._has_auth else _NoAuthContext()
+        return _DockerAuthContext(self)
 
     @staticmethod
     async def _registry_base_url(registry: str) -> str:
@@ -186,13 +182,3 @@ class _DockerAuthContext:
     async def __aexit__(self, *args):
         if self._tmpdir:
             shutil.rmtree(self._tmpdir, ignore_errors=True)
-
-
-class _NoAuthContext:
-    """No-op context manager for unauthenticated registries."""
-
-    async def __aenter__(self) -> None:
-        return None
-
-    async def __aexit__(self, *args):
-        pass
