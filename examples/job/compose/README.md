@@ -7,12 +7,33 @@
 
 ```
 examples/job/compose/
-├── compose_demo.py             # 入口脚本（argparse + Job.run()）
+├── harbor_compose_demo.py      # ★ 开箱即用 demo（凭证走环境变量，内置所有真机 fix）
+├── .env.example                # 凭证模板（cp 成 .env 填值后 source）
+├── compose_demo.py             # 通用入口（-c 读 YAML，适合自定义 config）
 ├── job_config.yaml.template    # ComposeJobConfig YAML 模板（含占位符）
-├── main.sh                     # 主容器入口脚本（harbor runner，原 Agent-Hub/task/harbor/main.sh）
+├── main.sh                     # 主容器入口脚本（harbor runner，原 Agent-Hub/task/harbor/main.sh + 两层适配）
 └── sidecars/
     └── proxy-sidecar.sh        # cc-proxy sidecar 脚本（原 Agent-Hub/task/harbor/proxy-sidecar.sh）
 ```
+
+## 快速开始（推荐：harbor_compose_demo.py）
+
+这是经过 ROCK 真机端到端验证的脚本，对应你的 AP harbor 命令，所有 dockerd/网络/挂载
+修正都已内置，只需配凭证：
+
+```bash
+cd examples/job/compose
+cp .env.example .env          # 填入 ROCK_TOKEN / MODEL_* / OSS_* 凭证
+source .env
+uv run python harbor_compose_demo.py
+```
+
+**OSS 凭证是必需的**：harbor 从 OSS 下载 dataset（`terminal-bench/aone-bench-java100`）。
+AP 平台自动注入 OSS 凭证，SDK 直连模式需你在 `.env` 里显式提供
+（OSS_BUCKET / OSS_ENDPOINT / OSS_REGION / OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET）。
+
+任务参数（INSTANCE_ID / DATASET / HARBOR_AGENT 等）都有默认值（对应 AP `-p`），
+可用环境变量覆盖，详见 `harbor_compose_demo.py` 顶部 docstring。
 
 ## 运行方案：runner.sh 在外层沙箱主动启动 dockerd
 
