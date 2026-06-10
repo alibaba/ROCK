@@ -79,12 +79,22 @@ class JobConfig(BaseModel):
         from rock.sdk.bench.models.job.config import HarborJobConfig
 
         harbor_error: ValidationError | None = None
+        compose_error: ValidationError | None = None
         bash_error: ValidationError | None = None
 
         try:
             return HarborJobConfig.model_validate(data)
         except (ValidationError, ValueError) as exc:
             harbor_error = exc
+
+        # Compose: detected by the presence of a "compose" key in the YAML data.
+        if "compose" in data:
+            from rock.sdk.job.compose.config import ComposeJobConfig
+
+            try:
+                return ComposeJobConfig.model_validate(data)
+            except (ValidationError, ValueError) as exc:
+                compose_error = exc
 
         try:
             return BashJobConfig.model_validate(data)
@@ -93,8 +103,9 @@ class JobConfig(BaseModel):
 
         raise ValueError(
             "YAML does not match any known job type.\n"
-            f"  As HarborJobConfig: {harbor_error}\n"
-            f"  As BashJobConfig:   {bash_error}"
+            f"  As HarborJobConfig:  {harbor_error}\n"
+            f"  As ComposeJobConfig: {compose_error}\n"
+            f"  As BashJobConfig:    {bash_error}"
         )
 
 
