@@ -173,12 +173,20 @@ class ArchiveAcrConfig:
 
 @dataclass
 class ArchiveConfig:
+    enabled: bool = False
+    allowed_keys: list[str] | None = None
     dir_storage: ArchiveDirStorageConfig = field(default_factory=ArchiveDirStorageConfig)
     acr: ArchiveAcrConfig = field(default_factory=ArchiveAcrConfig)
-    scan_interval_sec: int = 30
-    timeout_sec: int = 1800
     max_retries: int = 3
     prefix: str = "rock-archives/"
+
+    def is_allowed(self, rock_authorization: str | None) -> bool:
+        """Check if the caller is allowed to use archive. None = open to all."""
+        if self.allowed_keys is None:
+            return True
+        if not isinstance(self.allowed_keys, list):
+            return False
+        return rock_authorization in self.allowed_keys
 
     def __post_init__(self):
         if isinstance(self.dir_storage, dict):
@@ -189,6 +197,9 @@ class ArchiveConfig:
 
 @dataclass
 class SandboxLifecycleConfig:
+    reconcile_interval_sec: int = 30
+    archive_timeout_sec: int = 1800
+    restore_timeout_sec: int = 1800
     archive: ArchiveConfig = field(default_factory=ArchiveConfig)
 
     def __post_init__(self):
@@ -528,6 +539,7 @@ class RockConfig:
         config_map = {
             "sandbox_config": (SandboxConfig, "sandbox_config"),
             "proxy_service": (ProxyServiceConfig, "proxy_service"),
+            "lifecycle": (SandboxLifecycleConfig, "lifecycle"),
         }
 
         # Update configs that are present in nacos_result
@@ -536,5 +548,7 @@ class RockConfig:
                 setattr(self, attr_name, config_class(**nacos_result[key]))
 
         logger.info(
-            f"Updated config from Nacos: sandbox_config={self.sandbox_config}, proxy_service={self.proxy_service}"
+            f"Updated config from Nacos: sandbox_config={self.sandbox_config},"
+            f" proxy_service={self.proxy_service},"
+            f" lifecycle={self.lifecycle}"
         )

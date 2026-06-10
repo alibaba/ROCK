@@ -727,6 +727,118 @@ class DockerDeployment(AbstractDeployment):
 
         logger.info(f"Container {self._container_name} restarted successfully")
 
+    def _container_exists(self) -> bool:
+        result = subprocess.run(
+            ["docker", "inspect", self._container_name],
+            capture_output=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+
+    async def restart_from_image(self, image_ref: str):
+        """Restart a container, recreating it from a committed image if it no longer exists.
+
+        Used by the archive-restore flow: the image was previously committed
+        and pushed to a registry.  If the original container still exists,
+        behaves like restart().  If not, creates a new container from
+        *image_ref* with the same config (ports, memory, cpus, volumes).
+        """
+        if self._container_exists():
+            await self.restart()
+            return
+
+        logger.info(f"Container {self._container_name} not found, recreating from {image_ref}")
+
+        executor = get_executor()
+        loop = asyncio.get_running_loop()
+
+        # Recover port mappings from persisted file, or allocate new ones.
+        status_path = PersistedServiceStatus.gen_service_status_path(self._container_name)
+        self._service_status.set_sandbox_id(self._container_name)
+        if os.path.exists(status_path):
+            with open(status_path) as f:
+                data = json.load(f)
+            for port_value, mapping in data.get("port_mapping", {}).items():
+                self._service_status.add_port_mapping(int(port_value), mapping)
+            if self._config.port is None:
+                self._config.port = self._service_status.port_mapping.get(Port.PROXY)
+
+        if self._config.port is None:
+            await self.do_port_mapping()
+
+        # Build docker create command from archived image.
+        env_arg = ["-e", f"ROCK_TIME_ZONE={env_vars.ROCK_TIME_ZONE}"]
+        volume_args = self._prepare_volume_mounts()
+        if env_vars.ROCK_LOGGING_PATH:
+            log_file_path = f"{env_vars.ROCK_LOGGING_PATH}/{self._container_name}"
+            os.makedirs(log_file_path, exist_ok=True)
+            os.chmod(log_file_path, 0o777)
+            volume_args.extend(["-v", f"{log_file_path}:{env_vars.ROCK_LOGGING_PATH}"])
+            env_arg.extend(
+                [
+                    "-e",
+                    f"ROCK_LOGGING_PATH={env_vars.ROCK_LOGGING_PATH}",
+                    "-e",
+                    f"ROCK_LOGGING_LEVEL={env_vars.ROCK_LOGGING_LEVEL}",
+                ]
+            )
+        volume_args.extend(self._prepare_timezone_mount())
+        runtime_args = self._build_runtime_args()
+
+        cmds = [
+            "docker",
+            "create",
+            "--entrypoint",
+            "",
+            *env_arg,
+            *volume_args,
+            *runtime_args,
+            "-p",
+            f"{self._config.port}:{Port.PROXY}",
+            "-p",
+            f"{self._service_status.get_mapped_port(Port.SERVER)}:8080",
+            "-p",
+            f"{self._service_status.get_mapped_port(Port.SSH)}:22",
+            *self._memory(),
+            *self._cpus(),
+            *self._storage_opts(),
+            *self._config.docker_args,
+            "--name",
+            self._container_name,
+            image_ref,
+            *self._get_rocklet_start_cmd(),
+        ]
+
+        cmd_str = shlex.join(cmds)
+        logger.info(f"Recreating container {self._container_name} from archived image {image_ref}")
+        logger.info(f"Command: {cmd_str!r}")
+
+        await loop.run_in_executor(executor, self._docker_create, cmds)
+        try:
+            self._container_process = await loop.run_in_executor(executor, self._docker_start)
+        except Exception:
+            DockerUtil.remove_container_force(self._container_name)
+            raise
+
+        if self._config.port is None:
+            self._config.port = self._service_status.port_mapping.get(Port.PROXY)
+        if self._config.port is None:
+            raise Exception(f"Cannot determine rocklet port for container {self._container_name}")
+
+        logger.info(f"Starting runtime at {self._config.port}")
+        self._runtime = RemoteSandboxRuntime.from_config(
+            RemoteSandboxRuntimeConfig(port=self._config.port, timeout=self._runtime_timeout)
+        )
+        self._runtime.set_executor(executor)
+
+        with StageTimer("startup_timing", f"[{self._container_name}] Wait until alive", logger):
+            await self._wait_until_alive(timeout=self._config.startup_timeout)
+
+        if self._config.enable_auto_clear:
+            self._check_stop_task = asyncio.create_task(self._check_stop())
+
+        logger.info(f"Container {self._container_name} recreated from {image_ref} successfully")
+
     async def delete(self) -> None:
         """Remove the container via ``docker rm -f``.
 

@@ -26,6 +26,8 @@ class SandboxInfo(TypedDict, total=False):
     start_time: str
     stop_time: str
     delete_time: str
+    archive_time: str
+    state_enter_time: str
     extended_params: dict[str, str]
 
 
