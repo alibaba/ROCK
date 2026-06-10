@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import ray
@@ -32,23 +33,26 @@ class RayOperator(AbstractOperator):
     def _get_actor_name(self, sandbox_id: str) -> str:
         return f"sandbox-{sandbox_id}"
 
-    async def create_actor(self, config: DockerDeploymentConfig, pin_to_host_ip: str | None = None):
+    async def create_actor(
+        self,
+        config: DockerDeploymentConfig,
+        pin_to_host_ip: str | None = None,
+    ):
         actor_options = self._generate_actor_options(config, pin_to_host_ip=pin_to_host_ip)
         deployment: DockerDeployment = config.get_deployment()
         sandbox_actor = SandboxActor.options(**actor_options).remote(config, deployment)
         return sandbox_actor
 
-    def _generate_actor_options(self, config: DockerDeploymentConfig, pin_to_host_ip: str | None = None) -> dict:
+    def _generate_actor_options(
+        self,
+        config: DockerDeploymentConfig,
+        pin_to_host_ip: str | None = None,
+    ) -> dict:
         actor_name = self._get_actor_name(config.container_name)
         actor_options = {"name": actor_name, "lifetime": "detached"}
         try:
-            memory = parse_size_to_bytes(config.memory)
             actor_options["num_cpus"] = config.cpus
-            actor_options["memory"] = memory
-            # Pin to a specific node via Ray's implicit `node:<ip>` resource
-            # (registered automatically per node with value 1.0; we consume a
-            # negligible 0.001 so we don't block other actors). Used by restart
-            # to land on the host that owns the existing container.
+            actor_options["memory"] = parse_size_to_bytes(config.memory)
             if pin_to_host_ip:
                 actor_options["resources"] = {f"node:{pin_to_host_ip}": 0.001}
             return actor_options
@@ -225,3 +229,50 @@ class RayOperator(AbstractOperator):
         if self._nacos_provider.get_switch_status(GET_STATUS_SWITCH):
             return True
         return False
+
+    def supports_archive(self) -> bool:
+        return True
+
+    async def start_archive(
+        self,
+        config: DockerDeploymentConfig,
+        host_ip: str | None,
+        dir_storage_config: dict,
+        image_storage_config: dict,
+        archive_params: dict | None = None,
+    ) -> None:
+        async with self._ray_service.get_ray_rwlock().read_lock():
+            config.cpus = 0.1
+            config.memory = "256m"
+            sandbox_actor = await self.create_actor(config, pin_to_host_ip=host_ip)
+            asyncio.create_task(
+                self._run_archive_and_kill(sandbox_actor, dir_storage_config, image_storage_config, archive_params)
+            )
+
+    async def _run_archive_and_kill(self, actor, dir_cfg, image_cfg, archive_params=None):
+        logger.info("_run_archive_and_kill started")
+        try:
+            await self._ray_service.async_ray_get(actor.archive.remote(dir_cfg, image_cfg, archive_params))
+            logger.info("_run_archive_and_kill completed successfully")
+        except Exception as e:
+            logger.exception(f"archive remote failed: {e}")
+        finally:
+            ray.kill(actor)
+
+    async def start_restore(
+        self,
+        config: DockerDeploymentConfig,
+        host_ip: str | None,
+        dir_storage_config: dict,
+        image_storage_config: dict,
+        archive_params: dict | None = None,
+    ) -> None:
+        """Fire-and-forget restore: actor pulls image, downloads logs, starts container.
+
+        The actor stays alive as the long-lived detached actor for the sandbox
+        (same as what `submit` creates for a new sandbox). `get_status` alive
+        detection will transition the state to RUNNING once the container is up.
+        """
+        async with self._ray_service.get_ray_rwlock().read_lock():
+            sandbox_actor = await self.create_actor(config, pin_to_host_ip=host_ip)
+            sandbox_actor.restore_and_start.remote(dir_storage_config, image_storage_config, archive_params)
