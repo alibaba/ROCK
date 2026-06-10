@@ -338,6 +338,27 @@ class Sandbox(AbstractSandbox):
             f"Failed to restart sandbox within {self.config.startup_timeout}s, sandbox: {str(self)}"
         )
 
+    async def archive(self):
+        """Archive a stopped sandbox (snapshot container + upload logs to S3).
+
+        The sandbox must be in STOPPED state. After this call the server transitions
+        it to ARCHIVING, and a background scanner will move it to ARCHIVED once
+        both the image and log uploads are confirmed.
+        """
+        if not self.sandbox_id:
+            raise Exception("sandbox_id is not set, cannot archive")
+        url = f"{self._url}/sandboxes/{self.sandbox_id}/archive"
+        headers = self._build_headers()
+        data = {}
+        response = await HttpUtils.post(url, headers, data)
+        logging.debug(f"Archive sandbox response: {response}")
+        if "Success" != response.get("status"):
+            result = response.get("result", None)
+            if result is not None:
+                rock_response = SandboxResponse(**result)
+                raise_for_code(rock_response.code, f"Failed to archive sandbox: {response}")
+            raise Exception(f"Failed to archive sandbox: {response}")
+
     async def commit(self, image_tag: str, username: str, password: str):
         if not self.sandbox_id:
             return
