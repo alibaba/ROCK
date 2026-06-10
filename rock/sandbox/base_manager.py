@@ -20,7 +20,7 @@ logger = init_logger(__name__)
 
 
 class BaseManager(ABC):
-    _check_job_bg_task: object = None
+    _auto_transition_task: object = None
     rock_config: RockConfig = None
 
     def __init__(
@@ -38,7 +38,7 @@ class BaseManager(ABC):
             user_defined_tags=rock_config.runtime.user_defined_tags,
         )
         self._report_interval = 10
-        self._check_job_interval = 180
+        self._auto_transition_interval = rock_config.lifecycle.auto_transition_interval_seconds
         self._reconcile_interval = rock_config.lifecycle.reconcile_interval_seconds
         self._setup_scheduler()
         self.deployment_manager = DeploymentManager(rock_config, enable_runtime_auto_clear)
@@ -69,10 +69,10 @@ class BaseManager(ABC):
             timezone="UTC", job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 30}
         )
         self.scheduler.add_job(
-            func=self._check_job_background,
-            trigger=IntervalTrigger(seconds=self._check_job_interval),
-            id="job_check",
-            name="Sandbox Job Check",
+            func=self._auto_transition,
+            trigger=IntervalTrigger(seconds=self._auto_transition_interval),
+            id="auto_transition",
+            name="Sandbox Auto Transition",
         )
         if is_primary_pod():
             self.scheduler.add_job(
@@ -85,7 +85,7 @@ class BaseManager(ABC):
         else:
             logger.info("Reconcile job skipped (non-primary pod)")
         self.scheduler.start()
-        logger.info("APScheduler started for job check")
+        logger.info("APScheduler started for auto_transition and reconcile")
 
     async def _collect_and_report_metrics(self):
         start_time = time.time()
@@ -163,7 +163,7 @@ class BaseManager(ABC):
         return cnt, meta
 
     @abstractmethod
-    async def _check_job_background(self):
+    async def _auto_transition(self):
         ...
 
     @abstractmethod

@@ -214,6 +214,7 @@ class ArchiveConfig:
 
 @dataclass
 class SandboxLifecycleConfig:
+    auto_transition_interval_seconds: int = 180
     reconcile_interval_seconds: int = 30
     archive_timeout_seconds: int = 1800
     restore_timeout_seconds: int = 1800
