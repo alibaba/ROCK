@@ -39,6 +39,7 @@ from rock.sandbox.archive.oss_storage import OssDirStorage
 from rock.sandbox.archive.registry_v2 import DockerRegistryV2ImageStorage
 from rock.sandbox.archive.s3_storage import S3DirStorage
 from rock.sandbox.gem_actor import GemActor
+from rock.utils.format import parse_size_to_bytes
 
 logger = init_logger(__name__)
 
@@ -140,6 +141,14 @@ class SandboxActor(GemActor):
                 process.kill()
                 await process.wait()
             raise subprocess.TimeoutExpired(args, timeout)
+
+    async def _get_image_size(self, image_tag: str) -> int:
+        result = await self._run_shell_command("docker", "image", "inspect", "--format={{.Size}}", image_tag)
+        return int(result.stdout.decode().strip())
+
+    async def _get_dir_size(self, dir_path: str) -> int:
+        result = await self._run_shell_command("du", "-sb", dir_path)
+        return int(result.stdout.decode().split()[0])
 
     async def start(self):
         try:
@@ -375,6 +384,14 @@ class SandboxActor(GemActor):
         key = dir_archive_key(sandbox_id, prefix)
 
         if os.path.isdir(log_dir):
+            max_dir = archive_params.get("max_dir_upload_size", "")
+            if max_dir:
+                dir_size = await self._get_dir_size(log_dir)
+                max_bytes = parse_size_to_bytes(max_dir)
+                if dir_size > max_bytes:
+                    raise RuntimeError(
+                        f"[{sandbox_id}] log dir size {dir_size} bytes exceeds limit {max_dir} ({max_bytes} bytes)"
+                    )
             try:
                 await dir_storage.upload_dir(log_dir, key)
             except Exception:
