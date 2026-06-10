@@ -218,6 +218,9 @@ class SandboxLifecycleConfig:
     reconcile_interval_seconds: int = 30
     archive_timeout_seconds: int = 1800
     restore_timeout_seconds: int = 1800
+    auto_archive_after_seconds: int = 0
+    auto_delete_after_seconds: int = 0
+    auto_clear_default_seconds: int = 1800
     archive: ArchiveConfig = field(default_factory=ArchiveConfig)
 
     default_startup_timeout_seconds: float = 600

@@ -181,3 +181,8 @@ class SandboxMetaStore:
     async def list_by(self, field: str, value: str | int | float | bool) -> list[SandboxInfo]:
         """Query sandboxes by *field* == *value* from the DB."""
         return await self._db.list_by(field, value)
+
+    @monitor_metastore_operation
+    async def list_by_in(self, field: str, values: list) -> list[SandboxInfo]:
+        """Query sandboxes by *field* IN *values* from the DB."""
+        return await self._db.list_by_in(field, values)

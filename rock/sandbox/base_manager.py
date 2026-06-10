@@ -68,22 +68,22 @@ class BaseManager(ABC):
         self.scheduler = AsyncIOScheduler(
             timezone="UTC", job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 30}
         )
-        self.scheduler.add_job(
-            func=self._auto_transition,
-            trigger=IntervalTrigger(seconds=self._auto_transition_interval),
-            id="auto_transition",
-            name="Sandbox Auto Transition",
-        )
         if is_primary_pod():
+            self.scheduler.add_job(
+                func=self._auto_transition,
+                trigger=IntervalTrigger(seconds=self._auto_transition_interval),
+                id="auto_transition",
+                name="Sandbox Auto Transition",
+            )
             self.scheduler.add_job(
                 func=self._reconcile,
                 trigger=IntervalTrigger(seconds=self._reconcile_interval),
                 id="reconcile",
                 name="Sandbox Reconcile",
             )
-            logger.info("Reconcile job registered (primary pod)")
+            logger.info("auto_transition and reconcile jobs registered (primary pod)")
         else:
-            logger.info("Reconcile job skipped (non-primary pod)")
+            logger.info("auto_transition and reconcile jobs skipped (non-primary pod)")
         self.scheduler.start()
         logger.info("APScheduler started for auto_transition and reconcile")
 

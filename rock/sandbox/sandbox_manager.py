@@ -445,18 +445,100 @@ class SandboxManager(BaseManager):
             return False
 
     async def _auto_transition(self):
-        """Long-interval scan: expire RUNNING/PENDING → STOPPED (future: auto archive/delete)."""
-        logger.debug("auto_transition")
+        """Long-interval scan: expire RUNNING/PENDING → STOPPED, auto-delete/archive stale STOPPED."""
+        logger.info("[auto_transition] start")
+        await self._auto_stop_expired()
+        await self._auto_delete_stopped()
+        await self._auto_archive_stopped()
+        logger.info("[auto_transition] done")
+
+    async def _auto_stop_expired(self) -> None:
+        """Stop alive sandboxes that have exceeded their auto_clear timeout."""
+        alive_count = 0
+        expired_count = 0
         async for sandbox_id in self._meta_store.iter_alive_sandbox_ids():
+            alive_count += 1
             try:
                 if await self._is_expired(sandbox_id):
-                    logger.info(f"[auto_transition] {sandbox_id} expired, stopping")
+                    expired_count += 1
+                    logger.info(f"[auto_stop] {sandbox_id} expired, stopping")
                     asyncio.create_task(self.stop(sandbox_id, reason=StopReason.EXPIRED))
+                else:
+                    logger.info(f"[auto_stop] {sandbox_id} not expired, skip")
             except asyncio.CancelledError:
                 continue
             except Exception as e:
-                logger.error(f"[auto_transition] {sandbox_id}: {e}", exc_info=True)
+                logger.error(f"[auto_stop] {sandbox_id}: {e}", exc_info=True)
                 continue
+        logger.info(f"[auto_stop] done: alive={alive_count}, expired={expired_count}")
+
+    async def _auto_delete_stopped(self) -> None:
+        """Delete STOPPED and ARCHIVED sandboxes idle longer than auto_delete_after_seconds."""
+        auto_delete_sec = self.rock_config.lifecycle.auto_delete_after_seconds
+        if not auto_delete_sec:
+            return
+
+        try:
+            candidates = await self._meta_store.list_by_in("state", [State.STOPPED.value, State.ARCHIVED.value])
+        except Exception as e:
+            logger.warning(f"[auto_delete] list_by_in failed: {e}")
+            return
+
+        now = datetime.datetime.now(timezone.utc)
+        for info in candidates:
+            sandbox_id = info.get("sandbox_id", "")
+            stop_time_str = info.get("stop_time", "")
+            if not sandbox_id or not stop_time_str:
+                continue
+            try:
+                stop_time = datetime.datetime.fromisoformat(stop_time_str.replace("Z", "+00:00"))
+                elapsed = (now - stop_time).total_seconds()
+            except (ValueError, TypeError):
+                continue
+            if elapsed < auto_delete_sec:
+                continue
+            try:
+                logger.info(
+                    f"[auto_delete] {sandbox_id} (state={info.get('state')}) idle for {int(elapsed)}s, deleting"
+                )
+                await self.delete(sandbox_id, reason=DeleteReason.EXPIRED)
+            except Exception as e:
+                logger.error(f"[auto_delete] {sandbox_id}: {e}", exc_info=True)
+
+    async def _auto_archive_stopped(self) -> None:
+        """Archive STOPPED sandboxes that have been idle longer than auto_archive_after_seconds."""
+        auto_archive_sec = self.rock_config.lifecycle.auto_archive_after_seconds
+        if not auto_archive_sec:
+            return
+        if not self._operator or not self._operator.supports_archive():
+            return
+        if not self._dir_storage or not self._image_storage:
+            return
+
+        try:
+            stopped_list = await self._meta_store.list_by("state", State.STOPPED.value)
+        except Exception as e:
+            logger.warning(f"[auto_archive] list_by failed: {e}")
+            return
+
+        now = datetime.datetime.now(timezone.utc)
+        for info in stopped_list:
+            sandbox_id = info.get("sandbox_id", "")
+            stop_time_str = info.get("stop_time", "")
+            if not sandbox_id or not stop_time_str:
+                continue
+            try:
+                stop_time = datetime.datetime.fromisoformat(stop_time_str.replace("Z", "+00:00"))
+                elapsed = (now - stop_time).total_seconds()
+            except (ValueError, TypeError):
+                continue
+            if elapsed < auto_archive_sec:
+                continue
+            try:
+                logger.info(f"[auto_archive] {sandbox_id} stopped for {int(elapsed)}s, archiving")
+                await self.archive_sandbox(sandbox_id)
+            except Exception as e:
+                logger.error(f"[auto_archive] {sandbox_id}: {e}", exc_info=True)
 
     async def _reconcile(self) -> None:
         """Reconcile intermediate states (PENDING, ARCHIVING) on short interval."""

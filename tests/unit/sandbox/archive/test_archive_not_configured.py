@@ -26,6 +26,7 @@ def manager_no_archive():
     m._reconcile_archiving = SandboxManager._reconcile_archiving.__get__(m, SandboxManager)
     m._try_advance_archiving = SandboxManager._try_advance_archiving.__get__(m, SandboxManager)
     m._get_current_statemachine = AsyncMock()
+    m._auto_archive_stopped = SandboxManager._auto_archive_stopped.__get__(m, SandboxManager)
     return m
 
 
@@ -48,6 +49,11 @@ class TestArchiveNotConfigured:
         await manager_no_archive._reconcile_archiving()
         manager_no_archive._meta_store.list_by.assert_called_once()
 
+    async def test_auto_archive_stopped_skips(self, manager_no_archive):
+        manager_no_archive.rock_config.lifecycle.auto_archive_after_seconds = 3600
+        await manager_no_archive._auto_archive_stopped()
+        manager_no_archive._meta_store.list_by.assert_not_called()
+
 
 class TestArchiveOperatorNotConfigured:
     async def test_archive_sandbox_raises_error(self, manager_no_archive):
@@ -61,3 +67,11 @@ class TestArchiveOperatorNotConfigured:
         manager_no_archive._meta_store.list_by = AsyncMock(return_value=[])
         await manager_no_archive._reconcile_archiving()
         manager_no_archive._meta_store.list_by.assert_called_once()
+
+    async def test_auto_archive_stopped_skips(self, manager_no_archive):
+        manager_no_archive._dir_storage = AsyncMock()
+        manager_no_archive._image_storage = AsyncMock()
+        manager_no_archive._operator.supports_archive.return_value = False
+        manager_no_archive.rock_config.lifecycle.auto_archive_after_secondsonds = 3600
+        await manager_no_archive._auto_archive_stopped()
+        manager_no_archive._meta_store.list_by.assert_not_called()

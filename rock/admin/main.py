@@ -100,7 +100,7 @@ async def lifespan(app: FastAPI):
     )
     rock_config = RockConfig.from_env(config_file_path)
 
-    # Override config from Nacos if available (lifecycle, sandbox_config, proxy_service, scheduler)
+    # Override config from Nacos if available (sandbox_config, proxy_service, lifecycle via update(); scheduler separately)
     if rock_config.nacos_provider:
         await rock_config.update()
         nacos_config = await rock_config.nacos_provider.get_config()
