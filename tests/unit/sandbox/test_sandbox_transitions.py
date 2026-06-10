@@ -59,6 +59,7 @@ async def mgr(mock_meta_store, mock_operator):
         return await SandboxStateMachine.from_state_value(info.get("state"), sandbox_info=info)
 
     m._get_current_statemachine = AsyncMock(side_effect=get_current_statemachine)
+    m._get_operator_for_sandbox = AsyncMock(return_value=mock_operator)
 
     m.stop = SandboxManager.stop.__get__(m, SandboxManager)
     m.get_status = SandboxManager.get_status.__get__(m, SandboxManager)
@@ -317,6 +318,9 @@ def mgr_start(mgr, mock_meta_store, mock_operator, mock_docker_config):
     mgr.validate_sandbox_spec = MagicMock()
     mgr.rock_config = MagicMock()
     mgr.rock_config.runtime.use_standard_spec_only = False
+
+    mgr._registry = MagicMock()
+    mgr._registry.resolve = MagicMock(return_value=("docker", mock_operator))
 
     mgr.start_async = SandboxManager.start_async.__wrapped__.__get__(mgr)
     mgr._build_sandbox_info_metadata = AsyncMock()

@@ -220,47 +220,25 @@ class PoolConfig:
 
 @dataclass
 class RemoteConfig:
-    """Configuration for the Remote operator (Infra-style external sandbox API).
-
-    Presence of the top-level ``remote:`` block in the YAML triggers loading of
-    the RemoteOperator. ``api_key`` may be inlined (dev) or sourced from an env
-    var via ``api_key_env`` (prod), the latter takes precedence when set.
-    """
+    """Configuration for the Remote operator."""
 
     api_endpoint: str = ""
-    """Control-plane base URL of the Infra sandbox API."""
-
-    sandbox_url: str = ""
-    """Data-plane base URL used by the Addressing Layer for proxy traffic."""
 
     api_key: str = ""
-    """Static API key. Sent as the ``X-API-Key`` header. Empty when api_key_env
-    is used instead."""
-
-    api_key_env: str = ""
-    """Env var name from which to read api_key at runtime. Wins over inlined
-    api_key when both are set."""
 
     rocklet_port: int = 8000
-    """Port at which rocklet listens inside the remote sandbox."""
 
-    timeout_seconds: float = 30.0
-    """HTTP timeout for control-plane requests."""
+    header_sandbox_id: str = "X-Sandbox-Id"
 
-    verify_ssl: bool = True
-
-    default_template_id: str = ""
-    """Optional default templateID for ``POST /sandboxes`` when the inbound
-    request does not supply one. Empty means rely on ``fromImage`` instead."""
+    header_sandbox_port: str = "X-Sandbox-Port"
 
     def resolved_api_key(self) -> str:
-        """Return the effective api_key, with env var taking precedence."""
+        """Return the effective api_key, env var ROCK_REMOTE_API_KEY takes precedence."""
         import os
 
-        if self.api_key_env:
-            value = os.environ.get(self.api_key_env, "")
-            if value:
-                return value
+        value = os.environ.get("ROCK_REMOTE_API_KEY", "")
+        if value:
+            return value
         return self.api_key
 
 

@@ -1,12 +1,4 @@
-"""Thin httpx-based client wrapping the Infra-style sandbox control plane.
-
-Lives one layer below RemoteOperator so the operator can stay focused on
-ROCK-side semantics (state machine, sandbox lifecycle) and delegate all
-HTTP / auth / endpoint concerns here.
-
-Authentication: every request carries the ``X-API-Key`` header sourced from
-``RemoteConfig.resolved_api_key()`` (env var wins over inlined value).
-"""
+"""Async httpx client for the remote sandbox control-plane API."""
 
 from __future__ import annotations
 
@@ -16,17 +8,13 @@ from typing import Any
 import httpx
 
 from rock.config import RemoteConfig
+from rock.utils import REQUEST_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
 
 
 class RemoteApiError(RuntimeError):
-    """Raised for non-2xx responses from the remote sandbox API.
-
-    Carries ``status_code`` so callers can distinguish 404 (treated as
-    "sandbox not found" — a normal control-flow signal) from real server
-    errors.
-    """
+    """Non-2xx response from the remote sandbox API."""
 
     def __init__(self, status_code: int, message: str, body: Any = None) -> None:
         super().__init__(f"remote api {status_code}: {message}")
@@ -35,12 +23,7 @@ class RemoteApiError(RuntimeError):
 
 
 class RemoteClient:
-    """Async client for the Infra-style sandbox API.
-
-    Stateless except for the underlying ``httpx.AsyncClient``. Lifecycle is
-    bound to the ``RemoteOperator`` instance, which closes the client on
-    shutdown via :meth:`close`.
-    """
+    """Async client for the remote sandbox API."""
 
     def __init__(self, config: RemoteConfig) -> None:
         if not config.api_endpoint:
@@ -48,8 +31,8 @@ class RemoteClient:
         self._config = config
         self._client = httpx.AsyncClient(
             base_url=config.api_endpoint.rstrip("/"),
-            timeout=config.timeout_seconds,
-            verify=config.verify_ssl,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            verify=False,
         )
 
     @property
@@ -78,12 +61,16 @@ class RemoteClient:
         *,
         json_body: dict[str, Any] | None = None,
         allow_404: bool = False,
+        extra_headers: dict[str, str] | None = None,
     ) -> dict[str, Any] | None:
         try:
+            headers = self._headers()
+            if extra_headers:
+                headers.update(extra_headers)
             response = await self._client.request(
                 method,
                 path,
-                headers=self._headers(),
+                headers=headers,
                 json=json_body,
             )
         except httpx.HTTPError as exc:
@@ -125,30 +112,47 @@ class RemoteClient:
     # Endpoints (per docs/openapi.yml)
     # ------------------------------------------------------------------
 
-    async def create_sandbox(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """``POST /sandboxes`` — returns the ``Sandbox`` body."""
-        body = await self._request("POST", "/sandboxes", json_body=payload)
+    async def create(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST /sandboxes (async build mode)"""
+        body = await self._request(
+            "POST", "/sandboxes", json_body=payload,
+            extra_headers={"Async-Build": "true"},
+        )
         if not body:
-            raise RemoteApiError(0, "create_sandbox returned empty body")
+            raise RemoteApiError(0, "create returned empty body")
         return body
 
-    async def get_sandbox(self, sandbox_id: str) -> dict[str, Any] | None:
-        """``GET /sandboxes/{id}`` — returns ``SandboxDetail`` or ``None`` on 404."""
+    async def get(self, sandbox_id: str) -> dict[str, Any] | None:
+        """GET /sandboxes/{id} — returns None on 404."""
         return await self._request("GET", f"/sandboxes/{sandbox_id}", allow_404=True)
 
-    async def kill_sandbox(self, sandbox_id: str) -> bool:
-        """``DELETE /sandboxes/{id}`` — returns ``False`` if the sandbox was already gone."""
+    async def stop(self, sandbox_id: str) -> bool:
+        """POST /sandboxes/{id}/pause — returns False on 404."""
+        body = await self._request("POST", f"/sandboxes/{sandbox_id}/pause", allow_404=True)
+        return body is not None
+
+    async def restart(self, sandbox_id: str, timeout_seconds: int) -> dict[str, Any] | None:
+        """POST /sandboxes/{id}/connect — returns None on 404."""
+        return await self._request(
+            "POST",
+            f"/sandboxes/{sandbox_id}/connect",
+            json_body={"timeout": int(timeout_seconds)},
+            allow_404=True,
+        )
+
+    async def delete(self, sandbox_id: str) -> bool:
+        """DELETE /sandboxes/{id} — returns False on 404."""
         body = await self._request("DELETE", f"/sandboxes/{sandbox_id}", allow_404=True)
         return body is not None
 
+    async def keep_alive(self, sandbox_id: str) -> None:
+        """POST /sandboxes/{id}/refreshes"""
+        await self._request("POST", f"/sandboxes/{sandbox_id}/refreshes")
+
     async def set_timeout(self, sandbox_id: str, timeout_seconds: int) -> None:
-        """``POST /sandboxes/{id}/timeout`` — extend or reset the auto-clear window."""
+        """POST /sandboxes/{id}/timeout"""
         await self._request(
             "POST",
             f"/sandboxes/{sandbox_id}/timeout",
             json_body={"timeout": int(timeout_seconds)},
         )
-
-    async def refresh_sandbox(self, sandbox_id: str) -> None:
-        """``POST /sandboxes/{id}/refreshes`` — keep-alive ping."""
-        await self._request("POST", f"/sandboxes/{sandbox_id}/refreshes")

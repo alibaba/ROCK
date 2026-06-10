@@ -56,6 +56,7 @@ async def sandbox_manager(mock_operator, mock_meta_store, rock_config):
 
         mock_sm = await SandboxStateMachine.from_state_value(State.PENDING, sandbox_info={})
         manager._get_current_statemachine = AsyncMock(return_value=mock_sm)
+        manager._get_operator_for_sandbox = AsyncMock(return_value=mock_operator)
 
         return manager
 

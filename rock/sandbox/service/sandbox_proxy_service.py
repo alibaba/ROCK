@@ -62,8 +62,9 @@ class SandboxProxyService:
         self.oss_config: OssConfig = rock_config.oss
         self.proxy_config: ProxyServiceConfig = rock_config.proxy_service
         # Optional remote config; when set, sandbox_info entries carrying
-        # ``sandbox_domain`` are routed via the remote data-plane proxy
-        # instead of the local host_ip/port (Addressing Layer).
+        # ``extended_params['remote.sandbox_domain']`` are routed via the
+        # remote data-plane proxy instead of the local host_ip/port
+        # (Addressing Layer).
         self._remote_config: RemoteConfig | None = rock_config.remote
         logger.info(f"proxy config: {self.proxy_config}")
         # Initialize httpx client with configuration
@@ -73,6 +74,7 @@ class SandboxProxyService:
                 max_connections=self.proxy_config.max_connections,
                 max_keepalive_connections=self.proxy_config.max_keepalive_connections,
             ),
+            verify=False,
         )
 
         # Replace single self.sts_client with a dict keyed by account name,
@@ -635,9 +637,11 @@ class SandboxProxyService:
     async def get_service_status(self, sandbox_id: str):
         sandbox_info = await self._meta_store.get(sandbox_id)
         # Remote-managed sandboxes have no local host_ip; they expose a
-        # ``sandbox_domain`` instead. Accept either as the addressing key.
+        # ``remote.sandbox_domain`` in extended_params instead. Accept either
+        # as the addressing key.
+        ext = (sandbox_info or {}).get("extended_params") or {}
         if not sandbox_info or (
-            sandbox_info.get("host_ip") is None and not sandbox_info.get("sandbox_domain")
+            sandbox_info.get("host_ip") is None and not ext.get("remote.sandbox_domain")
         ):
             raise Exception(f"sandbox {sandbox_id} not started")
         return [sandbox_info]
@@ -712,39 +716,25 @@ class SandboxProxyService:
     def _resolve_remote_data_plane(
         self, sandbox_status_dict: dict
     ) -> tuple[str, dict[str, str]] | None:
-        """Return (base_url, extra_headers) when the sandbox is remote-managed.
-
-        Routes data-plane traffic through ``RemoteConfig.sandbox_url`` (the
-        client-proxy gateway). Addressing uses request headers per the Infra
-        client-proxy convention:
-          - ``E2b-Sandbox-Id``: remote sandbox ID
-          - ``E2b-Sandbox-Port``: target port inside the sandbox
-
-        The envd access token is forwarded as ``X-Access-Token`` so the
-        remote proxy can authenticate the data-plane request.
-        """
-        if not self._remote_config or not self._remote_config.sandbox_url:
+        """Return (base_url, extra_headers) for remote sandbox data-plane proxy."""
+        if not self._remote_config:
             return None
-        sandbox_domain = sandbox_status_dict.get("sandbox_domain")
+        ext = sandbox_status_dict.get("extended_params") or {}
+        sandbox_domain = ext.get("remote.sandbox_domain")
         if not sandbox_domain:
             return None
-        remote_id = sandbox_status_dict.get("host_name") or (
-            (sandbox_status_dict.get("extended_params") or {}).get("remote.sandbox_id")
-        )
+        remote_id = sandbox_status_dict.get("host_name") or ext.get("remote.sandbox_id")
         if not remote_id:
             logger.warning(
                 "remote sandbox missing remote id: keys=%s", list(sandbox_status_dict.keys())
             )
             return None
-        base_url = self._remote_config.sandbox_url.rstrip("/")
+        base_url = f"https://{sandbox_domain}"
         headers: dict[str, str] = {
-            "E2b-Sandbox-Id": remote_id,
-            "E2b-Sandbox-Port": str(self._remote_config.rocklet_port),
+            self._remote_config.header_sandbox_id: remote_id,
+            self._remote_config.header_sandbox_port: str(self._remote_config.rocklet_port),
         }
-        access_token = sandbox_status_dict.get("envd_access_token")
-        if access_token:
-            headers["X-Access-Token"] = access_token
-        traffic_token = sandbox_status_dict.get("traffic_access_token")
+        traffic_token = ext.get("remote.traffic_access_token")
         if traffic_token:
             headers["X-Traffic-Token"] = traffic_token
         return base_url, headers
