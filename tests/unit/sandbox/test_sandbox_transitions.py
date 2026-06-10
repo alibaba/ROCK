@@ -61,6 +61,7 @@ async def mgr(mock_meta_store, mock_operator):
     m._get_current_statemachine = AsyncMock(side_effect=get_current_statemachine)
 
     m.stop = SandboxManager.stop.__get__(m, SandboxManager)
+    m._try_advance_pending = SandboxManager._try_advance_pending.__get__(m, SandboxManager)
     m.get_status = SandboxManager.get_status.__get__(m, SandboxManager)
     m._refresh_timeout = AsyncMock()
     return m
