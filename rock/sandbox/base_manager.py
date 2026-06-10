@@ -35,7 +35,7 @@ class BaseManager:
             user_defined_tags=rock_config.runtime.user_defined_tags,
         )
         self._report_interval = 10
-        self._check_job_interval = 180
+        self._check_job_interval = rock_config.lifecycle.auto_transition_interval_sec
         self._reconcile_interval = rock_config.lifecycle.reconcile_interval_sec
         self._setup_scheduler()
         self.deployment_manager = DeploymentManager(rock_config, enable_runtime_auto_clear)
@@ -66,10 +66,10 @@ class BaseManager:
             timezone="UTC", job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 30}
         )
         self.scheduler.add_job(
-            func=self._check_job_background,
+            func=self._auto_transition,
             trigger=IntervalTrigger(seconds=self._check_job_interval),
-            id="job_check",
-            name="Sandbox Job Check",
+            id="auto_transition",
+            name="Sandbox Auto Transition",
         )
         self.scheduler.add_job(
             func=self._reconcile,
@@ -78,7 +78,7 @@ class BaseManager:
             name="Sandbox Reconcile",
         )
         self.scheduler.start()
-        logger.info("APScheduler started for job check and reconcile")
+        logger.info("APScheduler started for auto_transition and reconcile")
 
     async def _collect_and_report_metrics(self):
         start_time = time.time()

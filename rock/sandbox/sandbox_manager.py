@@ -407,19 +407,18 @@ class SandboxManager(BaseManager):
             logger.error("get actor failed", exc_info=e)
             return False
 
-    async def _check_job_background(self):
-        logger.debug("check job background")
+    async def _auto_transition(self):
+        """Long-interval scan: expire RUNNING/PENDING → STOPPED (future: auto archive/delete)."""
+        logger.debug("auto_transition")
         async for sandbox_id in self._meta_store.iter_alive_sandbox_ids():
             try:
-                is_expired = await self._is_expired(sandbox_id)
-                if is_expired:
-                    logger.info(f"sandbox_id:[{sandbox_id}] is expired, start to stop")
+                if await self._is_expired(sandbox_id):
+                    logger.info(f"[auto_transition] {sandbox_id} expired, stopping")
                     asyncio.create_task(self.stop(sandbox_id, reason=StopReason.EXPIRED))
-            except asyncio.CancelledError as e:
-                logger.error("check_job_background CancelledError", exc_info=e)
+            except asyncio.CancelledError:
                 continue
             except Exception as e:
-                logger.error("check_job_background Exception", exc_info=e)
+                logger.error(f"[auto_transition] {sandbox_id}: {e}", exc_info=True)
                 continue
 
     async def _reconcile(self) -> None:
