@@ -40,6 +40,30 @@ class AbstractOperator(ABC):
     async def delete(self, config: DeploymentConfig, host_ip: str | None = None) -> bool:
         ...
 
+    async def start_archive(
+        self,
+        config: DeploymentConfig,
+        host_ip: str | None,
+        dir_storage_config: dict,
+        image_storage_config: dict,
+        archive_params: dict | None = None,
+    ) -> None:
+        from rock.sdk.common.exceptions import BadRequestRockError
+
+        raise BadRequestRockError(f"archive not supported on {type(self).__name__}")
+
+    async def start_restore(
+        self,
+        config: DeploymentConfig,
+        host_ip: str | None,
+        dir_storage_config: dict,
+        image_storage_config: dict,
+        archive_params: dict | None = None,
+    ) -> None:
+        from rock.sdk.common.exceptions import BadRequestRockError
+
+        raise BadRequestRockError(f"restore not supported on {type(self).__name__}")
+
     def set_redis_provider(self, redis_provider: RedisProvider):
         self._redis_provider = redis_provider
 

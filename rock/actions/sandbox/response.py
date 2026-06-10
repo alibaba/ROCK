@@ -16,6 +16,8 @@ class State(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
     STOPPED = "stopped"
+    ARCHIVING = "archiving"
+    ARCHIVED = "archived"
     DELETED = "deleted"
 
 

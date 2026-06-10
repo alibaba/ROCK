@@ -135,7 +135,8 @@ class SandboxMetaStore:
         if check_db:
             result = await self._db.get(sandbox_id)
             if result:
-                return result
+                status_blob = result.pop("status", None) or {}
+                return {**status_blob, **result}
         return None
 
     async def exists(self, sandbox_id: str) -> bool:
