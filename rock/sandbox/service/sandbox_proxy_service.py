@@ -634,11 +634,11 @@ class SandboxProxyService:
 
     async def get_service_status(self, sandbox_id: str):
         sandbox_info = await self._meta_store.get(sandbox_id)
-        if not sandbox_info:
-            raise Exception(f"sandbox {sandbox_id} not started")
         # Remote-managed sandboxes have no local host_ip; they expose a
         # ``sandbox_domain`` instead. Accept either as the addressing key.
-        if sandbox_info.get("host_ip") is None and not sandbox_info.get("sandbox_domain"):
+        if not sandbox_info or (
+            sandbox_info.get("host_ip") is None and not sandbox_info.get("sandbox_domain")
+        ):
             raise Exception(f"sandbox {sandbox_id} not started")
         return [sandbox_info]
 
@@ -656,10 +656,7 @@ class SandboxProxyService:
         headers = self._headers(sandbox_id)
         # Addressing Layer: prefer remote data-plane URL when available;
         # fall back to host_ip/port for local (ray/k8s) sandboxes.
-        remote = self._resolve_remote_data_plane(
-            sandbox_status_dict,
-            container_port=self._remote_config.rocklet_port if self._remote_config else Port.PROXY.value,
-        )
+        remote = self._resolve_remote_data_plane(sandbox_status_dict)
         if remote is not None:
             api_url, extra_headers = remote
             headers.update(extra_headers)
@@ -686,7 +683,11 @@ class SandboxProxyService:
                 return {"exit_code": -1, "failure_reason": response.json()["rockletexception"]["message"]}
             if response.status_code == HTTP_504_GATEWAY_TIMEOUT:
                 return {"exit_code": -1, "failure_reason": response.json()["detail"]}
-            if response.status_code >= 400:
+            # Remote data-plane goes through an HTTP gateway (e.g. tengine
+            # ingress) that may return non-JSON HTML on 4xx/5xx. Surface a
+            # clear error rather than a confusing JSONDecodeError. Ray/K8s
+            # path is unaffected (rocklet always returns JSON).
+            if remote is not None and response.status_code >= 400:
                 body_text = response.text[:200]
                 logger.error(
                     f"Upstream returned HTTP {response.status_code} for {full_request_url}: {body_text}"
@@ -709,7 +710,7 @@ class SandboxProxyService:
         return f"http://{host_ip}:{port}"
 
     def _resolve_remote_data_plane(
-        self, sandbox_status_dict: dict, container_port: int
+        self, sandbox_status_dict: dict
     ) -> tuple[str, dict[str, str]] | None:
         """Return (base_url, extra_headers) when the sandbox is remote-managed.
 
@@ -738,7 +739,7 @@ class SandboxProxyService:
         base_url = self._remote_config.sandbox_url.rstrip("/")
         headers: dict[str, str] = {
             "E2b-Sandbox-Id": remote_id,
-            "E2b-Sandbox-Port": str(container_port),
+            "E2b-Sandbox-Port": str(self._remote_config.rocklet_port),
         }
         access_token = sandbox_status_dict.get("envd_access_token")
         if access_token:

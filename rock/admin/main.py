@@ -187,14 +187,24 @@ async def lifespan(app: FastAPI):
             logger.info("no operator_routing configured; all submits go to default=%s", default_operator_name)
 
         # init service
-        sandbox_manager = GemManager(
-            rock_config,
-            ray_namespace=rock_config.ray.namespace,
-            ray_service=ray_service,
-            enable_runtime_auto_clear=rock_config.runtime.enable_auto_clear,
-            registry=operator_registry,
-            meta_store=meta_store,
-        )
+        if rock_config.runtime.enable_auto_clear:
+            sandbox_manager = GemManager(
+                rock_config,
+                ray_namespace=rock_config.ray.namespace,
+                ray_service=ray_service,
+                enable_runtime_auto_clear=True,
+                registry=operator_registry,
+                meta_store=meta_store,
+            )
+        else:
+            sandbox_manager = GemManager(
+                rock_config,
+                ray_namespace=rock_config.ray.namespace,
+                ray_service=ray_service,
+                enable_runtime_auto_clear=False,
+                registry=operator_registry,
+                meta_store=meta_store,
+            )
         set_sandbox_manager(sandbox_manager)
         warmup_service = WarmupService(rock_config.warmup)
         await warmup_service.init()

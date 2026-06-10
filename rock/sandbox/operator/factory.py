@@ -58,12 +58,22 @@ class OperatorFactory:
             if context.ray_service is None:
                 raise ValueError("RayService is required for RayOperator")
             logger.info("Creating RayOperator")
-            op = RayOperator(ray_service=context.ray_service, runtime_config=context.runtime_config)
+            ray_operator = RayOperator(ray_service=context.ray_service, runtime_config=context.runtime_config)
+            if context.redis_provider is not None:
+                ray_operator.set_redis_provider(context.redis_provider)
+            if context.nacos_provider is not None:
+                ray_operator.set_nacos_provider(context.nacos_provider)
+            return ray_operator
         elif key == "k8s":
             if context.k8s_config is None:
                 raise ValueError("K8sConfig is required for K8sOperator")
             logger.info("Creating K8sOperator")
-            op = K8sOperator(k8s_config=context.k8s_config)
+            k8s_operator = K8sOperator(k8s_config=context.k8s_config)
+            if context.redis_provider is not None:
+                k8s_operator.set_redis_provider(context.redis_provider)
+            if context.nacos_provider is not None:
+                k8s_operator.set_nacos_provider(context.nacos_provider)
+            return k8s_operator
         elif key == "remote":
             if context.remote_config is None:
                 raise ValueError("RemoteConfig is required for RemoteOperator")
@@ -71,15 +81,12 @@ class OperatorFactory:
             from rock.sandbox.operator.remote.operator import RemoteOperator
 
             logger.info("Creating RemoteOperator endpoint=%s", context.remote_config.api_endpoint)
-            op = RemoteOperator(remote_config=context.remote_config)
+            remote_operator = RemoteOperator(remote_config=context.remote_config)
+            if context.redis_provider is not None:
+                remote_operator.set_redis_provider(context.redis_provider)
+            return remote_operator
         else:
             raise ValueError(f"Unsupported operator name: {name!r}. Supported: ray, k8s, remote")
-
-        if context.redis_provider is not None:
-            op.set_redis_provider(context.redis_provider)
-        if context.nacos_provider is not None:
-            op.set_nacos_provider(context.nacos_provider)
-        return op
 
     @staticmethod
     def create_operator(context: OperatorContext) -> AbstractOperator:

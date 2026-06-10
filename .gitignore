@@ -7,7 +7,6 @@
 .pytest_cache/
 .DS_Store
 __pycache__/
-*.pyc
 *.egg-info/
 build/
 dist/

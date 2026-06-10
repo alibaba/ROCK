@@ -80,12 +80,7 @@ def _build_phases(raw_state: str | None) -> dict[str, dict[str, str]]:
 
 
 def _memory_str_to_mb(memory: str | None) -> int | None:
-    """Convert ROCK's free-form memory string ('8g', '4096m') to MiB int.
-
-    Returns ``None`` if the value is empty or cannot be parsed; the remote
-    schema enforces ``minimum: 128`` so we let the server reject invalid
-    values rather than silently clamping here.
-    """
+    """Convert ROCK memory string ('8g', '4096m') to MiB; return None if invalid."""
     if not memory:
         return None
     try:
