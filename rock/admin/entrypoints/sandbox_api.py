@@ -1,7 +1,7 @@
 import math
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, Header, UploadFile
 
 from rock.actions import (
     BashObservation,
@@ -117,7 +117,7 @@ async def _apply_accelerator_type_validation(config: DockerDeploymentConfig) -> 
 
     if config.accelerator_type not in allowed:
         raise BadRequestRockError(
-            f"Invalid accelerator_type {config.accelerator_type!r}. " f"Allowed values: {sorted(allowed)}"
+            f"Invalid accelerator_type {config.accelerator_type!r}. Allowed values: {sorted(allowed)}"
         )
 
 
@@ -294,6 +294,19 @@ async def delete(sandbox_id: str = Body(..., embed=True)) -> RockResponse:
     """
     await sandbox_manager.delete(sandbox_id)
     return RockResponse(result=f"{sandbox_id} deleted")
+
+
+@sandbox_router.post("/archive")
+@handle_exceptions(error_message="archive sandbox failed")
+async def archive(
+    sandbox_id: str = Body(..., embed=True),
+    rock_authorization: str | None = Header(default=None, alias="X-Key"),
+) -> RockResponse:
+    archive_cfg = sandbox_manager.rock_config.lifecycle.archive
+    if not archive_cfg.is_allowed(rock_authorization):
+        raise BadRequestRockError("archive not allowed for this authorization key")
+    await sandbox_manager.archive_sandbox(sandbox_id)
+    return RockResponse(result=f"{sandbox_id} archiving")
 
 
 @sandbox_router.post("/restart")
