@@ -63,11 +63,10 @@ class SandboxLogConfig:
     bucket / credentials still belong to OssConfig.primary.
     """
 
-    archive_prefix: str = ""
+    archive_prefix: str = "rock-archives/"
     """OSS object key prefix under OssConfig.primary.bucket for sandbox-log
-    archives. Empty (default) means each deployment's YAML must opt-in
-    explicitly to a value matching its OSS bucket lifecycle rule (e.g.
-    "rock-archives/")."""
+    archives. The canonical default ``rock-archives/`` ensures all clusters
+    write to a unified namespace. Override only for migration scenarios."""
 
     keep_days_before_archive: int = 3
     """Days to wait after sandbox stop before archiving. Gives operators
