@@ -108,6 +108,7 @@ class TestVerifierConfig:
         assert v.override_timeout_sec is None
         assert v.max_timeout_sec is None
         assert v.disable is False
+        assert v.patch is None
         assert v.mode is None
 
     def test_mode_harbor(self):
@@ -128,6 +129,18 @@ class TestVerifierConfig:
     def test_mode_none_explicit(self):
         v = VerifierConfig(mode=None)
         assert v.mode is None
+
+    def test_patch_default_none(self):
+        v = VerifierConfig()
+        assert v.patch is None
+
+    def test_patch_true(self):
+        v = VerifierConfig(patch=True)
+        assert v.patch is True
+
+    def test_patch_false(self):
+        v = VerifierConfig(patch=False)
+        assert v.patch is False
 
 
 class TestTaskConfig:

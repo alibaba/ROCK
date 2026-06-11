@@ -82,6 +82,7 @@ class VerifierConfig(BaseModel):
     override_timeout_sec: float | None = None
     max_timeout_sec: float | None = None
     disable: bool = False
+    patch: bool | None = None
     mode: Literal["harbor", "native"] | None = None
     native_config: NativeConfig = Field(default_factory=NativeConfig)
 
