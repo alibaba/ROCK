@@ -130,7 +130,7 @@ Requests violating these rules are rejected:
 
 | Symptom | Likely cause |
 |---------|--------------|
-| `400 Bad Request: Cannot specify target port via multiple sources` | You set the port in two of {path, header, query} — pick one. |
+| `400 Bad Request: Cannot specify target port via multiple sources` | You set the port in two of path, header or query — pick one. |
 | `400 Bad Request` / WS close `1008` with port-range message | Target port is `< 1024`, `> 65535`, or equal to `22`. |
 | WS close `1011` (`Proxy error: ...`) | Upstream service inside the sandbox returned an error or could not be reached. Check that the service is actually listening on the target port. |
 | `404 Not Found` from the upstream | The HTTP path inside the sandbox does not exist — verify the service's route, not the proxy URL. |
