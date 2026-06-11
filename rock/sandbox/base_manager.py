@@ -7,6 +7,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from rock.admin.metrics.constants import MetricsConstants
 from rock.admin.metrics.monitor import MetricsMonitor, aggregate_metrics
+from rock.common.constants import SANDBOX_DISK_OVERCOMMIT_RATIO_KEY
 from rock.config import RockConfig
 from rock.deployments.manager import DeploymentManager
 from rock.logger import init_logger
@@ -108,11 +109,25 @@ class BaseManager:
 
     async def _report_system_resource_metrics(self):
         """Report system resource metrics."""
-        total_cpu, total_mem, available_cpu, available_mem = await self._collect_system_resource_metrics()
+        (
+            total_cpu,
+            total_mem,
+            available_cpu,
+            available_mem,
+            total_disk,
+            available_disk,
+        ) = await self._collect_system_resource_metrics()
         self.metrics_monitor.record_gauge_by_name(MetricsConstants.TOTAL_CPU_RESOURCE, total_cpu)
         self.metrics_monitor.record_gauge_by_name(MetricsConstants.TOTAL_MEM_RESOURCE, total_mem)
         self.metrics_monitor.record_gauge_by_name(MetricsConstants.AVAILABLE_CPU_RESOURCE, available_cpu)
         self.metrics_monitor.record_gauge_by_name(MetricsConstants.AVAILABLE_MEM_RESOURCE, available_mem)
+        self.metrics_monitor.record_gauge_by_name(MetricsConstants.TOTAL_DISK_RESOURCE, total_disk)
+        self.metrics_monitor.record_gauge_by_name(MetricsConstants.AVAILABLE_DISK_RESOURCE, available_disk)
+
+        nacos = self.rock_config.nacos_provider
+        ratio_str = await nacos.get_config_value(SANDBOX_DISK_OVERCOMMIT_RATIO_KEY) if nacos else None
+        ratio = float(ratio_str) if ratio_str else (self.rock_config.runtime.sandbox_disk_overcommit_ratio or 1.0)
+        self.metrics_monitor.record_gauge_by_name(MetricsConstants.DISK_OVERCOMMIT_RATIO, ratio)
 
     async def _collect_system_resource_metrics(self):
         """Collect system resource metrics."""
@@ -122,7 +137,9 @@ class BaseManager:
         total_mem = cluster_resources.get("memory", 0) / 1024**3
         available_cpu = available_resources.get("CPU", 0)
         available_mem = available_resources.get("memory", 0) / 1024**3
-        return total_cpu, total_mem, available_cpu, available_mem
+        total_disk = cluster_resources.get("disk", 0) / 1024**3
+        available_disk = available_resources.get("disk", 0) / 1024**3
+        return total_cpu, total_mem, available_cpu, available_mem, total_disk, available_disk
 
     async def _collect_sandbox_meta(self) -> tuple[int, dict[str, dict[str, str]]]:
         meta: dict = {}

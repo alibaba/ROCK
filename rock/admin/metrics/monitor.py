@@ -104,6 +104,9 @@ class MetricsMonitor:
         self._register_gauge(MetricsConstants.TOTAL_MEM_RESOURCE, "Total memory resource in Ray cluster")
         self._register_gauge(MetricsConstants.AVAILABLE_CPU_RESOURCE, "Available CPU resource in Ray cluster")
         self._register_gauge(MetricsConstants.AVAILABLE_MEM_RESOURCE, "Available memory resource in Ray cluster")
+        self._register_gauge(MetricsConstants.TOTAL_DISK_RESOURCE, "Total disk resource in Ray cluster")
+        self._register_gauge(MetricsConstants.AVAILABLE_DISK_RESOURCE, "Available disk resource in Ray cluster")
+        self._register_gauge(MetricsConstants.DISK_OVERCOMMIT_RATIO, "Disk overcommit ratio for Ray scheduling")
 
         # MetaStore metrics
         self._register_counter(MetricsConstants.METASTORE_SUCCESS, "Number of successful meta_store operations")
