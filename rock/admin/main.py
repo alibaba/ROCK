@@ -38,7 +38,7 @@ from rock.admin.scheduler.tasks.sandbox_log_archive_task import (
 )
 from rock.admin.service.ops_service import OpsService
 from rock.common.exception import request_validation_exception_handler
-from rock.config import DatabaseConfig, RockConfig, SchedulerConfig
+from rock.config import DatabaseConfig, RockConfig, SandboxLifecycleConfig, SchedulerConfig
 from rock.logger import init_logger
 from rock.sandbox.archive.oss_storage import OssDirStorage
 from rock.sandbox.archive.registry_v2 import DockerRegistryV2ImageStorage
@@ -96,12 +96,16 @@ async def lifespan(app: FastAPI):
     )
     rock_config = RockConfig.from_env(config_file_path)
 
-    # Override scheduler config from Nacos if available
+    # Override configs from Nacos if available
     if rock_config.nacos_provider:
         nacos_config = await rock_config.nacos_provider.get_config()
-        if nacos_config and "scheduler" in nacos_config:
-            rock_config.scheduler = SchedulerConfig(**nacos_config["scheduler"])
-            logger.info(f"Overrode scheduler config from Nacos with {len(rock_config.scheduler.tasks)} tasks")
+        if nacos_config:
+            if "scheduler" in nacos_config:
+                rock_config.scheduler = SchedulerConfig(**nacos_config["scheduler"])
+                logger.info(f"Overrode scheduler config from Nacos with {len(rock_config.scheduler.tasks)} tasks")
+            if "lifecycle" in nacos_config:
+                rock_config.lifecycle = SandboxLifecycleConfig(**nacos_config["lifecycle"])
+                logger.info(f"Overrode lifecycle config from Nacos: {rock_config.lifecycle}")
 
     env_vars.ROCK_ADMIN_ENV = args.env
     env_vars.ROCK_ADMIN_ROLE = args.role

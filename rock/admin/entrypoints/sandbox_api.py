@@ -158,10 +158,18 @@ async def _apply_cpu_overcommit_default(config: DockerDeploymentConfig, rock_aut
     config.limit_cpus = min(2 * config.cpus, config.cpus + headroom)
 
 
+def _apply_auto_clear_default(config: DockerDeploymentConfig, request: SandboxStartRequest) -> None:
+    """Use lifecycle.auto_clear_default_sec when SDK did not explicitly set auto_clear_time_minutes."""
+    if "auto_clear_time_minutes" not in request.model_fields_set:
+        default_sec = sandbox_manager.rock_config.lifecycle.auto_clear_default_sec
+        config.auto_clear_time_minutes = default_sec // 60
+
+
 @sandbox_router.post("/start")
 @handle_exceptions(error_message="start sandbox failed")
 async def start(request: SandboxStartRequest) -> RockResponse[SandboxStartResponse]:
     config = DockerDeploymentConfig.from_request(request)
+    _apply_auto_clear_default(config, request)
     await _apply_accelerator_type_validation(config)
     await _apply_kata_runtime_switch(config)
     await _apply_kata_disk_size(config)
@@ -177,6 +185,7 @@ async def start_async(
     headers: Annotated[StartHeaders, Depends()],
 ) -> RockResponse[SandboxStartResponse]:
     config = DockerDeploymentConfig.from_request(request)
+    _apply_auto_clear_default(config, request)
     await _apply_accelerator_type_validation(config)
     await _apply_kata_runtime_switch(config)
     await _apply_kata_disk_size(config)

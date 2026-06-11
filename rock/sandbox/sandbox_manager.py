@@ -408,7 +408,7 @@ class SandboxManager(BaseManager):
             return False
 
     async def _auto_transition(self):
-        """Long-interval scan: expire RUNNING/PENDING → STOPPED, auto-archive stale STOPPED."""
+        """Long-interval scan: expire RUNNING/PENDING → STOPPED, auto-delete/archive stale STOPPED."""
         logger.debug("auto_transition")
         async for sandbox_id in self._meta_store.iter_alive_sandbox_ids():
             try:
@@ -421,9 +421,48 @@ class SandboxManager(BaseManager):
                 logger.error(f"[auto_transition] {sandbox_id}: {e}", exc_info=True)
                 continue
 
-        await self._auto_archive_stopped()
+        deleted_ids = await self._auto_delete_stopped()
+        await self._auto_archive_stopped(exclude_ids=deleted_ids)
 
-    async def _auto_archive_stopped(self) -> None:
+    async def _auto_delete_stopped(self) -> set[str]:
+        """Delete STOPPED sandboxes that have been idle longer than auto_delete_after_sec.
+
+        Returns the set of sandbox IDs that were deleted so the caller can skip
+        them in subsequent lifecycle actions (e.g. auto-archive).
+        """
+        auto_delete_sec = self.rock_config.lifecycle.auto_delete_after_sec
+        if not auto_delete_sec:
+            return set()
+
+        try:
+            stopped_list = await self._meta_store.list_by("state", State.STOPPED.value)
+        except Exception as e:
+            logger.warning(f"[auto_delete] list_by failed: {e}")
+            return set()
+
+        deleted: set[str] = set()
+        now = datetime.datetime.now(timezone.utc)
+        for info in stopped_list:
+            sandbox_id = info.get("sandbox_id", "")
+            stop_time_str = info.get("stop_time", "")
+            if not sandbox_id or not stop_time_str:
+                continue
+            try:
+                stop_time = datetime.datetime.fromisoformat(stop_time_str.replace("Z", "+00:00"))
+                elapsed = (now - stop_time).total_seconds()
+            except (ValueError, TypeError):
+                continue
+            if elapsed < auto_delete_sec:
+                continue
+            try:
+                logger.info(f"[auto_delete] {sandbox_id} stopped for {int(elapsed)}s, deleting")
+                await self.delete(sandbox_id, reason=DeleteReason.EXPIRED)
+                deleted.add(sandbox_id)
+            except Exception as e:
+                logger.error(f"[auto_delete] {sandbox_id}: {e}", exc_info=True)
+        return deleted
+
+    async def _auto_archive_stopped(self, *, exclude_ids: set[str] | None = None) -> None:
         """Archive STOPPED sandboxes that have been idle longer than auto_archive_after_sec."""
         auto_archive_sec = self.rock_config.lifecycle.auto_archive_after_sec
         if not auto_archive_sec:
@@ -444,6 +483,8 @@ class SandboxManager(BaseManager):
             sandbox_id = info.get("sandbox_id", "")
             stop_time_str = info.get("stop_time", "")
             if not sandbox_id or not stop_time_str:
+                continue
+            if exclude_ids and sandbox_id in exclude_ids:
                 continue
             try:
                 stop_time = datetime.datetime.fromisoformat(stop_time_str.replace("Z", "+00:00"))

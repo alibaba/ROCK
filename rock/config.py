@@ -204,6 +204,8 @@ class SandboxLifecycleConfig:
     archive_timeout_sec: int = 1800
     restore_timeout_sec: int = 1800
     auto_archive_after_sec: int = 0
+    auto_delete_after_sec: int = 0
+    auto_clear_default_sec: int = 21600
     archive: ArchiveConfig = field(default_factory=ArchiveConfig)
 
     def __post_init__(self):
