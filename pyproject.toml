@@ -24,7 +24,7 @@ dependencies = [
     "pydantic",
     "python-multipart",
     "rich",
-    "oss2",
+    "oss2>=2.19.1",
     "pyyaml",
     "jinja2",
     "tzdata",
