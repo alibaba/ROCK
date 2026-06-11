@@ -153,6 +153,49 @@ class OssConfig:
 
 
 @dataclass
+class ArchiveDirStorageConfig:
+    type: str = "oss"
+    endpoint: str = ""
+    bucket: str = ""
+    access_key_id: str = ""
+    access_key_secret: str = ""
+    region: str = ""
+
+
+@dataclass
+class ArchiveAcrConfig:
+    registry_url: str = ""
+    username: str = ""
+    password: str = ""
+    namespace: str = "sandbox_archive"
+
+
+@dataclass
+class ArchiveConfig:
+    dir_storage: ArchiveDirStorageConfig = field(default_factory=ArchiveDirStorageConfig)
+    acr: ArchiveAcrConfig = field(default_factory=ArchiveAcrConfig)
+    scan_interval_sec: int = 30
+    timeout_sec: int = 1800
+    max_retries: int = 3
+    prefix: str = "rock-archives/"
+
+    def __post_init__(self):
+        if isinstance(self.dir_storage, dict):
+            self.dir_storage = ArchiveDirStorageConfig(**self.dir_storage)
+        if isinstance(self.acr, dict):
+            self.acr = ArchiveAcrConfig(**self.acr)
+
+
+@dataclass
+class SandboxLifecycleConfig:
+    archive: ArchiveConfig = field(default_factory=ArchiveConfig)
+
+    def __post_init__(self):
+        if isinstance(self.archive, dict):
+            self.archive = ArchiveConfig(**self.archive)
+
+
+@dataclass
 class ProxyServiceConfig:
     timeout: float = 180.0
     max_connections: int = 500
@@ -348,6 +391,7 @@ class RockConfig:
     redis: RedisConfig = field(default_factory=RedisConfig)
     sandbox_config: SandboxConfig = field(default_factory=SandboxConfig)
     oss: OssConfig = field(default_factory=OssConfig)
+    lifecycle: SandboxLifecycleConfig = field(default_factory=SandboxLifecycleConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     proxy_service: ProxyServiceConfig = field(default_factory=ProxyServiceConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
@@ -401,6 +445,8 @@ class RockConfig:
             kwargs["sandbox_config"] = SandboxConfig(**config["sandbox_config"])
         if "oss" in config:
             kwargs["oss"] = OssConfig(**config["oss"])
+        if "lifecycle" in config:
+            kwargs["lifecycle"] = SandboxLifecycleConfig(**config["lifecycle"])
         if "runtime" in config:
             kwargs["runtime"] = RuntimeConfig(**config["runtime"])
         if "proxy_service" in config:
