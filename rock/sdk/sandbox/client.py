@@ -160,6 +160,32 @@ class Sandbox(AbstractSandbox):
         # If no failed stage is found, return None
         return None
 
+    async def attach(self, sandbox_id: str):
+        self._sandbox_id = sandbox_id
+        try:
+            sandbox_info = await self.get_status(include_all_states=True)
+        except Exception as e:
+            self._sandbox_id = None
+            raise Exception(f"Failed to attach sandbox {sandbox_id}: {str(e)}") from e
+        if sandbox_info.sandbox_id != sandbox_id:
+            self._sandbox_id = None
+            raise Exception(
+                f"sandbox_id mismatch: requested '{sandbox_id}', server returned '{sandbox_info.sandbox_id}'"
+            )
+        self._host_name = sandbox_info.host_name
+        self._host_ip = sandbox_info.host_ip
+        self._namespace = sandbox_info.namespace
+        self._experiment_id = sandbox_info.experiment_id
+
+        # Sync config with server-side state
+        self.config.sandbox_id = sandbox_id
+        self.config.image = sandbox_info.image
+        self.config.cpus = sandbox_info.cpus
+        self.config.memory = sandbox_info.memory
+        self.config.user_id = sandbox_info.user_id
+        self.config.experiment_id = sandbox_info.experiment_id
+        self.config.namespace = sandbox_info.namespace
+
     async def start(self):
         url = f"{self._url}/start_async"
         headers = self._build_headers()
