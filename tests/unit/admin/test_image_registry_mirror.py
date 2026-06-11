@@ -170,16 +170,18 @@ async def test_invalid_mirror_entry_skipped(restore_sandbox_manager, stub_manife
     assert len(stub_manifest_probe.probes) == 1
 
 
-async def test_candidate_drops_intermediate_namespaces(restore_sandbox_manager, stub_manifest_probe):
+async def test_candidate_strips_registry_and_namespace_preserves_repo(restore_sandbox_manager, stub_manifest_probe):
     sandbox_api.sandbox_manager = _make_manager(
         [ImageRegistryMirror(registry="rock-a.example.com", namespace="rock-public")]
     )
-    config = DockerDeploymentConfig(image="gcr.io/foo/bar:v1")
+    config = DockerDeploymentConfig(image="gcr.io/project/subdir/myimage:v1")
     stub_manifest_probe.probe_results.append(False)
 
     await sandbox_api._apply_image_registry_mirror(config)
 
-    assert stub_manifest_probe.probes[0]["image"] == "rock-a.example.com/rock-public/bar:v1"
+    assert stub_manifest_probe.probes[0]["image"] == "rock-a.example.com/rock-public/subdir/myimage:v1"
+    assert stub_manifest_probe.probes[0]["repo"] == "rock-public/subdir/myimage"
+    assert stub_manifest_probe.probes[0]["tag"] == "v1"
 
 
 async def test_missing_tag_defaults_to_latest(restore_sandbox_manager, stub_manifest_probe):
@@ -350,7 +352,7 @@ async def test_prefix_allowlist_matches_only_listed_images(restore_sandbox_manag
 
     allowed = DockerDeploymentConfig(image="aaaaaa/bbb/swe-bench:astropy__astropy-12907")
     await sandbox_api._apply_image_registry_mirror(allowed)
-    assert allowed.image == "rock-a.example.com/rock-public/swe-bench:astropy__astropy-12907"
+    assert allowed.image == "rock-a.example.com/rock-public/bbb/swe-bench:astropy__astropy-12907"
 
     bare_prefix = DockerDeploymentConfig(image="swe-bench:python__python-1")
     await sandbox_api._apply_image_registry_mirror(bare_prefix)

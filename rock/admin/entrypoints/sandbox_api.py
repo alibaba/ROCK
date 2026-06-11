@@ -199,7 +199,11 @@ async def _apply_image_registry_mirror(config: DockerDeploymentConfig) -> None:
     if not mirrors:
         return
 
-    name_tag = config.image.rsplit("/", 1)[-1]
+    _, repo_and_tag = ImageUtil.parse_registry_and_others(config.image)
+    if "/" in repo_and_tag:
+        _, name_tag = repo_and_tag.split("/", 1)
+    else:
+        name_tag = repo_and_tag
     if "@" in name_tag:
         logger.info(
             f"image registry mirror skip for digest reference {config.image!r} "
