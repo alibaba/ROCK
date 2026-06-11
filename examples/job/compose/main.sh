@@ -76,6 +76,9 @@ fi
 
 echo "Starting Harbor agent execution..."
 echo "Harbor Agent: ${HARBOR_AGENT}"
+echo "DEBUG: DATASET_TYPE env var is: [${DATASET_TYPE}]"
+echo "DEBUG: DATASET_NAME env var is: [${DATASET_NAME}]"
+echo "DEBUG: DATASET_VERSION env var is: [${DATASET_VERSION}]"
 echo "Dataset Type: ${DATASET_TYPE}"
 if [ "${DATASET_TYPE}" = "registry" ]; then
   echo "Dataset Name: ${DATASET_NAME}"
@@ -484,7 +487,8 @@ if [ "${HARBOR_AGENT}" = "claude-code" ] && [ "${USE_PROXY}" = "1" ]; then
   echo "Waiting for claude-code proxy..."
   if command -v curl > /dev/null 2>&1; then
     while true; do
-      curl -s --connect-timeout 1 http://localhost:8082 > /dev/null 2>&1 && break
+      # ComposeJobConfig: proxy sidecar is on the same docker network with alias=proxy
+      curl -s --connect-timeout 1 http://proxy:8082 > /dev/null 2>&1 && break
       sleep 1
     done
   else
@@ -496,7 +500,8 @@ if [ "${HARBOR_AGENT}" = "openclaw" ] && [ "${USE_PROXY}" = "1" ]; then
   echo "Waiting for claude-code proxy..."
   if command -v curl > /dev/null 2>&1; then
     while true; do
-      curl -s --connect-timeout 1 http://localhost:8082 > /dev/null 2>&1 && break
+      # ComposeJobConfig: proxy sidecar is on the same docker network with alias=proxy
+      curl -s --connect-timeout 1 http://proxy:8082 > /dev/null 2>&1 && break
       sleep 1
     done
   else
@@ -668,7 +673,9 @@ if [ "${DATASET_TYPE}" = "registry" ]; then
   HARBOR_ARGS+=(-d "${DATASET_NAME}@${DATASET_VERSION}")
   HARBOR_ARGS+=(-t "${INSTANCE_ID}")
 else
+  # local dataset type: pass both problem ID and dataset name
   HARBOR_ARGS+=(-p "${INSTANCE_ID}")
+  [ -n "${DATASET}" ] && HARBOR_ARGS+=(--dataset "${DATASET}")
 fi
 
 HARBOR_ARGS+=(-a "${HARBOR_AGENT}")
@@ -813,9 +820,10 @@ fi
 HARBOR_ARGS+=(--no-delete)
 
 # Skip harbor run interactive confirmation when SKIP_CONFIRM=true (mirrors Agent-Service `skip_confirm` field)
-if [ "${SKIP_CONFIRM:-}" = "true" ]; then
-  HARBOR_ARGS+=(-y)
-fi
+# NOTE: -y may not be supported in all harbor versions; commented out for compatibility
+# if [ "${SKIP_CONFIRM:-}" = "true" ]; then
+#   HARBOR_ARGS+=(-y)
+# fi
 
 echo "======= RUNNING HARBOR COMMAND ======="
 echo "harbor run ${HARBOR_ARGS[*]}"

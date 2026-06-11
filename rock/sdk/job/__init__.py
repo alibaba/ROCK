@@ -1,9 +1,9 @@
 # Auto-register BashTrial (safe: no bench dependency).
 # HarborTrial is registered by rock.sdk.bench.__init__ to avoid a circular
 # import when rock.sdk.job is triggered mid-bench-load.
-# ComposeTrial is registered by rock.sdk.job.compose.trial (loaded by teammate B).
-import rock.sdk.job.trial.bash  # noqa: F401
+# ComposeTrial is registered by rock.sdk.job.compose.trial (loaded on import).
 import rock.sdk.job.compose.trial  # noqa: F401
+import rock.sdk.job.trial.bash  # noqa: F401
 from rock.sdk.job.api import Job
 from rock.sdk.job.compose.config import ComposeJobConfig
 from rock.sdk.job.config import BashJobConfig, JobConfig

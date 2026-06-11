@@ -87,8 +87,8 @@ class JobConfig(BaseModel):
         except (ValidationError, ValueError) as exc:
             harbor_error = exc
 
-        # Compose: detected by the presence of a "compose" key in the YAML data.
-        if "compose" in data:
+        # Compose: detected by the presence of a "compose_file" key in the YAML data.
+        if "compose_file" in data:
             from rock.sdk.job.compose.config import ComposeJobConfig
 
             try:

@@ -1,8 +1,8 @@
-"""ComposeJobConfig 端到端 demo —— 用 ComposeJobConfig 跑 harbor 任务。
+"""ComposeJobConfig 端到端 demo —— 用 ComposeJobConfig (v2) 跑 harbor 任务。
 
-这是经过 ROCK 真机后端（kata runtime）端到端验证的脚本：
-  Job → kata 沙箱 → dockerd → proxy sidecar → health → 主容器(复用外层 dockerd)
-       → harbor CLI 运行 → 下载 dataset → 跑 agent rollout
+v2 变更：容器编排完全迁移到标准 docker-compose.yaml，job_config 只持有 compose_file 指针。
+ROCK 不再解析 compose 内部结构，只负责：
+  ① 准备 DinD 外层沙箱；② 引导 dockerd；③ docker compose up；④ 收退出码 + 可选 OSS 上传。
 
 对应的 AP 命令（claude-code agent / aone-bench-java100 / glm-5）：
     ap job create harbor --instance-id codereview-20789198 -p '{...}' --runner rock
@@ -42,14 +42,7 @@ from pathlib import Path
 
 from rock.sdk.envhub import EnvironmentConfig
 from rock.sdk.job import Job
-from rock.sdk.job.compose.config import (
-    ComposeJobConfig,
-    ComposeSpec,
-    HealthSpec,
-    MainContainerSpec,
-    SidecarSpec,
-    VolumeMount,
-)
+from rock.sdk.job.compose.config import ComposeJobConfig
 from rock.sdk.job.operator import ScatterOperator
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -63,10 +56,13 @@ DEFAULTS = {
     "ROCK_BASE_URL": "http://xrl.alibaba-inc.com",
     "ROCK_CLUSTER": "vpc-sg-a",
     "INSTANCE_ID": "codereview-20789198",
-    "DATASET": "terminal-bench/aone-bench-java100",
+    "DATASET": "alibaba/aone-bench-java100",
+    "DATASET_NAME": "alibaba/aone-bench-java100",
+    "DATASET_VERSION": "latest",
+    "DATASET_TYPE": "registry",
     "SPLIT": "test",
     "HARBOR_AGENT": "claude-code",
-    "HARBOR_MAIN_IMAGE": "rock-registry.ap-southeast-1.cr.aliyuncs.com/harbor/harbor:086a7b5822fc09891b190e18d",
+    "HARBOR_MAIN_IMAGE": "rock-registry.ap-southeast-1.cr.aliyuncs.com/harbor/harbor:33180a83",
     "PROXY_IMAGE": "agent-platform-staging-registry-vpc.ap-southeast-1.cr.aliyuncs.com/eflops/proxy-hub:bailian-usage-dev",
     "JOB_TIMEOUT": "9000",
 }
@@ -101,8 +97,8 @@ def check_required() -> None:
 
 
 def build_config() -> ComposeJobConfig:
-    # 容器内 env（harbor main.sh + proxy sidecar 都从这里读）
-    container_env = {
+    # 外层沙箱 env（docker compose 执行时可用 ${VAR} 插值注入内层容器）
+    sandbox_env = {
         # 模型
         "MODEL": cfg("MODEL"),
         "MODEL_BASE_URL": cfg("MODEL_BASE_URL"),
@@ -111,17 +107,16 @@ def build_config() -> ComposeJobConfig:
         "HARBOR_AGENT": cfg("HARBOR_AGENT"),
         "INSTANCE_ID": cfg("INSTANCE_ID"),
         "DATASET": cfg("DATASET"),
+        "DATASET_NAME": cfg("DATASET_NAME"),
+        "DATASET_VERSION": cfg("DATASET_VERSION"),
         "SPLIT": cfg("SPLIT"),
-        "DATASET_TYPE": "local",
-        "HARBOR_ENV": "docker",
+        "DATASET_TYPE": cfg("DATASET_TYPE"),
         "N_ATTEMPTS": "1",
         "N_CONCURRENT": "1",
         "TIMEOUT_MULTIPLIER": "3.0",
         "MAX_RETRIES": "3",
         "MAX_ITERATIONS": "200",
-        "AGENT_VERSION": "2.1.87",
-        "AGENT_TIMEOUT_MULTIPLIER": "8.0",
-        "RETRY_INCLUDE": "NonZeroAgentExitCodeError",
+        "SKIP_CONFIRM": "true",
         "FORCE_PROXY": "true",
         "PROVIDER": "anthropic",
         "TEMPERATURE": "1.0",
@@ -129,10 +124,10 @@ def build_config() -> ComposeJobConfig:
         "THINKING_TYPE": "adaptive",
         "REASONING_EFFORT": "high",
         "CONTEXT_1M": "true",
-        "SKIP_CONFIRM": "true",
-        "OUTPUT_DIR": "/tmp/output",
-        "SHARED_DIR": "/tmp/shared",
-        # OSS 凭证（harbor 下载 dataset 必需）
+        # 镜像（compose file 里用 ${VAR} 引用，让用户只需改 env 而无需改 compose file）
+        "HARBOR_MAIN_IMAGE": cfg("HARBOR_MAIN_IMAGE"),
+        "PROXY_IMAGE": cfg("PROXY_IMAGE"),
+        # OSS 凭证（harbor 下载 dataset 必需 + compose.main 产物上传）
         "OSS_BUCKET": cfg("OSS_BUCKET"),
         "OSS_ENDPOINT": cfg("OSS_ENDPOINT"),
         "OSS_REGION": cfg("OSS_REGION"),
@@ -143,10 +138,12 @@ def build_config() -> ComposeJobConfig:
     return ComposeJobConfig(
         job_name="harbor-compose-demo",
         timeout=int(cfg("JOB_TIMEOUT")),
-        # 主容器入口脚本（harbor runner，从 Agent-Hub 复制并适配）
-        script_path=str(HERE / "main.sh"),
+        # v2: compose_file 指向本地 docker-compose.yaml（相对路径）
+        compose_file=str(HERE / "docker-compose.yaml"),
+        abort_on_container_exit=True,
         environment=EnvironmentConfig(
-            # 外层沙箱镜像须自带 docker 工具链（不要用 docker:27-dind，kata 下缺 containerd）
+            # 外层沙箱镜像：必须自带 docker 工具链（不要用 docker:27-dind，kata 下缺 containerd）
+            # 这里复用 harbor runner 镜像（自带完整 docker 工具链 + harbor CLI + bash）
             image=cfg("HARBOR_MAIN_IMAGE"),
             base_url=cfg("ROCK_BASE_URL"),
             cluster=cfg("ROCK_CLUSTER"),
@@ -155,45 +152,23 @@ def build_config() -> ComposeJobConfig:
             startup_timeout=1200,
             memory="32g",
             cpus=16,
+            # v2 uploads: compose 文件 + 脚本目录一起上传到 /rock/compose/
             uploads=[
-                (str(HERE / "main.sh"), "/rock/scripts/main.sh"),
-                (str(HERE / "sidecars"), "/rock/scripts/sidecars"),
+                (str(HERE / "docker-compose.yaml"), "/rock/compose/docker-compose.yaml"),
+                (str(HERE / "main.sh"), "/rock/compose/main.sh"),
+                (str(HERE / "sidecars"), "/rock/compose/sidecars"),
             ],
-            env=container_env,
-        ),
-        compose=ComposeSpec(
-            main=MainContainerSpec(
-                image=cfg("HARBOR_MAIN_IMAGE"),
-                privileged=True,
-                env=container_env,
-                # 复用外层 dockerd（挂载外层 docker socket），避免主容器内再起第三层 dockerd
-                # —— 第三层 dockerd 在 kata 下会失败（"Docker daemon failed to start"）
-                volume_mounts=[
-                    VolumeMount(
-                        name="docker-sock",
-                        mount_path="/var/run/docker.sock",
-                        host_path="/var/run/docker.sock",
-                    )
-                ],
-            ),
-            sidecars=[
-                SidecarSpec(
-                    name="proxy",
-                    image=cfg("PROXY_IMAGE"),
-                    script_path="/rock/scripts/sidecars/proxy-sidecar.sh",
-                    env=container_env,
-                    health=HealthSpec(port=8082, timeout_sec=120),
-                ),
-            ],
+            env=sandbox_env,
         ),
     )
 
 
 async def main() -> None:
     config = build_config()
-    logger.info("Submitting harbor task via ComposeJobConfig (job_name=%s) ...", config.job_name)
+    logger.info("Submitting harbor task via ComposeJobConfig v2 (job_name=%s) ...", config.job_name)
     logger.info("  backend=%s cluster=%s", config.environment.base_url, config.environment.cluster)
     logger.info("  dataset=%s split=%s agent=%s", cfg("DATASET"), cfg("SPLIT"), cfg("HARBOR_AGENT"))
+    logger.info("  compose_file=%s", config.compose_file)
 
     # size=1：单 trial（避免 ScatterOperator 共享 config 引用的竞态）
     result = await Job(config, operator=ScatterOperator(size=1)).run()

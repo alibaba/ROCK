@@ -1,7 +1,7 @@
-# ComposeJobConfig YAML template — harbor task (claude-code / terminal-bench / aone-bench-java100)
+# ComposeJobConfig YAML template (v2) — harbor task (claude-code / terminal-bench / aone-bench-java100)
 #
-# 方案: 主容器自带 dockerd（DinD 沙箱 image=docker:27-dind 天然提供守护进程）
-# 内层编排: runner.sh 在外层沙箱内用 docker CLI 拉起 main + proxy sidecar
+# v2 方案: job_config.yaml（ROCK 层元信息 + DinD 外层沙箱）+ docker-compose.yaml（容器编排）双文件。
+# ROCK 不解析 compose 内部结构，只把 compose_file 指向的文件上传进沙箱后执行 docker compose up。
 #
 # 使用前: 将所有 <...> 占位符替换为真实值，或通过上层脚本批量渲染。
 # 用法: python examples/job/compose/compose_demo.py -c examples/job/compose/job_config.yaml
@@ -10,14 +10,14 @@
 job_name: harbor-compose-demo
 namespace: xrl-sandbox
 # experiment_id 不填（ComposeJobConfig 无需 Harbor 的 experiment_id 字段）
-timeout: 8000              # 整体超时（秒）；harbor run 内部超时由 HARBOR_* env 控制
+timeout: 8000              # 整体超时（秒）；docker compose up 全生命周期
 
-# ── 主容器入口（继承 BashJobConfig）─────────────────────────────────
-script_path: ./main.sh    # 对应 compose.main service；由 ComposeTrial 上传到 /rock/scripts/main.sh
+# ── ComposeJobConfig 专有：指向标准 compose 文件（本地相对路径）──────
+compose_file: ./docker-compose.yaml
+abort_on_container_exit: true   # 任一 service 退出即停止整组（默认 true）
 
 # ── DinD 外层沙箱（EnvironmentConfig）──────────────────────────────
-# image 必须自带 docker/dockerd/containerd/runc 工具链（不要用 docker:27-dind，
-# 实测它在 ROCK kata 沙箱里缺 containerd）。runner.sh 会在 P0 主动启动 dockerd。
+# image 必须自带 docker/dockerd/containerd/runc 工具链。runner.sh 会在 P0 阶段主动启动 dockerd。
 # 这里直接复用 harbor runner 镜像（自带完整 docker 工具链 + harbor CLI + bash）。
 environment:
   image: "<HARBOR_MAIN_IMAGE>"   # 自带 docker 工具链的业务镜像
@@ -27,33 +27,34 @@ environment:
     XRL-Authorization: "Bearer <ROCK_TOKEN>"
   use_kata_runtime: true   # 生产环境推荐开启 kata，强隔离
   startup_timeout: 1800    # 沙箱启动超时（秒）
-  cpus: 32                 # 外层沙箱总 CPU（须 ≥ 内层各容器之和：main 8 + proxy 1 + 余量）
+  cpus: 16                 # 外层沙箱总 CPU（须 ≥ 内层各容器之和）
   memory: "32g"            # 外层沙箱总内存
 
-  # 把本地脚本目录上传进沙箱（runner.sh 引用这些路径）
+  # 把 compose 文件 + 脚本目录上传进沙箱（runner.sh 引用 /rock/compose/ 路径）
   uploads:
-    - ["./main.sh", "/rock/scripts/main.sh"]
-    - ["./sidecars", "/rock/scripts/sidecars"]
+    - ["./docker-compose.yaml", "/rock/compose/docker-compose.yaml"]
+    - ["./main.sh", "/rock/compose/main.sh"]
+    - ["./sidecars", "/rock/compose/sidecars"]
 
-  # 沙箱级环境变量（注入外层沙箱，runner.sh 可读，同时透传给各内层容器）
+  # 沙箱级环境变量（注入外层沙箱；docker compose 执行时这些值可用于 compose 文件里的 ${VAR} 插值）
   env:
-    # 模型相关（harbor runner 所需）
+    # 镜像（compose file 里用 ${VAR} 引用）
+    HARBOR_MAIN_IMAGE: "<HARBOR_MAIN_IMAGE>"
+    PROXY_IMAGE: "<CC_PROXY_IMAGE>"
+
+    # 模型相关
     MODEL: "<MODEL>"                             # e.g. claude-opus-4-8
     MODEL_API_KEY: "<MODEL_API_KEY>"
     MODEL_BASE_URL: "<MODEL_BASE_URL>"           # e.g. https://api.anthropic.com
 
     # Harbor agent 配置
-    HARBOR_AGENT: claude-code                    # 固定 claude-code
-    INSTANCE_ID: "<INSTANCE_ID>"                 # 任务 ID，e.g. mailman
-    DATASET: terminal-bench                      # 或 aone-bench-java100
+    HARBOR_AGENT: claude-code
+    INSTANCE_ID: "<INSTANCE_ID>"
+    DATASET: terminal-bench
     SPLIT: test
-    DATASET_TYPE: local                          # local / registry
-    HARBOR_ENV: docker                           # DinD 下用 docker 模式
+    DATASET_TYPE: registry
 
-    # DinD：主容器自带 dockerd，DOCKER_HOST 指向外层 DinD daemon
-    DOCKER_HOST: "tcp://localhost:2375"
-
-    # OSS 凭证（数据集下载 + 产物上传）
+    # OSS 凭证（数据集下载）
     OSS_BUCKET: "<OSS_BUCKET>"
     OSS_ENDPOINT: "<OSS_ENDPOINT>"              # e.g. oss-cn-hangzhou-internal.aliyuncs.com
     OSS_REGION: "<OSS_REGION>"                  # e.g. cn-hangzhou
@@ -67,42 +68,12 @@ environment:
     MAX_RETRIES: "3"
     MAX_ITERATIONS: "500"
     SKIP_CONFIRM: "true"
-    HARBOR_JOB_RESULT_PATH: "/tmp/shared/rollout_result"
-    OUTPUT_DIR: "/tmp/output"
-    SHARED_DIR: "/tmp/shared"
 
-    # cc-proxy 配置（proxy sidecar 的端口由 health.port 声明）
+    # cc-proxy 配置
     PROVIDER: anthropic
-    FORCE_PROXY: "true"      # 强制走 cc-proxy sidecar
+    FORCE_PROXY: "true"
 
-  # 产物上传（复用现有机制）
+  # 产物上传（复用现有机制，docker compose 结束后由 runner P2 执行）
   oss_mirror:
     enabled: true
     oss_bucket: "<OSS_BUCKET>"
-
-# ── Compose 内层编排（DinD 内，由 runner.sh 用 docker CLI 拉起）──
-compose:
-  # 主容器：harbor runner
-  # script_path 即顶层 ./main.sh（ComposeTrial 上传后路径 /rock/scripts/main.sh）
-  main:
-    image: "<HARBOR_MAIN_IMAGE>"    # harbor runner 镜像，含 harbor CLI 及 claude-code
-                                    # e.g. code-agi-sg-docker-registry-vpc.ap-southeast-1.cr.aliyuncs.com/eflops/claude-code:bailian-xxx
-    privileged: true                # harbor 在内层需要起 docker 容器，须特权
-    resources:
-      cpus: 8
-      memory: "16g"
-
-  # Sidecar 容器：与主容器并行运行
-  sidecars:
-    # cc-proxy sidecar：主容器通过 docker bridge gateway（http://${DOCKER_GATEWAY}:8082）访问
-    # name=proxy 作为 docker network-alias，健康探测确保 proxy 就绪后再启动主容器
-    - name: proxy
-      image: "<CC_PROXY_IMAGE>"     # claude-code proxy 镜像
-                                    # e.g. code-agi-sg-docker-registry-vpc.ap-southeast-1.cr.aliyuncs.com/eflops/claude-code-proxy:latest
-      script_path: /rock/scripts/sidecars/proxy-sidecar.sh
-      resources:
-        cpus: 1
-        memory: "1g"
-      health:
-        port: 8082                  # proxy-sidecar.sh 中 PORT=8082
-        timeout_sec: 60
