@@ -523,8 +523,6 @@ class DockerDeployment(AbstractDeployment):
         if self._config.remove_container:
             rm_arg = ["--rm"]
 
-        env_arg = []
-
         # Conditionally set up logging path mount based on ROCK_LOGGING_PATH.
         log_file_path: str | None = None
         volume_args = self._prepare_volume_mounts()
@@ -533,23 +531,17 @@ class DockerDeployment(AbstractDeployment):
             os.makedirs(log_file_path, exist_ok=True)
             os.chmod(log_file_path, 0o777)
             volume_args.extend(["-v", f"{log_file_path}:{env_vars.ROCK_LOGGING_PATH}"])
-            env_arg = [
-                "-e",
-                f"ROCK_LOGGING_PATH={env_vars.ROCK_LOGGING_PATH}",
-                "-e",
-                f"ROCK_LOGGING_LEVEL={env_vars.ROCK_LOGGING_LEVEL}",
-            ]
 
-        env_arg.extend(["-e", f"ROCK_TIME_ZONE={env_vars.ROCK_TIME_ZONE}"])
         volume_args.extend(self._prepare_timezone_mount())
 
-        # Kata DinD: prepare disk image and add volume mount + env var
+        # Kata DinD: prepare disk image and add volume mount
         if self._config.use_kata_runtime:
             with StageTimer("startup_timing", f"[{self._container_name}] Kata disk prepare", logger):
                 self._prepare_kata_disk()
             disk_path = self._get_kata_disk_image_path()
             volume_args.extend(["-v", f"{disk_path}:/docker-disk.img"])
-            env_arg.extend(["-e", "ROCK_KATA_RUNTIME=true"])
+
+        env_arg = self._build_env_args()
 
         with StageTimer("startup_timing", f"[{self._container_name}] Random sleep", logger):
             time.sleep(random.randint(0, 5))
@@ -610,6 +602,32 @@ class DockerDeployment(AbstractDeployment):
             await self._wait_until_alive(timeout=self._config.startup_timeout)
         if self._config.enable_auto_clear:
             self._check_stop_task = asyncio.create_task(self._check_stop())
+
+    def _build_env_args(self) -> list[str]:
+        """Construct `-e KEY=VALUE` argv pairs for `docker run`.
+
+        Centralizes every env var rock injects into a sandbox in one place so
+        callers (and tests) can audit them together. Volume mounts that pair
+        with these vars (ROCK_LOGGING_PATH, kata disk) are still set up
+        alongside in `start()`.
+        """
+        args: list[str] = []
+        if env_vars.ROCK_LOGGING_PATH:
+            args.extend(
+                [
+                    "-e",
+                    f"ROCK_LOGGING_PATH={env_vars.ROCK_LOGGING_PATH}",
+                    "-e",
+                    f"ROCK_LOGGING_LEVEL={env_vars.ROCK_LOGGING_LEVEL}",
+                ]
+            )
+        args.extend(["-e", f"ROCK_TIME_ZONE={env_vars.ROCK_TIME_ZONE}"])
+        if self._config.use_kata_runtime:
+            args.extend(["-e", "ROCK_KATA_RUNTIME=true"])
+        mirrors = self._config.runtime_config.instance_registry_mirrors
+        if mirrors:
+            args.extend(["-e", f"INSTANCE_ROCK_REGISTRY={','.join(mirrors)}"])
+        return args
 
     def _prepare_timezone_mount(self) -> list[str]:
         tz = env_vars.ROCK_TIME_ZONE

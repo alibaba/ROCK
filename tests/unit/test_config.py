@@ -56,6 +56,42 @@ async def test_runtime_config():
     assert runtime_config.standard_spec.cpus == 2
 
 
+def test_runtime_config_instance_registry_mirrors_default_empty():
+    cfg = RuntimeConfig()
+    assert cfg.instance_registry_mirrors == []
+
+
+def test_runtime_config_instance_registry_mirrors_accepts_list():
+    mirrors = ["reg-a.example.com/ns-1", "reg-b.example.com/ns-2"]
+    cfg = RuntimeConfig(instance_registry_mirrors=mirrors)
+    assert cfg.instance_registry_mirrors == mirrors
+
+
+@pytest.mark.asyncio
+async def test_runtime_config_instance_registry_mirrors_from_yaml(tmp_path, monkeypatch):
+    yaml_path = tmp_path / "rock-test.yml"
+    yaml_path.write_text(
+        yaml.safe_dump(
+            {
+                "runtime": {
+                    "instance_registry_mirrors": [
+                        "reg-a.example.com/mirror-1",
+                        "reg-b.example.com/mirror-2",
+                    ],
+                },
+            }
+        )
+    )
+    # RuntimeConfig.__post_init__ requires ROCK_PYTHON_ENV_PATH + ROCK_ENVHUB_DB_URL.
+    monkeypatch.setenv("ROCK_PYTHON_ENV_PATH", "/usr")
+    monkeypatch.setenv("ROCK_ENVHUB_DB_URL", "sqlite:////tmp/test.db")
+    rock_config = RockConfig.from_env(str(yaml_path))
+    assert rock_config.runtime.instance_registry_mirrors == [
+        "reg-a.example.com/mirror-1",
+        "reg-b.example.com/mirror-2",
+    ]
+
+
 def test_oss_config_defaults():
     from rock.config import OssAccountConfig, OssConfig
 
@@ -212,6 +248,56 @@ async def test_nacos_update_without_mirror_keys_preserves_existing():
     assert len(rock_config.image_registry_mirrors) == 1
     assert rock_config.image_registry_mirrors[0].registry == "keep.com"
     assert rock_config.image_mirror_lookup_allowlist == ["*"]
+
+
+# ===== Nacos hot-reload for instance_registry_mirrors =====
+
+
+@pytest.mark.asyncio
+async def test_nacos_update_loads_instance_registry_mirrors():
+    rock_config = RockConfig()
+    rock_config.nacos_provider = MagicMock()
+    rock_config.nacos_provider.get_config = AsyncMock(
+        return_value={
+            "runtime": {
+                "instance_registry_mirrors": ["reg-a.example.com/ns-1", "reg-b.example.com/ns-2"],
+            },
+        }
+    )
+
+    await rock_config.update()
+
+    assert rock_config.runtime.instance_registry_mirrors == ["reg-a.example.com/ns-1", "reg-b.example.com/ns-2"]
+
+
+@pytest.mark.asyncio
+async def test_nacos_update_empty_instance_mirrors_clears_list():
+    rock_config = RockConfig()
+    rock_config.runtime.instance_registry_mirrors = ["old.example.com/ns"]
+    rock_config.nacos_provider = MagicMock()
+    rock_config.nacos_provider.get_config = AsyncMock(
+        return_value={
+            "runtime": {
+                "instance_registry_mirrors": [],
+            },
+        }
+    )
+
+    await rock_config.update()
+
+    assert rock_config.runtime.instance_registry_mirrors == []
+
+
+@pytest.mark.asyncio
+async def test_nacos_update_without_runtime_key_preserves_instance_mirrors():
+    rock_config = RockConfig()
+    rock_config.runtime.instance_registry_mirrors = ["keep.example.com/ns"]
+    rock_config.nacos_provider = MagicMock()
+    rock_config.nacos_provider.get_config = AsyncMock(return_value={"sandbox_config": {}})
+
+    await rock_config.update()
+
+    assert rock_config.runtime.instance_registry_mirrors == ["keep.example.com/ns"]
 
 
 # ===== _resolve_k8s_template_includes =====

@@ -275,6 +275,12 @@ class RuntimeConfig:
     sandbox_disk_limit_rootfs: str | None = None
     """Default rootfs quota per container. None means no limit. Can be overridden by nacos key 'default_disk_limit'."""
 
+    instance_registry_mirrors: list[str] = field(default_factory=list)
+    """Registry mirrors injected into each launched sandbox as
+    INSTANCE_ROCK_REGISTRY=<comma-joined>. Each entry is a host/namespace
+    string (e.g. "reg-a.aliyuncs.com/mirror-1"). When empty, the env var is
+    not set and downstream tools skip mirror rewriting."""
+
     def __post_init__(self) -> None:
         # Convert dict to StandardSpec if needed
         if isinstance(self.standard_spec, dict):
@@ -512,8 +518,14 @@ class RockConfig:
         if "image_mirror_lookup_allowlist" in nacos_result:
             self.image_mirror_lookup_allowlist = list(nacos_result["image_mirror_lookup_allowlist"] or [])
 
+        if "runtime" in nacos_result and isinstance(nacos_result["runtime"], dict):
+            runtime_overrides = nacos_result["runtime"]
+            if "instance_registry_mirrors" in runtime_overrides:
+                self.runtime.instance_registry_mirrors = list(runtime_overrides["instance_registry_mirrors"] or [])
+
         logger.info(
             f"Updated config from Nacos: sandbox_config={self.sandbox_config}, proxy_service={self.proxy_service}"
             f", image_registry_mirrors={self.image_registry_mirrors}"
             f", image_mirror_lookup_allowlist={self.image_mirror_lookup_allowlist}"
+            f", instance_registry_mirrors={self.runtime.instance_registry_mirrors}"
         )
