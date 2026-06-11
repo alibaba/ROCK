@@ -12,7 +12,7 @@ class SandboxStartResponse(SandboxResponse):
     host_ip: str | None = None
     cpus: float | None = None
     memory: str | None = None
-    disk_limit_rootfs: str | None = None
+    disk: str | None = None
 
 
 # TODO: inherit from SandboxStartResponse
@@ -32,7 +32,7 @@ class SandboxStatusResponse(BaseModel):
     namespace: str | None = None
     cpus: float | None = None
     memory: str | None = None
-    disk_limit_rootfs: str | None = None
+    disk: str | None = None
     start_time: str | None = None
     stop_time: str | None = None
     create_time: str | None = None
@@ -52,7 +52,7 @@ class SandboxStatusResponse(BaseModel):
             namespace=sandbox_info.get("namespace"),
             cpus=sandbox_info.get("cpus"),
             memory=sandbox_info.get("memory"),
-            disk_limit_rootfs=sandbox_info.get("disk_limit_rootfs"),
+            disk=sandbox_info.get("disk"),
         )
 
 

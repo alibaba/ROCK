@@ -45,12 +45,17 @@ class RayOperator(AbstractOperator):
             memory = parse_size_to_bytes(config.memory)
             actor_options["num_cpus"] = config.cpus
             actor_options["memory"] = memory
+            custom_resources: dict[str, float] = {}
+            if config.disk is not None:
+                custom_resources["disk"] = parse_size_to_bytes(config.disk)
             # Pin to a specific node via Ray's implicit `node:<ip>` resource
             # (registered automatically per node with value 1.0; we consume a
             # negligible 0.001 so we don't block other actors). Used by restart
             # to land on the host that owns the existing container.
             if pin_to_host_ip:
-                actor_options["resources"] = {f"node:{pin_to_host_ip}": 0.001}
+                custom_resources[f"node:{pin_to_host_ip}"] = 0.001
+            if custom_resources:
+                actor_options["resources"] = custom_resources
             return actor_options
         except ValueError as e:
             logger.warning(f"Invalid memory size: {config.memory}", exc_info=e)

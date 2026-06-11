@@ -37,13 +37,13 @@ async def test_disk_limit_enforcement(admin_remote_server):
 
     try:
         status = await sandbox.get_status()
-        print(f"Sandbox status: disk_limit={status.disk_limit_rootfs}")
+        print(f"Sandbox status: disk_limit={status.disk}")
 
-        if status.disk_limit_rootfs is None:
+        if status.disk is None:
             pytest.skip(
                 "Server has no disk limit configured (sandbox_disk_limit_rootfs not set in rock-xxx.yml or nacos)"
             )
-        print(f"✅ Disk limit is set to {status.disk_limit_rootfs}")
+        print(f"✅ Disk limit is set to {status.disk}")
 
         # Parse limit to determine a file size that exceeds it
         result = await sandbox.execute(
@@ -51,7 +51,7 @@ async def test_disk_limit_enforcement(admin_remote_server):
                 command=[
                     "/bin/bash",
                     "-c",
-                    f"fallocate -l {status.disk_limit_rootfs.replace('g', '')}G /tmp/large_file.bin 2>&1 || echo 'EXPECTED_ERROR'",
+                    f"fallocate -l {status.disk.replace('g', '')}G /tmp/large_file.bin 2>&1 || echo 'EXPECTED_ERROR'",
                 ]
             )
         )
@@ -104,18 +104,16 @@ async def test_disk_limit_default_value(admin_remote_server):
 
     try:
         status = await sandbox.get_status()
-        print(f"Sandbox status: disk_limit={status.disk_limit_rootfs}")
+        print(f"Sandbox status: disk_limit={status.disk}")
 
         storage_opt_supported = DockerUtil.detect_storage_opt_support()
 
         if not storage_opt_supported:
-            assert (
-                status.disk_limit_rootfs is None
-            ), f"Expected disk_limit=None when storage-opt not supported, got {status.disk_limit_rootfs}"
+            assert status.disk is None, f"Expected disk_limit=None when storage-opt not supported, got {status.disk}"
             print("✅ Storage-opt not supported: disk_limit is None")
         else:
             # When storage-opt is supported, disk_limit reflects server config (may be None if not configured)
-            print(f"✅ Server-reported disk_limit: {status.disk_limit_rootfs}")
+            print(f"✅ Server-reported disk_limit: {status.disk}")
 
     finally:
         await sandbox.stop()
