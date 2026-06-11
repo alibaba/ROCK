@@ -91,10 +91,10 @@ class StorageCommand(Command):
         get_p.add_argument(
             "--archive-prefix",
             dest="archive_prefix",
-            default="",
+            default="rock-archives/",
             help=(
                 "OSS key prefix used at archive time (must match admin's "
-                "sandbox_config.log.archive_prefix, e.g. 'rock-archives/')."
+                "sandbox_config.log.archive_prefix). Default: 'rock-archives/'."
             ),
         )
         get_p.add_argument(
