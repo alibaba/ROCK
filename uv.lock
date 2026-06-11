@@ -4280,13 +4280,12 @@ wheels = [
 
 [[package]]
 name = "rl-rock"
-version = "1.8.0"
+version = "1.8.3"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
     { name = "build" },
     { name = "httpx" },
-    { name = "jinja2" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-exporter-prometheus" },
@@ -4299,7 +4298,6 @@ dependencies = [
     { name = "requests" },
     { name = "rich" },
     { name = "tzdata" },
-    { name = "uuid" },
 ]
 
 [package.optional-dependencies]
@@ -4316,6 +4314,7 @@ admin = [
     { name = "fakeredis", extra = ["json"] },
     { name = "fastapi" },
     { name = "gem-llm", marker = "sys_platform != 'win32'" },
+    { name = "jinja2" },
     { name = "kubernetes" },
     { name = "nacos-sdk-python" },
     { name = "numpy" },
@@ -4343,6 +4342,7 @@ all = [
     { name = "fakeredis", extra = ["json"] },
     { name = "fastapi" },
     { name = "gem-llm" },
+    { name = "jinja2" },
     { name = "kubernetes" },
     { name = "nacos-sdk-python" },
     { name = "numpy" },
@@ -4430,7 +4430,7 @@ requires-dist = [
     { name = "gem-llm", marker = "extra == 'sandbox-actor'", specifier = ">=0.1.0" },
     { name = "httpx" },
     { name = "httpx", marker = "extra == 'model-service'" },
-    { name = "jinja2" },
+    { name = "jinja2", marker = "extra == 'admin'" },
     { name = "kubernetes", marker = "extra == 'admin'", specifier = ">=35.0.0" },
     { name = "nacos-sdk-python", marker = "extra == 'admin'", specifier = ">=0.1.14" },
     { name = "nacos-sdk-python", marker = "extra == 'sandbox-actor'", specifier = ">=0.1.14" },
@@ -4464,7 +4464,6 @@ requires-dist = [
     { name = "swebench", marker = "extra == 'model-service'" },
     { name = "twisted", marker = "sys_platform != 'win32' and extra == 'rocklet'" },
     { name = "tzdata" },
-    { name = "uuid" },
     { name = "uvicorn", marker = "extra == 'model-service'" },
     { name = "uvicorn", marker = "extra == 'rocklet'" },
     { name = "websockets", marker = "extra == 'admin'", specifier = ">=15.0.1" },
@@ -5116,12 +5115,6 @@ sdist = { url = "https://mirrors.aliyun.com/pypi/packages/15/22/9ee70a2574a4f459
 wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/a7/c2/fe1e52489ae3122415c51f387e221dd0773709bad6c6cdaa599e8a2c5185/urllib3-2.5.0-py3-none-any.whl", hash = "sha256:e6b01673c0fa6a13e374b50871808eb3bf7046c4b125b216f6bf1cc604cff0dc" },
 ]
-
-[[package]]
-name = "uuid"
-version = "1.30"
-source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
-sdist = { url = "https://mirrors.aliyun.com/pypi/packages/ce/63/f42f5aa951ebf2c8dac81f77a8edcc1c218640a2a35a03b9ff2d4aa64c3d/uuid-1.30.tar.gz", hash = "sha256:1f87cc004ac5120466f36c5beae48b4c48cc411968eed0eaecd3da82aa96193f" }
 
 [[package]]
 name = "uvicorn"

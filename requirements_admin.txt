@@ -542,8 +542,6 @@ urllib3==2.5.0
     #   botocore
     #   kubernetes
     #   requests
-uuid==1.30
-    # via rl-rock
 uvicorn==0.38.0
     # via rl-rock
 virtualenv==20.35.4
