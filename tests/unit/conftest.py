@@ -20,6 +20,7 @@ from rock.sandbox.operator.k8s.api_client import K8sApiClient
 from rock.sandbox.operator.k8s.operator import K8sOperator
 from rock.sandbox.operator.k8s.template_loader import K8sTemplateLoader
 from rock.sandbox.operator.ray import RayOperator
+from rock.sandbox.operator.registry import OperatorRegistry
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
@@ -107,13 +108,16 @@ async def sandbox_manager(
     meta_store = SandboxMetaStore(
         redis_provider=redis_provider, sandbox_table=_memory_sandbox_table, rock_config=rock_config
     )
+    operator_name = rock_config.runtime.operator_type or "ray"
+    registry = OperatorRegistry(default_name=operator_name)
+    registry.register(operator_name, ray_operator)
     sandbox_manager = SandboxManager(
         rock_config,
         meta_store=meta_store,
+        registry=registry,
         ray_namespace=rock_config.ray.namespace,
         ray_service=ray_service,
         enable_runtime_auto_clear=rock_config.runtime.enable_auto_clear,
-        operator=ray_operator,
     )
     return sandbox_manager
 

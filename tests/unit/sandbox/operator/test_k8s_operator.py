@@ -244,6 +244,7 @@ class TestK8sGetStatusWithManager:
             return await SandboxStateMachine.from_state_value(info.get("state"), sandbox_info=info)
 
         m._get_current_statemachine = AsyncMock(side_effect=get_current_statemachine)
+        m._get_operator_for_sandbox = AsyncMock(return_value=k8s_operator)
         m.get_status = SandboxManager.get_status.__get__(m, SandboxManager)
         m._refresh_timeout = AsyncMock()
         return m

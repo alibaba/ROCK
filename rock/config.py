@@ -228,6 +228,30 @@ class PoolConfig:
 
 
 @dataclass
+class RemoteConfig:
+    """Configuration for the Remote operator."""
+
+    api_endpoint: str = ""
+
+    api_key: str = ""
+
+    rocklet_port: int = 8000
+
+    header_sandbox_id: str = "X-Sandbox-Id"
+
+    header_sandbox_port: str = "X-Sandbox-Port"
+
+    def resolved_api_key(self) -> str:
+        """Return the effective api_key, env var ROCK_REMOTE_API_KEY takes precedence."""
+        import os
+
+        value = os.environ.get("ROCK_REMOTE_API_KEY", "")
+        if value:
+            return value
+        return self.api_key
+
+
+@dataclass
 class K8sConfig:
     """Kubernetes configuration for K8s operator."""
 
@@ -266,6 +290,16 @@ class RuntimeConfig:
     python_env_path: str = field(default_factory=lambda: env_vars.ROCK_PYTHON_ENV_PATH)
     envhub_db_url: str = field(default_factory=lambda: env_vars.ROCK_ENVHUB_DB_URL)
     operator_type: str = "ray"
+    operator_routing: dict | None = None
+    """Routing rules consumed by Router.from_config. Kept as a raw dict so the
+    routing layer owns its schema. Example::
+
+        operator_routing:
+          default: ray            # optional; falls back to operator_type
+          rules:
+            - match: {image_prefix: "reg.example.com/remote/"}
+              target: remote
+    """
     standard_spec: StandardSpec = field(default_factory=StandardSpec)
     max_allowed_spec: StandardSpec = field(default_factory=lambda: StandardSpec(cpus=16, memory="64g"))
     use_standard_spec_only: bool = False
@@ -339,10 +373,16 @@ def _resolve_k8s_template_includes(k8s_dict: dict, base_dir: Path) -> None:
     k8s_dict["templates"] = merged
 
 
+# Top-level YAML keys whose presence triggers loading of the corresponding
+# operator. Single source of truth for the configuration-driven loader.
+OPERATOR_CONFIG_KEYS: tuple[str, ...] = ("ray", "k8s", "remote")
+
+
 @dataclass
 class RockConfig:
     ray: RayConfig = field(default_factory=RayConfig)
     k8s: K8sConfig = field(default_factory=K8sConfig)
+    remote: RemoteConfig | None = None
     warmup: WarmupConfig = field(default_factory=WarmupConfig)
     nacos: NacosConfig = field(default_factory=NacosConfig)
     redis: RedisConfig = field(default_factory=RedisConfig)
@@ -355,6 +395,10 @@ class RockConfig:
     image_registry_mirrors: list[ImageRegistryMirror] = field(default_factory=list)
     image_mirror_lookup_allowlist: list[str] = field(default_factory=list)
     nacos_provider: NacosConfigProvider | None = None
+    # Operator config keys actually present in the loaded YAML. Populated by
+    # from_env after merging _base. Drives configuration-driven operator
+    # loading: an operator is registered iff its key is in this set.
+    present_operator_keys: set[str] = field(default_factory=set, init=False)
 
     @classmethod
     def from_env(cls, config_path: str | None = None):
@@ -391,6 +435,8 @@ class RockConfig:
         if "k8s" in config:
             _resolve_k8s_template_includes(config["k8s"], config_file.parent)
             kwargs["k8s"] = K8sConfig(**config["k8s"])
+        if "remote" in config:
+            kwargs["remote"] = RemoteConfig(**config["remote"])
         if "warmup" in config:
             kwargs["warmup"] = WarmupConfig(**config["warmup"])
         if "nacos" in config:
@@ -415,7 +461,11 @@ class RockConfig:
         if "image_mirror_lookup_allowlist" in config:
             kwargs["image_mirror_lookup_allowlist"] = list(config["image_mirror_lookup_allowlist"] or [])
 
-        return cls(**kwargs)
+        instance = cls(**kwargs)
+        # Record which operator config blocks were actually present so the
+        # Registry can load exactly what the YAML declares.
+        instance.present_operator_keys = {k for k in OPERATOR_CONFIG_KEYS if k in config}
+        return instance
 
     # ============================================================================
     # Merging Rules:

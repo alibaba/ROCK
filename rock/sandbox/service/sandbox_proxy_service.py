@@ -34,7 +34,7 @@ from rock.admin.proto.request import SandboxQueryParams
 from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.admin.proto.response import SandboxListResponse, SandboxListStatusResponse, SandboxStatusResponse
-from rock.config import OssConfig, ProxyServiceConfig, RockConfig
+from rock.config import OssConfig, ProxyServiceConfig, RemoteConfig, RockConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
 from rock.common.port_validation import validate_port_forward_port
@@ -61,6 +61,11 @@ class SandboxProxyService:
         )
         self.oss_config: OssConfig = rock_config.oss
         self.proxy_config: ProxyServiceConfig = rock_config.proxy_service
+        # Optional remote config; when set, sandbox_info entries carrying
+        # ``extended_params['remote.sandbox_domain']`` are routed via the
+        # remote data-plane proxy instead of the local host_ip/port
+        # (Addressing Layer).
+        self._remote_config: RemoteConfig | None = rock_config.remote
         logger.info(f"proxy config: {self.proxy_config}")
         # Initialize httpx client with configuration
         self._httpx_client = httpx.AsyncClient(
@@ -69,6 +74,7 @@ class SandboxProxyService:
                 max_connections=self.proxy_config.max_connections,
                 max_keepalive_connections=self.proxy_config.max_keepalive_connections,
             ),
+            verify=False,
         )
 
         # Replace single self.sts_client with a dict keyed by account name,
@@ -630,7 +636,13 @@ class SandboxProxyService:
 
     async def get_service_status(self, sandbox_id: str):
         sandbox_info = await self._meta_store.get(sandbox_id)
-        if not sandbox_info or sandbox_info.get("host_ip") is None:
+        # Remote-managed sandboxes have no local host_ip; they expose a
+        # ``remote.sandbox_domain`` in extended_params instead. Accept either
+        # as the addressing key.
+        ext = (sandbox_info or {}).get("extended_params") or {}
+        if not sandbox_info or (
+            sandbox_info.get("host_ip") is None and not ext.get("remote.sandbox_domain")
+        ):
             raise Exception(f"sandbox {sandbox_id} not started")
         return [sandbox_info]
 
@@ -644,10 +656,17 @@ class SandboxProxyService:
         files: dict | None,
         method: str,
     ):
-        host_ip = sandbox_status_dict.get("host_ip")
         service_status = ServiceStatus.from_dict(sandbox_status_dict)
-        api_url = self._api_url(host_ip, service_status)
         headers = self._headers(sandbox_id)
+        # Addressing Layer: prefer remote data-plane URL when available;
+        # fall back to host_ip/port for local (ray/k8s) sandboxes.
+        remote = self._resolve_remote_data_plane(sandbox_status_dict)
+        if remote is not None:
+            api_url, extra_headers = remote
+            headers.update(extra_headers)
+        else:
+            host_ip = sandbox_status_dict.get("host_ip")
+            api_url = self._api_url(host_ip, service_status)
         logger.info(f"headers: {headers}")
         full_request_url = f"{api_url}/{path}"
         logger.info(f"full_request_url: {full_request_url}")
@@ -668,6 +687,18 @@ class SandboxProxyService:
                 return {"exit_code": -1, "failure_reason": response.json()["rockletexception"]["message"]}
             if response.status_code == HTTP_504_GATEWAY_TIMEOUT:
                 return {"exit_code": -1, "failure_reason": response.json()["detail"]}
+            # Remote data-plane goes through an HTTP gateway (e.g. tengine
+            # ingress) that may return non-JSON HTML on 4xx/5xx. Surface a
+            # clear error rather than a confusing JSONDecodeError. Ray/K8s
+            # path is unaffected (rocklet always returns JSON).
+            if remote is not None and response.status_code >= 400:
+                body_text = response.text[:200]
+                logger.error(
+                    f"Upstream returned HTTP {response.status_code} for {full_request_url}: {body_text}"
+                )
+                raise Exception(
+                    f"Upstream error {response.status_code} from sandbox data-plane: {body_text}"
+                )
             return response.json()
         except httpx.RequestError as e:
             # Handle network-level errors, such as DNS resolution failure, connection timeout, etc.
@@ -681,6 +712,32 @@ class SandboxProxyService:
     def _api_url(self, host_ip: str, service_status: ServiceStatus) -> str:
         port = service_status.get_mapped_port(Port.PROXY)
         return f"http://{host_ip}:{port}"
+
+    def _resolve_remote_data_plane(
+        self, sandbox_status_dict: dict
+    ) -> tuple[str, dict[str, str]] | None:
+        """Return (base_url, extra_headers) for remote sandbox data-plane proxy."""
+        if not self._remote_config:
+            return None
+        ext = sandbox_status_dict.get("extended_params") or {}
+        sandbox_domain = ext.get("remote.sandbox_domain")
+        if not sandbox_domain:
+            return None
+        remote_id = sandbox_status_dict.get("host_name") or ext.get("remote.sandbox_id")
+        if not remote_id:
+            logger.warning(
+                "remote sandbox missing remote id: keys=%s", list(sandbox_status_dict.keys())
+            )
+            return None
+        base_url = f"http://{sandbox_domain}"
+        headers: dict[str, str] = {
+            self._remote_config.header_sandbox_id: remote_id,
+            self._remote_config.header_sandbox_port: str(self._remote_config.rocklet_port),
+        }
+        traffic_token = ext.get("remote.traffic_access_token")
+        if traffic_token:
+            headers["X-Traffic-Token"] = traffic_token
+        return base_url, headers
 
     def gen_oss_sts_token(
         self, account: str = "legacy"

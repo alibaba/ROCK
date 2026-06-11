@@ -42,6 +42,8 @@ from rock.config import DatabaseConfig, RockConfig, SchedulerConfig
 from rock.logger import init_logger
 from rock.sandbox.gem_manager import GemManager
 from rock.sandbox.operator.factory import OperatorContext, OperatorFactory
+from rock.sandbox.operator.registry import OperatorRegistry
+from rock.sandbox.operator.routing import Router
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sandbox.service.warmup_service import WarmupService
@@ -145,19 +147,44 @@ async def lifespan(app: FastAPI):
 
     # init sandbox service
     if args.role == "admin":
-        # init ray service
-        ray_service = RayService(rock_config.ray)
-        ray_service.init()
+        # Configuration-driven loading: only initialize what the YAML
+        # actually declared via top-level operator keys.
+        present = rock_config.present_operator_keys or {rock_config.runtime.operator_type}
+        ray_service: RayService | None = None
+        if "ray" in present:
+            ray_service = RayService(rock_config.ray)
+            ray_service.init()
 
-        # create operator using factory with context pattern
+        # build OperatorContext once with all available dependencies; the
+        # Factory.build call only consumes the ones each operator needs.
         operator_context = OperatorContext(
             runtime_config=rock_config.runtime,
             ray_service=ray_service,
             redis_provider=redis_provider,
             nacos_provider=rock_config.nacos_provider,
-            k8s_config=rock_config.k8s,
+            k8s_config=rock_config.k8s if "k8s" in present else None,
+            remote_config=rock_config.remote if "remote" in present else None,
         )
-        operator = OperatorFactory.create_operator(operator_context)
+
+        default_operator_name = rock_config.runtime.operator_type
+        if default_operator_name not in present:
+            raise ValueError(
+                f"runtime.operator_type={default_operator_name!r} but its config block is"
+                f" not present in YAML. Loaded operator keys: {sorted(present)}"
+            )
+        operator_registry = OperatorRegistry(default_name=default_operator_name)
+        for name in sorted(present):
+            operator_registry.register(name, OperatorFactory.build(name, operator_context))
+        if rock_config.runtime.operator_routing:
+            router = Router.from_config(
+                rock_config.runtime.operator_routing,
+                fallback_default=default_operator_name,
+                loaded_operators=operator_registry.loaded_names,
+            )
+            operator_registry.set_router(router)
+            logger.info("operator router enabled with %d rule(s)", len(router.rules))
+        else:
+            logger.info("no operator_routing configured; all submits go to default=%s", default_operator_name)
 
         # init service
         if rock_config.runtime.enable_auto_clear:
@@ -166,7 +193,7 @@ async def lifespan(app: FastAPI):
                 ray_namespace=rock_config.ray.namespace,
                 ray_service=ray_service,
                 enable_runtime_auto_clear=True,
-                operator=operator,
+                registry=operator_registry,
                 meta_store=meta_store,
             )
         else:
@@ -175,7 +202,7 @@ async def lifespan(app: FastAPI):
                 ray_namespace=rock_config.ray.namespace,
                 ray_service=ray_service,
                 enable_runtime_auto_clear=False,
-                operator=operator,
+                registry=operator_registry,
                 meta_store=meta_store,
             )
         set_sandbox_manager(sandbox_manager)
