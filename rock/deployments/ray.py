@@ -32,6 +32,8 @@ class RayDeployment(DockerDeployment):
             memory = parse_size_to_bytes(self._config.memory)
             actor_options["num_cpus"] = self._config.cpus
             actor_options["memory"] = memory
+            if self._config.disk is not None:
+                actor_options["resources"] = {"disk": parse_size_to_bytes(self._config.disk)}
             return actor_options
         except ValueError as e:
             logger.warning(f"Invalid memory size: {self._config.memory}", exc_info=e)

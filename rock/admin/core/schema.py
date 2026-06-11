@@ -45,6 +45,7 @@ class SandboxRecord(Base):
     rock_authorization_encrypted = Column(String(1024), nullable=True)
     cpus = Column(Float, nullable=True)
     memory = Column(String(64), nullable=True)
+    disk = Column(String(64), nullable=True)
     create_user_gray_flag = Column(Boolean, nullable=True)
     phases = Column(_JSONB_VARIANT, nullable=True)
     port_mapping = Column(_JSONB_VARIANT, nullable=True)

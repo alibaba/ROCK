@@ -19,12 +19,12 @@ class TestSandboxStartRequestDiskField:
 
     def test_default_disk_is_none(self):
         """Default disk field should be None."""
-        request = SandboxStartRequest()
+        request = SandboxStartRequest(image="python:3.11")
         assert request.disk is None
 
     def test_can_set_disk_field(self):
         """Can set disk field."""
-        request = SandboxStartRequest(disk="50g")
+        request = SandboxStartRequest(image="python:3.11", disk="50g")
         assert request.disk == "50g"
 
     def test_disk_with_other_fields(self):

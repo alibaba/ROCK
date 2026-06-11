@@ -22,22 +22,22 @@ class TestNewSdkOldServerCompat:
             "host_ip": "10.0.0.1",
             "cpus": 2.0,
             "memory": "8g",
-            "disk_limit_rootfs": "50g",
+            "disk": "50g",
             "disk_limit_log": "50g",
         }
         response = SandboxStatusResponse(**server_response)
-        assert response.disk_limit_rootfs == "50g"
+        assert response.disk == "50g"
         assert not hasattr(response, "disk_limit_log")
 
     def test_admin_start_response_ignores_extra_disk_limit_log(self):
         server_response = {
             "sandbox_id": "test-123",
             "host_ip": "10.0.0.1",
-            "disk_limit_rootfs": "50g",
+            "disk": "50g",
             "disk_limit_log": "10g",
         }
         response = SandboxStartResponse(**server_response)
-        assert response.disk_limit_rootfs == "50g"
+        assert response.disk == "50g"
         assert not hasattr(response, "disk_limit_log")
 
     def test_admin_status_response_ignores_extra_disk_limit_log(self):
@@ -45,9 +45,9 @@ class TestNewSdkOldServerCompat:
             "sandbox_id": "test-123",
             "status": {},
             "port_mapping": {},
-            "disk_limit_rootfs": "50g",
+            "disk": "50g",
             "disk_limit_log": "50g",
         }
         response = AdminSandboxStatusResponse(**server_response)
-        assert response.disk_limit_rootfs == "50g"
+        assert response.disk == "50g"
         assert not hasattr(response, "disk_limit_log")
