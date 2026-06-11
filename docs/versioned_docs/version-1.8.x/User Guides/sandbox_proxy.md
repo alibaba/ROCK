@@ -21,7 +21,7 @@ Forward any HTTP request to a service inside the sandbox.
 
 ### Endpoint
 
-```
+```http
 {GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS} {ROCK_BASE_URL}/sandboxes/{sandbox_id}/proxy[/{path}]
 ```
 
@@ -68,7 +68,7 @@ For services that expect a `ws://` (or `wss://`) connection — typical for stre
 
 ### Endpoint
 
-```
+```http
 ws(s)://{ROCK_BASE_URL}/sandboxes/{sandbox_id}/proxy/{path}
 ```
 
@@ -139,7 +139,7 @@ Requests violating these rules are rejected:
 
 ## 5. Quick decision guide
 
-```
+```text
 Need to call a REST API inside the sandbox?     → HTTP Proxy
 Need a bidirectional WebSocket to a WS server?  → WebSocket Proxy
 ```
