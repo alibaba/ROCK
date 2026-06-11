@@ -729,7 +729,7 @@ class SandboxProxyService:
                 "remote sandbox missing remote id: keys=%s", list(sandbox_status_dict.keys())
             )
             return None
-        base_url = f"https://{sandbox_domain}"
+        base_url = f"http://{sandbox_domain}"
         headers: dict[str, str] = {
             self._remote_config.header_sandbox_id: remote_id,
             self._remote_config.header_sandbox_port: str(self._remote_config.rocklet_port),
