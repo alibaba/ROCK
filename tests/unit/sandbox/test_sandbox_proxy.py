@@ -1,10 +1,11 @@
+import json
 import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from rock.actions.sandbox.response import State
-from rock.config import OssConfig
+from rock.config import AcrConfig, AcrRegistryConfig, OssConfig
 from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
@@ -208,3 +209,62 @@ class TestGenOssStsToken:
         assert result["Endpoint"] == "yaml.endpoint"  # YAML fallback
         assert result["Bucket"] == "yaml-bucket"
         assert result["Region"] == "rg"  # env
+
+
+class TestGetAcrConfig:
+    @pytest.fixture
+    def proxy_service(self):
+        service = SandboxProxyService.__new__(SandboxProxyService)
+        service.acr_config = AcrConfig(
+            registry=AcrRegistryConfig(
+                instance_id="cri-test123",
+                namespace="my-ns",
+                registry_url="reg.example.com",
+                region="cn-hangzhou",
+                access_key_id="ak",
+                access_key_secret="sk",
+            ),
+            builder_image="builder:latest",
+        )
+        service._acr_client = MagicMock()
+        return service
+
+    @pytest.fixture(autouse=True)
+    def _mock_acr_sdk(self):
+        mock_module = MagicMock()
+        with patch.dict("sys.modules", {"aliyunsdkcr": mock_module, "aliyunsdkcr.request": mock_module, "aliyunsdkcr.request.v20181201": mock_module, "aliyunsdkcr.request.v20181201.GetAuthorizationTokenRequest": mock_module}):
+            yield
+
+    def test_success_returns_config_and_credentials(self, proxy_service):
+        fake_response = json.dumps(
+            {
+                "TempUsername": "tmp-user",
+                "AuthorizationToken": "tmp-pass-token",
+                "ExpireTime": "2099-01-01T00:15:00Z",
+            }
+        ).encode()
+        proxy_service._acr_client.do_action_with_exception.return_value = fake_response
+
+        result = proxy_service.get_acr_config()
+
+        assert result is not None
+        assert result["Registry"] == "reg.example.com"
+        assert result["Namespace"] == "my-ns"
+        assert result["Username"] == "tmp-user"
+        assert result["Password"] == "tmp-pass-token"
+        assert result["Expiration"] == "2099-01-01T00:15:00Z"
+        assert result["BuilderImage"] == "builder:latest"
+
+    def test_acr_failure_returns_none(self, proxy_service):
+        proxy_service._acr_client.do_action_with_exception.side_effect = Exception("acr fail")
+
+        result = proxy_service.get_acr_config()
+
+        assert result is None
+
+    def test_no_acr_client_returns_none(self, proxy_service):
+        proxy_service._acr_client = None
+
+        result = proxy_service.get_acr_config()
+
+        assert result is None
