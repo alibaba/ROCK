@@ -134,9 +134,7 @@ def test_sandbox_log_config_defaults():
     from rock.config import SandboxLogConfig
 
     cfg = SandboxLogConfig()
-    # prefix defaults empty: each deployment YAML must opt-in to a value
-    # matching its OSS bucket lifecycle rule (e.g. "rock-archives/").
-    assert cfg.archive_prefix == ""
+    assert cfg.archive_prefix == "rock-archives/"
     assert cfg.keep_days_before_archive == 3
     assert cfg.archive_max_attempts == 3
 
