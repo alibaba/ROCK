@@ -29,6 +29,12 @@ services:
       MODEL_BASE_URL: "${MODEL_BASE_URL}"
       HARBOR_AGENT: "${HARBOR_AGENT}"
       PROVIDER: "${PROVIDER:-anthropic}"
+      FORCE_PROXY: "${FORCE_PROXY:-true}"
+      TEMPERATURE: "${TEMPERATURE:-1.0}"
+      INTERLEAVED_THINKING: "${INTERLEAVED_THINKING:-true}"
+      THINKING_TYPE: "${THINKING_TYPE:-adaptive}"
+      REASONING_EFFORT: "${REASONING_EFFORT:-high}"
+      CONTEXT_1M: "${CONTEXT_1M:-true}"
       OUTPUT_DIR: /tmp/output
       SHARED_DIR: /tmp/shared
     deploy:
