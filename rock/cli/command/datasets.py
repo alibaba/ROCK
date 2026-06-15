@@ -17,15 +17,15 @@ logger = init_logger(__name__)
 
 
 class OutputWriter:
-    """Renders command results either as JSON or as the default text format.
+    """Renders command results as JSON or as the default ``table`` text format.
 
-    Centralizes the ``-o json`` decision and the actual writing so command
-    handlers do not repeat ``getattr(args, "output", ...)`` checks or import
+    Centralizes the ``--format`` decision and the actual writing so command
+    handlers do not repeat ``getattr(args, "format", ...)`` checks or import
     ``json`` directly.
     """
 
     def __init__(self, args: argparse.Namespace) -> None:
-        self._json = getattr(args, "output", None) == "json"
+        self._json = getattr(args, "format", "table") == "json"
 
     @property
     def is_json(self) -> bool:
@@ -252,17 +252,17 @@ class DatasetsCommand(Command):
     @staticmethod
     async def add_parser_to(subparsers: argparse._SubParsersAction) -> None:
         datasets_parser = subparsers.add_parser("datasets", description="Dataset operations on OSS")
-        datasets_parser.set_defaults(output=None)
+        datasets_parser.set_defaults(format="table")
         datasets_subparsers = datasets_parser.add_subparsers(dest="datasets_command")
 
         def add_output_arg(parser: argparse.ArgumentParser) -> None:
             parser.add_argument(
-                "-o",
-                "--output",
-                dest="output",
-                choices=["json"],
+                "-f",
+                "--format",
+                dest="format",
+                choices=["table", "json"],
                 default=argparse.SUPPRESS,
-                help="Output format. Supported: json",
+                help="Output format: table (default) or json",
             )
 
         def add_oss_args(parser: argparse.ArgumentParser) -> None:

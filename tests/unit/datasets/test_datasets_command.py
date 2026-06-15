@@ -25,7 +25,7 @@ def make_base_args(**kwargs):
         depth=2,
         offset=0,
         limit=None,
-        output=None,
+        format="table",
     )
     for k, v in kwargs.items():
         setattr(args, k, v)
@@ -112,27 +112,35 @@ def test_tasks_parser_defaults_split_offset_limit():
     assert ns.split == "test"
     assert ns.offset == 0
     assert ns.limit is None
-    assert ns.output is None
+    assert ns.format == "table"
 
 
 @pytest.mark.parametrize(
     "flag",
-    ["-o", "--output"],
+    ["-f", "--format"],
 )
-def test_datasets_subcommands_accept_json_output(flag):
+def test_datasets_subcommands_accept_json_format(flag):
     parser = _build_parser()
 
     ns = parser.parse_args(["datasets", "tasks", "--org", "qwen", "--dataset", "my-bench", flag, "json"])
 
-    assert ns.output == "json"
+    assert ns.format == "json"
 
 
-def test_datasets_parser_accepts_json_output_before_subcommand():
+def test_datasets_subcommands_default_to_table_format():
     parser = _build_parser()
 
-    ns = parser.parse_args(["datasets", "-o", "json", "list"])
+    ns = parser.parse_args(["datasets", "tasks", "--org", "qwen", "--dataset", "my-bench"])
 
-    assert ns.output == "json"
+    assert ns.format == "table"
+
+
+def test_datasets_parser_accepts_json_format_before_subcommand():
+    parser = _build_parser()
+
+    ns = parser.parse_args(["datasets", "-f", "json", "list"])
+
+    assert ns.format == "json"
 
 
 @pytest.mark.parametrize(
@@ -215,7 +223,7 @@ def test_tasks_outputs_paginated_results(capsys):
 
 def test_list_outputs_json(capsys):
     cmd = DatasetsCommand()
-    args = make_base_args(datasets_command="list", output="json")
+    args = make_base_args(datasets_command="list", format="json")
     mock_client = MagicMock()
     mock_client.list_datasets.return_value = [
         DatasetSpec(id="qwen/bench-b", split="test", task_ids=["b-1"]),
@@ -244,7 +252,7 @@ def test_tasks_outputs_json_with_pagination(capsys):
         split="test",
         offset=1,
         limit=2,
-        output="json",
+        format="json",
     )
     mock_client = MagicMock()
     mock_client.list_dataset_tasks.return_value = DatasetSpec(
@@ -277,7 +285,7 @@ def test_tasks_outputs_empty_json_when_not_found(capsys):
         split="test",
         offset=0,
         limit=None,
-        output="json",
+        format="json",
     )
     mock_client = MagicMock()
     mock_client.list_dataset_tasks.return_value = None
@@ -307,7 +315,7 @@ def test_upload_outputs_json(capsys, tmp_path):
         dir=str(tmp_path),
         overwrite=False,
         concurrency=4,
-        output="json",
+        format="json",
     )
     mock_client = MagicMock()
     mock_client.upload_dataset.return_value = UploadResult(
@@ -526,12 +534,12 @@ def test_splits_parser_accepts_org_and_dataset():
 
 
 def test_output_writer_is_json_reads_args():
-    assert OutputWriter(make_base_args(output="json")).is_json is True
-    assert OutputWriter(make_base_args(output=None)).is_json is False
+    assert OutputWriter(make_base_args(format="json")).is_json is True
+    assert OutputWriter(make_base_args(format="table")).is_json is False
 
 
 def test_output_writer_json(capsys):
-    OutputWriter(make_base_args(output="json")).json({"k": "中文"})
+    OutputWriter(make_base_args(format="json")).json({"k": "中文"})
     out = capsys.readouterr().out
     assert json.loads(out) == {"k": "中文"}
     assert "中文" in out  # ensure_ascii=False
