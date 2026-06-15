@@ -134,7 +134,7 @@ class SandboxActor(GemActor):
             logger.error(f"[{self._config.container_name}] start deployment failed: {ex}", exc_info=True)
             raise ex
         if isinstance(self._deployment, DockerDeployment):
-            self._config.disk_limit_rootfs = self._deployment.effective_disk_limit_rootfs
+            self._config.disk = self._deployment.effective_disk
             self._clean_container_background()
         await self._setup_monitor()
 
@@ -313,6 +313,6 @@ class SandboxActor(GemActor):
                 "namespace": await self.namespace(),
                 "cpus": self._config.cpus,
                 "memory": self._config.memory,
-                "disk_limit_rootfs": self._config.disk_limit_rootfs,
+                "disk": self._config.disk,
             }
         return {}

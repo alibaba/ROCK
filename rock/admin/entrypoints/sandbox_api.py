@@ -95,14 +95,14 @@ async def _apply_disk_limits(config: DockerDeploymentConfig) -> None:
     runtime = sandbox_manager.rock_config.runtime
     nacos = sandbox_manager.rock_config.nacos_provider
 
-    disk_limit_rootfs = runtime.sandbox_disk_limit_rootfs
+    disk = runtime.sandbox_disk_limit_rootfs
 
     if nacos is not None:
         nacos_rootfs = await nacos.get_config_value(SANDBOX_DISK_LIMIT_ROOTFS_KEY)
         if nacos_rootfs:
-            disk_limit_rootfs = nacos_rootfs
+            disk = nacos_rootfs
 
-    config.disk_limit_rootfs = disk_limit_rootfs
+    config.disk = disk
 
 
 def _probe_cache_get(candidate: str) -> bool | None:
