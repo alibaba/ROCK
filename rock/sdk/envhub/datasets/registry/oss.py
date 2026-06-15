@@ -12,11 +12,6 @@ from rock.sdk.envhub.datasets.registry.base import BaseDatasetRegistry
 
 logger = init_logger(__name__)
 
-# Hard upper bound on pagination pages. At 1000 keys/page this covers 10M keys,
-# far beyond any real split, while guaranteeing the loop always terminates even
-# if OSS (or a mock) keeps reporting truncation with a non-advancing token.
-_MAX_PAGINATION_PAGES = 10_000
-
 
 class OssDatasetRegistry(BaseDatasetRegistry):
     def __init__(self, registry: OssRegistryInfo) -> None:
@@ -45,8 +40,16 @@ class OssDatasetRegistry(BaseDatasetRegistry):
 
     @staticmethod
     def _list_objects_v2_pages(bucket: oss2.Bucket, **kwargs):
+        """Yield successive list_objects_v2 pages following the continuation token.
+
+        The continuation token is returned by OSS on each truncated response and
+        fed back into the next request. The loop terminates when OSS reports no
+        more pages (``is_truncated`` is false) or when the token is empty or
+        stops advancing -- the latter guards against an infinite loop if OSS (or
+        a mock) keeps reporting truncation without a progressing token.
+        """
         token = ""
-        for _ in range(_MAX_PAGINATION_PAGES):
+        while True:
             page_kwargs = dict(kwargs)
             if token:
                 page_kwargs["continuation_token"] = token
@@ -55,7 +58,6 @@ class OssDatasetRegistry(BaseDatasetRegistry):
             if not getattr(result, "is_truncated", False):
                 break
             next_token = getattr(result, "next_continuation_token", "") or ""
-            # Stop if the token is empty or fails to advance (would loop forever).
             if not next_token or next_token == token:
                 break
             token = next_token
