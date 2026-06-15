@@ -328,6 +328,9 @@ class RuntimeConfig:
     sandbox_disk_limit_rootfs: str | None = None
     """Default rootfs quota per container. None means no limit. Can be overridden by nacos key 'default_disk_limit'."""
 
+    sandbox_disk_overcommit_ratio: float | None = None
+    """Disk overcommit ratio. E.g. 2.0 means user requests 20G but Docker storage-opt is 40G. None or <=1 means no overcommit."""
+
     instance_registry_mirrors: list[str] = field(default_factory=list)
     """Registry mirrors injected into each launched sandbox as
     INSTANCE_ROCK_REGISTRY=<comma-joined>. Each entry is a host/namespace

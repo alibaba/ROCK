@@ -47,7 +47,10 @@ class RayOperator(AbstractOperator):
             actor_options["memory"] = memory
             custom_resources: dict[str, float] = {}
             if config.disk is not None:
-                custom_resources["disk"] = parse_size_to_bytes(config.disk)
+                disk_bytes = parse_size_to_bytes(config.disk)
+                if config.disk_overcommit_ratio and config.disk_overcommit_ratio > 1.0:
+                    disk_bytes = int(disk_bytes / config.disk_overcommit_ratio)
+                custom_resources["disk"] = disk_bytes
             # Pin to a specific node via Ray's implicit `node:<ip>` resource
             # (registered automatically per node with value 1.0; we consume a
             # negligible 0.001 so we don't block other actors). Used by restart
