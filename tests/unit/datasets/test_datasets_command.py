@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from rock.cli.command.datasets import DatasetsCommand, OutputWriter
+from rock.cli.command.datasets import DatasetsCommand, OutputWriter, TaskPath
 from rock.sdk.bench.models.job.config import OssRegistryInfo
-from rock.sdk.envhub.datasets.models import DatasetSpec, UploadResult
+from rock.sdk.envhub.datasets.models import DatasetSpec, TaskFile, UploadResult
 
 
 def make_base_args(**kwargs):
@@ -187,6 +187,261 @@ def test_arun_dispatches_tasks():
     mock_tasks.assert_awaited_once_with(args)
 
 
+def test_arun_dispatches_fs_aliases():
+    for command in ("fs", "files"):
+        cmd = DatasetsCommand()
+        args = make_base_args(
+            datasets_command=command, fs_command="ls", org="qwen", dataset="my-bench", task="task-001"
+        )
+
+        with patch.object(DatasetsCommand, "_fs", new_callable=AsyncMock, create=True) as mock_fs:
+            asyncio.run(cmd.arun(args))
+
+        mock_fs.assert_awaited_once_with(args)
+
+
+@pytest.mark.parametrize("command", ["fs", "files"])
+def test_fs_parser_accepts_ls_get_download(command):
+    parser = _build_parser()
+
+    ls_ns = parser.parse_args(
+        ["datasets", command, "ls", "--org", "qwen", "--dataset", "my-bench", "--task", "task-001"]
+    )
+    get_ns = parser.parse_args(
+        [
+            "datasets",
+            command,
+            "get",
+            "--org",
+            "qwen",
+            "--dataset",
+            "my-bench",
+            "--task",
+            "task-001",
+            "--path",
+            "tests/input.json",
+        ]
+    )
+    download_ns = parser.parse_args(
+        [
+            "datasets",
+            command,
+            "download",
+            "--org",
+            "qwen",
+            "--dataset",
+            "my-bench",
+            "--task",
+            "task-001",
+            "--path",
+            "tests/",
+            "--dest",
+            "./tests",
+        ]
+    )
+
+    assert ls_ns.datasets_command == command
+    assert ls_ns.fs_command == "ls"
+    assert ls_ns.split == "test"
+    assert ls_ns.path == ""
+    assert get_ns.fs_command == "get"
+    assert get_ns.path == "tests/input.json"
+    assert download_ns.fs_command == "download"
+    assert download_ns.dest == "./tests"
+
+
+def test_fs_ls_outputs_recursive_task_files(capsys):
+    cmd = DatasetsCommand()
+    args = make_base_args(
+        datasets_command="fs",
+        fs_command="ls",
+        org="qwen",
+        dataset="my-bench",
+        split="test",
+        task="task-001",
+        path="tests",
+    )
+    mock_client = MagicMock()
+    mock_client.list_task_files.return_value = [
+        TaskFile(path="tests/test_api.py", size=10),
+        TaskFile(path="tests/fixtures/input.json", size=20),
+    ]
+
+    with patch.object(cmd, "_build_oss_registry_info", return_value=make_registry_info()):
+        with patch("rock.cli.command.datasets.DatasetClient", return_value=mock_client):
+            asyncio.run(cmd._fs(args))
+
+    mock_client.list_task_files.assert_called_once_with("qwen", "my-bench", "test", "task-001", "tests")
+    out = capsys.readouterr().out
+    assert "tests/test_api.py" in out
+    assert "tests/fixtures/input.json" in out
+
+
+def test_fs_ls_outputs_json(capsys):
+    cmd = DatasetsCommand()
+    args = make_base_args(
+        datasets_command="fs",
+        fs_command="ls",
+        org="qwen",
+        dataset="my-bench",
+        split="test",
+        task="task-001",
+        path="",
+        format="json",
+    )
+    mock_client = MagicMock()
+    mock_client.list_task_files.return_value = [TaskFile(path="task.yaml", size=42)]
+
+    with patch.object(cmd, "_build_oss_registry_info", return_value=make_registry_info()):
+        with patch("rock.cli.command.datasets.DatasetClient", return_value=mock_client):
+            asyncio.run(cmd._fs(args))
+
+    assert json.loads(capsys.readouterr().out) == {
+        "dataset": "qwen/my-bench",
+        "split": "test",
+        "task": "task-001",
+        "path": "",
+        "files": [{"path": "task.yaml", "size": 42}],
+    }
+
+
+def test_fs_get_writes_file_content(capsys):
+    cmd = DatasetsCommand()
+    args = make_base_args(
+        datasets_command="fs",
+        fs_command="get",
+        org="qwen",
+        dataset="my-bench",
+        split="test",
+        task="task-001",
+        path="task.yaml",
+    )
+    mock_client = MagicMock()
+    mock_client.get_task_file.return_value = b"instruction: fix bug\n"
+
+    with patch.object(cmd, "_build_oss_registry_info", return_value=make_registry_info()):
+        with patch("rock.cli.command.datasets.DatasetClient", return_value=mock_client):
+            asyncio.run(cmd._fs(args))
+
+    mock_client.get_task_file.assert_called_once_with("qwen", "my-bench", "test", "task-001", "task.yaml")
+    assert capsys.readouterr().out == "instruction: fix bug\n"
+
+
+def test_fs_get_without_path_reads_single_task_file(capsys):
+    cmd = DatasetsCommand()
+    args = make_base_args(
+        datasets_command="fs",
+        fs_command="get",
+        org="qwen",
+        dataset="my-bench",
+        split="test",
+        task="task-001",
+        path=None,
+    )
+    mock_client = MagicMock()
+    mock_client.list_task_files.return_value = [TaskFile(path="task-001.json", size=42)]
+    mock_client.get_task_file.return_value = b'{"instruction": "fix bug"}\n'
+
+    with patch.object(cmd, "_build_oss_registry_info", return_value=make_registry_info()):
+        with patch("rock.cli.command.datasets.DatasetClient", return_value=mock_client):
+            asyncio.run(cmd._fs(args))
+
+    mock_client.list_task_files.assert_called_once_with("qwen", "my-bench", "test", "task-001", "")
+    mock_client.get_task_file.assert_called_once_with("qwen", "my-bench", "test", "task-001", "task-001.json")
+    assert capsys.readouterr().out == '{"instruction": "fix bug"}\n'
+
+
+def test_fs_get_without_path_requires_path_when_task_has_multiple_files():
+    cmd = DatasetsCommand()
+    args = make_base_args(
+        datasets_command="fs",
+        fs_command="get",
+        org="qwen",
+        dataset="my-bench",
+        split="test",
+        task="task-001",
+        path=None,
+    )
+    mock_client = MagicMock()
+    mock_client.list_task_files.return_value = [
+        TaskFile(path="task.yaml", size=42),
+        TaskFile(path="tests/test_api.py", size=10),
+    ]
+
+    with patch.object(cmd, "_build_oss_registry_info", return_value=make_registry_info()):
+        with patch("rock.cli.command.datasets.DatasetClient", return_value=mock_client):
+            with pytest.raises(ValueError, match="--path is required"):
+                asyncio.run(cmd._fs(args))
+
+
+def test_fs_download_file_writes_destination(tmp_path):
+    cmd = DatasetsCommand()
+    dest = tmp_path / "task.yaml"
+    args = make_base_args(
+        datasets_command="fs",
+        fs_command="download",
+        org="qwen",
+        dataset="my-bench",
+        split="test",
+        task="task-001",
+        path="task.yaml",
+        dest=str(dest),
+    )
+    mock_client = MagicMock()
+    mock_client.get_task_file.return_value = b"instruction: fix bug\n"
+
+    with patch.object(cmd, "_build_oss_registry_info", return_value=make_registry_info()):
+        with patch("rock.cli.command.datasets.DatasetClient", return_value=mock_client):
+            asyncio.run(cmd._fs(args))
+
+    assert dest.read_bytes() == b"instruction: fix bug\n"
+    mock_client.list_task_files.assert_not_called()
+
+
+def test_fs_download_directory_strips_requested_prefix(tmp_path):
+    cmd = DatasetsCommand()
+    args = make_base_args(
+        datasets_command="fs",
+        fs_command="download",
+        org="qwen",
+        dataset="my-bench",
+        split="test",
+        task="task-001",
+        path="tests/",
+        dest=str(tmp_path / "downloaded-tests"),
+    )
+    mock_client = MagicMock()
+    mock_client.get_task_file.return_value = None
+    mock_client.list_task_files.return_value = [
+        TaskFile(path="tests/test_api.py", size=10),
+        TaskFile(path="tests/fixtures/input.json", size=20),
+    ]
+    mock_client.get_task_file.side_effect = [None, b"assert True\n", b"{}\n"]
+
+    with patch.object(cmd, "_build_oss_registry_info", return_value=make_registry_info()):
+        with patch("rock.cli.command.datasets.DatasetClient", return_value=mock_client):
+            asyncio.run(cmd._fs(args))
+
+    assert (tmp_path / "downloaded-tests" / "test_api.py").read_text() == "assert True\n"
+    assert (tmp_path / "downloaded-tests" / "fixtures" / "input.json").read_text() == "{}\n"
+
+
+def test_fs_rejects_unsafe_relative_path():
+    cmd = DatasetsCommand()
+    args = make_base_args(
+        datasets_command="fs",
+        fs_command="get",
+        org="qwen",
+        dataset="my-bench",
+        split="test",
+        task="task-001",
+        path="../other-task/task.yaml",
+    )
+
+    with pytest.raises(ValueError, match="relative task path"):
+        asyncio.run(cmd._fs(args))
+
+
 def test_tasks_outputs_paginated_results(capsys):
     cmd = DatasetsCommand()
     args = make_base_args(
@@ -338,6 +593,37 @@ def test_upload_outputs_json(capsys, tmp_path):
         "skipped": 1,
         "failed": 0,
     }
+
+
+def test_upload_accepts_single_file_source(capsys, tmp_path):
+    task_file = tmp_path / "task-001.json"
+    task_file.write_text("{}")
+    cmd = DatasetsCommand()
+    args = make_base_args(
+        datasets_command="upload",
+        org="qwen",
+        dataset="my-bench",
+        split="test",
+        dir=str(task_file),
+        overwrite=False,
+        concurrency=4,
+    )
+    mock_client = MagicMock()
+    mock_client.upload_dataset.return_value = UploadResult(
+        id="qwen/my-bench",
+        split="test",
+        uploaded=1,
+        skipped=0,
+        failed=0,
+    )
+
+    with patch.object(cmd, "_build_oss_registry_info", return_value=make_registry_info()):
+        with patch("rock.cli.command.datasets.DatasetClient", return_value=mock_client):
+            asyncio.run(cmd._upload(args))
+
+    source = mock_client.upload_dataset.call_args.args[0]
+    assert source.path == task_file
+    assert "Uploading to oss://b/datasets/qwen/my-bench/test/" in capsys.readouterr().out
 
 
 def test_tasks_prints_no_tasks_message_when_not_found(capsys):
@@ -530,6 +816,42 @@ def test_splits_parser_accepts_org_and_dataset():
     assert parsed.dataset == "pinch"
 
 
+# --- TaskPath value object ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("a/b.json", "a/b.json"),
+        ("a\\b.json", "a/b.json"),  # backslash normalized
+        ("a/./b", "a/b"),  # '.' segment dropped
+        ("a//b", "a/b"),  # empty segment dropped
+        ("dir/", "dir/"),  # trailing slash preserved
+    ],
+)
+def test_task_path_normalizes(raw, expected):
+    assert TaskPath(raw).value == expected
+
+
+def test_task_path_directory_flag_forces_trailing_slash():
+    assert TaskPath("dir", directory=True).value == "dir/"
+
+
+def test_task_path_allow_empty():
+    assert TaskPath("", allow_empty=True).value == ""
+
+
+@pytest.mark.parametrize("raw", ["/abs/path", "a/../b", "..", "a/../../etc"])
+def test_task_path_rejects_unsafe(raw):
+    with pytest.raises(ValueError):
+        TaskPath(raw)
+
+
+def test_task_path_empty_requires_value_by_default():
+    with pytest.raises(ValueError):
+        TaskPath("")
+
+
 # --- OutputWriter ------------------------------------------------------------
 
 
@@ -543,6 +865,11 @@ def test_output_writer_json(capsys):
     out = capsys.readouterr().out
     assert json.loads(out) == {"k": "中文"}
     assert "中文" in out  # ensure_ascii=False
+
+
+def test_output_writer_bytes_decodes_utf8(capsys):
+    OutputWriter(make_base_args()).bytes(b"hello")
+    assert capsys.readouterr().out == "hello"
 
 
 def test_output_writer_dataset_to_dict_adds_task_count():

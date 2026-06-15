@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from rock.sdk.bench.models.job.config import LocalDatasetConfig, OssRegistryInfo, RegistryDatasetConfig
 from rock.sdk.envhub.datasets.client import DatasetClient
-from rock.sdk.envhub.datasets.models import DatasetSpec, UploadResult
+from rock.sdk.envhub.datasets.models import DatasetSpec, TaskFile, UploadResult
 
 
 def make_registry_info():
@@ -81,3 +81,24 @@ def test_dataset_client_list_dataset_splits_delegates():
         result = client.list_dataset_splits("qwen", "bench")
     m.assert_called_once_with("qwen", "bench")
     assert result == ["test", "train"]
+
+
+def test_dataset_client_list_task_files_delegates():
+    client = DatasetClient(make_registry_info())
+    expected = [TaskFile(path="tests/test_api.py", size=10)]
+
+    with patch.object(client._registry, "list_task_files", return_value=expected) as m:
+        result = client.list_task_files("qwen", "bench", "test", "task-001", "tests")
+
+    m.assert_called_once_with("qwen", "bench", "test", "task-001", "tests")
+    assert result == expected
+
+
+def test_dataset_client_get_task_file_delegates():
+    client = DatasetClient(make_registry_info())
+
+    with patch.object(client._registry, "get_task_file", return_value=b"content") as m:
+        result = client.get_task_file("qwen", "bench", "test", "task-001", "task.yaml")
+
+    m.assert_called_once_with("qwen", "bench", "test", "task-001", "task.yaml")
+    assert result == b"content"
