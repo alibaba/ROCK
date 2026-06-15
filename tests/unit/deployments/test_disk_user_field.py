@@ -114,6 +114,7 @@ class TestDiskPriorityLogic:
 
         mock_rock_config = MagicMock()
         mock_rock_config.runtime.sandbox_disk_limit_rootfs = "100g"
+        mock_rock_config.runtime.sandbox_disk_overcommit_ratio = None
 
         mock_nacos = AsyncMock()
         mock_nacos.get_config_value = AsyncMock(return_value=None)
@@ -127,3 +128,4 @@ class TestDiskPriorityLogic:
         await _apply_disk_limits(config)
 
         assert config.disk == "100g"
+        assert config.disk_overcommit_ratio is None

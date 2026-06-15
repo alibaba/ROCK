@@ -31,6 +31,8 @@ def sandbox_app():
     mock_manager.rock_config.lifecycle.default_startup_timeout_seconds = 600
     mock_manager.rock_config.lifecycle.min_startup_timeout_seconds = 600
     mock_manager.rock_config.lifecycle.max_startup_timeout_seconds = 1800
+    mock_manager.rock_config.runtime.sandbox_disk_limit_rootfs = None
+    mock_manager.rock_config.runtime.sandbox_disk_overcommit_ratio = None
     set_sandbox_manager(mock_manager)
     return _build_app(sandbox_router), mock_manager
 
