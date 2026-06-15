@@ -153,6 +153,28 @@ class OssConfig:
 
 
 @dataclass
+class AcrRegistryConfig:
+    instance_id: str | None = None
+    namespace: str = "rock"
+    registry_url: str | None = None
+    region: str | None = None
+
+    # Long-lived AK/SK for the ACR AcsClient (admin-side only, never exposed to SDK).
+    access_key_id: str = ""
+    access_key_secret: str = ""
+
+
+@dataclass
+class AcrConfig:
+    registry: AcrRegistryConfig = field(default_factory=AcrRegistryConfig)
+    builder_image: str = ""
+
+    def __post_init__(self):
+        if isinstance(self.registry, dict):
+            self.registry = AcrRegistryConfig(**self.registry)
+
+
+@dataclass
 class ProxyServiceConfig:
     timeout: float = 180.0
     max_connections: int = 500
@@ -348,6 +370,7 @@ class RockConfig:
     redis: RedisConfig = field(default_factory=RedisConfig)
     sandbox_config: SandboxConfig = field(default_factory=SandboxConfig)
     oss: OssConfig = field(default_factory=OssConfig)
+    acr: AcrConfig = field(default_factory=AcrConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     proxy_service: ProxyServiceConfig = field(default_factory=ProxyServiceConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
@@ -401,6 +424,8 @@ class RockConfig:
             kwargs["sandbox_config"] = SandboxConfig(**config["sandbox_config"])
         if "oss" in config:
             kwargs["oss"] = OssConfig(**config["oss"])
+        if "acr" in config:
+            kwargs["acr"] = AcrConfig(**config["acr"])
         if "runtime" in config:
             kwargs["runtime"] = RuntimeConfig(**config["runtime"])
         if "proxy_service" in config:

@@ -43,6 +43,7 @@ admin = [
     "websockets>=15.0.1",
     "aiohttp>=3.12.15",
     "alibabacloud_cr20181201==2.0.5",
+    "aliyun-python-sdk-cr",
     "sqlmodel",
     "aiosqlite",
     "asyncpg",

@@ -8,6 +8,8 @@ import oss2
 import websockets
 from aliyunsdkcore import client
 from aliyunsdkcore.request import CommonRequest
+
+from aliyunsdkcr.request.v20181201 import GetAuthorizationTokenRequest
 from fastapi import Response, UploadFile
 from starlette.status import HTTP_504_GATEWAY_TIMEOUT
 
@@ -34,7 +36,7 @@ from rock.admin.proto.request import SandboxQueryParams
 from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.admin.proto.response import SandboxListResponse, SandboxListStatusResponse, SandboxStatusResponse
-from rock.config import OssConfig, ProxyServiceConfig, RockConfig
+from rock.config import AcrConfig, OssConfig, ProxyServiceConfig, RockConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
 from rock.common.port_validation import validate_port_forward_port
@@ -89,6 +91,16 @@ class SandboxProxyService:
                 self.oss_config.primary.access_key_id,
                 self.oss_config.primary.access_key_secret,
                 primary_region,
+            )
+
+        self.acr_config: AcrConfig = rock_config.acr
+        self._acr_client = None
+        if self.acr_config.registry.access_key_id and self.acr_config.registry.instance_id:
+            acr_region = self.acr_config.registry.region or "cn-hangzhou"
+            self._acr_client = client.AcsClient(
+                self.acr_config.registry.access_key_id,
+                self.acr_config.registry.access_key_secret,
+                acr_region,
             )
 
         self._batch_get_status_max_count = rock_config.proxy_service.batch_get_status_max_count
@@ -744,6 +756,37 @@ class SandboxProxyService:
             "Bucket": bucket,
             "Region": region,
             "Prefix": prefix,  # transfer-object key prefix, scoped per account
+        }
+
+    def get_acr_config(self) -> dict | None:
+        """Return ACR registry config with temporary credentials.
+
+        Uses the ACR ``GetAuthorizationToken`` API to obtain a short-lived
+        username/password pair (15 min) for image push/pull operations.
+        Returns ``None`` when ACR is not configured.
+        """
+        if self._acr_client is None:
+            logger.warning("ACR client not configured (missing access_key_id or instance_id)")
+            return None
+
+        registry = self.acr_config.registry
+
+        request = GetAuthorizationTokenRequest.GetAuthorizationTokenRequest()
+        request.set_InstanceId(registry.instance_id)
+        try:
+            body = self._acr_client.do_action_with_exception(request)
+            data = json.loads(body)
+        except Exception:
+            logger.error("generate ACR authorization token failed", exc_info=True)
+            return None
+
+        return {
+            "Registry": registry.registry_url,
+            "Namespace": registry.namespace,
+            "Username": data.get("TempUsername"),
+            "Password": data.get("AuthorizationToken"),
+            "Expiration": data.get("ExpireTime"),
+            "BuilderImage": self.acr_config.builder_image,
         }
 
     async def get_sandbox_websocket_url(

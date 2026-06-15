@@ -48,6 +48,7 @@ from rock.sdk.sandbox.agent.rock_agent import RockAgent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
 from rock.sdk.sandbox.deploy import Deploy
 from rock.sdk.sandbox.file_system import FileSystem, LinuxFileSystem
+from rock.sdk.sandbox.image import Image, ImageBuilder
 from rock.sdk.sandbox.model_service.base import ModelService
 from rock.sdk.sandbox.network import Network
 from rock.sdk.sandbox.oss_client import OssClient
@@ -160,7 +161,55 @@ class Sandbox(AbstractSandbox):
         # If no failed stage is found, return None
         return None
 
+    async def _fetch_acr_config(self) -> dict | None:
+        """Fetch ACR registry config + temporary credentials from admin."""
+        url = f"{self._url}/acr_config"
+        headers = self._build_headers()
+        try:
+            response = await HttpUtils.get(url, headers)
+        except Exception:
+            logger.warning("Failed to fetch ACR config from admin", exc_info=True)
+            return None
+        if "Success" != response.get("status"):
+            logger.warning(f"acr_config returned non-success: {response}")
+            return None
+        return response.get("result")
+
+    async def _resolve_image(self) -> None:
+        """If config.image is an Image declaration, build it via ImageBuilder
+        and replace with the resulting tag string. Also lifts registry creds
+        onto config so admin can pull the built image.
+        """
+        if not isinstance(self.config.image, Image):
+            return
+        image_obj = self.config.image
+
+        image_cfg = await self._fetch_acr_config()
+        if image_cfg:
+            registry = image_obj.registry
+            if not registry.url:
+                registry.url = image_cfg.get("Registry")
+            if not registry.namespace:
+                registry.namespace = image_cfg.get("Namespace")
+            registry.username = image_cfg.get("Username")
+            registry.password = image_cfg.get("Password")
+
+            bc = image_obj.builder_config
+            if not bc.image:
+                bc.image = image_cfg.get("BuilderImage")
+
+        if image_obj.registry.repository is None:
+            image_obj.registry.repository = self.config.user_id or "default"
+        image_obj.builder_config = image_obj.builder_config.inherit_from(self.config)
+        builder = ImageBuilder(builder_config=image_obj.builder_config)
+        self.config.image = await builder.build(image_obj.to_build_spec())
+        if image_obj.registry.username and not self.config.registry_username:
+            self.config.registry_username = image_obj.registry.username
+            self.config.registry_password = image_obj.registry.password
+
     async def start(self):
+        await self._resolve_image()
+
         url = f"{self._url}/start_async"
         headers = self._build_headers()
         data = {
@@ -927,11 +976,15 @@ class Sandbox(AbstractSandbox):
 
     def __str__(self):
         """Return user-friendly string representation with key attributes."""
+        image_display = self.config.image
+        if isinstance(image_display, Image):
+            image_display = f"Image(dockerfile={image_display.dockerfile_path})"
+
         return (
             f"Sandbox(sandbox_id={self._sandbox_id}, "
             f"host_name={self._host_name!r}, "
             f"host_ip={self._host_ip}, "
-            f"image={self.config.image}, "
+            f"image={image_display}, "
             f"cluster={self._cluster})"
         )
 

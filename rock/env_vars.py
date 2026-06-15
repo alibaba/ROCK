@@ -74,6 +74,7 @@ if TYPE_CHECKING:
     ROCK_MODEL_SERVICE_INSTALL_CMD: str
 
 
+
 environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_LOGGING_PATH": lambda: os.getenv("ROCK_LOGGING_PATH"),
     "ROCK_LOGGING_FILE_NAME": lambda: os.getenv("ROCK_LOGGING_FILE_NAME", "rocklet.log"),

@@ -237,7 +237,6 @@ async def local_registry():
     """Start a local Docker registry with basic auth"""
     auth_dir = Path(tempfile.mkdtemp())
     htpasswd_file = auth_dir / "htpasswd"
-    container_name = "test-registry"
 
     # 1. Generate htpasswd file
     result = subprocess.run(
@@ -248,11 +247,11 @@ async def local_registry():
     )
     htpasswd_file.write_text(result.stdout)
 
-    # 2. Remove any leftover container from a previous failed run
+    # 2. Per-port container name so parallel pytest workers don't collide.
+    port = run_until_complete(find_free_port())
+    container_name = f"test-registry-{port}"
     subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
 
-    # 3. Start registry and mount the htpasswd file into the container
-    port = run_until_complete(find_free_port())
     subprocess.run(
         [
             "docker",
@@ -275,8 +274,13 @@ async def local_registry():
         check=True,
     )
 
-    # 4. Wait for registry to be ready
-    registry_url = f"localhost:{port}"
+    # 4. Wait for registry to be ready. Use `127.0.0.1` (not `localhost`) so dockerd
+    # never resolves to the IPv6 loopback `::1` — on dual-stack hosts glibc may prefer
+    # IPv6 first, but our NAT injection only covers IPv4 (see test_image_build.py).
+    # The 127.0.0.0/8 CIDR is auto-trusted as insecure by both outer dockerd and the
+    # inner builder dockerd. Tests using this fixture from inside a builder sandbox
+    # must inject an iptables NAT rule mapping 127.0.0.1:port → host_ip:port.
+    registry_url = f"127.0.0.1:{port}"
     for _ in range(30):
         try:
             urllib.request.urlopen(f"http://{registry_url}/v2/", timeout=1)

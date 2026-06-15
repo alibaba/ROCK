@@ -47,6 +47,32 @@ class HttpUtils:
                 raise e
 
     @staticmethod
+    async def head(
+        url: str,
+        headers: dict | None = None,
+        auth: tuple[str, str] | None = None,
+        timeout: float = 5.0,
+        verify: bool = True,
+    ) -> int:
+        """Send HEAD request and return the HTTP status code.
+
+        Unlike post/get, this does NOT raise on HTTP errors — HEAD is typically
+        used as an existence check where 4xx is a valid answer ("not found").
+        Returns 0 on network/timeout/transport errors so callers can treat any
+        non-200 uniformly as "doesn't exist / can't verify".
+
+        verify=False is supported for plain-http or self-signed registries.
+        """
+        verify_arg = HttpUtils._SHARED_SSL_CONTEXT if verify else False
+        try:
+            async with httpx.AsyncClient(verify=verify_arg, timeout=timeout) as client:
+                response: Response = await client.head(url, headers=headers, auth=auth, follow_redirects=True)
+                return response.status_code
+        except Exception as e:
+            logging.debug(f"HEAD {url} failed: {e}")
+            return 0
+
+    @staticmethod
     async def post_multipart(
         url: str,
         headers: dict,
