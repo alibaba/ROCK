@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from rock.cli.command.datasets import DatasetsCommand
+from rock.cli.command.datasets import DatasetsCommand, OutputWriter
 from rock.sdk.bench.models.job.config import OssRegistryInfo
 from rock.sdk.envhub.datasets.models import DatasetSpec, UploadResult
 
@@ -117,7 +117,7 @@ def test_tasks_parser_defaults_split_offset_limit():
 
 @pytest.mark.parametrize(
     "flag",
-    ["-o", "--output", "--ouput"],
+    ["-o", "--output"],
 )
 def test_datasets_subcommands_accept_json_output(flag):
     parser = _build_parser()
@@ -520,3 +520,25 @@ def test_splits_parser_accepts_org_and_dataset():
     parsed = parser.parse_args(["datasets", "splits", "--org", "alibaba", "--dataset", "pinch"])
     assert parsed.org == "alibaba"
     assert parsed.dataset == "pinch"
+
+
+# --- OutputWriter ------------------------------------------------------------
+
+
+def test_output_writer_is_json_reads_args():
+    assert OutputWriter(make_base_args(output="json")).is_json is True
+    assert OutputWriter(make_base_args(output=None)).is_json is False
+
+
+def test_output_writer_json(capsys):
+    OutputWriter(make_base_args(output="json")).json({"k": "中文"})
+    out = capsys.readouterr().out
+    assert json.loads(out) == {"k": "中文"}
+    assert "中文" in out  # ensure_ascii=False
+
+
+def test_output_writer_dataset_to_dict_adds_task_count():
+    spec = DatasetSpec(id="org/name", split="test", task_ids=["t1", "t2"])
+    data = OutputWriter.dataset_to_dict(spec)
+    assert data["task_count"] == 2
+    assert data["id"] == "org/name"
