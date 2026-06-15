@@ -1,12 +1,13 @@
 import argparse
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from rock.cli.command.datasets import DatasetsCommand
 from rock.sdk.bench.models.job.config import OssRegistryInfo
-from rock.sdk.envhub.datasets.models import DatasetSpec
+from rock.sdk.envhub.datasets.models import DatasetSpec, UploadResult
 
 
 def make_base_args(**kwargs):
@@ -24,6 +25,7 @@ def make_base_args(**kwargs):
         depth=2,
         offset=0,
         limit=None,
+        output=None,
     )
     for k, v in kwargs.items():
         setattr(args, k, v)
@@ -110,6 +112,27 @@ def test_tasks_parser_defaults_split_offset_limit():
     assert ns.split == "test"
     assert ns.offset == 0
     assert ns.limit is None
+    assert ns.output is None
+
+
+@pytest.mark.parametrize(
+    "flag",
+    ["-o", "--output", "--ouput"],
+)
+def test_datasets_subcommands_accept_json_output(flag):
+    parser = _build_parser()
+
+    ns = parser.parse_args(["datasets", "tasks", "--org", "qwen", "--dataset", "my-bench", flag, "json"])
+
+    assert ns.output == "json"
+
+
+def test_datasets_parser_accepts_json_output_before_subcommand():
+    parser = _build_parser()
+
+    ns = parser.parse_args(["datasets", "-o", "json", "list"])
+
+    assert ns.output == "json"
 
 
 @pytest.mark.parametrize(
@@ -170,23 +193,143 @@ def test_tasks_outputs_paginated_results(capsys):
     mock_client.list_dataset_tasks.return_value = DatasetSpec(
         id="qwen/my-bench",
         split="test",
-        task_ids=["task-001", "task-002", "task-003"],
+        task_ids=["task-002", "task-003"],
     )
 
     with patch.object(cmd, "_build_oss_registry_info", return_value=make_registry_info()):
         with patch("rock.cli.command.datasets.DatasetClient", return_value=mock_client):
             asyncio.run(cmd._tasks(args))
 
-    mock_client.list_dataset_tasks.assert_called_once_with("qwen", "my-bench", "test")
+    mock_client.list_dataset_tasks.assert_called_once_with(
+        "qwen", "my-bench", "test", offset=1, limit=2, task_filter=None
+    )
     out = capsys.readouterr().out
     assert "Dataset: qwen/my-bench" in out
     assert "Split: test" in out
     assert "task-002" in out
     assert "task-003" in out
     assert "task-001" not in out
-    assert "Total: 3" in out
     assert "Shown: 2" in out
     assert "#Task name" in out
+
+
+def test_list_outputs_json(capsys):
+    cmd = DatasetsCommand()
+    args = make_base_args(datasets_command="list", output="json")
+    mock_client = MagicMock()
+    mock_client.list_datasets.return_value = [
+        DatasetSpec(id="qwen/bench-b", split="test", task_ids=["b-1"]),
+        DatasetSpec(id="qwen/bench-a", split="train", task_ids=["a-1", "a-2"]),
+    ]
+
+    with patch.object(cmd, "_build_oss_registry_info", return_value=make_registry_info()):
+        with patch("rock.cli.command.datasets.DatasetClient", return_value=mock_client):
+            asyncio.run(cmd._list(args))
+
+    data = json.loads(capsys.readouterr().out)
+    assert data == {
+        "datasets": [
+            {"id": "qwen/bench-a", "split": "train", "task_ids": ["a-1", "a-2"], "task_count": 2},
+            {"id": "qwen/bench-b", "split": "test", "task_ids": ["b-1"], "task_count": 1},
+        ]
+    }
+
+
+def test_tasks_outputs_json_with_pagination(capsys):
+    cmd = DatasetsCommand()
+    args = make_base_args(
+        datasets_command="tasks",
+        org="qwen",
+        dataset="my-bench",
+        split="test",
+        offset=1,
+        limit=2,
+        output="json",
+    )
+    mock_client = MagicMock()
+    mock_client.list_dataset_tasks.return_value = DatasetSpec(
+        id="qwen/my-bench",
+        split="test",
+        task_ids=["task-002", "task-003"],
+    )
+
+    with patch.object(cmd, "_build_oss_registry_info", return_value=make_registry_info()):
+        with patch("rock.cli.command.datasets.DatasetClient", return_value=mock_client):
+            asyncio.run(cmd._tasks(args))
+
+    data = json.loads(capsys.readouterr().out)
+    assert data == {
+        "dataset": "qwen/my-bench",
+        "split": "test",
+        "total": 2,
+        "offset": 1,
+        "limit": 2,
+        "task_ids": ["task-002", "task-003"],
+    }
+
+
+def test_tasks_outputs_empty_json_when_not_found(capsys):
+    cmd = DatasetsCommand()
+    args = make_base_args(
+        datasets_command="tasks",
+        org="qwen",
+        dataset="my-bench",
+        split="test",
+        offset=0,
+        limit=None,
+        output="json",
+    )
+    mock_client = MagicMock()
+    mock_client.list_dataset_tasks.return_value = None
+
+    with patch.object(cmd, "_build_oss_registry_info", return_value=make_registry_info()):
+        with patch("rock.cli.command.datasets.DatasetClient", return_value=mock_client):
+            asyncio.run(cmd._tasks(args))
+
+    data = json.loads(capsys.readouterr().out)
+    assert data == {
+        "dataset": "qwen/my-bench",
+        "split": "test",
+        "total": 0,
+        "offset": 0,
+        "limit": None,
+        "task_ids": [],
+    }
+
+
+def test_upload_outputs_json(capsys, tmp_path):
+    cmd = DatasetsCommand()
+    args = make_base_args(
+        datasets_command="upload",
+        org="qwen",
+        dataset="my-bench",
+        split="test",
+        dir=str(tmp_path),
+        overwrite=False,
+        concurrency=4,
+        output="json",
+    )
+    mock_client = MagicMock()
+    mock_client.upload_dataset.return_value = UploadResult(
+        id="qwen/my-bench",
+        split="test",
+        uploaded=2,
+        skipped=1,
+        failed=0,
+    )
+
+    with patch.object(cmd, "_build_oss_registry_info", return_value=make_registry_info()):
+        with patch("rock.cli.command.datasets.DatasetClient", return_value=mock_client):
+            asyncio.run(cmd._upload(args))
+
+    data = json.loads(capsys.readouterr().out)
+    assert data == {
+        "id": "qwen/my-bench",
+        "split": "test",
+        "uploaded": 2,
+        "skipped": 1,
+        "failed": 0,
+    }
 
 
 def test_tasks_prints_no_tasks_message_when_not_found(capsys):
