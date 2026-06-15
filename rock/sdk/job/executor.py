@@ -171,6 +171,9 @@ class JobExecutor:
                 r.raw_output = obs.output or ""
             if r.exit_code == 0 and exit_code != 0:
                 r.exit_code = exit_code
+        # Timeout is detected in _phase_wait but annotated here so the soft-fail
+        # is attributed to the "collect" phase (the decorator scans this method's
+        # final return value).
         if not success:
             fail_info = ExceptionInfo(
                 exception_type="ProcessTimeout",

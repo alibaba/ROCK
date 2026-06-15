@@ -146,16 +146,42 @@ def _extract_labels(args: tuple) -> dict[str, str]:
     return labels
 
 
-def _emit_soft(reporter, phase: str, result, labels: dict[str, str]) -> None:
+def _emit_soft(reporter, phase: str, result, args: tuple) -> None:
+    """Emit one soft event per returned TrialResult carrying exception_info.
+
+    Labels are extracted lazily, only when a soft fail is actually present, so
+    the success path pays no extraction cost.
+    """
     items = result if isinstance(result, list) else [result]
+    labels = None
     for r in items:
         if isinstance(r, TrialResult) and r.exception_info is not None:
+            if labels is None:
+                labels = _extract_labels(args)
             reporter.record_exception(
                 phase=phase,
                 exc_type=r.exception_info.exception_type or "unknown",
                 severity="soft",
                 labels=labels,
             )
+
+
+def _safe_record_hard(reporter, phase: str, exc: BaseException, args: tuple) -> None:
+    """Record a hard failure. Observability must never break a job, so any
+    error in extraction/recording is swallowed and logged."""
+    try:
+        reporter.record_exception(phase, type(exc).__name__, "hard", _extract_labels(args))
+    except Exception:
+        logger.warning("job observability failed recording hard exception for phase=%s", phase, exc_info=True)
+
+
+def _safe_emit_soft(reporter, phase: str, result, args: tuple) -> None:
+    """Emit soft failures. Swallows and logs any observability error so it can
+    never break a job."""
+    try:
+        _emit_soft(reporter, phase, result, args)
+    except Exception:
+        logger.warning("job observability failed emitting soft exception for phase=%s", phase, exc_info=True)
 
 
 def monitor_job_phase(phase: str) -> Callable:
@@ -166,6 +192,10 @@ def monitor_job_phase(phase: str) -> Callable:
       record severity="soft" for each.
     Only the leaf phase methods are decorated; outer _do_submit/_do_wait are
     NOT decorated, so a re-raised hard fail is counted exactly once.
+
+    All observability side-effects are exception-isolated: a bug in label
+    extraction or recording can never turn a successful phase into a failure,
+    and the original wrapped exception is always re-raised unchanged.
     """
 
     def deco(f):
@@ -174,13 +204,12 @@ def monitor_job_phase(phase: str) -> Callable:
             @functools.wraps(f)
             async def awrapper(self, *args, **kwargs):
                 reporter = get_reporter()
-                labels = _extract_labels(args)
                 try:
                     result = await f(self, *args, **kwargs)
                 except Exception as e:
-                    reporter.record_exception(phase, type(e).__name__, "hard", labels)
+                    _safe_record_hard(reporter, phase, e, args)
                     raise
-                _emit_soft(reporter, phase, result, labels)
+                _safe_emit_soft(reporter, phase, result, args)
                 return result
 
             return awrapper
@@ -188,13 +217,12 @@ def monitor_job_phase(phase: str) -> Callable:
         @functools.wraps(f)
         def wrapper(self, *args, **kwargs):
             reporter = get_reporter()
-            labels = _extract_labels(args)
             try:
                 result = f(self, *args, **kwargs)
             except Exception as e:
-                reporter.record_exception(phase, type(e).__name__, "hard", labels)
+                _safe_record_hard(reporter, phase, e, args)
                 raise
-            _emit_soft(reporter, phase, result, labels)
+            _safe_emit_soft(reporter, phase, result, args)
             return result
 
         return wrapper

@@ -171,3 +171,18 @@ class TestDecorator:
         assert len(fake.events) == 1
         assert fake.events[0][0] == "launch"
         assert fake.events[0][2] == "hard"
+
+    async def test_broken_reporter_does_not_break_job(self, monkeypatch):
+        class _ExplodingReporter:
+            def record_exception(self, *a, **k):
+                raise RuntimeError("reporter blew up")
+
+        monkeypatch.setattr(observability, "_REPORTER", _ExplodingReporter())
+        h = _Holder()
+        # soft path: a broken reporter must NOT propagate out of the phase
+        result = await h.soft_async(_FakeTrial(_Cfg()))
+        assert result.exception_info is not None  # job result still returned
+
+        # hard path: the ORIGINAL exception must still propagate (not the reporter's)
+        with pytest.raises(ValueError, match="nope"):
+            await h.boom_async(_FakeTrial(_Cfg()))
