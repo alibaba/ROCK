@@ -94,7 +94,7 @@ class ResourceMatchingPoolSelector(PoolSelector):
             return None
 
         config_memory_mb = self._parse_size_to_mb(config.memory)
-        config_disk_mb = self._parse_size_to_mb(config.disk_limit_rootfs) if config.disk_limit_rootfs else 0
+        config_disk_mb = self._parse_size_to_mb(config.disk) if config.disk else 0
         matching_pools: list[tuple[str, PoolConfig, float]] = []
 
         for pool_name, pool_config in pools.items():
@@ -579,7 +579,7 @@ class BatchSandboxProvider(K8sProvider):
             image=config.image,
             cpus=config.cpus,
             memory=self._normalize_memory(config.memory),
-            disk=self._normalize_memory(config.disk_limit_rootfs) if config.disk_limit_rootfs else None,
+            disk=self._normalize_memory(config.disk) if config.disk else None,
             num_gpus=config.num_gpus,
             accelerator_type=config.accelerator_type,
             limit_cpus=config.limit_cpus,

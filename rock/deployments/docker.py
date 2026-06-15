@@ -23,7 +23,13 @@ from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Port, Status
 from rock.deployments.docker_client import TempAuthDockerClient, TempAuthDockerClientError
 from rock.deployments.hooks.abstract import CombinedDeploymentHook, DeploymentHook
-from rock.deployments.runtime_env import ConfigurableRuntimeEnv, DockerRuntimeEnv, LocalRuntimeEnv, PipRuntimeEnv, UvRuntimeEnv
+from rock.deployments.runtime_env import (
+    ConfigurableRuntimeEnv,
+    DockerRuntimeEnv,
+    LocalRuntimeEnv,
+    PipRuntimeEnv,
+    UvRuntimeEnv,
+)
 from rock.deployments.sandbox_validator import DockerSandboxValidator
 from rock.deployments.status import PersistedServiceStatus, ServiceStatus
 from rock.logger import init_logger
@@ -68,7 +74,7 @@ class DockerDeployment(AbstractDeployment):
         self._config = DockerDeploymentConfig(**kwargs)
         if registry_password:
             self._config.registry_password = registry_password
-        self._effective_disk_limit_rootfs: str | None = self._config.disk_limit_rootfs
+        self._effective_disk: str | None = self._config.disk
         self._rootfs_xfs_prjid: int | None = None
         self._rootfs_xfs_mountpoint: str | None = None
         self._rootfs_upper_dir: str | None = None
@@ -380,8 +386,8 @@ class DockerDeployment(AbstractDeployment):
         return [f"--cpus={self.config.cpus}"]
 
     def _storage_opts(self):
-        if self._effective_disk_limit_rootfs is not None:
-            return ["--storage-opt", f"size={self._effective_disk_limit_rootfs}"]
+        if self._effective_disk is not None:
+            return ["--storage-opt", f"size={self._effective_disk}"]
         return []
 
     def _get_docker_rootfs_prjid_and_upper_dir(self) -> tuple[int | None, str | None]:
@@ -439,7 +445,7 @@ class DockerDeployment(AbstractDeployment):
         """
         if self._rootfs_xfs_prjid is not None and self._rootfs_upper_dir is not None:
             project_id, upper_dir = self._rootfs_xfs_prjid, self._rootfs_upper_dir
-        elif self._effective_disk_limit_rootfs is not None:
+        elif self._effective_disk is not None:
             project_id, upper_dir = self._get_docker_rootfs_prjid_and_upper_dir()
         else:
             return
@@ -589,7 +595,7 @@ class DockerDeployment(AbstractDeployment):
                 )
                 return
 
-            limit_cmd = f"limit -p bhard={self._config.disk_limit_rootfs} {prjid}"
+            limit_cmd = f"limit -p bhard={self._config.disk} {prjid}"
             result = subprocess.run(
                 ["xfs_quota", "-x", "-c", limit_cmd, mountpoint],
                 capture_output=True,
@@ -607,7 +613,7 @@ class DockerDeployment(AbstractDeployment):
             self._rootfs_upper_dir = upper_dir
             logger.info(
                 f"[{self._container_name}] XFS quota fallback: prjid={prjid}, "
-                f"bhard={self._config.disk_limit_rootfs}, upper_dir={upper_dir!r}"
+                f"bhard={self._config.disk}, upper_dir={upper_dir!r}"
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
             logger.warning(f"[{self._container_name}] XFS quota fallback failed: {e}")
@@ -651,7 +657,7 @@ class DockerDeployment(AbstractDeployment):
         Fail-soft: any error is logged and skipped (consistent with
         ``_setup_log_dir_quota_shared``).
         """
-        if self._effective_disk_limit_rootfs is None:
+        if self._effective_disk is None:
             return
 
         project_id, upper_dir = self._get_docker_rootfs_prjid_and_upper_dir()
@@ -734,15 +740,15 @@ class DockerDeployment(AbstractDeployment):
                 raise Exception("Docker is not available")
 
         storage_opt_supported = DockerUtil.detect_storage_opt_support()
-        if self._config.disk_limit_rootfs is not None and not storage_opt_supported:
+        # Resolve effective rootfs quota: downgrade to None if storage-opt is not supported.
+        if self._config.disk is not None and not storage_opt_supported:
             logger.warning(
-                f"[{self.config.container_name}] disk_limit_rootfs not supported on this worker "
-                f"(requires overlay2 or containerd snapshotter on xfs+prjquota), "
-                f"ignoring disk_limit_rootfs={self._config.disk_limit_rootfs}"
+                f"[{self.config.container_name}] --storage-opt not supported on this worker "
+                f"(requires overlay2 + xfs + prjquota), ignoring disk={self._config.disk}"
             )
-            self._effective_disk_limit_rootfs = None
+            self._effective_disk = None
         else:
-            self._effective_disk_limit_rootfs = self._config.disk_limit_rootfs
+            self._effective_disk = self._config.disk
 
         if self._container_name is None:
             self.set_container_name(self._get_container_name())
@@ -841,7 +847,7 @@ class DockerDeployment(AbstractDeployment):
 
                 # [containerd fallback] --storage-opt is silently ignored by containerd,
                 # apply XFS project quota on the container's UpperDir instead.
-                if self._config.disk_limit_rootfs is not None and is_containerd:
+                if self._config.disk is not None and is_containerd:
                     self._setup_rootfs_quota_xfs()
                     if log_file_path is not None:
                         self._setup_log_dir_quota_shared(log_file_path)
@@ -1113,9 +1119,9 @@ class DockerDeployment(AbstractDeployment):
         return self._config
 
     @property
-    def effective_disk_limit_rootfs(self) -> str | None:
-        """Returns the actual rootfs quota in effect after runtime capability checks (may differ from config.disk_limit_rootfs)."""
-        return self._effective_disk_limit_rootfs
+    def effective_disk(self) -> str | None:
+        """Returns the actual rootfs quota in effect after runtime capability checks (may differ from config.disk)."""
+        return self._effective_disk
 
     async def _check_stop(self):
         logger.info(f"Start check container to stop: {self._container_name}")

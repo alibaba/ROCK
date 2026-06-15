@@ -26,9 +26,9 @@ def _make_run_result(returncode=0, stdout="", stderr=""):
 
 def _make_deployment(disk_limit_rootfs="20g") -> DockerDeployment:
     with patch("rock.deployments.docker.DockerSandboxValidator"):
-        deployment = DockerDeployment.from_config(DockerDeploymentConfig(disk_limit_rootfs=disk_limit_rootfs))
+        deployment = DockerDeployment.from_config(DockerDeploymentConfig(disk=disk_limit_rootfs))
     deployment._container_name = "test-container"
-    deployment._effective_disk_limit_rootfs = disk_limit_rootfs
+    deployment._effective_disk = disk_limit_rootfs
     return deployment
 
 
@@ -74,7 +74,7 @@ class TestSetupLocalVolumesQuotaShared:
 
     def test_skips_when_no_rootfs_limit(self):
         deployment = _make_deployment(disk_limit_rootfs=None)
-        deployment._effective_disk_limit_rootfs = None
+        deployment._effective_disk = None
         with patch("rock.deployments.docker.subprocess.run") as mock_run:
             deployment._setup_local_volumes_quota_shared()
             mock_run.assert_not_called()
