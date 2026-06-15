@@ -107,7 +107,10 @@ class FileCleanupTask(BaseTask):
             interval_seconds: Execution interval in seconds, default 24 hours
             target_dirs: List of TargetDirConfig, each specifying a directory path
                 and its own exclude_dirs/exclude_files.
-            max_age_mins: Max file age in minutes since last modification, default 7 days (10080 mins)
+            max_age_mins: Max file age in minutes since last modification, default 7 days (10080 mins).
+                Also used as the minimum age guard for empty-directory deletion in Step 2,
+                so a freshly-mkdir'd sandbox dir that has not yet flushed its first log
+                file is not race-deleted out from under a live sandbox.
             max_file_size: Max file size threshold (e.g. "500M", "1G"), files exceeding this will be removed
 
         Raises:
@@ -262,7 +265,19 @@ class FileCleanupTask(BaseTask):
         Steps:
             1. Delete files (with exclusions) older than max_age_mins OR
                exceeding max_file_size.
-            2. Remove empty directories left behind (with exclusions).
+            2. Remove empty directories left behind (with exclusions),
+               guarded by ``-mmin +max_age_mins``.
+
+        Why Step 2 needs the same age guard as Step 1:
+            ``find -depth -type d -empty -delete`` with no age check will race
+            against any sandbox that has just done ``mkdir -p`` for its log
+            directory but not yet flushed its first log file. The directory is
+            transiently empty for a few seconds-to-minutes; if cleanup fires in
+            that window, the live sandbox's log path disappears and subsequent
+            writes fail. Reusing ``max_age_mins`` here means a directory must be
+            both empty AND not modified within the same retention window we
+            apply to files — same threshold, same intent ("nothing recent
+            lives here"), no extra knob to misconfigure.
 
         Args:
             dir_config: The target directory configuration with its exclusions
@@ -281,7 +296,8 @@ class FileCleanupTask(BaseTask):
         dir_exclude_expr = " ".join(dir_exclude_not_parts) + " " if dir_exclude_not_parts else ""
 
         # Step 1: Delete files (with exclusions) older than max_age_mins OR exceeding max_file_size
-        # Step 2: Remove empty directories (bottom-up with -depth, excluding configured dirs)
+        # Step 2: Remove empty directories (bottom-up with -depth, excluding configured dirs),
+        #         only if the directory itself has not been modified within max_age_mins.
         command = (
             f'if [ -d "{target_dir}" ]; then '
             f'find "{target_dir}" {exclude_expr}'
@@ -289,7 +305,7 @@ class FileCleanupTask(BaseTask):
             f"\\( -mmin +{self.max_age_mins} -o {size_find_expr} \\) "
             f"-delete; "
             f'find "{target_dir}" -depth {dir_exclude_expr}'
-            f"-type d -empty -delete; "
+            f"-type d -empty -mmin +{self.max_age_mins} -delete; "
             f'echo "cleanup_done"; '
             f'else echo "dir_not_found"; fi'
         )
