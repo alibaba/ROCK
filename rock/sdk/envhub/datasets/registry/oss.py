@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import oss2
@@ -19,19 +18,10 @@ logger = init_logger(__name__)
 _MAX_PAGINATION_PAGES = 10_000
 
 
-@dataclass
-class _PaginationCache:
-    split_prefix: str = ""
-    tasks: list[str] = field(default_factory=list)
-    continuation_token: str = ""
-    is_exhausted: bool = False
-
-
 class OssDatasetRegistry(BaseDatasetRegistry):
     def __init__(self, registry: OssRegistryInfo) -> None:
         self._registry = registry
         self._bucket: oss2.Bucket | None = None
-        self._page_cache = _PaginationCache()
 
     def _build_bucket(self) -> oss2.Bucket:
         if self._bucket is None:
@@ -89,37 +79,17 @@ class OssDatasetRegistry(BaseDatasetRegistry):
         When *task_filter* is set, only tasks whose name starts with the filter
         string are returned (pushed down to the OSS prefix for efficiency).
 
-        Uses an internal pagination cache: if the same query is repeated, results
-        are served from cache or resumed via continuation token.
+        Pagination stops early once *max_items* distinct tasks have been
+        collected, so a bounded query (``--limit``) does not scan the whole split.
         """
         query_prefix = f"{split_prefix}{task_filter}" if task_filter else split_prefix
-        cache = self._page_cache
+        tasks: set[str] = set()
 
-        # Cache hit: same query
-        if cache.split_prefix == query_prefix:
-            if cache.is_exhausted or (max_items is not None and len(cache.tasks) >= max_items):
-                return cache.tasks[:max_items] if max_items else list(cache.tasks)
-            tasks_set: set[str] = set(cache.tasks)
-            token = cache.continuation_token
-        else:
-            tasks_set = set()
-            token = ""
-
-        for _ in range(_MAX_PAGINATION_PAGES):
-            mk = 1000
-            if max_items is not None:
-                mk = min(1000, max(max_items - len(tasks_set), 100))
-
-            kwargs: dict = {"prefix": query_prefix, "delimiter": "/", "max_keys": mk}
-            if token:
-                kwargs["continuation_token"] = token
-
-            result = bucket.list_objects_v2(**kwargs)
-
+        for result in self._list_objects_v2_pages(bucket, prefix=query_prefix, delimiter="/", max_keys=1000):
             for p in result.prefix_list:
                 s = self._last_segment(p)
                 if not s.startswith("."):
-                    tasks_set.add(s)
+                    tasks.add(s)
 
             for obj in result.object_list:
                 key = obj.key
@@ -129,46 +99,12 @@ class OssDatasetRegistry(BaseDatasetRegistry):
                 if "/" in relative or relative.startswith("."):
                     continue
                 name = relative.rsplit(".", 1)[0] if "." in relative else relative
-                tasks_set.add(name)
+                tasks.add(name)
 
-            is_truncated = getattr(result, "is_truncated", False)
-            next_token = getattr(result, "next_continuation_token", "") or ""
-
-            if not is_truncated or not next_token:
-                sorted_tasks = sorted(tasks_set)
-                cache.split_prefix = query_prefix
-                cache.tasks = sorted_tasks
-                cache.continuation_token = ""
-                cache.is_exhausted = True
-                return sorted_tasks[:max_items] if max_items else sorted_tasks
-
-            if max_items is not None and len(tasks_set) >= max_items:
-                sorted_tasks = sorted(tasks_set)
-                cache.split_prefix = query_prefix
-                cache.tasks = sorted_tasks
-                cache.continuation_token = next_token
-                cache.is_exhausted = False
-                return sorted_tasks[:max_items]
-
-            # Guard against a non-advancing continuation token: if OSS keeps
-            # returning the same token we would otherwise spin forever.
-            if next_token == token:
+            if max_items is not None and len(tasks) >= max_items:
                 break
-            token = next_token
 
-        # Page budget exhausted (or token stopped advancing): return what we
-        # have rather than looping forever.
-        logger.warning(
-            "Pagination stopped after %d pages for prefix %r; returning partial results",
-            _MAX_PAGINATION_PAGES,
-            query_prefix,
-        )
-        sorted_tasks = sorted(tasks_set)
-        cache.split_prefix = query_prefix
-        cache.tasks = sorted_tasks
-        cache.continuation_token = ""
-        cache.is_exhausted = True
-        return sorted_tasks[:max_items] if max_items else sorted_tasks
+        return sorted(tasks)
 
     def list_organizations(self) -> list[str]:
         bucket = self._build_bucket()
