@@ -1,5 +1,5 @@
 from rock.sdk.bench.models.job.config import LocalDatasetConfig, OssRegistryInfo, RegistryDatasetConfig
-from rock.sdk.envhub.datasets.models import DatasetSpec, UploadResult
+from rock.sdk.envhub.datasets.models import DatasetSpec, TaskFile, UploadResult
 from rock.sdk.envhub.datasets.registry.oss import OssDatasetRegistry
 
 
@@ -35,6 +35,14 @@ class DatasetClient:
 
     def list_dataset_splits(self, organization: str, dataset: str) -> list[str]:
         return self._registry.list_dataset_splits(organization, dataset)
+
+    def list_task_files(
+        self, organization: str, dataset: str, split: str, task_id: str, path: str = ""
+    ) -> list[TaskFile]:
+        return self._registry.list_task_files(organization, dataset, split, task_id, path)
+
+    def get_task_file(self, organization: str, dataset: str, split: str, task_id: str, path: str) -> bytes | None:
+        return self._registry.get_task_file(organization, dataset, split, task_id, path)
 
     def upload_dataset(
         self,

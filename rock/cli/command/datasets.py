@@ -16,6 +16,49 @@ from rock.sdk.envhub.datasets.client import DatasetClient
 logger = init_logger(__name__)
 
 
+class TaskPath:
+    """A safe, normalized relative path inside a single task.
+
+    Wraps the validation rules for the user-supplied ``--path`` of the
+    ``datasets fs`` commands so a crafted value cannot escape the task root:
+
+    - absolute paths (leading ``/``) are rejected;
+    - ``..`` traversal segments are rejected;
+    - ``.`` and empty segments are dropped (``a/./b`` -> ``a/b``);
+    - backslashes are treated as ``/`` separators.
+
+    A trailing slash is preserved (or forced via ``directory=True``) so callers
+    can distinguish a directory prefix from a file path. When ``allow_empty`` is
+    set, an empty input normalizes to ``""`` (the task root) instead of raising.
+    """
+
+    def __init__(self, raw: str, *, allow_empty: bool = False, directory: bool = False) -> None:
+        text = (raw or "").replace("\\", "/")
+        if text.startswith("/"):
+            raise ValueError("relative task path must not be absolute")
+
+        parts = [p for p in text.split("/") if p and p != "."]
+        if any(p == ".." for p in parts):
+            raise ValueError("relative task path must not contain '..'")
+        if not parts:
+            if allow_empty:
+                self._value = ""
+                return
+            raise ValueError("relative task path is required")
+
+        normalized = "/".join(parts)
+        if directory or text.endswith("/"):
+            normalized += "/"
+        self._value = normalized
+
+    @property
+    def value(self) -> str:
+        return self._value
+
+    def __str__(self) -> str:
+        return self._value
+
+
 class OutputWriter:
     """Renders command results as JSON or as the default ``table`` text format.
 
@@ -33,6 +76,13 @@ class OutputWriter:
 
     def json(self, data: dict | list) -> None:
         print(json.dumps(data, ensure_ascii=False, indent=2))
+
+    def bytes(self, content: bytes) -> None:
+        """Write raw file content to stdout, falling back to binary on decode errors."""
+        try:
+            sys.stdout.write(content.decode("utf-8"))
+        except UnicodeDecodeError:
+            sys.stdout.buffer.write(content)
 
     @staticmethod
     def dataset_to_dict(dataset) -> dict:
@@ -67,6 +117,8 @@ class DatasetsCommand(Command):
             await self._splits(args)
         elif args.datasets_command == "upload":
             await self._upload(args)
+        elif args.datasets_command in ("fs", "files"):
+            await self._fs(args)
         else:
             raise ValueError(f"Unknown datasets command: {args.datasets_command}")
 
@@ -260,6 +312,103 @@ class DatasetsCommand(Command):
         if result.failed > 0:
             sys.exit(1)
 
+    async def _fs(self, args: argparse.Namespace) -> None:
+        if args.fs_command == "ls":
+            await self._fs_ls(args)
+        elif args.fs_command == "get":
+            await self._fs_get(args)
+        elif args.fs_command == "download":
+            await self._fs_download(args)
+        else:
+            raise ValueError(f"Unknown datasets fs command: {args.fs_command}")
+
+    async def _fs_ls(self, args: argparse.Namespace) -> None:
+        path = TaskPath(args.path, allow_empty=True, directory=bool(args.path)).value if args.path else ""
+        client = self._client(args)
+        out = OutputWriter(args)
+        files = client.list_task_files(args.org, args.dataset, args.split, args.task, path.rstrip("/"))
+
+        if out.is_json:
+            out.json(
+                {
+                    "dataset": f"{args.org}/{args.dataset}",
+                    "split": args.split,
+                    "task": args.task,
+                    "path": path,
+                    "files": [asdict(f) for f in files],
+                }
+            )
+            return
+
+        for file in files:
+            print(file.path)
+
+    async def _fs_get(self, args: argparse.Namespace) -> None:
+        path = TaskPath(args.path).value if args.path else None
+        client = self._client(args)
+        out = OutputWriter(args)
+        if path is None:
+            files = client.list_task_files(args.org, args.dataset, args.split, args.task, "")
+            if len(files) != 1:
+                raise ValueError("--path is required when task contains zero or multiple files")
+            path = files[0].path
+        content = client.get_task_file(args.org, args.dataset, args.split, args.task, path)
+        if content is None:
+            raise FileNotFoundError(f"Task file not found: {args.org}/{args.dataset}/{args.split}/{args.task}/{path}")
+
+        if out.is_json:
+            out.json(
+                {
+                    "dataset": f"{args.org}/{args.dataset}",
+                    "split": args.split,
+                    "task": args.task,
+                    "path": path,
+                    "content": content.decode("utf-8"),
+                }
+            )
+            return
+
+        out.bytes(content)
+
+    async def _fs_download(self, args: argparse.Namespace) -> None:
+        path = TaskPath(args.path, directory=args.path.endswith("/")).value
+        dest = Path(args.dest)
+        client = self._client(args)
+        out = OutputWriter(args)
+
+        content = client.get_task_file(args.org, args.dataset, args.split, args.task, path)
+        if content is not None:
+            target = dest / Path(path).name if dest.is_dir() else dest
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+            if out.is_json:
+                out.json({"downloaded": [str(target)]})
+            else:
+                print(str(target))
+            return
+
+        prefix = path if path.endswith("/") else f"{path}/"
+        files = client.list_task_files(args.org, args.dataset, args.split, args.task, prefix.rstrip("/"))
+        if not files:
+            raise FileNotFoundError(f"Task path not found: {args.org}/{args.dataset}/{args.split}/{args.task}/{path}")
+
+        downloaded: list[str] = []
+        for file in files:
+            file_content = client.get_task_file(args.org, args.dataset, args.split, args.task, file.path)
+            if file_content is None:
+                continue
+            relative = file.path[len(prefix) :] if file.path.startswith(prefix) else file.path
+            target = dest / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(file_content)
+            downloaded.append(str(target))
+
+        if out.is_json:
+            out.json({"downloaded": downloaded})
+        else:
+            for downloaded_path in downloaded:
+                print(downloaded_path)
+
     @staticmethod
     async def add_parser_to(subparsers: argparse._SubParsersAction) -> None:
         datasets_parser = subparsers.add_parser("datasets", description="Dataset operations on OSS")
@@ -329,7 +478,7 @@ class DatasetsCommand(Command):
         upload_parser.add_argument(
             "--dir",
             required=True,
-            help="Local dataset directory containing {task_id}/ subdirectories",
+            help="Local dataset directory containing {task_id}/ subdirectories or direct task files, or one task file",
         )
         upload_parser.add_argument(
             "--concurrency",
@@ -343,3 +492,29 @@ class DatasetsCommand(Command):
             "--overwrite", action="store_true", help="Overwrite existing tasks in OSS (default: skip)"
         )
         add_oss_args(upload_parser)
+
+        fs_parser = datasets_subparsers.add_parser("fs", aliases=["files"], help="Inspect files under one task")
+        fs_subparsers = fs_parser.add_subparsers(dest="fs_command")
+
+        def add_task_fs_args(parser: argparse.ArgumentParser) -> None:
+            parser.add_argument("--org", required=True, help="Organization name")
+            parser.add_argument("--dataset", required=True, help="Dataset name")
+            parser.add_argument("--split", default="test", help="Split name (default: test)")
+            parser.add_argument("--task", required=True, help="Task ID")
+            add_oss_args(parser)
+
+        ls_parser = fs_subparsers.add_parser("ls", help="List files under one task")
+        add_output_arg(ls_parser)
+        add_task_fs_args(ls_parser)
+        ls_parser.add_argument("--path", default="", help="Relative task directory path to list")
+
+        get_parser = fs_subparsers.add_parser("get", help="Print one task file to stdout")
+        add_output_arg(get_parser)
+        add_task_fs_args(get_parser)
+        get_parser.add_argument("--path", help="Relative task file path")
+
+        download_parser = fs_subparsers.add_parser("download", help="Download one task file or directory")
+        add_output_arg(download_parser)
+        add_task_fs_args(download_parser)
+        download_parser.add_argument("--path", required=True, help="Relative task file or directory path")
+        download_parser.add_argument("--dest", required=True, help="Local destination file or directory")
