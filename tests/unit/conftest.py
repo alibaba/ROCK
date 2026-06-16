@@ -227,7 +227,7 @@ def basic_templates():
                                     "memory": "{{ memory }}",
                                 },
                                 "limits": {
-                                    "cpu": "{{ cpus }}",
+                                    "cpu": "{{ limit_cpus }}",
                                     "memory": "{{ memory }}",
                                 },
                             },

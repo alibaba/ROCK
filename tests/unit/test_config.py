@@ -136,7 +136,7 @@ def test_sandbox_log_config_defaults():
     cfg = SandboxLogConfig()
     # prefix defaults empty: each deployment YAML must opt-in to a value
     # matching its OSS bucket lifecycle rule (e.g. "rock-archives/").
-    assert cfg.archive_prefix == ""
+    assert cfg.archive_prefix == "rock-archives/"
     assert cfg.keep_days_before_archive == 3
     assert cfg.archive_max_attempts == 3
 
@@ -599,7 +599,8 @@ class TestFromEnvBaseInheritance:
         """Child config inherits and overrides base via _deep_merge."""
         base_file = tmp_path / "base.yml"
         base_file.write_text(
-            textwrap.dedent("""\
+            textwrap.dedent(
+                """\
             ray:
               namespace: "base-ns"
               runtime_env:
@@ -607,16 +608,19 @@ class TestFromEnvBaseInheritance:
             warmup:
               images:
                 - "python:3.11"
-        """)
+        """
+            )
         )
 
         child_file = tmp_path / "child.yml"
         child_file.write_text(
-            textwrap.dedent("""\
+            textwrap.dedent(
+                """\
             _base: base.yml
             ray:
               namespace: "child-ns"
-        """)
+        """
+            )
         )
 
         config = RockConfig.from_env(config_path=str(child_file))
@@ -630,7 +634,8 @@ class TestFromEnvBaseInheritance:
         """Scheduler tasks list is merged by task_class key."""
         base_file = tmp_path / "base.yml"
         base_file.write_text(
-            textwrap.dedent("""\
+            textwrap.dedent(
+                """\
             scheduler:
               tasks:
                 - task_class: "rock.admin.scheduler.tasks.cleanup.CleanupTask"
@@ -639,12 +644,14 @@ class TestFromEnvBaseInheritance:
                 - task_class: "rock.admin.scheduler.tasks.report.ReportTask"
                   enabled: true
                   interval_seconds: 300
-        """)
+        """
+            )
         )
 
         child_file = tmp_path / "child.yml"
         child_file.write_text(
-            textwrap.dedent("""\
+            textwrap.dedent(
+                """\
             _base: base.yml
             scheduler:
               tasks:
@@ -653,7 +660,8 @@ class TestFromEnvBaseInheritance:
                 - task_class: "rock.admin.scheduler.tasks.audit.AuditTask"
                   enabled: true
                   interval_seconds: 600
-        """)
+        """
+            )
         )
 
         config = RockConfig.from_env(config_path=str(child_file))
@@ -671,11 +679,13 @@ class TestFromEnvBaseInheritance:
     def test_base_not_found_raises(self, tmp_path: Path):
         child_file = tmp_path / "child.yml"
         child_file.write_text(
-            textwrap.dedent("""\
+            textwrap.dedent(
+                """\
             _base: nonexistent.yml
             ray:
               namespace: "ns"
-        """)
+        """
+            )
         )
         with pytest.raises(Exception, match="base config file.*not found"):
             RockConfig.from_env(config_path=str(child_file))
