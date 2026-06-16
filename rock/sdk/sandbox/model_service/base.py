@@ -1,6 +1,8 @@
 from __future__ import annotations  # Postpone annotation evaluation to avoid circular imports.
 
+import os
 import shlex
+import tempfile
 from string import Template
 from typing import TYPE_CHECKING
 
@@ -15,6 +17,8 @@ if TYPE_CHECKING:
     from rock.sdk.sandbox.client import Sandbox
 
 logger = init_logger(__name__)
+
+_PAYLOAD_FILE_THRESHOLD = 100 * 1024  # 100KB
 
 
 class ModelServiceConfig(BaseModel):
@@ -55,6 +59,11 @@ class ModelServiceConfig(BaseModel):
         default="PYTHONWARNINGS=ignore rock model-service anti-call-llm --index ${index} --response ${response_payload}"
     )
     """Command to anti-call LLM with index and response_payload placeholders."""
+
+    anti_call_llm_cmd_file: str = Field(
+        default="PYTHONWARNINGS=ignore rock model-service anti-call-llm --index ${index} --response-file ${response_file}"
+    )
+    """Command to anti-call LLM with response payload read from a file (for large payloads)."""
 
     anti_call_llm_cmd_no_response: str = Field(
         default="PYTHONWARNINGS=ignore rock model-service anti-call-llm --index ${index}"
@@ -242,35 +251,64 @@ class ModelService:
             logger.error(error_msg)
             raise RuntimeError(error_msg)
 
+        payload_size = len(response_payload) if response_payload else 0
+        use_file = response_payload is not None and payload_size > _PAYLOAD_FILE_THRESHOLD
+
         logger.info(
             f"[{sandbox_id}] Executing anti-call LLM: index={index}, "
-            f"has_response={response_payload is not None}, timeout={call_timeout}s"
+            f"has_response={response_payload is not None}, payload_size={payload_size}, "
+            f"use_file={use_file}, timeout={call_timeout}s"
         )
 
         from rock.sdk.sandbox.client import RunMode
 
-        if response_payload:
-            cmd = Template(self.config.anti_call_llm_cmd).safe_substitute(
-                index=index,
-                response_payload=shlex.quote(response_payload),
+        local_tmp_path: str | None = None
+        try:
+            if response_payload and use_file:
+                sandbox_response_file = f"/tmp/anti_call_response_{index}.json"
+
+                fd, local_tmp_path = tempfile.mkstemp(suffix=".json", prefix="anti_call_response_")
+                with os.fdopen(fd, "w") as f:
+                    f.write(response_payload)
+
+                upload_result = await self._sandbox.upload_by_path(
+                    file_path=local_tmp_path, target_path=sandbox_response_file
+                )
+                if not upload_result.success:
+                    raise RuntimeError(
+                        f"Failed to upload response payload to sandbox: {upload_result.message}"
+                    )
+                logger.debug(f"[{sandbox_id}] Uploaded response payload ({payload_size} bytes) to {sandbox_response_file}")
+
+                cmd = Template(self.config.anti_call_llm_cmd_file).safe_substitute(
+                    index=index,
+                    response_file=sandbox_response_file,
+                )
+            elif response_payload:
+                cmd = Template(self.config.anti_call_llm_cmd).safe_substitute(
+                    index=index,
+                    response_payload=shlex.quote(response_payload),
+                )
+            else:
+                cmd = Template(self.config.anti_call_llm_cmd_no_response).safe_substitute(index=index)
+
+            # We chose to use runtime_env's wrapped_cmd instead of the run method here,
+            # mainly to avoid unexpected behavior caused by sharing a session with runtime_env
+            bash_cmd = self.runtime_env.wrapped_cmd(cmd)
+            logger.debug(f"[{sandbox_id}] Executing command: {bash_cmd}")
+
+            result = await self._sandbox.arun(
+                cmd=bash_cmd,
+                mode=RunMode.NOHUP,
+                session=None,
+                wait_timeout=call_timeout,
+                wait_interval=check_interval,
             )
-        else:
-            cmd = Template(self.config.anti_call_llm_cmd_no_response).safe_substitute(index=index)
 
-        # We chose to use runtime_env's wrapped_cmd instead of the run method here,
-        # mainly to avoid unexpected behavior caused by sharing a session with runtime_env
-        bash_cmd = self.runtime_env.wrapped_cmd(cmd)
-        logger.debug(f"[{sandbox_id}] Executing command: {bash_cmd}")
+            if result.exit_code != 0:
+                raise RuntimeError(f"Anti-call LLM command failed: {result.output}")
 
-        result = await self._sandbox.arun(
-            cmd=bash_cmd,
-            mode=RunMode.NOHUP,
-            session=None,
-            wait_timeout=call_timeout,
-            wait_interval=check_interval,
-        )
-
-        if result.exit_code != 0:
-            raise RuntimeError(f"Anti-call LLM command failed: {result.output}")
-
-        return result.output
+            return result.output
+        finally:
+            if local_tmp_path and os.path.exists(local_tmp_path):
+                os.unlink(local_tmp_path)

@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -109,8 +110,13 @@ class ModelServiceCommand(Command):
             return
         if "anti-call-llm" == sub_command:
             logger.debug("start to anti call llm")
+            response = args.response
+            if args.response_file:
+                with open(args.response_file) as f:
+                    response = f.read()
+                os.unlink(args.response_file)
             model_client = ModelClient()
-            next_request = await model_client.anti_call_llm(index=args.index, last_response=args.response)
+            next_request = await model_client.anti_call_llm(index=args.index, last_response=response)
             # necessary: print next_request to stdout, and do NOT print anything else
             print(next_request)
 
@@ -230,4 +236,8 @@ class ModelServiceCommand(Command):
         anti_call_llm_parser.add_argument(
             "--index", required=True, type=int, help="index of last llm call, start from 0"
         )
-        anti_call_llm_parser.add_argument("--response", required=False, help="response of last llm call")
+        response_group = anti_call_llm_parser.add_mutually_exclusive_group()
+        response_group.add_argument("--response", required=False, help="response of last llm call")
+        response_group.add_argument(
+            "--response-file", required=False, help="path to file containing response of last llm call"
+        )
