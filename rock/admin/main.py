@@ -21,6 +21,7 @@ from rock.admin.core.sandbox_table import SandboxTable
 from rock.admin.core.scheduler_task_table import SchedulerTaskTable
 from rock.admin.entrypoints.admin_ops_api import admin_ops_router, set_ops_service
 from rock.admin.entrypoints.sandbox_api import sandbox_router, set_sandbox_manager
+from rock.admin.entrypoints.image_api import image_router, set_image_service
 from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_sandbox_proxy_service
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
 from rock.admin.gem.api import gem_router, set_env_service
@@ -199,6 +200,7 @@ async def lifespan(app: FastAPI):
     else:
         sandbox_manager = SandboxProxyService(rock_config=rock_config, meta_store=meta_store)
         set_sandbox_proxy_service(sandbox_manager)
+        set_image_service(sandbox_manager)
 
     logger.info("rock-admin start")
 
@@ -304,6 +306,7 @@ def main():
         app.include_router(admin_ops_router, prefix="/apis/envs/sandbox/v1/ops", tags=["admin-ops"])
     else:
         app.include_router(sandbox_proxy_router, prefix="/apis/envs/sandbox/v1", tags=["sandbox"])
+        app.include_router(image_router, prefix="/apis/envs/image/v1", tags=["image"])
     app.include_router(warmup_router, prefix="/apis/envs/sandbox/v1", tags=["warmup"])
     app.include_router(gem_router, prefix="/apis/v1/envs/gem", tags=["gem"])
 

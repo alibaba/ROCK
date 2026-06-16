@@ -153,6 +153,14 @@ class OssConfig:
 
 
 @dataclass
+class AcrConfig:
+    instance_id: str | None = None
+    region: str = "cn-hangzhou"
+    access_key_id: str = ""
+    access_key_secret: str = ""
+
+
+@dataclass
 class ProxyServiceConfig:
     timeout: float = 180.0
     max_connections: int = 500
@@ -348,6 +356,7 @@ class RockConfig:
     redis: RedisConfig = field(default_factory=RedisConfig)
     sandbox_config: SandboxConfig = field(default_factory=SandboxConfig)
     oss: OssConfig = field(default_factory=OssConfig)
+    acr: AcrConfig = field(default_factory=AcrConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     proxy_service: ProxyServiceConfig = field(default_factory=ProxyServiceConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
@@ -401,6 +410,8 @@ class RockConfig:
             kwargs["sandbox_config"] = SandboxConfig(**config["sandbox_config"])
         if "oss" in config:
             kwargs["oss"] = OssConfig(**config["oss"])
+        if "acr" in config:
+            kwargs["acr"] = AcrConfig(**config["acr"])
         if "runtime" in config:
             kwargs["runtime"] = RuntimeConfig(**config["runtime"])
         if "proxy_service" in config:
