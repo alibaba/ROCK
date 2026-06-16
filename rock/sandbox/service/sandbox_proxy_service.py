@@ -34,7 +34,7 @@ from rock.admin.proto.request import SandboxQueryParams
 from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.admin.proto.response import SandboxListResponse, SandboxListStatusResponse, SandboxStatusResponse
-from rock.config import OssConfig, ProxyServiceConfig, RockConfig
+from rock.config import OssConfig, ProxyServiceConfig, RockConfig, ServerConfig
 from rock.deployments.constants import Port
 from rock.deployments.status import ServiceStatus
 from rock.common.port_validation import validate_port_forward_port
@@ -90,6 +90,8 @@ class SandboxProxyService:
                 self.oss_config.primary.access_key_secret,
                 primary_region,
             )
+
+        self.server_config: ServerConfig = rock_config.server
 
         self._batch_get_status_max_count = rock_config.proxy_service.batch_get_status_max_count
         self._validate_oss_config_or_warn()
@@ -744,6 +746,20 @@ class SandboxProxyService:
             "Bucket": bucket,
             "Region": region,
             "Prefix": prefix,  # transfer-object key prefix, scoped per account
+        }
+
+    def get_server_config(self) -> dict:
+        """Return server public configuration."""
+        return {
+            "ImageRegistries": [
+                {
+                    "Namespace": r.namespace,
+                    "RegistryUrl": r.registry_url,
+                    "Region": r.region,
+                }
+                for r in self.server_config.image_registries
+            ],
+            "BuilderImage": self.server_config.builder_image,
         }
 
     async def get_sandbox_websocket_url(

@@ -320,6 +320,14 @@ async def portforward(websocket: WebSocket, id: str, port: int):
         await websocket.close(code=1011, reason=f"Proxy error: {str(e)}")
 
 
+@sandbox_proxy_router.get("/server-config")
+@handle_exceptions(error_message="get server config failed")
+async def get_server_config():
+    """Return server public configuration."""
+    result = sandbox_proxy_service.get_server_config()
+    return RockResponse(result=result)
+
+
 @sandbox_proxy_router.get("/get_token")
 @handle_exceptions(error_message="get oss sts token failed")
 async def get_token(account: str = "legacy"):

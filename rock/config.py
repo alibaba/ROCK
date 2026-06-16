@@ -153,6 +153,25 @@ class OssConfig:
 
 
 @dataclass
+class ImageRegistryConfig:
+    namespace: str = "rock"
+    registry_url: str | None = None
+    region: str | None = None
+
+
+@dataclass
+class ServerConfig:
+    image_registries: list[ImageRegistryConfig] = field(default_factory=list)
+    builder_image: str = ""
+
+    def __post_init__(self):
+        self.image_registries = [
+            ImageRegistryConfig(**item) if isinstance(item, dict) else item
+            for item in self.image_registries
+        ]
+
+
+@dataclass
 class ProxyServiceConfig:
     timeout: float = 180.0
     max_connections: int = 500
@@ -348,6 +367,7 @@ class RockConfig:
     redis: RedisConfig = field(default_factory=RedisConfig)
     sandbox_config: SandboxConfig = field(default_factory=SandboxConfig)
     oss: OssConfig = field(default_factory=OssConfig)
+    server: ServerConfig = field(default_factory=ServerConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     proxy_service: ProxyServiceConfig = field(default_factory=ProxyServiceConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
@@ -401,6 +421,8 @@ class RockConfig:
             kwargs["sandbox_config"] = SandboxConfig(**config["sandbox_config"])
         if "oss" in config:
             kwargs["oss"] = OssConfig(**config["oss"])
+        if "server" in config:
+            kwargs["server"] = ServerConfig(**config["server"])
         if "runtime" in config:
             kwargs["runtime"] = RuntimeConfig(**config["runtime"])
         if "proxy_service" in config:

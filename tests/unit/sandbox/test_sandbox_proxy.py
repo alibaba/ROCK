@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from rock.actions.sandbox.response import State
-from rock.config import OssConfig
+from rock.config import ImageRegistryConfig, OssConfig, ServerConfig
 from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
@@ -208,3 +208,36 @@ class TestGenOssStsToken:
         assert result["Endpoint"] == "yaml.endpoint"  # YAML fallback
         assert result["Bucket"] == "yaml-bucket"
         assert result["Region"] == "rg"  # env
+
+
+class TestGetServerConfig:
+    @pytest.fixture
+    def proxy_service(self):
+        service = SandboxProxyService.__new__(SandboxProxyService)
+        service.server_config = ServerConfig(
+            image_registries=[
+                ImageRegistryConfig(namespace="ns-1", registry_url="reg1.example.com", region="cn-hangzhou"),
+                ImageRegistryConfig(namespace="ns-2", registry_url="reg2.example.com", region="ap-southeast-1"),
+            ],
+            builder_image="builder:latest",
+        )
+        return service
+
+    def test_returns_public_config(self, proxy_service):
+        result = proxy_service.get_server_config()
+
+        assert len(result["ImageRegistries"]) == 2
+        assert result["ImageRegistries"][0]["Namespace"] == "ns-1"
+        assert result["ImageRegistries"][0]["RegistryUrl"] == "reg1.example.com"
+        assert result["ImageRegistries"][1]["Namespace"] == "ns-2"
+        assert result["ImageRegistries"][1]["Region"] == "ap-southeast-1"
+        assert result["BuilderImage"] == "builder:latest"
+
+    def test_empty_registries(self):
+        service = SandboxProxyService.__new__(SandboxProxyService)
+        service.server_config = ServerConfig()
+
+        result = service.get_server_config()
+
+        assert result["ImageRegistries"] == []
+        assert result["BuilderImage"] == ""

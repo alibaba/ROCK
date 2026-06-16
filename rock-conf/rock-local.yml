@@ -34,6 +34,14 @@ warmup:
 #     - "reg-a.aliyuncs.com/mirror-1"
 #     - "reg-b.aliyuncs.com/mirror-2"
 
+# Server public configuration (exposed via GET /server/config)
+server:
+  image_registries: []
+  #  - namespace: "rock"
+  #    registry_url: ""
+  #    region: "cn-hangzhou"
+  builder_image: ""
+
 # Scheduler configuration
 scheduler:
   enabled: true                    # Whether to enable the scheduler
