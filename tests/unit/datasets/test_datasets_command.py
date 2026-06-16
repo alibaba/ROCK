@@ -144,6 +144,26 @@ def test_datasets_parser_accepts_json_format_before_subcommand():
 
 
 @pytest.mark.parametrize(
+    "subcommand, argv",
+    [
+        # --format placed AFTER each subcommand keyword (the previously broken case).
+        ("list", ["datasets", "list", "-f", "json"]),
+        ("tasks", ["datasets", "tasks", "--org", "qwen", "--dataset", "b", "-f", "json"]),
+        ("splits", ["datasets", "splits", "--org", "qwen", "--dataset", "b", "-f", "json"]),
+        ("upload", ["datasets", "upload", "--org", "qwen", "--dataset", "b", "--split", "s", "--dir", ".", "-f", "json"]),
+    ],
+)
+def test_format_flag_accepted_after_every_subcommand(subcommand, argv):
+    """--format must be accepted in a consistent position for all subcommands."""
+    parser = _build_parser()
+
+    ns = parser.parse_args(argv)
+
+    assert ns.datasets_command == subcommand
+    assert ns.format == "json"
+
+
+@pytest.mark.parametrize(
     "argv",
     [
         ["datasets", "tasks", "--dataset", "my-bench"],
@@ -269,7 +289,7 @@ def test_tasks_outputs_json_with_pagination(capsys):
     assert data == {
         "dataset": "qwen/my-bench",
         "split": "test",
-        "total": 2,
+        "count": 2,
         "offset": 1,
         "limit": 2,
         "task_ids": ["task-002", "task-003"],
@@ -298,7 +318,7 @@ def test_tasks_outputs_empty_json_when_not_found(capsys):
     assert data == {
         "dataset": "qwen/my-bench",
         "split": "test",
-        "total": 0,
+        "count": 0,
         "offset": 0,
         "limit": None,
         "task_ids": [],
@@ -513,6 +533,36 @@ def test_splits_singular_footer_for_one_split(capsys):
 
     out = capsys.readouterr().out
     assert "1 split." in out
+
+
+def test_splits_outputs_json(capsys):
+    cmd = DatasetsCommand()
+    args = make_base_args(
+        datasets_command="splits", org="alibaba", dataset="pinch", format="json"
+    )
+
+    with patch.object(DatasetsCommand, "_build_oss_registry_info", return_value=make_registry_info()):
+        with patch("rock.cli.command.datasets.DatasetClient") as MockClient:
+            MockClient.return_value.list_dataset_splits.return_value = ["test", "train"]
+            asyncio.run(cmd._splits(args))
+
+    data = json.loads(capsys.readouterr().out)
+    assert data == {"dataset": "alibaba/pinch", "splits": ["test", "train"], "count": 2}
+
+
+def test_splits_outputs_empty_json_when_not_found(capsys):
+    cmd = DatasetsCommand()
+    args = make_base_args(
+        datasets_command="splits", org="alibaba", dataset="missing", format="json"
+    )
+
+    with patch.object(DatasetsCommand, "_build_oss_registry_info", return_value=make_registry_info()):
+        with patch("rock.cli.command.datasets.DatasetClient") as MockClient:
+            MockClient.return_value.list_dataset_splits.return_value = []
+            asyncio.run(cmd._splits(args))
+
+    data = json.loads(capsys.readouterr().out)
+    assert data == {"dataset": "alibaba/missing", "splits": [], "count": 0}
 
 
 def test_splits_parser_requires_org_and_dataset():

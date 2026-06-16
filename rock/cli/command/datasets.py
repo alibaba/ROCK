@@ -164,7 +164,7 @@ class DatasetsCommand(Command):
                     {
                         "dataset": f"{args.org}/{args.dataset}",
                         "split": args.split,
-                        "total": 0,
+                        "count": 0,
                         "offset": args.offset,
                         "limit": args.limit,
                         "task_ids": [],
@@ -181,7 +181,7 @@ class DatasetsCommand(Command):
                 {
                     "dataset": spec.id,
                     "split": spec.split,
-                    "total": len(shown_task_ids),
+                    "count": len(shown_task_ids),
                     "offset": args.offset,
                     "limit": args.limit,
                     "task_ids": shown_task_ids,
@@ -204,7 +204,18 @@ class DatasetsCommand(Command):
 
     async def _splits(self, args: argparse.Namespace) -> None:
         client = self._client(args)
+        out = OutputWriter(args)
         splits = client.list_dataset_splits(args.org, args.dataset)
+
+        if out.is_json:
+            out.json(
+                {
+                    "dataset": f"{args.org}/{args.dataset}",
+                    "splits": splits,
+                    "count": len(splits),
+                }
+            )
+            return
 
         if not splits:
             print(f"No splits found for dataset '{args.org}/{args.dataset}'.")
@@ -279,6 +290,7 @@ class DatasetsCommand(Command):
         add_output_arg(datasets_parser)
 
         list_parser = datasets_subparsers.add_parser("list", help="List datasets in OSS registry")
+        add_output_arg(list_parser)
         list_group = list_parser.add_mutually_exclusive_group()
         list_group.add_argument(
             "--depth",
@@ -304,6 +316,7 @@ class DatasetsCommand(Command):
         add_oss_args(tasks_parser)
 
         splits_parser = datasets_subparsers.add_parser("splits", help="List splits under one dataset")
+        add_output_arg(splits_parser)
         splits_parser.add_argument("--org", required=True, help="Organization name")
         splits_parser.add_argument("--dataset", required=True, help="Dataset name")
         add_oss_args(splits_parser)
