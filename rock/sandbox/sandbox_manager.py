@@ -26,6 +26,7 @@ from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
 from rock.common.constants import DeleteReason, StopReason
+from rock.common.cpu_overcommit import apply_cpu_overcommit
 from rock.config import RockConfig, RuntimeConfig
 from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
 from rock.logger import init_logger
@@ -152,7 +153,13 @@ class SandboxManager(BaseManager):
         )
 
     @monitor_sandbox_operation()
-    async def restart_async(self, sandbox_id: str) -> SandboxStartResponse:
+    async def restart_async(
+        self,
+        sandbox_id: str,
+        cpus: float | None = None,
+        memory: str | None = None,
+        limit_cpus: float | None = None,
+    ) -> SandboxStartResponse:
         sm = await self._get_current_statemachine(sandbox_id)
         if sm is None:
             raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
@@ -161,11 +168,43 @@ class SandboxManager(BaseManager):
         if state != State.STOPPED:
             raise BadRequestRockError(f"Sandbox {sandbox_id} cannot be restarted: current state is '{state.value}'")
 
+        info = sm.sandbox_info or {}
+        spec = info.get("spec") or {}
+        if spec:
+            restart_config = DockerDeploymentConfig(**spec)
+        else:
+            logger.warning(
+                f"sandbox {sandbox_id} has no spec snapshot; rebuilding config from flat fields with model defaults"
+            )
+            restart_config = DockerDeploymentConfig(
+                container_name=sandbox_id,
+                image=info.get("image") or DockerDeploymentConfig.model_fields["image"].default,
+                memory=info.get("memory") or DockerDeploymentConfig.model_fields["memory"].default,
+                cpus=float(info.get("cpus") or DockerDeploymentConfig.model_fields["cpus"].default),
+            )
+
+        if cpus is not None:
+            restart_config.cpus = cpus
+        if limit_cpus is not None:
+            restart_config.limit_cpus = limit_cpus
+        if memory is not None:
+            restart_config.memory = memory
+        if cpus is not None and limit_cpus is None:
+            if restart_config.limit_cpus is not None:
+                logger.warning(
+                    f"restart {sandbox_id}: cpus changed to {cpus} but limit_cpus not provided, "
+                    f"clearing previous limit_cpus={restart_config.limit_cpus}"
+                )
+                restart_config.limit_cpus = None
+            await apply_cpu_overcommit(restart_config, self.rock_config.nacos_provider)
+        self.validate_sandbox_spec(self.rock_config.runtime, restart_config)
+
         await sm.send(
             "restart",
             sandbox_id=sandbox_id,
             operator=self._operator,
             meta_store=self._meta_store,
+            restart_config=restart_config,
         )
 
         info: SandboxInfo = sm.sandbox_info or {}

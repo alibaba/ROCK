@@ -23,6 +23,7 @@ from rock.admin.proto.request import (
     SandboxCommand,
     SandboxCreateBashSessionRequest,
     SandboxReadFileRequest,
+    SandboxRestartRequest,
     SandboxStartRequest,
     SandboxWriteFileRequest,
     StartHeaders,
@@ -417,8 +418,10 @@ async def delete(sandbox_id: str = Body(..., embed=True)) -> RockResponse:
 
 @sandbox_router.post("/restart")
 @handle_exceptions(error_message="restart sandbox failed")
-async def restart(sandbox_id: str = Body(..., embed=True)) -> RockResponse[SandboxStartResponse]:
-    result = await sandbox_manager.restart_async(sandbox_id)
+async def restart(request: SandboxRestartRequest) -> RockResponse[SandboxStartResponse]:
+    result = await sandbox_manager.restart_async(
+        request.sandbox_id, cpus=request.cpus, memory=request.memory, limit_cpus=request.limit_cpus
+    )
     return RockResponse(result=result)
 
 

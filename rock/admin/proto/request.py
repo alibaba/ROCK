@@ -46,6 +46,13 @@ class SandboxStartRequest(BaseModel):
     """GPU accelerator type (e.g. 'A100', 'V100'). If not specified, any available GPU will be used."""
 
 
+class SandboxRestartRequest(BaseModel):
+    sandbox_id: NonBlankStr
+    cpus: float | None = None
+    memory: str | None = None
+    limit_cpus: float | None = None
+
+
 class SandboxCommand(Command):
     timeout: float | None = 1200
     """The timeout for the command. None means no timeout."""

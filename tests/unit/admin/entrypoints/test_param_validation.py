@@ -255,3 +255,55 @@ async def test_gem_close_empty_sandbox_id(gem_app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         _assert_failed(await client.post("/close", json={"sandbox_id": ""}))
         _assert_failed(await client.post("/close", json={"sandbox_id": "   "}))
+
+
+# --- restart backward compatibility ---
+
+
+@pytest.mark.asyncio
+async def test_restart_old_sdk_only_sandbox_id(sandbox_app):
+    """Old SDK sends only {"sandbox_id": "xxx"} — must still work."""
+    app, mock_manager = sandbox_app
+    mock_manager.restart_async = AsyncMock(
+        return_value=SandboxStartResponse(sandbox_id="sb-1", host_name="h", host_ip="1.2.3.4")
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/restart", json={"sandbox_id": "sb-1"})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "Success"
+        mock_manager.restart_async.assert_called_once_with("sb-1", cpus=None, memory=None, limit_cpus=None)
+
+
+@pytest.mark.asyncio
+async def test_restart_new_sdk_with_resources(sandbox_app):
+    """New SDK sends {"sandbox_id": "xxx", "cpus": 4, "memory": "8g"}."""
+    app, mock_manager = sandbox_app
+    mock_manager.restart_async = AsyncMock(
+        return_value=SandboxStartResponse(sandbox_id="sb-1", host_name="h", host_ip="1.2.3.4")
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/restart", json={"sandbox_id": "sb-1", "cpus": 4, "memory": "8g"})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "Success"
+        mock_manager.restart_async.assert_called_once_with("sb-1", cpus=4.0, memory="8g", limit_cpus=None)
+
+
+@pytest.mark.asyncio
+async def test_restart_with_limit_cpus(sandbox_app):
+    """New SDK sends {"sandbox_id": "xxx", "cpus": 2, "limit_cpus": 4}."""
+    app, mock_manager = sandbox_app
+    mock_manager.restart_async = AsyncMock(
+        return_value=SandboxStartResponse(sandbox_id="sb-1", host_name="h", host_ip="1.2.3.4")
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/restart", json={"sandbox_id": "sb-1", "cpus": 2, "limit_cpus": 4})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "Success"
+        mock_manager.restart_async.assert_called_once_with("sb-1", cpus=2.0, memory=None, limit_cpus=4.0)
+
+
+@pytest.mark.asyncio
+async def test_restart_empty_sandbox_id(sandbox_app):
+    app, _ = sandbox_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _assert_failed(await client.post("/restart", json={"sandbox_id": ""}))

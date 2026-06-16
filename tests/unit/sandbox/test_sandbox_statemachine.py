@@ -239,12 +239,21 @@ _VALID_RESTART_INFO = {
 }
 
 
+def _default_restart_config(**overrides):
+    from rock.deployments.config import DockerDeploymentConfig
+
+    kwargs = dict(_VALID_RESTART_INFO["spec"])
+    kwargs.update(overrides)
+    return DockerDeploymentConfig(**kwargs)
+
+
 class TestRestartTransitions:
     def _restart_kwargs(self, meta_store=None):
         return dict(
             sandbox_id="sb",
             operator=AsyncMock(),
             meta_store=meta_store or AsyncMock(),
+            restart_config=_default_restart_config(),
         )
 
     @pytest.mark.asyncio
@@ -276,7 +285,7 @@ class TestOnRestart:
     def mock_meta_store(self):
         return AsyncMock()
 
-    async def _send_restart(self, mock_meta_store, sandbox_info=None):
+    async def _send_restart(self, mock_meta_store, sandbox_info=None, config=None):
         info = sandbox_info if sandbox_info is not None else dict(_VALID_RESTART_INFO)
         sm = await SandboxStateMachine.from_state_value(State.STOPPED, sandbox_info=info)
         await sm.send(
@@ -284,6 +293,7 @@ class TestOnRestart:
             sandbox_id="sb-1",
             operator=AsyncMock(),
             meta_store=mock_meta_store,
+            restart_config=config or _default_restart_config(),
         )
 
     @pytest.mark.asyncio
@@ -300,13 +310,132 @@ class TestOnRestart:
 
     @pytest.mark.asyncio
     async def test_writes_timeout_built_from_spec(self, mock_meta_store):
-        # auto_clear_time_minutes=30 in spec → make_timeout_info uses 30
         await self._send_restart(mock_meta_store)
         mock_meta_store.update_timeout.assert_awaited_once()
         sandbox_id, timeout_info = mock_meta_store.update_timeout.call_args[0]
         assert sandbox_id == "sb-1"
-        # SandboxTimeoutHelper.make_timeout_info stores auto_clear_time as the env-var key
         assert any("30" == str(v) for v in timeout_info.values())
+
+
+# ---------------------------------------------------------------------------
+# on_restart resource overrides
+# ---------------------------------------------------------------------------
+
+
+class TestOnRestartResourceOverrides:
+    @pytest.fixture
+    def mock_meta_store(self):
+        return AsyncMock()
+
+    async def _send_restart(self, mock_meta_store, config=None, sandbox_info=None):
+        info = sandbox_info if sandbox_info is not None else dict(_VALID_RESTART_INFO)
+        if "spec" in info:
+            info = {**info, "spec": dict(info["spec"])}
+        sm = await SandboxStateMachine.from_state_value(State.STOPPED, sandbox_info=info)
+        mock_operator = AsyncMock()
+        await sm.send(
+            "restart",
+            sandbox_id="sb-1",
+            operator=mock_operator,
+            meta_store=mock_meta_store,
+            restart_config=config or _default_restart_config(),
+        )
+        return mock_operator
+
+    @pytest.mark.asyncio
+    async def test_config_passed_to_operator(self, mock_meta_store):
+        config = _default_restart_config(cpus=4)
+        mock_operator = await self._send_restart(mock_meta_store, config=config)
+        restart_config = mock_operator.restart.call_args[0][0]
+        assert restart_config.cpus == 4
+
+    @pytest.mark.asyncio
+    async def test_no_change_uses_original_config(self, mock_meta_store):
+        mock_operator = await self._send_restart(mock_meta_store)
+        restart_config = mock_operator.restart.call_args[0][0]
+        assert restart_config.cpus == 1
+        assert restart_config.memory == "2g"
+
+    @pytest.mark.asyncio
+    async def test_limit_cpus_passed_to_operator(self, mock_meta_store):
+        config = _default_restart_config(cpus=4, limit_cpus=6)
+        mock_operator = await self._send_restart(mock_meta_store, config=config)
+        restart_config = mock_operator.restart.call_args[0][0]
+        assert restart_config.cpus == 4
+        assert restart_config.limit_cpus == 6
+
+    @pytest.mark.asyncio
+    async def test_update_persists_cpus_and_memory(self, mock_meta_store):
+        config = _default_restart_config(cpus=8, memory="32g")
+        await self._send_restart(mock_meta_store, config=config)
+        mock_meta_store.update.assert_awaited_once()
+        updated_info = mock_meta_store.update.call_args[0][1]
+        assert updated_info["cpus"] == 8
+        assert updated_info["memory"] == "32g"
+        assert updated_info["state"] == State.PENDING
+
+
+# ---------------------------------------------------------------------------
+# restart resource validation (reuses SandboxManager.validate_sandbox_spec)
+# ---------------------------------------------------------------------------
+
+
+class TestRestartResourceValidation:
+    @pytest.fixture
+    def sandbox_manager(self):
+        from unittest.mock import MagicMock
+
+        from rock.config import RockConfig, RuntimeConfig, StandardSpec
+        from rock.sandbox.sandbox_manager import SandboxManager
+
+        mgr = MagicMock()
+        mgr.rock_config = MagicMock(spec=RockConfig)
+        mgr.rock_config.runtime = MagicMock(spec=RuntimeConfig)
+        mgr.rock_config.runtime.max_allowed_spec = StandardSpec(cpus=16, memory="64g")
+        mgr.validate_sandbox_spec = SandboxManager.validate_sandbox_spec.__get__(mgr)
+        return mgr
+
+    def _make_config(self, cpus=2, memory="8g"):
+        from rock.deployments.config import DockerDeploymentConfig
+
+        return DockerDeploymentConfig(container_name="sb-1", image="python:3.11", cpus=cpus, memory=memory)
+
+    def test_cpus_within_limit_passes(self, sandbox_manager):
+        sandbox_manager.validate_sandbox_spec(sandbox_manager.rock_config.runtime, self._make_config(cpus=8))
+
+    def test_cpus_exceeds_limit_raises(self, sandbox_manager):
+        from rock.sdk.common.exceptions import BadRequestRockError
+
+        with pytest.raises(BadRequestRockError, match="exceed the maximum allowed"):
+            sandbox_manager.validate_sandbox_spec(sandbox_manager.rock_config.runtime, self._make_config(cpus=32))
+
+    def test_memory_within_limit_passes(self, sandbox_manager):
+        sandbox_manager.validate_sandbox_spec(sandbox_manager.rock_config.runtime, self._make_config(memory="32g"))
+
+    def test_memory_exceeds_limit_raises(self, sandbox_manager):
+        from rock.sdk.common.exceptions import BadRequestRockError
+
+        with pytest.raises(BadRequestRockError, match="exceed the maximum allowed"):
+            sandbox_manager.validate_sandbox_spec(sandbox_manager.rock_config.runtime, self._make_config(memory="128g"))
+
+    def test_invalid_memory_format_raises(self, sandbox_manager):
+        from rock.sdk.common.exceptions import BadRequestRockError
+
+        with pytest.raises(BadRequestRockError, match="Invalid memory size"):
+            sandbox_manager.validate_sandbox_spec(
+                sandbox_manager.rock_config.runtime, self._make_config(memory="not_a_size")
+            )
+
+    def test_both_within_limit_passes(self, sandbox_manager):
+        sandbox_manager.validate_sandbox_spec(
+            sandbox_manager.rock_config.runtime, self._make_config(cpus=16, memory="64g")
+        )
+
+    def test_cpus_at_boundary_passes(self, sandbox_manager):
+        sandbox_manager.validate_sandbox_spec(sandbox_manager.rock_config.runtime, self._make_config(cpus=16))
+
+    def test_memory_at_boundary_passes(self, sandbox_manager):
+        sandbox_manager.validate_sandbox_spec(sandbox_manager.rock_config.runtime, self._make_config(memory="64g"))
 
 
 # ---------------------------------------------------------------------------
