@@ -459,6 +459,13 @@ async def restart(sandbox_id: str = Body(..., embed=True)) -> RockResponse[Sandb
     return RockResponse(result=result)
 
 
+@sandbox_router.post("/sandboxes/{sandbox_id}/restart")
+@handle_exceptions(error_message="restart sandbox failed")
+async def restart_restful(sandbox_id: NonBlankStr) -> RockResponse[SandboxStartResponse]:
+    result = await sandbox_manager.restart_async(sandbox_id)
+    return RockResponse(result=result)
+
+
 @sandbox_router.post("/commit")
 @handle_exceptions(error_message="commit sandbox failed")
 async def commit(
