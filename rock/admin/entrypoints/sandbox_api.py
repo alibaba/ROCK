@@ -521,10 +521,10 @@ async def delete(sandbox_id: str = Body(..., embed=True)) -> RockResponse:
     return RockResponse(result=f"{sandbox_id} deleted")
 
 
-@sandbox_router.post("/archive")
+@sandbox_router.post("/sandboxes/{sandbox_id}/archive")
 @handle_exceptions(error_message="archive sandbox failed")
 async def archive(
-    sandbox_id: str = Body(..., embed=True),
+    sandbox_id: NonBlankStr,
     rock_authorization: str | None = Header(default=None, alias="X-Key"),
 ) -> RockResponse:
     archive_cfg = sandbox_manager.rock_config.lifecycle.archive

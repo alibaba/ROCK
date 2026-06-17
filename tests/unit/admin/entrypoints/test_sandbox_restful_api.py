@@ -1,4 +1,4 @@
-"""Tests for the RESTful sandbox restart endpoint on sandbox_router."""
+"""Tests for RESTful sandbox endpoints on sandbox_router."""
 
 from unittest.mock import AsyncMock, MagicMock
 
@@ -40,3 +40,28 @@ async def test_restart_restful(sandbox_app):
         assert body["status"] == "Success"
         assert body["result"]["sandbox_id"] == "sb-1"
     mock_manager.restart_async.assert_called_once_with("sb-1")
+
+
+@pytest.mark.asyncio
+async def test_archive_allowed(sandbox_app):
+    app, mock_manager = sandbox_app
+    mock_manager.rock_config.lifecycle.archive.is_allowed.return_value = True
+    mock_manager.archive_sandbox = AsyncMock()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(f"{BASE}/sandboxes/sb-1/archive")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "Success"
+    mock_manager.archive_sandbox.assert_called_once_with("sb-1")
+
+
+@pytest.mark.asyncio
+async def test_archive_forbidden(sandbox_app):
+    """Unauthorised key: handle_exceptions returns HTTP 200 with status=Failed."""
+    app, mock_manager = sandbox_app
+    mock_manager.rock_config.lifecycle.archive.is_allowed.return_value = False
+    mock_manager.archive_sandbox = AsyncMock()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(f"{BASE}/sandboxes/sb-1/archive", headers={"X-Key": "bad-key"})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "Failed"
+    mock_manager.archive_sandbox.assert_not_called()
