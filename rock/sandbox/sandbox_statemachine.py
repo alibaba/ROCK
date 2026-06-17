@@ -236,7 +236,7 @@ class SandboxStateMachine(StateChart):
         sandbox_info["state"] = RockState.ARCHIVING
         sandbox_info["archive_prefix"] = prefix
         sandbox_info["acr_namespace"] = acr_ns
-        sandbox_info["state_enter_time"] = get_iso8601_timestamp()
+        sandbox_info["intermediate_state_started_at"] = get_iso8601_timestamp()
         await meta_store.archive(sandbox_id, sandbox_info)
         self.sandbox_info = sandbox_info
 
@@ -256,7 +256,7 @@ class SandboxStateMachine(StateChart):
         sandbox_info = self.sandbox_info or {}
         sandbox_info["state"] = RockState.ARCHIVED
         sandbox_info["archive_time"] = get_iso8601_timestamp()
-        sandbox_info.pop("state_enter_time", None)
+        sandbox_info.pop("intermediate_state_started_at", None)
         await meta_store.archive(sandbox_id, sandbox_info)
         self.sandbox_info = sandbox_info
 
@@ -265,7 +265,7 @@ class SandboxStateMachine(StateChart):
         sandbox_info = self.sandbox_info or {}
         sandbox_info["state"] = RockState.STOPPED
         sandbox_info.pop("archive_time", None)
-        sandbox_info.pop("state_enter_time", None)
+        sandbox_info.pop("intermediate_state_started_at", None)
         await meta_store.archive(sandbox_id, sandbox_info)
         self.sandbox_info = sandbox_info
 
@@ -286,7 +286,7 @@ class SandboxStateMachine(StateChart):
         logger.info(f"restore sandbox {sandbox_id}")
         sandbox_info = self.sandbox_info or {}
         sandbox_info["state"] = RockState.PENDING
-        sandbox_info["state_enter_time"] = get_iso8601_timestamp()
+        sandbox_info["intermediate_state_started_at"] = get_iso8601_timestamp()
         sandbox_info.pop("stop_time", None)
         await meta_store.update(sandbox_id, sandbox_info)
         if timeout_info:
@@ -313,7 +313,7 @@ class SandboxStateMachine(StateChart):
         logger.info(f"restore failed sandbox {sandbox_id}: {reason}")
         sandbox_info = self.sandbox_info or {}
         sandbox_info["state"] = RockState.ARCHIVED
-        sandbox_info.pop("state_enter_time", None)
+        sandbox_info.pop("intermediate_state_started_at", None)
         await meta_store.archive(sandbox_id, sandbox_info)
         self.sandbox_info = sandbox_info
 

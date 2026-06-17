@@ -38,7 +38,7 @@ class TestArchiveTransitions:
         assert sm.current_state.value == State.PENDING
 
     async def test_pending_to_running_on_alive_after_restore(self, meta_store):
-        sm = await SandboxStateMachine.from_state_value(State.PENDING, {"state_enter_time": "t1"})
+        sm = await SandboxStateMachine.from_state_value(State.PENDING, {"intermediate_state_started_at": "t1"})
         await sm.send("alive", sandbox_id="sbx-1", meta_store=meta_store, sandbox_info={"host_ip": "10.0.0.1"})
         assert sm.current_state.value == State.RUNNING
 
@@ -171,26 +171,26 @@ class TestArchiveHookSideEffects:
         await sm.send("archive", sandbox_id="sbx-1", meta_store=meta_store)
         info = sm.sandbox_info
         assert "archive_time" not in info
-        assert info["state_enter_time"] is not None
+        assert info["intermediate_state_started_at"] is not None
         assert info["state"] == State.ARCHIVING
 
     async def test_on_archive_done_sets_archive_time(self, meta_store):
-        sm = await SandboxStateMachine.from_state_value(State.ARCHIVING, {"state_enter_time": "old"})
+        sm = await SandboxStateMachine.from_state_value(State.ARCHIVING, {"intermediate_state_started_at": "old"})
         await sm.send("archive_done", sandbox_id="sbx-1", meta_store=meta_store)
         info = sm.sandbox_info
         assert info["state"] == State.ARCHIVED
         assert info.get("archive_time") is not None
-        assert "state_enter_time" not in info
+        assert "intermediate_state_started_at" not in info
 
     async def test_on_archive_failed_clears_all(self, meta_store):
         sm = await SandboxStateMachine.from_state_value(
-            State.ARCHIVING, {"archive_time": "t1", "state_enter_time": "old"}
+            State.ARCHIVING, {"archive_time": "t1", "intermediate_state_started_at": "old"}
         )
         await sm.send("archive_failed", sandbox_id="sbx-1", meta_store=meta_store, reason="timeout")
         info = sm.sandbox_info
         assert info["state"] == State.STOPPED
         assert "archive_time" not in info
-        assert "state_enter_time" not in info
+        assert "intermediate_state_started_at" not in info
 
     async def test_on_restore_sets_pending_and_keeps_archive_time(self, meta_store):
         sm = await SandboxStateMachine.from_state_value(State.ARCHIVED, {"archive_time": "t1"})
@@ -198,11 +198,13 @@ class TestArchiveHookSideEffects:
         info = sm.sandbox_info
         assert info["state"] == State.PENDING
         assert "archive_time" in info
-        assert "state_enter_time" in info
+        assert "intermediate_state_started_at" in info
 
     async def test_on_restore_failed_rolls_back_to_archived(self, meta_store):
-        sm = await SandboxStateMachine.from_state_value(State.PENDING, {"archive_time": "t1", "state_enter_time": "t2"})
+        sm = await SandboxStateMachine.from_state_value(
+            State.PENDING, {"archive_time": "t1", "intermediate_state_started_at": "t2"}
+        )
         await sm.send("restore_failed", sandbox_id="sbx-1", meta_store=meta_store, reason="timeout")
         info = sm.sandbox_info
         assert info["state"] == State.ARCHIVED
-        assert "state_enter_time" not in info
+        assert "intermediate_state_started_at" not in info

@@ -17,7 +17,7 @@ CREATE TABLE sandbox_record (
 	memory VARCHAR(64), 
 	create_user_gray_flag BOOLEAN, 
 	archive_time VARCHAR(64), 
-	state_enter_time VARCHAR(64), 
+	intermediate_state_started_at VARCHAR(64), 
 	delete_time VARCHAR(64), 
 	phases JSONB, 
 	port_mapping JSONB, 
