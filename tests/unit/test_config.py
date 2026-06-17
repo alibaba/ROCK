@@ -603,7 +603,7 @@ async def test_nacos_lifecycle_partial_update_preserves_yaml_values():
     await rock_config.update()
 
     assert rock_config.lifecycle.default_startup_timeout_seconds == 1200
-    assert rock_config.lifecycle.min_startup_timeout_seconds == 300   # preserved, not reset to 600
+    assert rock_config.lifecycle.min_startup_timeout_seconds == 300  # preserved, not reset to 600
     assert rock_config.lifecycle.max_startup_timeout_seconds == 3600  # preserved, not reset to 1800
 
 
@@ -652,7 +652,9 @@ async def test_nacos_lifecycle_nested_dict_coerced_via_post_init():
     rock_config.nacos_provider.get_config = AsyncMock(
         return_value={
             "lifecycle": {
-                "archive": {"scan_interval_sec": 99, "timeout_sec": 500},
+                "reconcile_interval_seconds": 99,
+                "archive_timeout_seconds": 500,
+                "archive": {"max_retries": 5},
             }
         }
     )
@@ -660,8 +662,9 @@ async def test_nacos_lifecycle_nested_dict_coerced_via_post_init():
     await rock_config.update()
 
     assert isinstance(rock_config.lifecycle.archive, ArchiveConfig)
-    assert rock_config.lifecycle.archive.scan_interval_sec == 99
-    assert rock_config.lifecycle.archive.timeout_sec == 500
+    assert rock_config.lifecycle.reconcile_interval_seconds == 99
+    assert rock_config.lifecycle.archive_timeout_seconds == 500
+    assert rock_config.lifecycle.archive.max_retries == 5
 
 
 @pytest.mark.asyncio
@@ -697,7 +700,8 @@ class TestFromEnvBaseInheritance:
         """Child config inherits and overrides base via _deep_merge."""
         base_file = tmp_path / "base.yml"
         base_file.write_text(
-            textwrap.dedent("""\
+            textwrap.dedent(
+                """\
             ray:
               namespace: "base-ns"
               runtime_env:
@@ -705,16 +709,19 @@ class TestFromEnvBaseInheritance:
             warmup:
               images:
                 - "python:3.11"
-        """)
+        """
+            )
         )
 
         child_file = tmp_path / "child.yml"
         child_file.write_text(
-            textwrap.dedent("""\
+            textwrap.dedent(
+                """\
             _base: base.yml
             ray:
               namespace: "child-ns"
-        """)
+        """
+            )
         )
 
         config = RockConfig.from_env(config_path=str(child_file))
@@ -728,7 +735,8 @@ class TestFromEnvBaseInheritance:
         """Scheduler tasks list is merged by task_class key."""
         base_file = tmp_path / "base.yml"
         base_file.write_text(
-            textwrap.dedent("""\
+            textwrap.dedent(
+                """\
             scheduler:
               tasks:
                 - task_class: "rock.admin.scheduler.tasks.cleanup.CleanupTask"
@@ -737,12 +745,14 @@ class TestFromEnvBaseInheritance:
                 - task_class: "rock.admin.scheduler.tasks.report.ReportTask"
                   enabled: true
                   interval_seconds: 300
-        """)
+        """
+            )
         )
 
         child_file = tmp_path / "child.yml"
         child_file.write_text(
-            textwrap.dedent("""\
+            textwrap.dedent(
+                """\
             _base: base.yml
             scheduler:
               tasks:
@@ -751,7 +761,8 @@ class TestFromEnvBaseInheritance:
                 - task_class: "rock.admin.scheduler.tasks.audit.AuditTask"
                   enabled: true
                   interval_seconds: 600
-        """)
+        """
+            )
         )
 
         config = RockConfig.from_env(config_path=str(child_file))
@@ -769,11 +780,13 @@ class TestFromEnvBaseInheritance:
     def test_base_not_found_raises(self, tmp_path: Path):
         child_file = tmp_path / "child.yml"
         child_file.write_text(
-            textwrap.dedent("""\
+            textwrap.dedent(
+                """\
             _base: nonexistent.yml
             ray:
               namespace: "ns"
-        """)
+        """
+            )
         )
         with pytest.raises(Exception, match="base config file.*not found"):
             RockConfig.from_env(config_path=str(child_file))

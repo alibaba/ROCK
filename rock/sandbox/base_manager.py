@@ -37,7 +37,7 @@ class BaseManager(ABC):
         )
         self._report_interval = 10
         self._check_job_interval = 180
-        self._reconcile_interval = rock_config.lifecycle.reconcile_interval_sec
+        self._reconcile_interval = rock_config.lifecycle.reconcile_interval_seconds
         self._setup_scheduler()
         self.deployment_manager = DeploymentManager(rock_config, enable_runtime_auto_clear)
 
