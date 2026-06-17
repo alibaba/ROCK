@@ -1,5 +1,6 @@
 import asyncio
 import time
+from abc import ABC, abstractmethod
 
 import ray
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -17,7 +18,7 @@ from rock.utils import get_executor
 logger = init_logger(__name__)
 
 
-class BaseManager:
+class BaseManager(ABC):
     _check_job_bg_task: object = None
     rock_config: RockConfig = None
 
@@ -155,6 +156,14 @@ class BaseManager:
             image = sandbox_info.get("image", "default")
             meta[sandbox_info.get("sandbox_id")] = {"image": image}
         return cnt, meta
+
+    @abstractmethod
+    async def _check_job_background(self):
+        ...
+
+    @abstractmethod
+    async def _reconcile(self):
+        ...
 
     def stop_monitoring(self):
         if self.scheduler and self.scheduler.running:
