@@ -33,7 +33,7 @@ from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
 from rock.logger import init_logger
 from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
-from rock.sandbox.archive._constants import image_ref
+from rock.sandbox.archive.constants import ArchiveKeys
 from rock.sandbox.base_manager import BaseManager
 from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.sandbox_actor import SandboxActor
@@ -536,7 +536,7 @@ class SandboxManager(BaseManager):
                 continue
 
             acr_ns = info.get("acr_namespace", self.rock_config.lifecycle.archive.acr.namespace)
-            ref = image_ref(sandbox_id, self._image_storage.registry_url, acr_ns)
+            ref = ArchiveKeys.image_ref(sandbox_id, self._image_storage.registry_url, acr_ns)
 
             try:
                 img_ok = await self._image_storage.exists(ref)
