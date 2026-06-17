@@ -111,12 +111,7 @@ class DockerUtil:
             return True
 
         # Path 2: containerd image store — XFS quota fallback
-        is_containerd = False
-        for entry in info.get("DriverStatus") or []:
-            if isinstance(entry, list) and len(entry) == 2 and entry[0] == "driver-type":
-                is_containerd = entry[1] == "io.containerd.snapshotter.v1"
-                break
-        if is_containerd:
+        if cls.detect_containerd_image_store(info):
             if not cls.is_xfs_prjquota_path(docker_root):
                 return False
             logger.info(
@@ -129,7 +124,7 @@ class DockerUtil:
         return False
 
     @classmethod
-    def detect_containerd_image_store(cls) -> bool:
+    def detect_containerd_image_store(cls, info: dict | None = None) -> bool:
         """Return True when Docker is using the containerd image store (snapshotter).
 
         Detection is based on the ``driver-type`` entry inside ``DriverStatus``
@@ -137,7 +132,8 @@ class DockerUtil:
         driver-type is ``io.containerd.snapshotter.v1`` regardless of which
         snapshotter (overlayfs, native, btrfs …) is active.
         """
-        info = cls.get_docker_info()
+        if info is None:
+            info = cls.get_docker_info()
         if info is None:
             return False
         for entry in info.get("DriverStatus") or []:
