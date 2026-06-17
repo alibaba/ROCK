@@ -36,8 +36,15 @@ def base_manager(meta_store):
     """Minimal BaseManager with real meta_store, everything else mocked."""
     from rock.sandbox.base_manager import BaseManager
 
+    class _ConcreteManager(BaseManager):
+        async def _check_job_background(self):
+            ...
+
+        async def _reconcile(self):
+            ...
+
     with patch.object(BaseManager, "__init__", lambda self, *a, **kw: None):
-        mgr = BaseManager.__new__(BaseManager)
+        mgr = _ConcreteManager.__new__(_ConcreteManager)
         mgr._meta_store = meta_store
         mgr._sandbox_meta = {}  # old code needs this; proves empty dict → "default"
         return mgr

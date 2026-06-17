@@ -34,6 +34,7 @@ from rock.logger import init_logger
 from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
 from rock.sandbox.archive.constants import ArchiveKeys
+from rock.sandbox.archive.factory import make_dir_storage_from_config, make_image_storage_from_config
 from rock.sandbox.base_manager import BaseManager
 from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.sandbox_actor import SandboxActor
@@ -72,9 +73,25 @@ class SandboxManager(BaseManager):
         self._operator = operator
         self._dir_storage = None
         self._image_storage = None
+        self._init_archive_storage(rock_config)
         self._aes_encrypter = AESEncryption()
         self._proxy_service = SandboxProxyService(rock_config=rock_config, meta_store=meta_store)
         logger.info("sandbox service init success")
+
+    def _init_archive_storage(self, rock_config: RockConfig) -> None:
+        archive_cfg = rock_config.lifecycle.archive
+        if not archive_cfg.enabled:
+            return
+        image_registry_cfg = archive_cfg.acr
+        dir_storage_cfg = archive_cfg.dir_storage
+        registry_ready = image_registry_cfg.registry_url and image_registry_cfg.username and image_registry_cfg.password
+        dir_storage_ready = (
+            dir_storage_cfg.endpoint and dir_storage_cfg.access_key_id and dir_storage_cfg.access_key_secret
+        )
+        if not (registry_ready and dir_storage_ready):
+            raise RuntimeError("archive.enabled=true but image registry or dir_storage credentials are missing")
+        self._dir_storage = make_dir_storage_from_config(dir_storage_cfg)
+        self._image_storage = make_image_storage_from_config(image_registry_cfg)
 
     async def _get_current_statemachine(self, sandbox_id: str) -> SandboxStateMachine | None:
         """Fetch current state from meta store and return a restored SandboxStateMachine, or None if not found."""
