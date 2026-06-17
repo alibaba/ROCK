@@ -333,6 +333,14 @@ async def get_token(account: str = "legacy"):
     return RockResponse(result=result)
 
 
+@sandbox_proxy_router.get("/acr_config")
+@handle_exceptions(error_message="get acr config failed")
+async def get_acr_config():
+    """Return ACR registry config with temporary credentials."""
+    result = await asyncio.to_thread(sandbox_proxy_service.get_acr_config)
+    return RockResponse(result=result)
+
+
 @sandbox_proxy_router.api_route(
     "/sandboxes/{sandbox_id}/vnc",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],

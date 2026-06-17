@@ -383,6 +383,18 @@ dependencies = [
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/3e/09/da9f58eb38b4fdb97ba6523274fbf445ef6a06be64b433693da8307b4bec/aliyun-python-sdk-core-2.16.0.tar.gz", hash = "sha256:651caad597eb39d4fad6cf85133dffe92837d53bdf62db9d8f37dab6508bb8f9" }
 
 [[package]]
+name = "aliyun-python-sdk-cr"
+version = "4.1.2"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "aliyun-python-sdk-core" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/9d/3b/848bfe5ac095a5d2c46decda1f8a2342d991618f1cb870267744ff211ab5/aliyun-python-sdk-cr-4.1.2.tar.gz", hash = "sha256:69c10f7d3c752934b9cce0c9abc761d46a2bd22420ad7048762a6723af879d84" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/c6/7e/b58784db82871a733329dab639794ff915cf498ae464d998d21fc05b1c00/aliyun_python_sdk_cr-4.1.2-py2.py3-none-any.whl", hash = "sha256:f1f219adeaf985735e203ab4e495c734f94a56c2c757992164555468ea683b8c" },
+]
+
+[[package]]
 name = "aliyun-python-sdk-kms"
 version = "2.16.5"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -4308,6 +4320,7 @@ admin = [
     { name = "aiolimiter" },
     { name = "aiosqlite" },
     { name = "alibabacloud-cr20181201" },
+    { name = "aliyun-python-sdk-cr" },
     { name = "apscheduler" },
     { name = "asyncpg" },
     { name = "bashlex", marker = "sys_platform != 'win32'" },
@@ -4334,6 +4347,7 @@ all = [
     { name = "aiolimiter" },
     { name = "aiosqlite" },
     { name = "alibabacloud-cr20181201" },
+    { name = "aliyun-python-sdk-cr" },
     { name = "apscheduler" },
     { name = "asyncpg" },
     { name = "bashlex", marker = "sys_platform != 'win32'" },
@@ -4413,6 +4427,7 @@ requires-dist = [
     { name = "aiosqlite", marker = "extra == 'admin'" },
     { name = "alibabacloud-cr20181201", marker = "extra == 'admin'", specifier = "==2.0.5" },
     { name = "alibabacloud-cr20181201", marker = "extra == 'model-service'", specifier = "==2.0.5" },
+    { name = "aliyun-python-sdk-cr", marker = "extra == 'admin'" },
     { name = "anyio" },
     { name = "apscheduler", marker = "extra == 'admin'" },
     { name = "apscheduler", marker = "extra == 'sandbox-actor'", specifier = ">=3.11.0" },

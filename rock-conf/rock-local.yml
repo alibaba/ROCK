@@ -34,6 +34,17 @@ warmup:
 #     - "reg-a.aliyuncs.com/mirror-1"
 #     - "reg-b.aliyuncs.com/mirror-2"
 
+# ACR registry and builder configuration
+acr:
+  registry:
+    instance_id: ""
+    namespace: "rock"
+    registry_url: ""
+    region: "cn-hangzhou"
+    access_key_id: ""
+    access_key_secret: ""
+  builder_image: ""
+
 # Scheduler configuration
 scheduler:
   enabled: true                    # Whether to enable the scheduler
