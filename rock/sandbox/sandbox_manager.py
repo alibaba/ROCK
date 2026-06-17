@@ -563,7 +563,7 @@ class SandboxManager(BaseManager):
             except (ValueError, TypeError):
                 continue
 
-            if elapsed < self.rock_config.lifecycle.archive_timeout_sec:
+            if elapsed < self.rock_config.lifecycle.archive_timeout_seconds:
                 continue
 
             try:
@@ -600,7 +600,7 @@ class SandboxManager(BaseManager):
                         elapsed = (datetime.datetime.now(timezone.utc) - started).total_seconds()
                     except (ValueError, TypeError):
                         elapsed = 0
-                    if elapsed >= self.rock_config.lifecycle.restore_timeout_sec:
+                    if elapsed >= self.rock_config.lifecycle.restore_timeout_seconds:
                         sm = await self._get_current_statemachine(sandbox_id)
                         if sm and sm.current_state.value == State.PENDING:
                             await sm.send(

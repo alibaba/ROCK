@@ -198,9 +198,9 @@ class ArchiveConfig:
 
 @dataclass
 class SandboxLifecycleConfig:
-    reconcile_interval_sec: int = 30
-    archive_timeout_sec: int = 1800
-    restore_timeout_sec: int = 1800
+    reconcile_interval_seconds: int = 30
+    archive_timeout_seconds: int = 1800
+    restore_timeout_seconds: int = 1800
     archive: ArchiveConfig = field(default_factory=ArchiveConfig)
 
     default_startup_timeout_seconds: float = 600
