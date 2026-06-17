@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from rock.actions.sandbox.response import State
-from rock.sandbox.archive._constants import dir_archive_key, image_ref
+from rock.sandbox.archive.constants import ArchiveKeys
 from rock.sandbox.archive.registry_v2 import DockerRegistryV2ImageStorage
 from rock.sandbox.archive.s3_storage import S3DirStorage
 
@@ -113,8 +113,8 @@ class TestArchiveRestoreDeleteE2E:
         # === ARCHIVE ===
         await actor.archive(dir_cfg, img_cfg)
 
-        key = dir_archive_key(sandbox_container, "rock-archives/")
-        ref = image_ref(sandbox_container, image_storage.registry_url, "sandbox_archive")
+        key = ArchiveKeys.dir_key(sandbox_container, "rock-archives/")
+        ref = ArchiveKeys.image_ref(sandbox_container, image_storage.registry_url, "sandbox_archive")
 
         assert await dir_storage.exists(key), "Archive dir object should exist in MinIO"
         assert await image_storage.exists(ref), "Archive image should exist in registry"
@@ -178,7 +178,7 @@ class TestArchiveRestoreDeleteE2E:
             with pytest.raises(Exception):
                 await actor.archive(dir_cfg, img_cfg)
 
-            ref = image_ref(sandbox_container, image_storage.registry_url, "sandbox_archive")
+            ref = ArchiveKeys.image_ref(sandbox_container, image_storage.registry_url, "sandbox_archive")
             assert not await image_storage.exists(ref), "Image should be cleaned up on failure"
         finally:
             import shutil
@@ -196,6 +196,8 @@ class TestIdempotentRestore:
         m = MagicMock(spec=SandboxManager)
         m._operator = MagicMock()
         m._operator.restore_archive = AsyncMock()
+        m._dir_storage = MagicMock()
+        m._image_storage = MagicMock()
 
         sm = AsyncMock()
         sm.current_state.value = State.STOPPED
