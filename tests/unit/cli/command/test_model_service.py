@@ -118,3 +118,37 @@ def test_start_handler_omits_both_when_unset(isolate_pid_file, fake_start):
     kwargs = fake_start.call_args.kwargs
     assert kwargs["recording_file"] is None
     assert kwargs["replay_file"] is None
+
+
+# ---------- anti-call-llm: --response-file ----------
+
+
+def test_response_file_flag_parses():
+    parser = _build_parser()
+    ns = parser.parse_args(["model-service", "anti-call-llm", "--index", "1", "--response-file", "/tmp/resp.json"])
+    assert ns.response_file == "/tmp/resp.json"
+    assert ns.response is None
+
+
+def test_response_and_response_file_are_mutually_exclusive():
+    parser = _build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args([
+            "model-service", "anti-call-llm", "--index", "1",
+            "--response", '{"foo":"bar"}', "--response-file", "/tmp/resp.json",
+        ])
+
+
+def test_anti_call_llm_reads_response_file(monkeypatch, tmp_path):
+    payload = '{"id":"chatcmpl-1","choices":[{"message":{"role":"assistant","content":"hello"}}]}'
+    resp_file = tmp_path / "resp.json"
+    resp_file.write_text(payload)
+
+    mock_anti_call = AsyncMock(return_value="next_request_json")
+    monkeypatch.setattr("rock.cli.command.model_service.ModelClient.anti_call_llm", mock_anti_call)
+
+    parser = _build_parser()
+    ns = parser.parse_args(["model-service", "anti-call-llm", "--index", "1", "--response-file", str(resp_file)])
+    asyncio.run(ModelServiceCommand().arun(ns))
+
+    mock_anti_call.assert_called_once_with(index=1, last_response=payload)
