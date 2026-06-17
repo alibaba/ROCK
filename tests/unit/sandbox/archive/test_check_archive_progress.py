@@ -45,7 +45,7 @@ class TestCheckArchiveProgress:
         info = {
             "sandbox_id": "sbx-1",
             "archive_time": "2026-01-01T000000Z",
-            "state_enter_time": "2026-01-01T000000Z",
+            "intermediate_state_started_at": "2026-01-01T000000Z",
             "state": State.ARCHIVING,
         }
         manager._meta_store.list_by = AsyncMock(return_value=[info])
@@ -66,7 +66,7 @@ class TestCheckArchiveProgress:
         info = {
             "sandbox_id": "sbx-1",
             "archive_time": "2026-01-01T000000Z",
-            "state_enter_time": now,
+            "intermediate_state_started_at": now,
             "state": State.ARCHIVING,
         }
         manager._meta_store.list_by = AsyncMock(return_value=[info])
@@ -81,7 +81,7 @@ class TestCheckArchiveProgress:
         info = {
             "sandbox_id": "sbx-1",
             "archive_time": "t1",
-            "state_enter_time": old_time,
+            "intermediate_state_started_at": old_time,
             "state": State.ARCHIVING,
         }
         manager._meta_store.list_by = AsyncMock(return_value=[info])

@@ -47,7 +47,7 @@ class SandboxRecord(Base):
     memory = Column(String(64), nullable=True)
     create_user_gray_flag = Column(Boolean, nullable=True)
     archive_time = Column(String(64), nullable=True)
-    state_enter_time = Column(String(64), nullable=True)
+    intermediate_state_started_at = Column(String(64), nullable=True)
     delete_time = Column(String(64), nullable=True)
     phases = Column(_JSONB_VARIANT, nullable=True)
     port_mapping = Column(_JSONB_VARIANT, nullable=True)

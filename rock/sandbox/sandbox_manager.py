@@ -556,7 +556,7 @@ class SandboxManager(BaseManager):
                     logger.error(f"archive_done transition failed for {sandbox_id}: {e}", exc_info=True)
                 continue
 
-            started_at = info.get("state_enter_time", "")
+            started_at = info.get("intermediate_state_started_at", "")
             if not started_at:
                 continue
             try:
@@ -595,7 +595,7 @@ class SandboxManager(BaseManager):
                 continue
             try:
                 # 1. Restore timeout (archive_time present = restoring from ARCHIVED)
-                started_at = info.get("state_enter_time", "")
+                started_at = info.get("intermediate_state_started_at", "")
                 if info.get("archive_time") and started_at:
                     try:
                         started = datetime.datetime.fromisoformat(started_at.replace("Z", "+00:00"))
