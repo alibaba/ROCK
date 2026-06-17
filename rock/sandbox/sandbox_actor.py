@@ -34,7 +34,7 @@ from rock.deployments.constants import Status
 from rock.deployments.docker import DockerDeployment
 from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
-from rock.sandbox.archive._constants import dir_archive_key, image_ref
+from rock.sandbox.archive.constants import ArchiveKeys
 from rock.sandbox.archive.oss_storage import OssDirStorage
 from rock.sandbox.archive.registry_v2 import DockerRegistryV2ImageStorage
 from rock.sandbox.archive.s3_storage import S3DirStorage
@@ -367,7 +367,7 @@ class SandboxActor(GemActor):
                     f"[{sandbox_id}] image size {image_size} bytes exceeds limit {max_image} ({max_bytes} bytes)"
                 )
 
-        ref = image_ref(sandbox_id, image_storage.registry_url, acr_ns)
+        ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, acr_ns)
         try:
             await image_storage.push_from_local(local_tag, ref)
         except Exception:
@@ -381,7 +381,7 @@ class SandboxActor(GemActor):
             return
 
         log_dir = f"{log_root}/{sandbox_id}"
-        key = dir_archive_key(sandbox_id, prefix)
+        key = ArchiveKeys.dir_key(sandbox_id, prefix)
 
         if os.path.isdir(log_dir):
             max_dir = archive_params.get("max_dir_upload_size", "")
@@ -415,12 +415,12 @@ class SandboxActor(GemActor):
         prefix = archive_params.get("archive_prefix", "rock-archives/")
         acr_ns = archive_params.get("acr_namespace", "sandbox_archive")
 
-        ref = image_ref(sandbox_id, image_storage.registry_url, acr_ns)
+        ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, acr_ns)
         await image_storage.pull_to_local(ref)
 
         log_root = env_vars.ROCK_LOGGING_PATH
         if log_root:
-            key = dir_archive_key(sandbox_id, prefix)
+            key = ArchiveKeys.dir_key(sandbox_id, prefix)
             target_dir = f"{log_root}/{sandbox_id}"
             if await dir_storage.exists(key):
                 try:
