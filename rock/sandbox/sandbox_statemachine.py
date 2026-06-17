@@ -15,7 +15,7 @@ from rock.admin.metrics.billing import log_billing_info
 from rock.common.constants import DeleteReason, StopReason
 from rock.deployments.config import DockerDeploymentConfig
 from rock.logger import init_logger
-from rock.sandbox.archive._constants import dir_archive_key, image_ref
+from rock.sandbox.archive.constants import ArchiveKeys
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils.system import get_iso8601_timestamp
@@ -202,8 +202,8 @@ class SandboxStateMachine(StateChart):
         if sandbox_info.get("archive_time") and dir_storage and image_storage:
             prefix = sandbox_info.get("archive_prefix", "rock-archives/")
             acr_ns = sandbox_info.get("acr_namespace", "sandbox_archive")
-            key = dir_archive_key(sandbox_id, prefix)
-            ref = image_ref(sandbox_id, image_storage.registry_url, acr_ns)
+            key = ArchiveKeys.dir_key(sandbox_id, prefix)
+            ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, acr_ns)
             try:
                 await dir_storage.delete(key)
             except Exception as e:
