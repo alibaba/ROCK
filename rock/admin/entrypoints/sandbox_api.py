@@ -122,9 +122,8 @@ def _probe_cache_set(candidate: str, hit: bool) -> None:
 
 def _apply_mirror_hit(config: DockerDeploymentConfig, mirror, candidate: str) -> None:
     config.image = candidate
-    if mirror.username and mirror.password:
-        config.registry_username = mirror.username
-        config.registry_password = mirror.password
+    config.registry_username = mirror.username
+    config.registry_password = mirror.password
 
 
 def _parse_bearer_challenge(header: str) -> dict[str, str]:
