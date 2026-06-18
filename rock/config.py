@@ -294,6 +294,11 @@ class K8sConfig:
     # Watch configuration
     resync_period: int = 60  # How often (seconds) to perform a full re-list
 
+    # Image auth encryption key (32 bytes) used to encrypt registry credentials
+    # passed to batch-agent via BatchSandbox annotations. Falls back to the
+    # ROCK_IMAGE_AUTH_KEY environment variable if not set here.
+    image_auth_key: str | None = None
+
     # ============================================================================
     # DEPRECATED: The following fields are deprecated and will be removed in a
     # future version. Do NOT use them in new code.
