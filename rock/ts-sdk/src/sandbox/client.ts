@@ -995,10 +995,10 @@ export class Sandbox extends AbstractSandbox {
       throw new Error(`Failed to restart sandbox: ${JSON.stringify(response)}`);
     }
 
-    await this.waitForAlive({ includeAllStates: true });
+    await this.waitForAlive({ includeAllStates: true, operation: 'restart' });
   }
 
-  private async waitForAlive(options?: { includeAllStates?: boolean }): Promise<void> {
+  private async waitForAlive(options?: { includeAllStates?: boolean; operation?: string }): Promise<void> {
     await sleep(2000);
 
     const startTime = Date.now();
@@ -1039,8 +1039,9 @@ export class Sandbox extends AbstractSandbox {
       await sleep(checkInterval);
     }
 
+    const operation = options?.operation ?? 'start';
     throw new InternalServerRockError(
-      `Failed to start sandbox within ${this.config.startupTimeout}s, sandbox: ${this.toString()}`
+      `Failed to ${operation} sandbox within ${this.config.startupTimeout}s, sandbox: ${this.toString()}`
     );
   }
 
