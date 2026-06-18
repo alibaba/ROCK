@@ -150,6 +150,8 @@ class SandboxLogArchiveTask(BaseTask):
         keep_days = int(log_cfg.keep_days_before_archive or 3)
         archive_prefix = log_cfg.archive_prefix or ""
 
+        await self._cleanup_stale_archives(runtime)
+
         # Step 1: discover candidate sandbox_ids on this worker
         candidate_ids = await self._discover_candidates(runtime)
         if not candidate_ids:
@@ -253,6 +255,16 @@ class SandboxLogArchiveTask(BaseTask):
         except (ValueError, TypeError):
             return None
 
+    async def _cleanup_stale_archives(self, runtime: RemoteSandboxRuntime) -> None:
+        """Remove sb-archive-* temp dirs abandoned by SIGKILL'd archive processes."""
+        cmd = "find /tmp -maxdepth 1 -name 'sb-archive-*' -type d -mmin +120 -exec rm -rf {} + 2>/dev/null || true"
+        try:
+            await runtime.execute(
+                Command(command=cmd, shell=True, check=False, sandbox_id="scheduler-task")
+            )
+        except Exception as e:
+            logger.warning(f"[{self.type}] stale archive cleanup failed: {e}")
+
     async def _archive_one(
         self,
         runtime: RemoteSandboxRuntime,
@@ -278,6 +290,7 @@ class SandboxLogArchiveTask(BaseTask):
                 command=cmd,
                 shell=True,
                 check=True,
+                timeout=3600,
                 env={
                     "OSS_ACCESS_KEY_ID": access_key_id,
                     "OSS_ACCESS_KEY_SECRET": access_key_secret,
