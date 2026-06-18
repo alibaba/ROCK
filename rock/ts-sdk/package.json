@@ -39,10 +39,13 @@
     "node": ">=20.8.0"
   },
   "dependencies": {
+    "@types/express": "^5.0.6",
     "ali-oss": "^6.21.0",
     "axios": "^1.7.9",
+    "express": "^5.2.1",
     "ts-case-convert": "^2.1.0",
     "winston": "^3.17.0",
+    "yaml": "^2.9.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

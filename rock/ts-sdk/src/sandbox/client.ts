@@ -15,12 +15,12 @@ import {
 } from './config.js';
 import { Deploy } from './deploy.js';
 import { LinuxFileSystem } from './file_system.js';
-import { ENSURE_OSSUTIL_SCRIPT } from './constants.js';
 import { Network } from './network.js';
+import { OssClient } from './oss_client.js';
 import { Process } from './process.js';
 import { LinuxRemoteUser } from './remote_user.js';
 import { extractNohupPid } from './utils.js';
-import { RunModeType, RunMode as RunModeEnum } from '../common/constants.js';
+import { RunModeType, RunMode as RunModeEnum, PID_PREFIX, PID_SUFFIX } from '../common/constants.js';
 export type { RunModeType };
 export { RunModeEnum as RunMode };
 import {
@@ -33,13 +33,12 @@ import {
   ReadFileResponseSchema,
   UploadResponseSchema,
   CloseSessionResponseSchema,
-  DownloadFileResponseSchema,
-  OssCredentialsSchema,
 } from '../types/responses.js';
 import type {
   Observation,
   CommandResponse,
   IsAliveResponse,
+  SandboxResponse,
   SandboxStatusResponse,
   CreateSessionResponse,
   WriteFileResponse,
@@ -47,7 +46,6 @@ import type {
   UploadResponse,
   CloseSessionResponse,
   DownloadFileResponse,
-  OssCredentials,
 } from '../types/responses.js';
 import type {
   Command,
@@ -57,12 +55,8 @@ import type {
   UploadRequest,
   CloseSessionRequest,
   UploadMode,
-  DownloadMode,
   UploadOptions,
   DownloadOptions,
-  ProgressInfo,
-  UploadPhase,
-  DownloadPhase,
 } from '../types/requests.js';
 import { envVars } from '../env_vars.js';
 
@@ -79,6 +73,10 @@ export abstract class AbstractSandbox {
   abstract writeFile(request: WriteFileRequest): Promise<WriteFileResponse>;
   abstract upload(request: UploadRequest): Promise<UploadResponse>;
   abstract closeSession(request: CloseSessionRequest): Promise<CloseSessionResponse>;
+  abstract delete(): Promise<void>;
+  abstract restart(): Promise<void>;
+  abstract commit(imageTag: string, username: string, password: string): Promise<CommandResponse | undefined>;
+  abstract attach(sandboxId: string): Promise<void>;
   abstract arun(
     cmd: string,
     options?: {
@@ -105,19 +103,25 @@ export class Sandbox extends AbstractSandbox {
   private sandboxId: string | null = null;
   private hostName: string | null = null;
   private hostIp: string | null = null;
+  private namespace: string | null = null;
+  private experimentId: string | null = null;
   private cluster: string;
 
-  // OSS-related properties
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private ossBucket: any = null;
-  private ossTokenExpireTime: string = '';
+  // OSS client (delegates all OSS operations)
+  private _oss: OssClient;
 
   // Sub-components
-  private deploy: Deploy;
+  private _deploy: Deploy;
   private fs: LinuxFileSystem;
   private network: Network;
   private process: Process;
   private remoteUser: LinuxRemoteUser;
+
+  // RuntimeEnv and ModelService registry
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _runtimeEnvs: Record<string, any> = {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _modelService: any = null;
 
   constructor(config: Partial<SandboxConfig> = {}) {
     super();
@@ -126,11 +130,12 @@ export class Sandbox extends AbstractSandbox {
     this.routeKey = this.config.routeKey ?? randomUUID().replace(/-/g, '');
     this.cluster = this.config.cluster;
 
-    this.deploy = new Deploy(this);
+    this._deploy = new Deploy(this);
     this.fs = new LinuxFileSystem(this);
     this.network = new Network(this);
     this.process = new Process(this);
     this.remoteUser = new LinuxRemoteUser(this);
+    this._oss = new OssClient(this);
   }
 
   // Getters
@@ -147,6 +152,14 @@ export class Sandbox extends AbstractSandbox {
 
   getHostIp(): string | null {
     return this.hostIp;
+  }
+
+  getNamespace(): string | null {
+    return this.namespace;
+  }
+
+  getExperimentId(): string | null {
+    return this.experimentId;
   }
 
   getCluster(): string {
@@ -174,7 +187,23 @@ export class Sandbox extends AbstractSandbox {
   }
 
   getDeploy(): Deploy {
-    return this.deploy;
+    return this._deploy;
+  }
+
+  get deploy(): Deploy {
+    return this._deploy;
+  }
+
+  get runtimeEnvs(): Record<string, unknown> {
+    return this._runtimeEnvs;
+  }
+
+  get modelService(): unknown {
+    return this._modelService;
+  }
+
+  set modelService(ms: unknown) {
+    this._modelService = ms;
   }
 
   getConfig(): SandboxConfig {
@@ -269,6 +298,14 @@ export class Sandbox extends AbstractSandbox {
         });
 
         const status = await Promise.race([statusPromise, timeoutPromise]);
+        if (status) {
+          if (status.namespace !== undefined) {
+            this.namespace = status.namespace ?? null;
+          }
+          if (status.experimentId !== undefined) {
+            this.experimentId = status.experimentId ?? null;
+          }
+        }
         if (status && status.isAlive) {
           logger.info('Sandbox is alive');
           return;
@@ -299,6 +336,161 @@ export class Sandbox extends AbstractSandbox {
     }
   }
 
+  /**
+   * Parse error message from sandbox status dict.
+   * Traverses each stage in the status dictionary and returns the first
+   * "failed" or "timeout" stage message, or null if all stages are healthy.
+   */
+  private parseErrorMessageFromStatus(status: Record<string, unknown> | undefined): string | null {
+    if (!status) return null;
+    for (const [stage, details] of Object.entries(status)) {
+      if (details && typeof details === 'object') {
+        const d = details as Record<string, unknown>;
+        if (d.status === 'failed' || d.status === 'timeout') {
+          return `${stage}: ${d.message ?? 'No message provided'}`;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Delete this sandbox.
+   * Sends a POST /delete request with sandbox_id. Raises on failure.
+   */
+  async delete(): Promise<void> {
+    if (!this.sandboxId) {
+      throw new Error('sandbox_id is not set, cannot delete');
+    }
+    const url = `${this.url}/delete`;
+    const headers = this.buildHeaders();
+    const data = { sandboxId: this.sandboxId };
+    const response = await HttpUtils.post<SandboxResponse & { code?: number }>(url, headers, data);
+    logger.debug(`Delete sandbox response: ${JSON.stringify(response)}`);
+    if (response.status !== 'Success') {
+      const result = response.result;
+      if (result) {
+        raiseForCode(result.code, `Failed to delete sandbox: ${JSON.stringify(response)}`);
+      }
+      throw new Error(`Failed to delete sandbox: ${JSON.stringify(response)}`);
+    }
+  }
+
+  /**
+   * Restart a stopped sandbox using 'docker start' (reuses existing container).
+   *
+   * The sandbox must be in STOPPED state before calling this method.
+   * After restart, polls getStatus() until the sandbox is alive or startup_timeout expires.
+   */
+  async restart(): Promise<void> {
+    if (!this.sandboxId) {
+      throw new Error('sandbox_id is not set, cannot restart');
+    }
+    // 1. POST /restart
+    const url = `${this.url}/restart`;
+    const headers = this.buildHeaders();
+    const data = { sandboxId: this.sandboxId };
+    const response = await HttpUtils.post<SandboxResponse & { code?: number }>(url, headers, data);
+    logger.debug(`Restart sandbox response: ${JSON.stringify(response)}`);
+    if (response.status !== 'Success') {
+      const result = response.result;
+      if (result) {
+        raiseForCode(result.code, `Failed to restart sandbox: ${JSON.stringify(response)}`);
+      }
+      throw new Error(`Failed to restart sandbox: ${JSON.stringify(response)}`);
+    }
+
+    // 2. Poll getStatus until alive or timeout
+    const startTime = Date.now();
+    while (Date.now() - startTime < this.config.startupTimeout * 1000) {
+      const sandboxInfo = await this.getStatus(true); // include_all_states=true for detailed status
+      logger.debug(`Restart get status response: ${JSON.stringify(sandboxInfo)}`);
+      if (sandboxInfo.isAlive) {
+        return;
+      }
+      const errorMsg = this.parseErrorMessageFromStatus(sandboxInfo.status);
+      if (errorMsg) {
+        throw new InternalServerRockError(
+          `Failed to restart sandbox because ${errorMsg}, sandbox: ${this.toString()}`
+        );
+      }
+      await sleep(3000);
+    }
+    throw new InternalServerRockError(
+      `Failed to restart sandbox within ${this.config.startupTimeout}s, sandbox: ${this.toString()}`
+    );
+  }
+
+  /**
+   * Commit the sandbox container as a new Docker image.
+   *
+   * @param imageTag - Tag for the new image (e.g., "my-image:v1")
+   * @param username - Registry username for authentication
+   * @param password - Registry password for authentication
+   * @returns CommandResponse with stdout, stderr, and exit_code from the commit operation,
+   *          or undefined if sandbox_id is not set.
+   */
+  async commit(imageTag: string, username: string, password: string): Promise<CommandResponse | undefined> {
+    if (!this.sandboxId) {
+      return;
+    }
+    const url = `${this.url}/commit`;
+    const headers = this.buildHeaders();
+    const data = {
+      sandboxId: this.sandboxId,
+      imageTag,
+      username,
+      password,
+    };
+    const response = await HttpUtils.post<CommandResponse & { code?: number }>(url, headers, data);
+    logger.debug(`Commit sandbox response: ${JSON.stringify(response)}`);
+    if (response.status !== 'Success') {
+      throw new Error(`Failed to execute command: ${JSON.stringify(response)}`);
+    }
+    return CommandResponseSchema.parse(response.result);
+  }
+
+  /**
+   * Attach to an existing sandbox by sandbox_id.
+   *
+   * Reconnects to a sandbox that was previously created (e.g., in another session or by
+   * another process). Fetches the sandbox status to validate the sandbox_id and sync
+   * configuration (hostName, hostIp, namespace, experimentId, image, cpus, memory, userId).
+   *
+   * @param sandboxId - The ID of the existing sandbox to attach to.
+   * @throws Error if the sandbox does not exist, is unreachable, or the returned
+   *               sandbox_id does not match the requested one.
+   */
+  async attach(sandboxId: string): Promise<void> {
+    this.sandboxId = sandboxId;
+    let sandboxInfo: SandboxStatusResponse;
+    try {
+      sandboxInfo = await this.getStatus(true);
+    } catch (e) {
+      this.sandboxId = null;
+      throw new Error(`Failed to attach sandbox ${sandboxId}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    if (sandboxInfo.sandboxId !== sandboxId) {
+      this.sandboxId = null;
+      throw new Error(
+        `sandbox_id mismatch: requested '${sandboxId}', server returned '${sandboxInfo.sandboxId}'`
+      );
+    }
+    this.hostName = sandboxInfo.hostName ?? null;
+    this.hostIp = sandboxInfo.hostIp ?? null;
+    this.namespace = sandboxInfo.namespace ?? null;
+    this.experimentId = sandboxInfo.experimentId ?? null;
+
+    // Sync config with server-side state
+    this.config.sandboxId = sandboxId;
+    this.config.image = sandboxInfo.image ?? this.config.image;
+    this.config.cpus = sandboxInfo.cpus ?? this.config.cpus;
+    this.config.memory = sandboxInfo.memory ?? this.config.memory;
+    this.config.userId = sandboxInfo.userId ?? this.config.userId;
+    this.config.experimentId = sandboxInfo.experimentId ?? this.config.experimentId;
+    this.config.namespace = sandboxInfo.namespace ?? this.config.namespace;
+  }
+
   async isAlive(): Promise<IsAliveResponse> {
     try {
       const status = await this.getStatus();
@@ -312,8 +504,8 @@ export class Sandbox extends AbstractSandbox {
     }
   }
 
-  async getStatus(): Promise<SandboxStatusResponse> {
-    const url = `${this.url}/get_status?sandbox_id=${this.sandboxId}`;
+  async getStatus(includeAllStates: boolean = false): Promise<SandboxStatusResponse> {
+    const url = `${this.url}/get_status?sandbox_id=${this.sandboxId}&include_all_states=${includeAllStates}`;
     const headers = this.buildHeaders();
     const response = await HttpUtils.get<SandboxStatusResponse & { code?: number }>(url, headers);
 
@@ -497,7 +689,7 @@ export class Sandbox extends AbstractSandbox {
     } = options;
 
     const timestamp = Date.now();
-    
+
     // Only create session if not provided (matches Python SDK behavior)
     let tmpSession: string;
     if (session === undefined || session === null) {
@@ -510,76 +702,161 @@ export class Sandbox extends AbstractSandbox {
     const tmpFile = outputFile ?? `/tmp/tmp_${timestamp}.out`;
 
     // Wrap multi-line scripts with bash -c to avoid nohup issues
-    // Single-line commands can be passed directly to nohup
-    // Multi-line scripts need to be wrapped with bash -c $'script'
     let effectiveCmd: string;
     if (cmd.includes('\n')) {
-      // Use $'...' syntax to properly handle newlines and special characters
       effectiveCmd = `bash -c $'${cmd.replace(/'/g, "'\\''")}'`;
     } else {
       effectiveCmd = cmd;
     }
 
-    // Start nohup process
-    const nohupCommand = `nohup ${effectiveCmd} < /dev/null > ${tmpFile} 2>&1 & echo __ROCK_PID_START__$!__ROCK_PID_END__;disown`;
-    const response = await this.runInSession({
-      command: nohupCommand,
-      session: tmpSession,
-      timeout: 30,
-    });
+    // Delegate to startNohupProcess
+    const { pid, errorResponse } = await this.startNohupProcess(effectiveCmd, tmpFile, tmpSession);
 
-    // Check if nohup command failed (non-zero exit code and not undefined)
-    if (response.exitCode !== undefined && response.exitCode !== 0) {
-      return response;
+    if (errorResponse) {
+      return errorResponse;
     }
 
-    // Extract PID
-    const pid = extractNohupPid(response.output);
     if (!pid) {
-      return {
-        output: 'Failed to submit command, nohup failed to extract PID',
-        exitCode: 1,
-        failureReason: 'PID extraction failed',
-        expectString: '',
-      };
+      const msg = 'Failed to submit command, nohup failed to extract PID';
+      return { output: msg, exitCode: 1, failureReason: msg, expectString: '' };
     }
 
     // Wait for process completion
-    const success = await this.waitForProcessCompletion(pid, tmpSession, waitTimeout, waitInterval);
+    const { success, message } = await this.waitForProcessCompletion(
+      pid, tmpSession, waitTimeout, waitInterval
+    );
 
-    // Read output
-    if (ignoreOutput) {
-      return {
-        output: `Command executed in nohup mode. Output file: ${tmpFile}`,
-        exitCode: success ? 0 : 1,
-        failureReason: success ? '' : 'Process did not complete successfully',
-        expectString: '',
-      };
+    // Delegate to handleNohupOutput
+    return this.handleNohupOutput(
+      tmpFile, tmpSession, success, message, ignoreOutput, responseLimitedBytesInNohup ?? null
+    );
+  }
+
+  /**
+   * Start a nohup process and extract its PID.
+   *
+   * @param cmd - User command to execute in nohup (not yet wrapped with nohup)
+   * @param tmpFile - Output file path for nohup stdout/stderr
+   * @param session - Bash session name
+   * @returns PID (if successful) and optional error Observation
+   */
+  async startNohupProcess(
+    cmd: string,
+    tmpFile: string,
+    session: string
+  ): Promise<{ pid: number | null; errorResponse: Observation | null }> {
+    const nohupCommand = `nohup ${cmd} < /dev/null > ${tmpFile} 2>&1 & echo ${PID_PREFIX}$!${PID_SUFFIX};disown`;
+
+    const response = await this.runInSession({
+      command: nohupCommand,
+      session,
+      timeout: 30,
+    });
+
+    if (response.exitCode !== undefined && response.exitCode !== 0) {
+      return { pid: null, errorResponse: response };
     }
 
+    const pid = extractNohupPid(response.output);
+    if (!pid) {
+      return { pid: null, errorResponse: null };
+    }
+
+    return { pid, errorResponse: null };
+  }
+
+  /**
+   * Handle the output of a completed nohup process.
+   *
+   * @param tmpFile - Path to the output file
+   * @param session - Bash session name
+   * @param success - Whether the process completed successfully
+   * @param message - Status message from process monitoring
+   * @param ignoreOutput - Whether to ignore the actual output content
+   * @param responseLimitedBytesInNohup - Maximum bytes to read from output
+   * @returns Observation containing the result
+   */
+  async handleNohupOutput(
+    tmpFile: string,
+    session: string,
+    success: boolean,
+    message: string,
+    ignoreOutput: boolean,
+    responseLimitedBytesInNohup: number | null
+  ): Promise<Observation> {
+    if (ignoreOutput) {
+      // Best-effort file size detection
+      let fileSize: number | null = null;
+      try {
+        const sizeResult = await this.runInSession({
+          command: `stat -c %s ${tmpFile} 2>/dev/null || stat -f %z ${tmpFile}`,
+          session,
+        });
+        if (sizeResult.exitCode === 0 && /^\d+$/.test(sizeResult.output.trim())) {
+          fileSize = parseInt(sizeResult.output.trim(), 10);
+        }
+      } catch {
+        // Best-effort; ignore file-size errors
+      }
+
+      const detachedMsg = this._buildNohupDetachedMessage(tmpFile, success, message, fileSize);
+      if (success) {
+        return { output: detachedMsg, exitCode: 0, failureReason: '', expectString: '' };
+      }
+      return { output: detachedMsg, exitCode: 1, failureReason: message, expectString: '' };
+    }
+
+    // Read output from file
     const readCmd = responseLimitedBytesInNohup
       ? `head -c ${responseLimitedBytesInNohup} ${tmpFile}`
       : `cat ${tmpFile}`;
 
-    const outputResult = await this.runInSession({
+    const execResult = await this.runInSession({
       command: readCmd,
-      session: tmpSession,
+      session,
     });
 
-    return {
-      output: outputResult.output,
-      exitCode: success ? 0 : 1,
-      failureReason: success ? '' : 'Process did not complete successfully',
-      expectString: '',
-    };
+    if (success) {
+      return { output: execResult.output, exitCode: 0, failureReason: '', expectString: '' };
+    }
+    return { output: execResult.output, exitCode: 1, failureReason: message, expectString: '' };
   }
 
-  private async waitForProcessCompletion(
+  /**
+   * Build a detached-mode message describing the nohup output file.
+   */
+  private _buildNohupDetachedMessage(
+    tmpFile: string,
+    success: boolean,
+    message: string,
+    fileSize: number | null
+  ): string {
+    const status = success ? 'completed successfully' : 'did not complete';
+    let msg = `Command executed in nohup mode (${status}). Output file: ${tmpFile}`;
+    if (message) {
+      msg += `. ${message}`;
+    }
+    if (fileSize !== null) {
+      msg += `. File size: ${fileSize} bytes`;
+    }
+    return msg;
+  }
+
+  /**
+   * Wait for process completion. Public so agents can call it directly.
+   *
+   * @param pid - Process ID to monitor
+   * @param session - Bash session name
+   * @param waitTimeout - Maximum time to wait in seconds
+   * @param waitInterval - Interval for checking process status in seconds
+   * @returns Success status and message
+   */
+  async waitForProcessCompletion(
     pid: number,
     session: string,
     waitTimeout: number,
     waitInterval: number
-  ): Promise<boolean> {
+  ): Promise<{ success: boolean; message: string }> {
     const startTime = Date.now();
     const checkInterval = Math.max(1, waitInterval);
     const effectiveTimeout = Math.min(checkInterval * 2, waitTimeout);
@@ -596,18 +873,38 @@ export class Sandbox extends AbstractSandbox {
           await sleep(checkInterval * 1000);
         } else {
           // Process does not exist - completed
-          return true;
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          return { success: true, message: `Process completed successfully in ${elapsed}s` };
         }
       } catch {
         // Process does not exist - completed
-        return true;
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        return { success: true, message: `Process completed successfully in ${elapsed}s` };
       }
     }
 
-    return false; // Timeout
+    // Timeout
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    return { success: false, message: `Process ${pid} did not complete within ${elapsed}s (timeout: ${waitTimeout}s)` };
   }
 
   // File operations
+
+  /**
+   * Download file from sandbox container to local machine.
+   *
+   * @deprecated Since v1.10 — use `sandbox.fs.downloadFile()` instead.
+   * This wrapper is kept for backward compatibility and forwards to
+   * {@link LinuxFileSystem.downloadFile}.
+   */
+  async downloadFile(
+    remotePath: string,
+    localPath: string,
+    options?: DownloadOptions,
+  ): Promise<DownloadFileResponse> {
+    return this.fs.downloadFile(remotePath, localPath, options);
+  }
+
   async writeFile(request: WriteFileRequest): Promise<WriteFileResponse> {
     const url = `${this.url}/write_file`;
     const headers = this.buildHeaders();
@@ -662,7 +959,7 @@ export class Sandbox extends AbstractSandbox {
 
     try {
       const fs = await import('fs/promises');
-      
+
       // Use async access instead of sync existsSync
       try {
         await fs.access(sourcePath);
@@ -677,7 +974,18 @@ export class Sandbox extends AbstractSandbox {
       const ossThreshold = 1024 * 1024; // 1MB
 
       if (uploadMode === 'oss' || (uploadMode === 'auto' && ossEnabled && fileSize > ossThreshold)) {
-        return this.uploadViaOss(sourcePath, targetPath, timeout, onProgress);
+        await this._oss.ensureSetup();
+        if (this._oss.isAvailable()) {
+          return this._oss.uploadViaOss(sourcePath, targetPath, timeout, onProgress);
+        }
+        // Explicit OSS requested but unavailable -> fail
+        if (uploadMode === 'oss') {
+          return {
+            success: false,
+            message: 'Failed to upload file, please setup oss bucket first',
+          };
+        }
+        // Otherwise fall through to admin /upload (natural degradation for auto / default large files)
       }
 
       // Use async readFile instead of sync readFileSync
@@ -695,318 +1003,27 @@ export class Sandbox extends AbstractSandbox {
         return { success: false, message: 'Upload failed' };
       }
 
+      // Admin /upload succeeded; opportunistically persist to OSS in background.
+      // Skipped silently when OSS is not configured/available.
+      if (await this._oss.ensureSetup() && this._oss.isAvailable()) {
+        await this._oss.scheduleAsyncPersist(sourcePath, targetPath);
+      }
+
       return { success: true, message: `Successfully uploaded file ${fileName} to ${targetPath}` };
     } catch (e) {
       return { success: false, message: `Upload failed: ${e}` };
     }
   }
 
-  /**
-   * Get OSS STS credentials from sandbox
-   */
-  async getOssStsCredentials(): Promise<OssCredentials> {
-    const url = `${this.url}/get_token`;
-    const headers = this.buildHeaders();
-
-    const response = await HttpUtils.get<OssCredentials>(url, headers);
-
-    if (response.status !== 'Success') {
-      throw new Error(`Failed to get OSS STS token: ${JSON.stringify(response)}`);
-    }
-
-    const credentials = OssCredentialsSchema.parse(response.result);
-    this.ossTokenExpireTime = credentials.expiration;
-
-    return credentials;
-  }
-
-  /**
-   * Check if OSS token is expired (with 5-minute buffer)
-   */
-  isTokenExpired(): boolean {
-    if (!this.ossTokenExpireTime) {
-      return true;
-    }
-
-    try {
-      const expireTime = new Date(this.ossTokenExpireTime);
-      const currentTime = new Date();
-      const bufferMs = 5 * 60 * 1000; // 5 minutes in milliseconds
-
-      return currentTime.getTime() >= (expireTime.getTime() - bufferMs);
-    } catch {
-      return true;
-    }
-  }
-
-  /**
-   * Download file from sandbox
-   * @param remotePath - File path in sandbox
-   * @param localPath - Local file path
-   * @param downloadMode - Download mode: 'auto' (default), 'direct', or 'oss'
-   * @param timeout - Optional timeout in milliseconds for OSS mode
-   */
-  async downloadFile(
-    remotePath: string,
-    localPath: string,
-    options?: DownloadOptions
-  ): Promise<DownloadFileResponse> {
-    // Extract options with defaults
-    const downloadMode = options?.downloadMode ?? 'auto';
-    const timeout = options?.timeout;
-    const onProgress = options?.onProgress;
-
-    // Validate remote path
-    if (!remotePath || remotePath.trim() === '') {
-      return { success: false, message: 'Remote path is required' };
-    }
-
-    // Check if remote file exists
-    const checkResult = await this.execute({ command: ['test', '-f', remotePath], timeout: 60 });
-    if (checkResult.exitCode !== 0) {
-      return { success: false, message: `Remote file does not exist: ${remotePath}` };
-    }
-
-    // direct mode: use readFile API
-    if (downloadMode === 'direct') {
-      return this.downloadDirect(remotePath, localPath);
-    }
-
-    // oss mode: use OSS as intermediary
-    if (downloadMode === 'oss') {
-      return this.downloadViaOss(remotePath, localPath, timeout, onProgress);
-    }
-
-    // auto mode: choose based on file size and OSS availability
-    // Get remote file size
-    const sizeResult = await this.execute({ command: ['stat', '-c', '%s', remotePath], timeout: 60 });
-    if (sizeResult.exitCode !== 0) {
-      // Fall back to direct if we can't get file size
-      return this.downloadDirect(remotePath, localPath);
-    }
-
-    const fileSize = parseInt(sizeResult.stdout.trim(), 10);
-    const ossThreshold = 1024 * 1024; // 1MB
-    const ossEnabled = envVars.ROCK_OSS_ENABLE;
-
-    // OSS enabled AND file >= 1MB: use OSS
-    if (ossEnabled && fileSize >= ossThreshold) {
-      return this.downloadViaOss(remotePath, localPath, timeout, onProgress);
-    }
-
-    // Otherwise: use direct
-    return this.downloadDirect(remotePath, localPath);
-  }
-
-  /**
-   * Download file directly via readFile API
-   */
-  private async downloadDirect(remotePath: string, localPath: string): Promise<DownloadFileResponse> {
-    try {
-      const fs = await import('fs/promises');
-      const path = await import('path');
-
-      // Read file content from sandbox
-      const response = await this.readFile({ path: remotePath });
-
-      // Ensure parent directory exists
-      const parentDir = path.dirname(localPath);
-      await fs.mkdir(parentDir, { recursive: true });
-
-      // Write to local file
-      await fs.writeFile(localPath, response.content, 'utf-8');
-
-      return { success: true, message: `Successfully downloaded ${remotePath} to ${localPath}` };
-    } catch (e) {
-      return { success: false, message: `Direct download failed: ${e}` };
-    }
-  }
-
-  /**
-   * Download file via OSS as intermediary
-   */
-  private async downloadViaOss(remotePath: string, localPath: string, timeout?: number, onProgress?: (info: ProgressInfo) => void): Promise<DownloadFileResponse> {
-    // Check OSS is enabled
-    if (!envVars.ROCK_OSS_ENABLE) {
-      return {
-        success: false,
-        message: 'OSS download is not enabled. Please set ROCK_OSS_ENABLE=true',
-      };
-    }
-
-    try {
-      // Setup OSS bucket if needed
-      if (this.ossBucket === null || this.isTokenExpired()) {
-        await this.setupOss(timeout);
-      }
-
-      if (!this.ossBucket) {
-        return { success: false, message: 'Failed to setup OSS bucket' };
-      }
-
-      // Install ossutil in sandbox
-      await this.arun(ENSURE_OSSUTIL_SCRIPT, { mode: 'nohup', waitTimeout: 300 });
-
-      // Generate unique object name
-      const timestamp = Date.now();
-      const fileName = remotePath.split('/').pop() ?? 'file';
-      const objectName = `download-${timestamp}-${fileName}`;
-
-      // Get STS credentials for ossutil
-      const credentials = await this.getOssStsCredentials();
-      const bucketName = envVars.ROCK_OSS_BUCKET_NAME ?? '';
-      const region = (envVars.ROCK_OSS_BUCKET_REGION ?? '').replace(/^oss-/, ''); // Normalize: remove "oss-" prefix if present
-      // Use ROCK_OSS_BUCKET_ENDPOINT if available, otherwise build from region
-      // Endpoint format: "oss-cn-hangzhou.aliyuncs.com" (no protocol prefix)
-      const endpoint = envVars.ROCK_OSS_BUCKET_ENDPOINT ?? `oss-${region}.aliyuncs.com`;
-
-      // Upload from sandbox to OSS via ossutil v2
-      // ossutil v2 uses command-line parameters for credentials (no separate config needed)
-      // This matches the Python SDK implementation
-      // Wrap with bash -c for nohup mode to ensure correct PATH (ossutil is in /usr/local/bin)
-      const ossutilInnerCmd = `ossutil cp '${remotePath}' 'oss://${bucketName}/${objectName}' --access-key-id '${credentials.accessKeyId}' --access-key-secret '${credentials.accessKeySecret}' --sts-token '${credentials.securityToken}' --endpoint '${endpoint}' --region '${region}'`;
-      const uploadToOssCmd = `bash -c '${ossutilInnerCmd.replace(/'/g, "'\"'\"'")}'`;
-      const uploadResult = await this.arun(uploadToOssCmd, { mode: 'nohup', waitTimeout: 600 });
-      if (uploadResult.exitCode !== 0) {
-        return { success: false, message: `Sandbox to OSS upload failed: ${uploadResult.output}` };
-      }
-
-      // Download from OSS to local via ali-oss with timeout and progress
-      const ossTimeout = timeout ?? envVars.ROCK_OSS_TIMEOUT;
-      const result = await this.ossBucket.get(objectName, localPath, { 
-        timeout: ossTimeout,
-        progress: (p: number) => {
-          onProgress?.({
-            phase: 'download-to-local',
-            percent: Math.round(p * 100)
-          });
-        }
-      });
-
-      // Cleanup OSS object
-      try {
-        await this.ossBucket.delete(objectName);
-      } catch {
-        // Ignore cleanup errors
-      }
-
-      return { success: true, message: `Successfully downloaded ${remotePath} to ${localPath}` };
-    } catch (e) {
-      return { success: false, message: `OSS download failed: ${e}` };
-    }
-  }
-
-  /**
-   * Upload file via OSS (internal method)
-   * @param timeout - Optional timeout in milliseconds
-   */
-  private async uploadViaOss(sourcePath: string, targetPath: string, timeout?: number, onProgress?: (info: ProgressInfo) => void): Promise<UploadResponse> {
-    try {
-      // Setup OSS bucket if needed
-      if (this.ossBucket === null || this.isTokenExpired()) {
-        await this.setupOss(timeout);
-      }
-
-      if (!this.ossBucket) {
-        return { success: false, message: 'Failed to setup OSS bucket' };
-      }
-
-      const timestamp = Date.now();
-      const fileName = sourcePath.split('/').pop() ?? 'file';
-      const objectName = `${timestamp}-${fileName}`;
-
-      // Check file size to determine upload method
-      const fs = await import('fs/promises');
-      const stats = await fs.stat(sourcePath);
-      const fileSize = stats.size;
-      const multipartThreshold = 1024 * 1024; // 1MB
-
-      const ossTimeout = timeout ?? envVars.ROCK_OSS_TIMEOUT;
-
-      // Use multipartUpload for large files (>= 1MB) to avoid connection issues
-      // Matches Python SDK's oss2.resumable_upload behavior
-      if (fileSize >= multipartThreshold) {
-        await this.ossBucket.multipartUpload(objectName, sourcePath, {
-          timeout: ossTimeout,
-          partSize: multipartThreshold, // 1MB per part
-          progress: (p: number) => {
-            onProgress?.({
-              phase: 'upload-to-oss',
-              percent: Math.round(p * 100)
-            });
-          }
-        });
-      } else {
-        await this.ossBucket.put(objectName, sourcePath, { 
-          timeout: ossTimeout,
-          progress: (p: number) => {
-            onProgress?.({
-              phase: 'upload-to-oss',
-              percent: Math.round(p * 100)
-            });
-          }
-        });
-      }
-
-      // Generate signed URL for sandbox to download
-      const signedUrl = this.ossBucket.signatureUrl(objectName, { expires: 600 });
-
-      // Notify: starting sandbox download phase
-      onProgress?.({
-        phase: 'download-to-sandbox',
-        percent: -1
-      });
-      
-      // Download in sandbox using wget
-      const downloadCmd = `wget -c -O '${targetPath}' '${signedUrl}'`;
-      await this.arun(downloadCmd, { mode: 'nohup', waitTimeout: 600 });
-
-      // Verify file exists in sandbox
-      const checkResult = await this.execute({ command: ['test', '-f', targetPath], timeout: 60 });
-      if (checkResult.exitCode !== 0) {
-        return { success: false, message: 'Sandbox download phase failed' };
-      }
-
-      return { success: true, message: `Successfully uploaded file ${fileName} to ${targetPath} via OSS` };
-    } catch (e) {
-      return { success: false, message: `OSS upload failed: ${e}` };
-    }
-  }
-
-  /**
-   * Setup OSS bucket with STS credentials
-   * @param timeout - Optional timeout in milliseconds (defaults to ROCK_OSS_TIMEOUT env var or 300000ms)
-   */
-  private async setupOss(timeout?: number): Promise<void> {
-    const credentials = await this.getOssStsCredentials();
-
-    const OSS = (await import('ali-oss')).default;
-
-    // Priority: parameter > env var > default (300000ms = 5 minutes)
-    const ossTimeout = timeout ?? envVars.ROCK_OSS_TIMEOUT;
-
-    this.ossBucket = new OSS({
-      secure: true, // Use HTTPS for OSS connections
-      timeout: ossTimeout,
-      region: envVars.ROCK_OSS_BUCKET_REGION ?? '',
-      accessKeyId: credentials.accessKeyId,
-      accessKeySecret: credentials.accessKeySecret,
-      stsToken: credentials.securityToken,
-      bucket: envVars.ROCK_OSS_BUCKET_NAME ?? '',
-      refreshSTSToken: async () => {
-        const newCreds = await this.getOssStsCredentials();
-        return {
-          accessKeyId: newCreds.accessKeyId,
-          accessKeySecret: newCreds.accessKeySecret,
-          stsToken: newCreds.securityToken,
-        };
-      },
-      refreshSTSTokenInterval: 300000, // 5 minutes
-    });
-  }
-
   // Close
   override async close(): Promise<void> {
+    // Drain pending async OSS persistence tasks (with timeout) before
+    // tearing down the sandbox so in-flight uploads have a chance to finish.
+    try {
+      await this._oss.close();
+    } catch (e) {
+      logger.warn(`OssClient.close() failed, IGNORE: ${e}`);
+    }
     await this.stop();
   }
 
