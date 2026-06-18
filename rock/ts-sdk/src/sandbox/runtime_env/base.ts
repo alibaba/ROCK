@@ -51,6 +51,7 @@ export interface SandboxLike {
     ignoreOutput: boolean,
     responseLimitedBytes: number | null
   ): Promise<Observation>;
+  uploadByPath?(sourcePath: string, targetPath: string): Promise<unknown>;
 }
 
 /**

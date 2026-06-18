@@ -63,6 +63,48 @@ import { envVars } from '../env_vars.js';
 const logger = initLogger('rock.sandbox');
 
 /**
+ * MIME type lookup from file extension.
+ * Maps common extensions to their MIME types.
+ * In Python SDK, this uses mimetypes.guess_type().
+ */
+const MIME_MAP: Record<string, string> = {
+  '.py': 'text/x-python',
+  '.json': 'application/json',
+  '.txt': 'text/plain',
+  '.tar.gz': 'application/gzip',
+  '.tgz': 'application/gzip',
+  '.gz': 'application/gzip',
+  '.zip': 'application/zip',
+  '.csv': 'text/csv',
+  '.yaml': 'text/yaml',
+  '.yml': 'text/yaml',
+  '.xml': 'application/xml',
+  '.html': 'text/html',
+  '.css': 'text/css',
+  '.js': 'application/javascript',
+  '.ts': 'application/typescript',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.pdf': 'application/pdf',
+  '.md': 'text/markdown',
+  '.sh': 'text/x-shellscript',
+  '.log': 'text/plain',
+};
+
+function getMimeType(filename: string): string {
+  // Check compound extensions first (e.g., .tar.gz)
+  for (const [ext, mime] of Object.entries(MIME_MAP)) {
+    if (filename.endsWith(ext)) {
+      return mime;
+    }
+  }
+  return 'application/octet-stream';
+}
+
+/**
  * Abstract sandbox interface
  */
 export abstract class AbstractSandbox {
@@ -221,6 +263,14 @@ export class Sandbox extends AbstractSandbox {
       Object.assign(headers, this.config.extraHeaders);
     }
 
+    // DEPRECATED: XRL-Authorization support via xrlAuthorization config
+    if (!headers['XRL-Authorization'] && this.config.xrlAuthorization) {
+      console.warn(
+        'XRL-Authorization is deprecated, use extraHeaders instead'
+      );
+      headers['XRL-Authorization'] = 'Bearer ' + this.config.xrlAuthorization;
+    }
+
     this.addUserDefinedTags(headers);
 
     return headers;
@@ -246,11 +296,20 @@ export class Sandbox extends AbstractSandbox {
     // Use camelCase - HTTP layer will convert to snake_case
     const data = {
       image: this.config.image,
+      imageOs: this.config.imageOs,
       autoClearTime: this.config.autoClearSeconds / 60,
       autoClearTimeMinutes: this.config.autoClearSeconds / 60,
       startupTimeout: this.config.startupTimeout,
       memory: this.config.memory,
       cpus: this.config.cpus,
+      numGpus: this.config.numGpus,
+      acceleratorType: this.config.acceleratorType,
+      registryUsername: this.config.registryUsername,
+      registryPassword: this.config.registryPassword,
+      useKataRuntime: this.config.useKataRuntime,
+      limitCpus: this.config.limitCpus,
+      sandboxId: this.config.sandboxId,
+      autoDeleteSeconds: this.config.autoDeleteSeconds,
     };
 
     logger.debug(`Calling start_async API: ${url}`);
@@ -837,7 +896,15 @@ export class Sandbox extends AbstractSandbox {
       msg += `. ${message}`;
     }
     if (fileSize !== null) {
-      msg += `. File size: ${fileSize} bytes`;
+      let sizeStr: string;
+      if (fileSize < 1024) {
+        sizeStr = `${fileSize} bytes`;
+      } else if (fileSize < 1024 * 1024) {
+        sizeStr = `${(fileSize / 1024).toFixed(2)} KB`;
+      } else {
+        sizeStr = `${(fileSize / (1024 * 1024)).toFixed(2)} MB`;
+      }
+      msg += `. File size: ${sizeStr}`;
     }
     return msg;
   }
@@ -857,29 +924,43 @@ export class Sandbox extends AbstractSandbox {
     waitTimeout: number,
     waitInterval: number
   ): Promise<{ success: boolean; message: string }> {
-    const startTime = Date.now();
-    const checkInterval = Math.max(1, waitInterval);
-    const effectiveTimeout = Math.min(checkInterval * 2, waitTimeout);
+    // Safety: enforce minimum and maximum bounds for wait_interval (matches Python SDK)
+    waitInterval = Math.max(5, waitInterval); // Minimum interval 5 seconds
+    waitInterval = Math.min(this.config.autoClearSeconds - 2, waitInterval); // wait_interval < auto_clear_seconds
 
-    while (Date.now() - startTime < waitTimeout * 1000) {
+    const startTime = Date.now();
+    const endTime = startTime + waitTimeout * 1000;
+    const checkAliveTimeout = Math.min(waitInterval * 2, waitTimeout); // Not greater than wait_timeout
+
+    let consecutiveFailures = 0;
+    const maxConsecutiveFailures = 3;
+
+    while (Date.now() < endTime) {
       try {
+        // Check if process still exists
         const result = await this.runInSession({
           command: `kill -0 ${pid}`,
           session,
-          timeout: effectiveTimeout,
+          timeout: checkAliveTimeout,
         });
-        // If exitCode is 0, process is still running
+        // Process still exists (exitCode === 0)
         if (result.exitCode === 0) {
-          await sleep(checkInterval * 1000);
+          // Reset failure count on successful check
+          consecutiveFailures = 0;
+          await sleep(waitInterval * 1000);
         } else {
           // Process does not exist - completed
           const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
           return { success: true, message: `Process completed successfully in ${elapsed}s` };
         }
       } catch {
-        // Process does not exist - completed
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        return { success: true, message: `Process completed successfully in ${elapsed}s` };
+        // Check timed out or errored
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= maxConsecutiveFailures) {
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          return { success: false, message: `Process check failed after ${elapsed}s due to consecutive timeouts` };
+        }
+        await sleep(waitInterval * 1000);
       }
     }
 
@@ -964,7 +1045,7 @@ export class Sandbox extends AbstractSandbox {
       try {
         await fs.access(sourcePath);
       } catch {
-        return { success: false, message: `File not found: ${sourcePath}` };
+        return { success: false, message: `File not found: ${sourcePath}`, fileName: '' };
       }
 
       // Check if we should use OSS upload
@@ -983,6 +1064,7 @@ export class Sandbox extends AbstractSandbox {
           return {
             success: false,
             message: 'Failed to upload file, please setup oss bucket first',
+            fileName: '',
           };
         }
         // Otherwise fall through to admin /upload (natural degradation for auto / default large files)
@@ -991,16 +1073,17 @@ export class Sandbox extends AbstractSandbox {
       // Use async readFile instead of sync readFileSync
       const fileBuffer = await fs.readFile(sourcePath);
       const fileName = sourcePath.split('/').pop() ?? 'file';
+      const contentType = getMimeType(fileName);
 
       const response = await HttpUtils.postMultipart<void>(
         url,
         headers,
         { targetPath: targetPath, sandboxId: this.sandboxId ?? '' },
-        { file: [fileName, fileBuffer, 'application/octet-stream'] }
+        { file: [fileName, fileBuffer, contentType] }
       );
 
       if (response.status !== 'Success') {
-        return { success: false, message: 'Upload failed' };
+        return { success: false, message: 'Upload failed', fileName: '' };
       }
 
       // Admin /upload succeeded; opportunistically persist to OSS in background.
@@ -1009,9 +1092,9 @@ export class Sandbox extends AbstractSandbox {
         await this._oss.scheduleAsyncPersist(sourcePath, targetPath);
       }
 
-      return { success: true, message: `Successfully uploaded file ${fileName} to ${targetPath}` };
+      return { success: true, message: `Successfully uploaded file ${fileName} to ${targetPath}`, fileName };
     } catch (e) {
-      return { success: false, message: `Upload failed: ${e}` };
+      return { success: false, message: `Upload failed: ${e}`, fileName: '' };
     }
   }
 

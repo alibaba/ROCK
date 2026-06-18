@@ -151,7 +151,7 @@ export class OssClient {
     onProgress?: (info: ProgressInfo) => void,
   ): Promise<UploadResponse> {
     if (!this.bucket) {
-      return { success: false, message: 'OSS bucket not set up' };
+      return { success: false, message: 'OSS bucket not set up', fileName: '' };
     }
 
     const sandbox = this.sandbox as { sandboxId: string; arun: Function; execute: Function; url: string; buildHeaders: Function };
@@ -217,18 +217,21 @@ export class OssClient {
         return {
           success: false,
           message: `Failed to upload file ${fileName}, sandbox download phase failed`,
+          fileName,
         };
       }
 
       return {
         success: true,
         message: `Successfully uploaded file ${fileName} to ${targetPath}`,
+        fileName,
       };
     } catch (e) {
       logger.warn(`upload_via_oss failed: ${e}`);
       return {
         success: false,
         message: `Failed to upload file ${fileName} to ${targetPath}: ${e}`,
+        fileName,
       };
     }
   }

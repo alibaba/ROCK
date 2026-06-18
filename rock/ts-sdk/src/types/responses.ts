@@ -46,7 +46,11 @@ export const SandboxStatusResponseSchema = z.object({
   namespace: z.string().optional(),
   cpus: z.number().optional(),
   memory: z.string().optional(),
+  diskLimitRootfs: z.string().nullable().default(null),
   state: z.unknown().optional(),
+  startTime: z.string().nullable().default(null),
+  stopTime: z.string().nullable().default(null),
+  createTime: z.string().nullable().default(null),
   // Response headers info
   cluster: z.string().optional(),
   requestId: z.string().optional(),
@@ -91,7 +95,7 @@ export type ReadFileResponse = z.infer<typeof ReadFileResponseSchema>;
 export const UploadResponseSchema = z.object({
   success: z.boolean().default(false),
   message: z.string().default(''),
-  fileName: z.string().optional(),
+  fileName: z.string().optional().default(''),
 });
 
 export type UploadResponse = z.infer<typeof UploadResponseSchema>;
