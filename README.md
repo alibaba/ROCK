@@ -155,11 +155,11 @@ if __name__ == "__main__":
 
 | Date | Release |
 |:-------------|:---|
-| **[Latest]** | 🎉 ROCK v1.8.0 Released (2026-05-21) — [Release Notes](https://rock.io.alibaba-inc.com/docs/1.8.x/Release%20Notes/v1.8.0) |
+| **[Latest]** | 🎉 ROCK v1.9.0 Released (2026-06-11) — [Release Notes](https://rock.io.alibaba-inc.com/docs/1.9.x/Release%20Notes/v1.9.0) |
+| **[2026-05-21]** | 🎉 ROCK v1.8.0 Released — [Release Notes](https://rock.io.alibaba-inc.com/docs/1.8.x/Release%20Notes/v1.8.0) |
 | **[2026-04-24]** | 🎉 ROCK v1.7.0 Released — [Release Notes](https://rock.io.alibaba-inc.com/docs/1.7.x/Release%20Notes/v1.7.0) |
 | **[2026-04-17]** | 🎉 ROCK v1.6.0 Released — [Release Notes](https://rock.io.alibaba-inc.com/docs/1.6.x/Release%20Notes/v1.6.0) |
 | **[2026-04-10]** | 🎉 ROCK v1.5.0 Released — [Release Notes](https://rock.io.alibaba-inc.com/docs/1.5.x/Release%20Notes/v1.5.0) |
-| **[2026-03-14]** | 🎉 ROCK v1.4.0 Released — [Release Notes](https://rock.io.alibaba-inc.com/docs/1.4.x/Release%20Notes/v1.4.4) |
 
 ---
 
