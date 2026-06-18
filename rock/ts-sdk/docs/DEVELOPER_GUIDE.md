@@ -76,7 +76,7 @@ const sandbox = new Sandbox({
 | 方法 | 说明 |
 |------|------|
 | `start()` | 启动沙箱 |
-| `restart()` | 重启沙箱（需已启动） |
+| `restart()` | 重启已停止的沙箱 |
 | `stop()` | 停止沙箱 |
 | `close()` | 关闭并清理资源 |
 | `isAlive()` | 检查沙箱是否存活 |

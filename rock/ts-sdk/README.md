@@ -53,7 +53,8 @@ await sandbox.start();
 
 console.log(`Sandbox ID: ${sandbox.getSandboxId()}`);
 
-// 重启沙箱
+// 停止沙箱后重启（restart 仅适用于已停止的沙箱）
+await sandbox.stop();
 await sandbox.restart();
 ```
 
