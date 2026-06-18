@@ -48,6 +48,14 @@ class ArchiveCommand:
         ``set -e`` aborts the chain before the final ``rm -rf <log_dir>`` if
         any step fails, so the caller can rely on the exit code to retry.
         The scratch dir is removed via ``trap EXIT`` regardless of outcome.
+
+        Before tar+upload, ``ossutil stat`` checks whether the OSS object
+        already exists (previous tar+upload succeeded but the process was
+        killed before ``rm -rf <log_dir>``). If it does, tar+upload is
+        skipped entirely — only the final ``rm -rf`` runs.
+
+        Stale ``sb-archive-*`` temp dirs older than 2 hours (left by
+        SIGKILL'd archive processes) are cleaned up at the start.
         """
         log_path = Path(log_dir)
         parent = shlex.quote(str(log_path.parent))
@@ -57,8 +65,12 @@ class ArchiveCommand:
         log_dir_q = shlex.quote(log_dir)
         # textwrap.dedent strips the common leading whitespace so the source can be
         # indented for readability without polluting the emitted shell string.
+        #
+        # ossutil stat || { tar && ossutil cp; } — if the object already
+        # exists on OSS the || short-circuits and skips tar+upload.
         return textwrap.dedent(
             f"""\
+            find /tmp -maxdepth 1 -name 'sb-archive-*' -type d -mmin +120 -exec rm -rf {{}} + 2>/dev/null; \\
             set -e \\
             && ARCHIVE_DIR=$(mktemp -d -t sb-archive-XXXXXX) \\
             && trap 'rm -rf "$ARCHIVE_DIR"' EXIT \\
@@ -66,7 +78,8 @@ class ArchiveCommand:
             && printf '[Credentials]\\nlanguage=EN\\nendpoint=%s\\naccessKeyID=%s\\naccessKeySecret=%s\\n' \\
             {endpoint_q} "$OSS_ACCESS_KEY_ID" "$OSS_ACCESS_KEY_SECRET" \\
             > "$ARCHIVE_DIR/ossconfig" \\
-            && tar -czf "$ARCHIVE_DIR/archive.tar.gz" -C {parent} {name} \\
-            && ossutil cp -c "$ARCHIVE_DIR/ossconfig" -f "$ARCHIVE_DIR/archive.tar.gz" {oss_url_q} \\
+            && {{ ossutil stat -c "$ARCHIVE_DIR/ossconfig" {oss_url_q} >/dev/null 2>&1 \\
+            || {{ tar -czf "$ARCHIVE_DIR/archive.tar.gz" -C {parent} {name} \\
+            && ossutil cp -c "$ARCHIVE_DIR/ossconfig" -f "$ARCHIVE_DIR/archive.tar.gz" {oss_url_q}; }}; }} \\
             && rm -rf {log_dir_q}"""
         )
