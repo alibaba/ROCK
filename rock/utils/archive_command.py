@@ -49,6 +49,13 @@ class ArchiveCommand:
         any step fails, so the caller can rely on the exit code to retry.
         The scratch dir is removed via ``trap EXIT`` regardless of outcome.
 
+        Soft kills (SIGINT/SIGTERM/SIGHUP) are also trapped — they ``exit``
+        with conventional ``128 + signo`` codes so the EXIT trap can fire and
+        clean up. This catches Ctrl-C, ``kill <pid>`` (k8s graceful shutdown
+        first phase, ``runtime.execute(...)`` timeout), and SSH disconnect.
+        SIGKILL still cannot be trapped — for that case we rely on the
+        task-level / command-level ``find -mmin +120 -delete`` sweep.
+
         Before tar+upload, ``ossutil stat`` checks whether the OSS object
         already exists (previous tar+upload succeeded but the process was
         killed before ``rm -rf <log_dir>``). If it does, tar+upload is
@@ -68,12 +75,20 @@ class ArchiveCommand:
         #
         # ossutil stat || { tar && ossutil cp; } — if the object already
         # exists on OSS the || short-circuits and skips tar+upload.
+        #
+        # trap 'exit' INT TERM HUP forwards soft signals to a normal exit so
+        # the EXIT trap (rm -rf "$ARCHIVE_DIR") still fires; SIGKILL can't be
+        # trapped and is covered by the leading find sweep + task-level
+        # _cleanup_stale_archives() in SandboxLogArchiveTask.
         return textwrap.dedent(
             f"""\
             find /tmp -maxdepth 1 -name 'sb-archive-*' -type d -mmin +120 -exec rm -rf {{}} + 2>/dev/null; \\
             set -e \\
             && ARCHIVE_DIR=$(mktemp -d -t sb-archive-XXXXXX) \\
             && trap 'rm -rf "$ARCHIVE_DIR"' EXIT \\
+            && trap 'exit 130' INT \\
+            && trap 'exit 143' TERM \\
+            && trap 'exit 129' HUP \\
             && umask 077 \\
             && printf '[Credentials]\\nlanguage=EN\\nendpoint=%s\\naccessKeyID=%s\\naccessKeySecret=%s\\n' \\
             {endpoint_q} "$OSS_ACCESS_KEY_ID" "$OSS_ACCESS_KEY_SECRET" \\
