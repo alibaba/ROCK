@@ -25,10 +25,19 @@ class TestArchiveCommandBuildCommand:
     def test_starts_with_set_e_so_failures_short_circuit(self):
         # `set -e` is what guarantees the trailing `rm -rf <log_dir>` is
         # skipped on tar / ossutil failure, so retry can re-archive cleanly.
-        # Triple-quoted multi-line string emits `set -e \\\n&& ...` (bash treats
-        # `\<newline>` as line continuation, so it's still one chained command).
+        # The leading `find /tmp ... sb-archive-*` cleanup is a best-effort
+        # sweep and is intentionally NOT in the && chain (it must not abort
+        # the archive run if find errors out), so the `set -e` chain starts
+        # right after the cleanup line ends with `;`.
         cmd = ArchiveCommand.build_command("/data/logs/sb-1", "k", "b", "e")
-        assert cmd.startswith("set -e \\\n&&")
+        assert "set -e \\\n&&" in cmd, "set -e must drive the && chain"
+        # The first &&-chained line must be `set -e` so any subsequent
+        # failure (tar/ossutil) short-circuits before the final `rm -rf`.
+        chain_start = cmd.index("set -e \\\n&&")
+        assert "; \\\nset -e" in cmd[: chain_start + len("set -e \\\n&&")], (
+            "the stale-archive cleanup must terminate with `;` so its exit "
+            "code does not abort the archive chain"
+        )
 
     def test_uses_mktemp_and_traps_exit_for_cleanup(self):
         # ossutil 1.7.x cannot read stdin, so we must land a temp tarball;
@@ -36,6 +45,17 @@ class TestArchiveCommandBuildCommand:
         cmd = ArchiveCommand.build_command("/data/logs/sb-1", "k", "b", "e")
         assert "mktemp -d" in cmd
         assert "trap " in cmd and "EXIT" in cmd
+
+    def test_traps_soft_signals_so_exit_trap_fires(self):
+        # k8s graceful shutdown / runtime.execute timeout / Ctrl-C / SSH HUP
+        # all deliver soft signals (TERM/INT/HUP). Without explicit traps,
+        # bash terminates on the default action and skips the EXIT trap,
+        # leaving multi-GB sb-archive-* dirs behind. Each soft trap simply
+        # `exit`s with the conventional 128+signo code so EXIT still fires.
+        cmd = ArchiveCommand.build_command("/data/logs/sb-1", "k", "b", "e")
+        assert "trap 'exit 130' INT" in cmd, "Ctrl-C must trigger EXIT cleanup"
+        assert "trap 'exit 143' TERM" in cmd, "SIGTERM (k8s/timeout) must trigger EXIT cleanup"
+        assert "trap 'exit 129' HUP" in cmd, "SIGHUP (SSH disconnect) must trigger EXIT cleanup"
 
     def test_writes_ossutil_config_with_endpoint_and_env_var_credentials(self):
         # ossutil 1.7.x ignores OSS_ACCESS_KEY_* env vars, so we materialize
