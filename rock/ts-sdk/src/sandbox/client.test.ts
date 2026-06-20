@@ -55,13 +55,13 @@ describe('Sandbox Exception Handling', () => {
 
   describe('start() - error code handling', () => {
     test('should throw BadRequestRockError when API returns 4xxx code', async () => {
-      // Mock the start_async API to return an error response with code
+      // Mock the start_async API to return an error response with code on envelope
       mockPost.mockResolvedValueOnce({
         data: {
           status: 'Failed',
+          code: Codes.BAD_REQUEST,
           result: {
             sandbox_id: 'test-id',
-            code: Codes.BAD_REQUEST,
           },
         },
         headers: {},
@@ -74,9 +74,9 @@ describe('Sandbox Exception Handling', () => {
       mockPost.mockResolvedValueOnce({
         data: {
           status: 'Failed',
+          code: Codes.INTERNAL_SERVER_ERROR,
           result: {
             sandbox_id: 'test-id',
-            code: Codes.INTERNAL_SERVER_ERROR,
           },
         },
         headers: {},
@@ -89,9 +89,9 @@ describe('Sandbox Exception Handling', () => {
       mockPost.mockResolvedValueOnce({
         data: {
           status: 'Failed',
+          code: Codes.COMMAND_ERROR,
           result: {
             sandbox_id: 'test-id',
-            code: Codes.COMMAND_ERROR,
           },
         },
         headers: {},
@@ -104,9 +104,9 @@ describe('Sandbox Exception Handling', () => {
       mockPost.mockResolvedValueOnce({
         data: {
           status: 'Failed',
+          code: 7000,
           result: {
             sandbox_id: 'test-id',
-            code: 7000,
           },
         },
         headers: {},
@@ -171,9 +171,8 @@ describe('Sandbox Exception Handling', () => {
       mockPost.mockResolvedValueOnce({
         data: {
           status: 'Failed',
-          result: {
-            code: Codes.BAD_REQUEST,
-          },
+          code: Codes.BAD_REQUEST,
+          result: {},
         },
         headers: {},
       });
@@ -209,9 +208,8 @@ describe('Sandbox Exception Handling', () => {
       mockPost.mockResolvedValueOnce({
         data: {
           status: 'Failed',
-          result: {
-            code: Codes.BAD_REQUEST,
-          },
+          code: Codes.BAD_REQUEST,
+          result: {},
         },
         headers: {},
       });
