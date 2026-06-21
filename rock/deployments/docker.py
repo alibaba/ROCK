@@ -662,6 +662,15 @@ class DockerDeployment(AbstractDeployment):
             )
             raise
 
+    def _docker_update_resources(self) -> None:
+        """Apply cpu/memory resource updates to a stopped container via docker update."""
+        cmd = ["docker", "update"] + self._cpus() + self._memory() + [self._container_name]
+        logger.info(f"Updating container resources: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            logger.error(f"docker update failed: {result.stderr}")
+            raise RuntimeError(f"docker update failed for {self._container_name}: {result.stderr}")
+
     def _docker_start(self) -> subprocess.Popen:
         """Start a previously-created container with stdout/stderr attached."""
         try:
@@ -705,6 +714,8 @@ class DockerDeployment(AbstractDeployment):
         loop = asyncio.get_running_loop()
 
         logger.info(f"Restarting container {self._container_name} with docker start")
+
+        await loop.run_in_executor(executor, self._docker_update_resources)
 
         # Reuse the same Popen-based attached start used by start(), so the
         # restart path also produces a valid self._container_process. Without

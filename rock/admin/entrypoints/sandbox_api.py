@@ -1,4 +1,3 @@
-import math
 import re
 import time
 from typing import Annotated, Any
@@ -24,14 +23,13 @@ from rock.admin.proto.request import (
     SandboxCommand,
     SandboxCreateBashSessionRequest,
     SandboxReadFileRequest,
+    SandboxRestartRequest,
     SandboxStartRequest,
     SandboxWriteFileRequest,
     StartHeaders,
 )
 from rock.admin.proto.response import SandboxStartResponse
 from rock.common.constants import (
-    CPU_OVERCOMMIT_ALLOWED_KEYS_KEY,
-    CPU_OVERCOMMIT_HEADROOM_KEY,
     EXTRA_ACCELERATOR_TYPES_KEY,
     GET_STATUS_SWITCH,
     KATA_DIND_DISK_SIZE_KEY,
@@ -39,6 +37,7 @@ from rock.common.constants import (
     SANDBOX_DISK_LIMIT_ROOTFS_KEY,
     SUPPORT_KATA_SWITCH,
 )
+from rock.common.cpu_overcommit import apply_cpu_overcommit
 from rock.common.exception import handle_exceptions
 from rock.common.validation import NonBlankStr
 from rock.config import ImageRegistryMirror
@@ -281,43 +280,6 @@ async def _apply_accelerator_type_validation(config: DockerDeploymentConfig) -> 
         )
 
 
-async def _apply_cpu_overcommit_default(config: DockerDeploymentConfig, rock_authorization: str | None) -> None:
-    """Derive limit_cpus from cpus + Nacos headroom when SDK did not set it.
-
-    Formula: limit_cpus = min(2 * cpus, cpus + headroom)
-    - SDK-supplied limit_cpus always wins (function is a no-op in that case).
-    - Grayscale gate driven by Nacos list `cpu_overcommit_allowed_keys`:
-      * key absent from Nacos -> gate is open for every caller (full rollout).
-      * key present as a list  -> only `rock_authorization` values in the list pass.
-      * key present but not a list (misconfigured) -> gate closed.
-    - headroom is read from Nacos key `cpu_overcommit_headroom` (default 0).
-    - headroom <= 0 keeps limit_cpus = None (docker run gets no --cpus flag).
-    """
-    if config.limit_cpus is not None:
-        return
-
-    nacos = sandbox_manager.rock_config.nacos_provider
-    if nacos is None:
-        return
-
-    nacos_config = await nacos.get_config() or {}
-    allowed_keys = nacos_config.get(CPU_OVERCOMMIT_ALLOWED_KEYS_KEY)
-    if allowed_keys is not None and (not isinstance(allowed_keys, list) or rock_authorization not in allowed_keys):
-        return
-
-    raw = nacos_config.get(CPU_OVERCOMMIT_HEADROOM_KEY)
-    try:
-        headroom = float(raw) if raw is not None else 0.0
-    except (TypeError, ValueError):
-        headroom = 0.0
-
-    # Reject NaN / inf so a fat-fingered Nacos edit can't break sandbox startup
-    if not math.isfinite(headroom) or headroom <= 0:
-        return
-
-    config.limit_cpus = min(2 * config.cpus, config.cpus + headroom)
-
-
 @sandbox_router.post("/start")
 @handle_exceptions(error_message="start sandbox failed")
 async def start(request: SandboxStartRequest) -> RockResponse[SandboxStartResponse]:
@@ -341,7 +303,9 @@ async def start_async(
     await _apply_accelerator_type_validation(config)
     await _apply_kata_runtime_switch(config)
     await _apply_kata_disk_size(config)
-    await _apply_cpu_overcommit_default(config, headers.user_info.get("rock_authorization"))
+    await apply_cpu_overcommit(
+        config, sandbox_manager.rock_config.nacos_provider, headers.user_info.get("rock_authorization")
+    )
     await _apply_disk_limits(config)
     await _apply_image_registry_mirror(config)
     sandbox_start_response = await sandbox_manager.start_async(
@@ -460,8 +424,10 @@ async def delete(sandbox_id: str = Body(..., embed=True)) -> RockResponse:
 
 @sandbox_router.post("/restart")
 @handle_exceptions(error_message="restart sandbox failed")
-async def restart(sandbox_id: str = Body(..., embed=True)) -> RockResponse[SandboxStartResponse]:
-    result = await sandbox_manager.restart_async(sandbox_id)
+async def restart(request: SandboxRestartRequest) -> RockResponse[SandboxStartResponse]:
+    result = await sandbox_manager.restart_async(
+        request.sandbox_id, cpus=request.cpus, memory=request.memory, limit_cpus=request.limit_cpus
+    )
     return RockResponse(result=result)
 
 

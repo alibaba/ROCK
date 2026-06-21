@@ -100,29 +100,19 @@ class SandboxStateMachine(StateChart):
             sandbox_info["start_time"] = get_iso8601_timestamp()
         await meta_store.update(sandbox_id, sandbox_info)
 
-    async def on_restart(self, sandbox_id: str, operator, meta_store) -> None:
+    async def on_restart(
+        self,
+        sandbox_id: str,
+        operator,
+        meta_store,
+        restart_config: DockerDeploymentConfig,
+    ) -> None:
         info = self.sandbox_info or {}
 
         host_ip = info.get("host_ip")
         if not host_ip:
             raise BadRequestRockError(f"Sandbox {sandbox_id} has no host_ip; cannot pin restart to original node")
 
-        # Prefer the spec snapshot (DockerDeploymentConfig.model_dump persisted to
-        # the DB at start time) so the new actor wraps the existing container with
-        # the exact same config.
-        spec = info.get("spec") or {}
-        if spec:
-            restart_config = DockerDeploymentConfig(**spec)
-        else:
-            logger.warning(
-                f"sandbox {sandbox_id} has no spec snapshot; rebuilding config from flat fields with model defaults"
-            )
-            restart_config = DockerDeploymentConfig(
-                container_name=sandbox_id,
-                image=info.get("image") or DockerDeploymentConfig.model_fields["image"].default,
-                memory=info.get("memory") or DockerDeploymentConfig.model_fields["memory"].default,
-                cpus=float(info.get("cpus") or DockerDeploymentConfig.model_fields["cpus"].default),
-            )
         timeout_info = SandboxTimeoutHelper.make_timeout_info(restart_config.auto_clear_time)
 
         logger.info(f"restart sandbox {sandbox_id} (pin host_ip={host_ip})")
@@ -135,6 +125,8 @@ class SandboxStateMachine(StateChart):
         # fields (spec/status) won't pollute the alive key.
         new_info = dict(info)
         new_info["state"] = RockState.PENDING
+        new_info["cpus"] = restart_config.cpus
+        new_info["memory"] = restart_config.memory
         new_info.pop("stop_time", None)
         await meta_store.update(sandbox_id, new_info)
         await meta_store.update_timeout(sandbox_id, timeout_info)
