@@ -253,6 +253,21 @@ async def _apply_image_registry_mirror(config: DockerDeploymentConfig) -> None:
             return
     logger.info(f"image registry mirror miss for {original_image!r}, keep original")
 
+async def _apply_timeout_defaults(config: DockerDeploymentConfig) -> None:
+    """Apply startup_timeout default, min and max from SandboxLifecycleConfig (YAML + Nacos).
+
+    startup_timeout covers docker pull + wait-until-alive combined.
+    - config.startup_timeout is None: SDK didn't set it, apply lifecycle.default_startup_timeout_seconds.
+    - config.startup_timeout is set: keep the user value.
+    - In all cases: clamp to [min_startup_timeout_seconds, max_startup_timeout_seconds].
+    Nacos updates lifecycle via RockConfig.update() called in DeploymentManager.init_config().
+    """
+    lifecycle = sandbox_manager.rock_config.lifecycle
+    if config.startup_timeout is None:
+        config.startup_timeout = lifecycle.default_startup_timeout_seconds
+    config.startup_timeout = max(config.startup_timeout, lifecycle.min_startup_timeout_seconds)
+    config.startup_timeout = min(config.startup_timeout, lifecycle.max_startup_timeout_seconds)
+
 
 async def _apply_accelerator_type_validation(config: DockerDeploymentConfig) -> None:
     """Validate ``config.accelerator_type`` against the built-in enum union with
@@ -325,6 +340,7 @@ async def start(request: SandboxStartRequest) -> RockResponse[SandboxStartRespon
     await _apply_accelerator_type_validation(config)
     await _apply_kata_runtime_switch(config)
     await _apply_kata_disk_size(config)
+    await _apply_timeout_defaults(config)
     await _apply_disk_limits(config)
     await _apply_image_registry_mirror(config)
     sandbox_start_response = await sandbox_manager.start(config)
@@ -341,6 +357,7 @@ async def start_async(
     await _apply_accelerator_type_validation(config)
     await _apply_kata_runtime_switch(config)
     await _apply_kata_disk_size(config)
+    await _apply_timeout_defaults(config)
     await _apply_cpu_overcommit_default(config, headers.user_info.get("rock_authorization"))
     await _apply_disk_limits(config)
     await _apply_image_registry_mirror(config)
