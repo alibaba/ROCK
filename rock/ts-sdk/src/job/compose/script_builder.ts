@@ -14,11 +14,33 @@
 
 import type { ComposeJobConfig } from '../config_compose';
 import { buildComposeYaml } from './yaml_builder';
+import { shellQuote } from '../../utils/shell';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function _q(s: string): string {
-  // shlex.quote equivalent — wrap in single quotes, escape embedded quotes
-  return `'${s.replace(/'/g, "'\\''")}'`;
+  return shellQuote(s);
+}
+
+function _heredocMarker(prefix: string, value: string): string {
+  return `${prefix}_${value.replace(/[^A-Za-z0-9_]/g, '_').toUpperCase()}_EOF`;
+}
+
+function _scriptPath(filename: string): string {
+  return `"$SCRIPTS_DIR/"${_q(filename)}`;
+}
+
+function _ossObjectPath(key: string): string {
+  return `"oss://$OSS_BUCKET/"${_q(key)}`;
+}
+
+function _volumeArg(source: string, target: string, readOnly: boolean = false): string {
+  return `-v ${_q(`${source}:${target}${readOnly ? ':ro' : ''}`)}`;
+}
+
+function _defaultVolumeArgs(): string[] {
+  return [
+    _volumeArg('/tmp/shared', '/tmp/shared'),
+    _volumeArg('/tmp/output', '/tmp/output'),
+  ];
 }
 
 export function buildRunnerScript(config: ComposeJobConfig): string {
@@ -52,14 +74,14 @@ function _sectionHeader(config: ComposeJobConfig): string {
   return `#!/bin/bash
 set -uo pipefail
 
-JOB_ID="${jobName}"
+JOB_ID=${_q(jobName)}
 WORKSPACE="/workspace"
 SCRIPTS_DIR="$WORKSPACE/scripts"
 COMPOSE_FILE="$WORKSPACE/docker-compose.yaml"
 LOG_DIR="/data/logs/user-defined/compose-$JOB_ID"
 EXIT_CODE=0
 TIMEOUT=${timeout}
-CALLBACK_URL="${callbackUrl}"
+CALLBACK_URL=${_q(callbackUrl)}
 
 mkdir -p "$LOG_DIR" "$SCRIPTS_DIR" /tmp/shared /tmp/output
 
@@ -103,9 +125,9 @@ function _sectionMaterialize(composeYaml: string, scripts: Record<string, string
   parts.push(`cat > "$COMPOSE_FILE" << 'COMPOSE_EOF'\n${composeYaml}COMPOSE_EOF`);
 
   for (const [filename, content] of Object.entries(scripts)) {
-    const safeMarker = `SCRIPT_${filename.replace(/\./g, '_').toUpperCase()}_EOF`;
-    parts.push(`cat > "$SCRIPTS_DIR/${filename}" << '${safeMarker}'\n${content}\n${safeMarker}`);
-    parts.push(`chmod +x "$SCRIPTS_DIR/${filename}"`);
+    const safeMarker = _heredocMarker('SCRIPT', filename);
+    parts.push(`cat > ${_scriptPath(filename)} << '${safeMarker}'\n${content}\n${safeMarker}`);
+    parts.push(`chmod +x ${_scriptPath(filename)}`);
   }
 
   return parts.join('\n');
@@ -152,23 +174,52 @@ function _sectionDownloadArtifacts(config: ComposeJobConfig): string {
     const target = artifact.target_path;
     const key = artifact.oss_key;
     const name = artifact.name;
-    lines.push(`log "  Downloading ${name}..."`);
-    lines.push(`mkdir -p "${target}"`);
+    lines.push(`log ${_q(`  Downloading ${name}...`)}`);
+    lines.push(`mkdir -p ${_q(target)}`);
     if (artifact.archive) {
+      const localArchive = `/tmp/${name}.tar.gz`;
       lines.push(
-        `ossutil cp "oss://\${OSS_BUCKET}/${key}" "/tmp/${name}.tar.gz" && ` +
-        `tar -xzf "/tmp/${name}.tar.gz" -C "${target}" && ` +
-        `rm -f "/tmp/${name}.tar.gz" || ` +
-        `log "WARN: Failed to download artifact ${name}"`
+        `ossutil cp ${_ossObjectPath(key)} ${_q(localArchive)} && ` +
+        `tar -xzf ${_q(localArchive)} -C ${_q(target)} && ` +
+        `rm -f ${_q(localArchive)} || ` +
+        `log ${_q(`WARN: Failed to download artifact ${name}`)}`
       );
     } else {
+      const targetFile = `${target}/${name}`;
       lines.push(
-        `ossutil cp "oss://\${OSS_BUCKET}/${key}" "${target}/${name}" || ` +
-        `log "WARN: Failed to download artifact ${name}"`
+        `ossutil cp ${_ossObjectPath(key)} ${_q(targetFile)} || ` +
+        `log ${_q(`WARN: Failed to download artifact ${name}`)}`
       );
     }
   }
   return lines.join('\n');
+}
+
+function _buildInitContainerCommand(
+  ic: NonNullable<ComposeJobConfig['init_containers']>[number],
+  index: number,
+  lines: string[]
+): string {
+  const volArgs = _defaultVolumeArgs();
+  for (const vm of ic.volume_mounts) {
+    volArgs.push(_volumeArg(vm.name, vm.mount_path, vm.read_only));
+  }
+
+  const base = `docker run --rm --network host ${volArgs.join(' ')}`;
+  if (ic.script) {
+    const scriptFile = `init_${index}.sh`;
+    const marker = _heredocMarker('INIT', `${index}_${ic.name}`);
+    lines.push(`cat > ${_scriptPath(scriptFile)} << '${marker}'\n${ic.script}\n${marker}`);
+    lines.push(`chmod +x ${_scriptPath(scriptFile)}`);
+    return `${base} -v "$SCRIPTS_DIR:/tmp/run:ro" ${_q(ic.image)} bash ${_q(`/tmp/run/${scriptFile}`)}`;
+  }
+
+  if (ic.command) {
+    const cmdParts = [...ic.command, ...(ic.args ?? [])].map(_q).join(' ');
+    return `${base} ${_q(ic.image)} ${cmdParts}`;
+  }
+
+  return `${base} ${_q(ic.image)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,75 +232,19 @@ function _sectionInitContainers(config: ComposeJobConfig): string {
   }
 
   const lines: string[] = ['log "Running init containers..."'];
-  for (const ic of config.init_containers) {
+  for (const [index, ic] of config.init_containers.entries()) {
     const name = ic.name;
-    const image = ic.image;
-    let volArgs = '-v "/tmp/shared:/tmp/shared" -v "/tmp/output:/tmp/output"';
-    for (const vm of ic.volume_mounts) {
-      volArgs += ` -v "${vm.name}:${vm.mount_path}"`;
-    }
+    const command = _buildInitContainerCommand(ic, index, lines);
 
-    if (ic.script) {
-      const scriptFile = `init_${name}.sh`;
-      lines.push(
-        `cat > "$SCRIPTS_DIR/${scriptFile}" << 'INIT_${name.toUpperCase()}_EOF'\n` +
-        `${ic.script}\nINIT_${name.toUpperCase()}_EOF`
-      );
-      lines.push(`chmod +x "$SCRIPTS_DIR/${scriptFile}"`);
-      lines.push(`docker run --rm --network host ${volArgs} -v "$SCRIPTS_DIR:/tmp/run:ro" ${image} bash /tmp/run/${scriptFile}`);
-    } else if (ic.command) {
-      let cmdStr = ic.command.map(_q).join(' ');
-      if (ic.args && ic.args.length > 0) {
-        cmdStr += ' ' + ic.args.map(_q).join(' ');
-      }
-      lines.push(`docker run --rm --network host ${volArgs} ${image} ${cmdStr}`);
-    } else {
-      lines.push(`docker run --rm --network host ${volArgs} ${image}`);
-    }
-
-    lines.push(`log "  Running init container: ${name}"`);
-    lines.push(`if ! ( LAST_COMMAND ); then`);
-    lines.push(`    log "ERROR: Init container ${name} failed"`);
+    lines.push(`log ${_q(`  Running init container: ${name}`)}`);
+    lines.push(`if ! ${command}; then`);
+    lines.push(`    log ${_q(`ERROR: Init container ${name} failed`)}`);
     lines.push(`    EXIT_CODE=92`);
     lines.push(`    exit 92`);
     lines.push(`fi`);
   }
 
-  // Fixup: replace ( LAST_COMMAND ) placeholder with actual last command
-  let result = lines.join('\n');
-  // Build the last init container's command for the if check
-  const lastIc = config.init_containers[config.init_containers.length - 1];
-  if (lastIc) {
-    const lastName = lastIc.name;
-    let lastCmd: string;
-    if (lastIc.script) {
-      const scriptFile = `init_${lastName}.sh`;
-      let volArgs = '-v "/tmp/shared:/tmp/shared" -v "/tmp/output:/tmp/output"';
-      for (const vm of lastIc.volume_mounts) {
-        volArgs += ` -v "${vm.name}:${vm.mount_path}"`;
-      }
-      lastCmd = `docker run --rm --network host ${volArgs} -v "$SCRIPTS_DIR:/tmp/run:ro" ${lastIc.image} bash /tmp/run/${scriptFile}`;
-    } else if (lastIc.command) {
-      let cmdStr = lastIc.command.map(_q).join(' ');
-      if (lastIc.args && lastIc.args.length > 0) {
-        cmdStr += ' ' + lastIc.args.map(_q).join(' ');
-      }
-      let volArgs = '-v "/tmp/shared:/tmp/shared" -v "/tmp/output:/tmp/output"';
-      for (const vm of lastIc.volume_mounts) {
-        volArgs += ` -v "${vm.name}:${vm.mount_path}"`;
-      }
-      lastCmd = `docker run --rm --network host ${volArgs} ${lastIc.image} ${cmdStr}`;
-    } else {
-      let volArgs = '-v "/tmp/shared:/tmp/shared" -v "/tmp/output:/tmp/output"';
-      for (const vm of lastIc.volume_mounts) {
-        volArgs += ` -v "${vm.name}:${vm.mount_path}"`;
-      }
-      lastCmd = `docker run --rm --network host ${volArgs} ${lastIc.image}`;
-    }
-    result = result.replace('( LAST_COMMAND )', lastCmd);
-  }
-
-  return result;
+  return lines.join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -285,8 +280,9 @@ function _sectionWaitMain(mainServiceName: string): string {
   const container = `compose-${mainServiceName}-1`;
   return `
 # ── Wait for main container ────────────────────────────────────────
-log "Waiting for main container (${mainServiceName}) to exit..."
-EXIT_CODE=$(docker wait "${container}" 2>/dev/null || echo 1)
+MAIN_CONTAINER=${_q(container)}
+log ${_q(`Waiting for main container (${mainServiceName}) to exit...`)}
+EXIT_CODE=$(docker wait "$MAIN_CONTAINER" 2>/dev/null || echo 1)
 log "Main container exited with code: $EXIT_CODE"`;
 }
 

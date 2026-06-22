@@ -77,6 +77,32 @@ describe('Job', () => {
     });
   });
 
+  describe('cancel', () => {
+    test('calls sandbox arun with command and session options', async () => {
+      const config = makeConfig();
+      const job = new Job(config);
+      const arun = jest.fn(async () => ({ output: '', exitCode: 0, failureReason: '', expectString: '' }));
+      (job as any).jobClient = {
+        trials: [{ sandbox: { arun }, session: 'rock-job-api-test-job', pid: 2468, trial: {} }],
+      };
+
+      await job.cancel();
+
+      expect(arun).toHaveBeenCalledWith('kill 2468', { session: 'rock-job-api-test-job' });
+    });
+
+    test('propagates cancellation failures', async () => {
+      const config = makeConfig();
+      const job = new Job(config);
+      const arun = jest.fn(async () => { throw new Error('kill failed'); });
+      (job as any).jobClient = {
+        trials: [{ sandbox: { arun }, session: 'rock-job-api-test-job', pid: 2468, trial: {} }],
+      };
+
+      await expect(job.cancel()).rejects.toThrow('kill failed');
+    });
+  });
+
   describe('_buildResult', () => {
     test('flattens list-returning results', () => {
       const config = makeConfig();

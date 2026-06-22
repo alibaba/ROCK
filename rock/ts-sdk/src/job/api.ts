@@ -65,16 +65,9 @@ export class Job {
   async cancel(): Promise<void> {
     if (this.jobClient) {
       for (const tc of this.jobClient.trials) {
-        try {
-          const sandbox = tc.sandbox as { arun?: (opts: { cmd: string; session: string }) => Promise<unknown> };
-          if (sandbox?.arun) {
-            await sandbox.arun({
-              cmd: `kill ${tc.pid}`,
-              session: tc.session,
-            });
-          }
-        } catch {
-          // Best-effort cancellation
+        const sandbox = tc.sandbox as { arun?: (cmd: string, options?: { session?: string }) => Promise<unknown> };
+        if (sandbox?.arun) {
+          await sandbox.arun(`kill ${tc.pid}`, { session: tc.session });
         }
       }
     }

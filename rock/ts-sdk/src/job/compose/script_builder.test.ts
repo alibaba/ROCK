@@ -150,6 +150,89 @@ describe('buildRunnerScript', () => {
     expect(script).toContain('db-migrate');
   });
 
+  test('guards each init container command exactly once without placeholders', () => {
+    const config = makeConfig({
+      init_containers: [
+        {
+          name: 'prepare',
+          image: 'alpine:3.19',
+          command: ['echo', 'prepare'],
+          args: null,
+          script: null,
+          volume_mounts: [],
+        },
+        {
+          name: 'migrate',
+          image: 'busybox:1.36',
+          command: ['echo', 'migrate'],
+          args: null,
+          script: null,
+          volume_mounts: [],
+        },
+      ],
+    });
+
+    const script = buildRunnerScript(config);
+
+    expect(script).not.toContain('LAST_COMMAND');
+    expect(script.match(/docker run --rm --network host/g)).toHaveLength(2);
+    expect(script).toContain("if ! docker run --rm --network host -v '/tmp/shared:/tmp/shared' -v '/tmp/output:/tmp/output' 'alpine:3.19' 'echo' 'prepare'; then");
+    expect(script).toContain("if ! docker run --rm --network host -v '/tmp/shared:/tmp/shared' -v '/tmp/output:/tmp/output' 'busybox:1.36' 'echo' 'migrate'; then");
+  });
+
+  test('shell-quotes config values embedded in runner commands', () => {
+    const config = makeConfig({
+      job_name: 'job$(touch /tmp/job-pwn)',
+      callback_url: 'http://hooks.example.com/$(touch /tmp/callback-pwn)',
+      services: [
+        {
+          name: 'main$(touch /tmp/service-pwn)',
+          image: 'myapp:latest',
+          command: null,
+          args: null,
+          script: null,
+          env: {},
+          ports: [],
+          resources: null,
+          privileged: false,
+          volume_mounts: [],
+          is_main: true,
+        },
+      ],
+      oss_artifacts: [{
+        name: 'model$(touch /tmp/name-pwn)',
+        oss_key: 'models/$(touch /tmp/key-pwn).tar.gz',
+        target_path: '/workspace/$(touch /tmp/target-pwn)',
+        archive: true,
+      }],
+      init_containers: [{
+        name: 'setup$(touch /tmp/init-name-pwn)',
+        image: 'alpine:$(touch /tmp/image-pwn)',
+        command: ['echo', '$(touch /tmp/cmd-pwn)'],
+        args: null,
+        script: null,
+        volume_mounts: [{
+          name: '/tmp/shared$(touch /tmp/volume-pwn)',
+          mount_path: '/mnt/shared$(touch /tmp/mount-pwn)',
+          read_only: false,
+        }],
+      }],
+    });
+
+    const script = buildRunnerScript(config);
+
+    expect(script).toContain("JOB_ID='job$(touch /tmp/job-pwn)'");
+    expect(script).not.toContain('JOB_ID="job$(touch /tmp/job-pwn)"');
+    expect(script).toContain("CALLBACK_URL='http://hooks.example.com/$(touch /tmp/callback-pwn)'");
+    expect(script).not.toContain('CALLBACK_URL="http://hooks.example.com/$(touch /tmp/callback-pwn)"');
+    expect(script).toContain("MAIN_CONTAINER='compose-main$(touch /tmp/service-pwn)-1'");
+    expect(script).toContain("mkdir -p '/workspace/$(touch /tmp/target-pwn)'");
+    expect(script).toContain('"oss://$OSS_BUCKET/"' + "'models/$(touch /tmp/key-pwn).tar.gz'");
+    expect(script).toContain("'/tmp/model$(touch /tmp/name-pwn).tar.gz'");
+    expect(script).toContain("'/tmp/shared$(touch /tmp/volume-pwn):/mnt/shared$(touch /tmp/mount-pwn)'");
+    expect(script).toContain("'alpine:$(touch /tmp/image-pwn)' 'echo' '$(touch /tmp/cmd-pwn)'");
+  });
+
   test('no exit 92 when no init containers', () => {
     const config = makeConfig();
     const script = buildRunnerScript(config);
