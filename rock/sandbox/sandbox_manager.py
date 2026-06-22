@@ -33,8 +33,8 @@ from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
 from rock.logger import init_logger
 from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
+from rock.sandbox.archive.abstract import AbstractDirStorage, AbstractImageStorage
 from rock.sandbox.archive.constants import ArchiveKeys
-from rock.sandbox.archive.factory import make_dir_storage_from_config, make_image_storage_from_config
 from rock.sandbox.base_manager import BaseManager
 from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.sandbox_actor import SandboxActor
@@ -90,8 +90,8 @@ class SandboxManager(BaseManager):
         )
         if not (registry_ready and dir_storage_ready):
             raise RuntimeError("archive.enabled=true but image registry or dir_storage credentials are missing")
-        self._dir_storage = make_dir_storage_from_config(dir_storage_cfg)
-        self._image_storage = make_image_storage_from_config(image_registry_cfg)
+        self._dir_storage = AbstractDirStorage.from_config(dir_storage_cfg)
+        self._image_storage = AbstractImageStorage.from_config(image_registry_cfg)
 
     async def _get_current_statemachine(self, sandbox_id: str) -> SandboxStateMachine | None:
         """Fetch current state from meta store and return a restored SandboxStateMachine, or None if not found."""
