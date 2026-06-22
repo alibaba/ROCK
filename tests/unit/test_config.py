@@ -585,6 +585,63 @@ class TestMergeLists:
         assert result[1]["v"] == 22
 
 
+# ===== Nacos hot-reload for lifecycle timeout fields =====
+
+
+@pytest.mark.asyncio
+async def test_nacos_lifecycle_partial_update_preserves_yaml_values():
+    """Nacos supplying only one lifecycle field must not reset the others to dataclass defaults."""
+    rock_config = RockConfig()
+    rock_config.lifecycle.default_startup_timeout_seconds = 900
+    rock_config.lifecycle.min_startup_timeout_seconds = 300
+    rock_config.lifecycle.max_startup_timeout_seconds = 3600
+    rock_config.nacos_provider = MagicMock()
+    rock_config.nacos_provider.get_config = AsyncMock(
+        return_value={"lifecycle": {"default_startup_timeout_seconds": 1200}}
+    )
+
+    await rock_config.update()
+
+    assert rock_config.lifecycle.default_startup_timeout_seconds == 1200
+    assert rock_config.lifecycle.min_startup_timeout_seconds == 300   # preserved, not reset to 600
+    assert rock_config.lifecycle.max_startup_timeout_seconds == 3600  # preserved, not reset to 1800
+
+
+@pytest.mark.asyncio
+async def test_nacos_lifecycle_all_fields_updated():
+    """All three timeout fields update when Nacos provides all of them."""
+    rock_config = RockConfig()
+    rock_config.nacos_provider = MagicMock()
+    rock_config.nacos_provider.get_config = AsyncMock(
+        return_value={
+            "lifecycle": {
+                "default_startup_timeout_seconds": 1000,
+                "min_startup_timeout_seconds": 500,
+                "max_startup_timeout_seconds": 2000,
+            }
+        }
+    )
+
+    await rock_config.update()
+
+    assert rock_config.lifecycle.default_startup_timeout_seconds == 1000
+    assert rock_config.lifecycle.min_startup_timeout_seconds == 500
+    assert rock_config.lifecycle.max_startup_timeout_seconds == 2000
+
+
+@pytest.mark.asyncio
+async def test_nacos_without_lifecycle_key_preserves_lifecycle():
+    """Nacos payload without a 'lifecycle' key leaves lifecycle config unchanged."""
+    rock_config = RockConfig()
+    rock_config.lifecycle.default_startup_timeout_seconds = 800
+    rock_config.nacos_provider = MagicMock()
+    rock_config.nacos_provider.get_config = AsyncMock(return_value={"sandbox_config": {}})
+
+    await rock_config.update()
+
+    assert rock_config.lifecycle.default_startup_timeout_seconds == 800
+
+
 # ---------------------------------------------------------------------------
 # Integration test: from_env with _base inheritance
 # ---------------------------------------------------------------------------
