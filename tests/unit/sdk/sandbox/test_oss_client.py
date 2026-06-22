@@ -78,7 +78,7 @@ class TestResolveConfig:
         assert cfg.endpoint == "srv.endpoint"
         assert cfg.bucket == "srv-bucket"
         assert cfg.region == "srv-region"
-        assert cfg.is_env_fallback is False
+        assert cfg.enabled_via_env is False
 
     def test_env_fallback_used_when_server_response_empty(self):
         # Old admin that does not yet return Bucket/Endpoint/Region must keep working.
@@ -91,7 +91,7 @@ class TestResolveConfig:
         assert cfg.endpoint == "env.endpoint"
         assert cfg.bucket == "env-bucket"
         assert cfg.region == "env-region"
-        assert cfg.is_env_fallback is True
+        assert cfg.enabled_via_env is True
 
     def test_server_partial_response_falls_back_to_env(self):
         # Server returns Endpoint/Bucket but no Region -> incomplete, must use env.
@@ -102,7 +102,7 @@ class TestResolveConfig:
         ):
             cfg = OssClient._resolve_config({"Endpoint": "srv", "Bucket": "b", "Region": None})
         assert cfg.endpoint == "env.endpoint"
-        assert cfg.is_env_fallback is True
+        assert cfg.enabled_via_env is True
 
     def test_server_used_when_env_not_all_set(self):
         with (
@@ -118,7 +118,7 @@ class TestResolveConfig:
                 }
             )
         assert cfg.endpoint == "srv.endpoint"
-        assert cfg.is_env_fallback is False
+        assert cfg.enabled_via_env is False
 
     def test_partial_env_does_not_promote_to_fallback(self):
         # Only endpoint set; bucket / region missing -> env fallback incomplete, must use server.
@@ -135,7 +135,7 @@ class TestResolveConfig:
                 }
             )
         assert cfg.endpoint == "srv.endpoint"
-        assert cfg.is_env_fallback is False
+        assert cfg.enabled_via_env is False
 
     def test_returns_none_when_neither_layer_complete(self):
         with (
@@ -175,7 +175,7 @@ class TestResolveConfig:
                 {"Endpoint": "srv", "Bucket": "b", "Region": "r", "Prefix": "rock-transfer/"}
             )
         assert cfg.prefix == "rock-transfer/"
-        assert cfg.is_env_fallback is False
+        assert cfg.enabled_via_env is False
 
     def test_env_fallback_uses_env_prefix(self):
         with (
@@ -185,7 +185,7 @@ class TestResolveConfig:
             patch.object(env_vars, "ROCK_OSS_TRANSFER_PREFIX", "env-prefix/"),
         ):
             cfg = OssClient._resolve_config({})
-        assert cfg.is_env_fallback is True
+        assert cfg.enabled_via_env is True
         assert cfg.prefix == "env-prefix/"
 
 
@@ -581,7 +581,7 @@ class TestDownloadViaOss:
 
         client = OssClient(sandbox)
         client._bucket = MagicMock()
-        client._client_config = OssClientConfig("ep", "bk", "rg", is_env_fallback=False)
+        client._client_config = OssClientConfig("ep", "bk", "rg", enabled_via_env=False)
 
         response = await client.download_via_oss("/sandbox/foo.txt", tmp_path / "foo.txt")
         assert response.success is False

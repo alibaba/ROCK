@@ -604,7 +604,7 @@ describe('Server-first OSS config resolution', () => {
     expect(resolved!.endpoint).toBe('oss-cn-hangzhou.aliyuncs.com');
     expect(resolved!.region).toBe('cn-hangzhou');
     expect(resolved!.prefix).toBe('rock-transfer/');
-    expect(resolved!.isEnvFallback).toBe(false);
+    expect(resolved!.enabledViaEnv).toBe(false);
   });
 
   test('falls back to env vars when server omits Bucket/Endpoint/Region (old admin)', () => {
@@ -622,7 +622,7 @@ describe('Server-first OSS config resolution', () => {
     expect(resolved!.bucket).toBe('xrl-sandbox'); // env fallback
     expect(resolved!.endpoint).toBe('oss-cn-hangzhou.aliyuncs.com');
     expect(resolved!.region).toBe('cn-hangzhou');
-    expect(resolved!.isEnvFallback).toBe(true);
+    expect(resolved!.enabledViaEnv).toBe(true);
   });
 
   test('returns null when neither server nor env provides complete config', () => {
@@ -653,7 +653,7 @@ describe('Server-first OSS config resolution', () => {
 
     const resolved = Sandbox.resolveOssConfig(credentials);
     expect(resolved).not.toBeNull();
-    expect(resolved!.isEnvFallback).toBe(true);
+    expect(resolved!.enabledViaEnv).toBe(true);
     expect(resolved!.bucket).toBe('xrl-sandbox');
   });
 });

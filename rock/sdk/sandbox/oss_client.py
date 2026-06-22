@@ -43,7 +43,7 @@ class OssClientConfig:
     endpoint: str
     bucket: str
     region: str
-    is_env_fallback: bool  # True = env fallback path (gated by ROCK_OSS_ENABLE); False = server-supplied
+    enabled_via_env: bool  # True = env fallback path (gated by ROCK_OSS_ENABLE); False = server-supplied
     prefix: str = ""  # Transfer-object key prefix (server: response.Prefix; fallback: ROCK_OSS_TRANSFER_PREFIX)
 
 
@@ -89,7 +89,7 @@ class OssClient:
                 endpoint=resp_endpoint,
                 bucket=resp_bucket,
                 region=resp_region,
-                is_env_fallback=False,
+                enabled_via_env=False,
                 prefix=sts_response.get("Prefix") or "",
             )
 
@@ -103,7 +103,7 @@ class OssClient:
                 endpoint=env_endpoint,
                 bucket=env_bucket,
                 region=env_region,
-                is_env_fallback=True,
+                enabled_via_env=True,
                 prefix=env_vars.ROCK_OSS_TRANSFER_PREFIX or "",
             )
 
@@ -167,7 +167,7 @@ class OssClient:
         # users who explicitly set `ROCK_OSS_ENABLE=false` still see OSS off.
         # Server-supplied configs bypass this gate: if admin advertises OSS,
         # treat it as enabled (matches StorageClient behavior).
-        if config.is_env_fallback and not env_vars.ROCK_OSS_ENABLE:
+        if config.enabled_via_env and not env_vars.ROCK_OSS_ENABLE:
             return False
 
         try:

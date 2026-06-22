@@ -118,7 +118,7 @@ export class Sandbox extends AbstractSandbox {
     bucket: string;
     region: string;
     prefix: string;
-    isEnvFallback: boolean;
+    enabledViaEnv: boolean;
   } | null = null;
 
   // Sub-components
@@ -846,7 +846,7 @@ export class Sandbox extends AbstractSandbox {
 
       // Enforce the legacy opt-in gate only on the env-fallback path.
       // Server-supplied configs bypass it (consistent with Python OssClient).
-      if (this.ossConfig?.isEnvFallback && !envVars.ROCK_OSS_ENABLE) {
+      if (this.ossConfig?.enabledViaEnv && !envVars.ROCK_OSS_ENABLE) {
         return {
           success: false,
           message: 'OSS download is not enabled. Please set ROCK_OSS_ENABLE=true',
@@ -1028,7 +1028,7 @@ export class Sandbox extends AbstractSandbox {
     bucket: string;
     region: string;
     prefix: string;
-    isEnvFallback: boolean;
+    enabledViaEnv: boolean;
   } | null {
     if (credentials.endpoint && credentials.bucket && credentials.region) {
       return {
@@ -1036,7 +1036,7 @@ export class Sandbox extends AbstractSandbox {
         bucket: credentials.bucket,
         region: credentials.region,
         prefix: credentials.prefix ?? '',
-        isEnvFallback: false,
+        enabledViaEnv: false,
       };
     }
     if (
@@ -1049,7 +1049,7 @@ export class Sandbox extends AbstractSandbox {
         bucket: envVars.ROCK_OSS_BUCKET_NAME,
         region: envVars.ROCK_OSS_BUCKET_REGION,
         prefix: '',
-        isEnvFallback: true,
+        enabledViaEnv: true,
       };
     }
     return null;
