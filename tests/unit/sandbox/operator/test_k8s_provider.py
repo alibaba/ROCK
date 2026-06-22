@@ -38,6 +38,7 @@ def make_config(
     image_os: str = "linux",
     num_gpus: float | None = None,
     disk_limit_rootfs: str | None = None,
+    limit_cpus: float | None = None,
 ) -> DockerDeploymentConfig:
     return DockerDeploymentConfig(
         image=image,
@@ -48,6 +49,7 @@ def make_config(
         image_os=image_os,
         num_gpus=num_gpus,
         disk_limit_rootfs=disk_limit_rootfs,
+        limit_cpus=limit_cpus,
     )
 
 
@@ -470,3 +472,65 @@ class TestGetSandboxRuntimeInfo:
         assert host_ip == "10.0.0.1"
         assert port_mapping[Port.PROXY] == 8000
         assert resource_version == "12345"
+
+
+# Template that mirrors the real prod K8s template (requests.cpu uses {{ cpus }},
+# limits.cpu uses {{ limit_cpus }}) so we can verify the overcommit plumbing.
+RESOURCE_TEMPLATES = {
+    "default": {
+        "namespace": "rock-test",
+        "ports": {"proxy": 8000, "server": 8080, "ssh": 22},
+        "template": {
+            "spec": {
+                "containers": [
+                    {
+                        "name": "main",
+                        "image": "{{ image | default('python:3.11', true) }}",
+                        "resources": {
+                            "requests": {"cpu": "{{ cpus }}", "memory": "{{ memory }}"},
+                            "limits": {"cpu": "{{ limit_cpus }}", "memory": "{{ memory }}"},
+                        },
+                    }
+                ],
+            },
+        },
+    }
+}
+
+
+def make_resource_provider() -> BatchSandboxProvider:
+    return BatchSandboxProvider(
+        k8s_config=K8sConfig(
+            kubeconfig_path=None,
+            templates=RESOURCE_TEMPLATES,
+            template_map={},
+        )
+    )
+
+
+class TestBuildBatchSandboxManifestCpuOvercommit:
+    """`_build_batchsandbox_manifest` must forward `config.limit_cpus` so K8s
+    sandboxes can request `cpus` cores while bursting up to `limit_cpus` — the
+    K8s analogue of the Ray path's `docker run --cpu-shares ... --cpus ...`."""
+
+    async def test_limit_cpus_propagated_to_manifest(self):
+        """limit_cpus > cpus: requests.cpu stays at cpus, limits.cpu = limit_cpus."""
+        provider = make_resource_provider()
+        config = make_config(cpus=2.0, memory="4Gi", limit_cpus=6.0)
+
+        manifest = await provider._build_batchsandbox_manifest(config)
+
+        container = manifest["spec"]["template"]["spec"]["containers"][0]
+        assert container["resources"]["requests"]["cpu"] == "2.0"
+        assert container["resources"]["limits"]["cpu"] == "6.0"
+
+    async def test_limit_cpus_defaults_to_cpus_when_none(self):
+        """limit_cpus omitted: loader falls back to cpus so requests.cpu == limits.cpu."""
+        provider = make_resource_provider()
+        config = make_config(cpus=4.0, memory="8Gi")  # limit_cpus left as None
+
+        manifest = await provider._build_batchsandbox_manifest(config)
+
+        container = manifest["spec"]["template"]["spec"]["containers"][0]
+        assert container["resources"]["requests"]["cpu"] == "4.0"
+        assert container["resources"]["limits"]["cpu"] == "4.0"

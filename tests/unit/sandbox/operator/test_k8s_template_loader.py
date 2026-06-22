@@ -196,6 +196,39 @@ class TestK8sTemplateLoader:
         nodeSelector = manifest["spec"]["template"]["spec"]["nodeSelector"]
         assert nodeSelector["nvidia.com/gpu.product"] == "A100"
 
+    def test_build_manifest_limit_cpus_defaults_to_cpus(self, template_loader):
+        """limit_cpus omitted: limits.cpu falls back to cpus so requests == limits."""
+        manifest = template_loader.build_manifest(
+            template_name="default", sandbox_id="test-sandbox", cpus=4.0, memory="8Gi"
+        )
+
+        container = manifest["spec"]["template"]["spec"]["containers"][0]
+        assert container["resources"]["requests"]["cpu"] == "4.0"
+        assert container["resources"]["limits"]["cpu"] == "4.0"
+
+    def test_build_manifest_limit_cpus_overcommit(self, template_loader):
+        """limit_cpus > cpus: requests stays at cpus, limits raises to limit_cpus."""
+        manifest = template_loader.build_manifest(
+            template_name="default",
+            sandbox_id="test-sandbox",
+            cpus=2.0,
+            memory="4Gi",
+            limit_cpus=6.0,
+        )
+
+        container = manifest["spec"]["template"]["spec"]["containers"][0]
+        assert container["resources"]["requests"]["cpu"] == "2.0"
+        assert container["resources"]["limits"]["cpu"] == "6.0"
+
+    def test_build_manifest_limit_cpus_collapses_when_no_cpus(self, template_loader):
+        """Neither cpus nor limit_cpus passed: both keys collapse out of the manifest."""
+        manifest = template_loader.build_manifest(template_name="default", sandbox_id="test-sandbox")
+
+        container = manifest["spec"]["template"]["spec"]["containers"][0]
+        resources = container["resources"]
+        assert resources.get("requests", {}) == {}
+        assert resources.get("limits", {}) == {}
+
     def test_build_manifest_drops_gpu_when_no_gpu(self):
         """When num_gpus omitted, GPU keys collapse out of resources.limits."""
         templates = {

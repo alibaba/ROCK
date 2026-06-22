@@ -129,7 +129,10 @@ class TestBuildCleanupCommand:
     def test_command_uses_delete_for_empty_dirs(self):
         task = self._new_task()
         cmd = task._build_cleanup_command(TargetDirConfig(path="/data/cache"))
-        assert "-type d -empty -delete" in cmd
+        # Step 2 reuses self.max_age_mins (default 10080) as its -mmin guard so
+        # transiently-empty sandbox dirs that have not yet flushed their first
+        # log are never race-deleted. The trailing `-delete;` token must remain.
+        assert "-type d -empty -mmin +10080 -delete;" in cmd
         assert "-exec rmdir" not in cmd
 
     def test_command_includes_target_dir_existence_check(self):
@@ -205,7 +208,7 @@ class TestBuildCleanupCommand:
         task = self._new_task(target_dirs=[dir_cfg])
         cmd = task._build_cleanup_command(dir_cfg)
         parts = cmd.split(";")
-        empty_dir_find = [p for p in parts if "-type d -empty -delete" in p][0]
+        empty_dir_find = [p for p in parts if "-type d -empty" in p][0]
         assert '-not -path "*/docker"' in empty_dir_find
         assert '-not -path "*/docker/*"' in empty_dir_find
 
@@ -214,7 +217,7 @@ class TestBuildCleanupCommand:
         task = self._new_task(target_dirs=[dir_cfg])
         cmd = task._build_cleanup_command(dir_cfg)
         parts = cmd.split(";")
-        empty_dir_find = [p for p in parts if "-type d -empty -delete" in p][0]
+        empty_dir_find = [p for p in parts if "-type d -empty" in p][0]
         assert '-not -path "/data/logs/special"' in empty_dir_find
         assert '-not -path "/data/logs/special/*"' in empty_dir_find
 
@@ -223,9 +226,78 @@ class TestBuildCleanupCommand:
         task = self._new_task(target_dirs=[dir_cfg])
         cmd = task._build_cleanup_command(dir_cfg)
         parts = cmd.split(";")
-        empty_dir_find = [p for p in parts if "-type d -empty -delete" in p][0]
+        empty_dir_find = [p for p in parts if "-type d -empty" in p][0]
         assert '-not -path "/data/logs/sub/dir"' in empty_dir_find
         assert '-not -path "/data/logs/sub/dir/*"' in empty_dir_find
+
+    # ----------------------------------------------------------------------- #
+    # Regression: empty-dir deletion in Step 2 must inherit max_age_mins.
+    #
+    # Pre-fix bug: ``find -depth -type d -empty -delete`` had no age guard, so
+    # a sandbox dir that had just been mkdir'd but had not yet flushed its first
+    # log file (i.e. transiently empty for a few seconds–minutes) would be
+    # deleted out from under the live sandbox by the next hourly cleanup run.
+    # The fix wires self.max_age_mins into Step 2's -mmin so an empty dir must
+    # also be unmodified within the retention window before it can be removed.
+    # ----------------------------------------------------------------------- #
+
+    def test_step2_includes_mmin_guard_default(self):
+        task = self._new_task()  # default max_age_mins=10080
+        cmd = task._build_cleanup_command(TargetDirConfig(path="/data/cache"))
+        parts = cmd.split(";")
+        empty_dir_find = [p for p in parts if "-type d -empty" in p][0]
+        assert "-mmin +10080" in empty_dir_find
+        # Both -empty and -mmin must precede -delete; -delete is the terminal
+        # action and must not appear before either predicate.
+        empty_idx = empty_dir_find.index("-empty")
+        mmin_idx = empty_dir_find.index("-mmin")
+        delete_idx = empty_dir_find.index("-delete")
+        assert empty_idx < delete_idx
+        assert mmin_idx < delete_idx
+
+    def test_step2_mmin_matches_custom_max_age_mins(self):
+        # Custom retention window must propagate from Step 1 into Step 2 so
+        # operators tuning max_age_mins do not need a second knob to keep the
+        # two find passes consistent.
+        task = self._new_task(max_age_mins=4320)
+        cmd = task._build_cleanup_command(TargetDirConfig(path="/data/cache"))
+        parts = cmd.split(";")
+        empty_dir_find = [p for p in parts if "-type d -empty" in p][0]
+        assert "-mmin +4320" in empty_dir_find
+
+    def test_step2_mmin_present_with_excludes(self):
+        # The -mmin guard must remain present even when -not -path expressions
+        # are interleaved into the empty-dir find invocation.
+        dir_cfg = TargetDirConfig(
+            path="/data/logs",
+            exclude_dirs=["docker"],
+            exclude_files=["docuum.log"],
+        )
+        task = self._new_task(target_dirs=[dir_cfg], max_age_mins=1440)
+        cmd = task._build_cleanup_command(dir_cfg)
+        parts = cmd.split(";")
+        empty_dir_find = [p for p in parts if "-type d -empty" in p][0]
+        assert "-mmin +1440" in empty_dir_find
+        assert '-not -path "*/docker"' in empty_dir_find
+        assert '-not -path "*/docker/*"' in empty_dir_find
+
+    def test_step2_no_unguarded_empty_delete_anywhere(self):
+        # Hard regression guard: the bare token `-empty -delete` (no -mmin
+        # between them) must never appear in any generated command. If a future
+        # refactor accidentally drops the guard, this assertion will fire
+        # before the change reaches production.
+        for max_age in (60, 1440, 10080, 43200):
+            for cfg in (
+                TargetDirConfig(path="/data/cache"),
+                TargetDirConfig(path="/data/logs", exclude_dirs=["docker"]),
+                TargetDirConfig(path="/data/logs", exclude_files=["rocklet.log"]),
+            ):
+                task = self._new_task(target_dirs=[cfg], max_age_mins=max_age)
+                cmd = task._build_cleanup_command(cfg)
+                assert "-empty -delete" not in cmd, (
+                    f"unguarded empty-dir delete leaked into command for "
+                    f"max_age_mins={max_age}, dir_cfg={cfg}: {cmd}"
+                )
 
 
 # --------------------------------------------------------------------------- #

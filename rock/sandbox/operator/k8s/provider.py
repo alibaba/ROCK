@@ -5,6 +5,7 @@ import re
 from abc import ABC, abstractmethod
 from typing import Any, Protocol
 
+import yaml
 from kubernetes import client
 from kubernetes import config as k8s_config
 
@@ -581,10 +582,12 @@ class BatchSandboxProvider(K8sProvider):
             disk=self._normalize_memory(config.disk_limit_rootfs) if config.disk_limit_rootfs else None,
             num_gpus=config.num_gpus,
             accelerator_type=config.accelerator_type,
+            limit_cpus=config.limit_cpus,
         )
 
-        logger.debug(
-            f"Built BatchSandbox manifest for {sandbox_id} in namespace '{self.namespace}' using template '{template_name}'"
+        logger.info(
+            f"Built BatchSandbox manifest for {sandbox_id} in namespace '{self.namespace}' "
+            f"using template '{template_name}':\n{yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True)}"
         )
         return manifest
 

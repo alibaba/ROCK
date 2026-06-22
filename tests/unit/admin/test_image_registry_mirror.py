@@ -153,6 +153,43 @@ async def test_credentials_propagated_on_hit(restore_sandbox_manager, stub_manif
     assert stub_manifest_probe.probes[0]["registry"] == "rock-a.example.com"
 
 
+async def test_user_credentials_cleared_when_mirror_has_no_auth(restore_sandbox_manager, stub_manifest_probe):
+    """User-supplied registry credentials must not leak to a mirror that needs no auth."""
+    sandbox_api.sandbox_manager = _make_manager(
+        [ImageRegistryMirror(registry="rock-a.example.com", namespace="rock-public")]
+    )
+    config = DockerDeploymentConfig(image="my-registry.io/myimage:v1", registry_username="orig-user", registry_password="orig-pw")
+    stub_manifest_probe.probe_results.append(True)
+
+    await sandbox_api._apply_image_registry_mirror(config)
+
+    assert config.image == "rock-a.example.com/rock-public/myimage:v1"
+    assert config.registry_username is None
+    assert config.registry_password is None
+
+
+async def test_user_credentials_replaced_by_mirror_credentials(restore_sandbox_manager, stub_manifest_probe):
+    """When both user and mirror have credentials, the mirror's credentials must win."""
+    sandbox_api.sandbox_manager = _make_manager(
+        [
+            ImageRegistryMirror(
+                registry="rock-a.example.com",
+                namespace="rock-public",
+                username="mirror-user",
+                password="mirror-pw",
+            ),
+        ]
+    )
+    config = DockerDeploymentConfig(image="my-registry.io/myimage:v1", registry_username="orig-user", registry_password="orig-pw")
+    stub_manifest_probe.probe_results.append(True)
+
+    await sandbox_api._apply_image_registry_mirror(config)
+
+    assert config.image == "rock-a.example.com/rock-public/myimage:v1"
+    assert config.registry_username == "mirror-user"
+    assert config.registry_password == "mirror-pw"
+
+
 async def test_invalid_mirror_entry_skipped(restore_sandbox_manager, stub_manifest_probe):
     sandbox_api.sandbox_manager = _make_manager(
         [

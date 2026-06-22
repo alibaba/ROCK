@@ -11,6 +11,10 @@
     "message": "文档",
     "description": "Navbar item with label Docs"
   },
+  "item.label.Join Us": {
+    "message": "加入我们",
+    "description": "Navbar item with label Join Us"
+  },
   "item.label.DeepWiki": {
     "message": "DeepWiki",
     "description": "Navbar item with label DeepWiki"

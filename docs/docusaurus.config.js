@@ -200,6 +200,11 @@ const config = {
             position: "right",
           },
           {
+            to: '/careers',
+            label: 'Join Us',
+            position: 'right',
+          },
+          {
             type: 'localeDropdown',
             position: 'right',
           },
@@ -234,6 +239,10 @@ const config = {
           {
             title: 'More',
             items: [
+              {
+                label: 'Join Us',
+                to: '/careers',
+              },
               {
                 label: 'GitHub',
                 href: 'https://github.com/alibaba/ROCK',

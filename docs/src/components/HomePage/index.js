@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button, Image, Modal, ConfigProvider, theme } from 'antd';
-import { GithubOutlined, WechatOutlined, XOutlined } from '@ant-design/icons';
+import { GithubOutlined, UsergroupAddOutlined, WechatOutlined, XOutlined } from '@ant-design/icons';
 import clsx from 'clsx';
 import dayjs from 'dayjs';
 import CountUp from 'react-countup';
@@ -439,6 +439,11 @@ export default ({ currentLocale }) => {
             <Button target='_blank' href="https://x.com/FutureLab2025" icon={<XOutlined />} className={styles.btn} variant='outlined'>
               <Translate>
                 Follow us on X
+              </Translate>
+            </Button>
+            <Button href={isChinese ? '/ROCK/zh-Hans/careers' : '/ROCK/careers'} icon={<UsergroupAddOutlined />} className={styles.github} variant='outlined'>
+              <Translate>
+                Join Us
               </Translate>
             </Button>
           </div>

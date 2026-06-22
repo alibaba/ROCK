@@ -62,6 +62,7 @@ class K8sTemplateLoader:
         disk: str | None = None,
         num_gpus: int | None = None,
         accelerator_type: str | None = None,
+        limit_cpus: float | None = None,
     ) -> dict[str, Any]:
         """Build a complete BatchSandbox manifest from template.
 
@@ -79,6 +80,13 @@ class K8sTemplateLoader:
         are still assembled in code, since they are structural rather than
         configurable.
 
+        CPU overcommit: ``cpus`` is the scheduler reservation (rendered into
+        ``requests.cpu``), ``limit_cpus`` is the cgroup hard cap (rendered into
+        ``limits.cpu``). When ``limit_cpus`` is None we fall back to ``cpus`` so
+        that ``requests.cpu == limits.cpu`` and behaviour matches the pre-
+        overcommit baseline. A ``limit_cpus > cpus`` value lets the container
+        burst above its reservation, mirroring the Ray path's ``--cpus`` flag.
+
         Args:
             template_name: Name of the template to use.
             sandbox_id: Sandbox identifier (auto-generated if missing).
@@ -88,6 +96,9 @@ class K8sTemplateLoader:
             disk: Disk resource value (rendered via {{ disk }}).
             num_gpus: GPU count (rendered via {{ num_gpus }}).
             accelerator_type: GPU model (rendered via {{ accelerator_type }}).
+            limit_cpus: CPU hard cap for overcommit (rendered via
+                {{ limit_cpus }}). When None, falls back to ``cpus`` to keep
+                requests.cpu == limits.cpu.
 
         Returns:
             Complete BatchSandbox manifest.
@@ -106,6 +117,10 @@ class K8sTemplateLoader:
         if not sandbox_id:
             sandbox_id = f"sandbox-{uuid.uuid4().hex[:8]}"
 
+        # limit_cpus falls back to cpus so templates that always reference
+        # {{ limit_cpus }} keep working when overcommit is not set.
+        effective_limit_cpus = limit_cpus if limit_cpus is not None else cpus
+
         # num_gpus stays numeric so templates can do arithmetic; cpus str-coerced to pin float->"4.0" formatting.
         ctx = {
             "sandbox_id": sandbox_id,
@@ -116,11 +131,12 @@ class K8sTemplateLoader:
             "disk": disk if disk is not None else "",
             "num_gpus": num_gpus if num_gpus is not None else "",
             "accelerator_type": accelerator_type if accelerator_type is not None else "",
+            "limit_cpus": str(effective_limit_cpus) if effective_limit_cpus is not None else "",
         }
 
         rendered = render_node(config, self._jinja_env, ctx)
 
-        enable_resource_speedup = rendered.get("enable_resource_speedup", True)
+        enable_resource_speedup = rendered.get("enable_resource_speedup", False)
         pod_template = rendered.get("template", {})
         template_metadata = pod_template.get("metadata", {})
         pod_spec = pod_template.get("spec", {})

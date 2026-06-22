@@ -122,9 +122,8 @@ def _probe_cache_set(candidate: str, hit: bool) -> None:
 
 def _apply_mirror_hit(config: DockerDeploymentConfig, mirror, candidate: str) -> None:
     config.image = candidate
-    if mirror.username and mirror.password:
-        config.registry_username = mirror.username
-        config.registry_password = mirror.password
+    config.registry_username = mirror.username
+    config.registry_password = mirror.password
 
 
 def _parse_bearer_challenge(header: str) -> dict[str, str]:
@@ -142,7 +141,14 @@ async def _http_probe_manifest(
 ) -> bool:
     """Check whether ``repo:tag`` exists on *registry* via the v2 manifest API."""
     url = f"https://{registry}/v2/{repo}/manifests/{tag}"
-    headers = {"Accept": "application/vnd.docker.distribution.manifest.v2+json"}
+    headers = {
+        "Accept": ", ".join([
+            "application/vnd.docker.distribution.manifest.v2+json",
+            "application/vnd.oci.image.manifest.v1+json",
+            "application/vnd.docker.distribution.manifest.list.v2+json",
+            "application/vnd.oci.image.index.v1+json",
+        ])
+    }
     auth = (username, password) if username and password else None
 
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -455,6 +461,13 @@ async def delete(sandbox_id: str = Body(..., embed=True)) -> RockResponse:
 @sandbox_router.post("/restart")
 @handle_exceptions(error_message="restart sandbox failed")
 async def restart(sandbox_id: str = Body(..., embed=True)) -> RockResponse[SandboxStartResponse]:
+    result = await sandbox_manager.restart_async(sandbox_id)
+    return RockResponse(result=result)
+
+
+@sandbox_router.post("/sandboxes/{sandbox_id}/restart")
+@handle_exceptions(error_message="restart sandbox failed")
+async def restart_restful(sandbox_id: NonBlankStr) -> RockResponse[SandboxStartResponse]:
     result = await sandbox_manager.restart_async(sandbox_id)
     return RockResponse(result=result)
 
