@@ -320,6 +320,7 @@ class SandboxManager(BaseManager):
             start_time=sandbox_info.get("start_time"),
             stop_time=sandbox_info.get("stop_time"),
             create_time=sandbox_info.get("create_time"),
+            state_history=sm.sandbox_info.get("state_history", []) if sm.sandbox_info else [],
         )
 
     async def build_sandbox_info_from_redis(self, sandbox_id: str, deployment_info: SandboxInfo) -> SandboxInfo | None:

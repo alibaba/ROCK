@@ -55,6 +55,7 @@ class SandboxStatusResponse(BaseModel):
     start_time: str | None = None
     stop_time: str | None = None
     create_time: str | None = None
+    state_history: list[dict[str, str]] = []
 
 
 class CommandResponse(BaseModel):

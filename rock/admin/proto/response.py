@@ -16,6 +16,13 @@ class SandboxStartResponse(SandboxResponse):
     disk_limit_rootfs: str | None = Field(default=None, deprecated="Use 'disk' instead")
 
 
+class StateTransitionRecord(BaseModel):
+    from_state: str
+    to_state: str
+    event: str
+    timestamp: str
+
+
 # TODO: inherit from SandboxStartResponse
 class SandboxStatusResponse(BaseModel):
     sandbox_id: str = None
@@ -38,6 +45,7 @@ class SandboxStatusResponse(BaseModel):
     start_time: str | None = None
     stop_time: str | None = None
     create_time: str | None = None
+    state_history: list[StateTransitionRecord] = []
 
     @classmethod
     def from_sandbox_info(cls, sandbox_info: "SandboxInfo") -> "SandboxStatusResponse":
@@ -56,6 +64,7 @@ class SandboxStatusResponse(BaseModel):
             memory=sandbox_info.get("memory"),
             disk=sandbox_info.get("disk"),
             disk_limit_rootfs=sandbox_info.get("disk"),
+            state_history=sandbox_info.get("state_history", []),
         )
 
 
