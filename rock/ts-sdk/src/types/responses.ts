@@ -193,6 +193,13 @@ export const OssCredentialsSchema = z.object({
   accessKeySecret: z.string(),
   securityToken: z.string(),
   expiration: z.string(),
+  // Server-supplied OSS config (optional; only new admin returns these).
+  // When present, takes priority over ROCK_OSS_BUCKET_* env vars so the bucket
+  // matches the STS-issuing account.
+  endpoint: z.string().optional(),
+  bucket: z.string().optional(),
+  region: z.string().optional(),
+  prefix: z.string().optional(),
 });
 
 export type OssCredentials = z.infer<typeof OssCredentialsSchema>;

@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **OSS bucket / endpoint / region resolution is now server-first.** When the
+  admin `/get_token` response includes `Bucket`, `Endpoint`, and `Region`,
+  those values are used verbatim. The `ROCK_OSS_BUCKET_NAME`,
+  `ROCK_OSS_BUCKET_ENDPOINT`, and `ROCK_OSS_BUCKET_REGION` environment
+  variables are now only consulted as a fallback for older admin servers
+  that do not advertise the OSS config.
+  - This fixes 403 AccessDenied errors when SDK >= 1.8 was deployed alongside
+    stale legacy env vars (e.g. `ROCK_OSS_BUCKET_NAME=xrl-sandbox`): the SDK
+    now requests STS for `account=primary` and uses the matching bucket from
+    the server response instead of the mismatched env value.
+  - `ROCK_OSS_ENABLE` continues to gate the env-fallback path; it is no
+    longer required when the server supplies a complete OSS config (matching
+    the existing `StorageClient` behavior).
+- **`getOssStsCredentials()` now requests `account=primary`.** Previously it
+  hit `/get_token` with no query, which the admin defaulted to `legacy`.
+  This ensures the STS-issuing account matches the bucket the server
+  advertises.
+
+### Added
+
+- `Sandbox.resolveOssConfig(credentials)` static helper that mirrors the
+  Python `OssClient._resolve_config` (server-first with env fallback).
+- `Sandbox.buildOssObjectName(prefix, baseName)` static helper that prepends
+  the server-supplied OSS prefix to object keys, normalizing leading/trailing
+  slashes.
+
+### Fixed
+
+- **OSS 403 AccessDenied on uploads/downloads.** `uploadViaOss` and
+  `downloadViaOss` previously wrote to the bucket root (e.g.
+  `1700000000-file.tar.gz`), but primary-account STS tokens carry a RAM
+  policy that only permits writes under the advertised prefix (typically
+  `rock-transfer/`). The SDK now prepends `ossConfig.prefix` to the object
+  key, matching the Python SDK `OssClient._compute_object_name` behavior.
+
 ## [1.3.9] - 2026-03-29
 
 ### Added

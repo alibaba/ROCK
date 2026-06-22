@@ -111,6 +111,15 @@ export class Sandbox extends AbstractSandbox {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private ossBucket: any = null;
   private ossTokenExpireTime: string = '';
+  // Resolved OSS config (server-first; env is only fallback when admin is too
+  // old to advertise Bucket/Endpoint/Region in /get_token).
+  private ossConfig: {
+    endpoint: string;
+    bucket: string;
+    region: string;
+    prefix: string;
+    isEnvFallback: boolean;
+  } | null = null;
 
   // Sub-components
   private deploy: Deploy;
@@ -705,7 +714,10 @@ export class Sandbox extends AbstractSandbox {
    * Get OSS STS credentials from sandbox
    */
   async getOssStsCredentials(): Promise<OssCredentials> {
-    const url = `${this.url}/get_token`;
+    // Always request the primary account: SDK >= 1.8 uses chatos-rock; the
+    // server returns matching Bucket/Endpoint/Region in this case, which the
+    // server-first config resolution relies on.
+    const url = `${this.url}/get_token?account=primary`;
     const headers = this.buildHeaders();
 
     const response = await HttpUtils.get<OssCredentials>(url, headers);
@@ -826,21 +838,22 @@ export class Sandbox extends AbstractSandbox {
    * Download file via OSS as intermediary
    */
   private async downloadViaOss(remotePath: string, localPath: string, timeout?: number, onProgress?: (info: ProgressInfo) => void): Promise<DownloadFileResponse> {
-    // Check OSS is enabled
-    if (!envVars.ROCK_OSS_ENABLE) {
-      return {
-        success: false,
-        message: 'OSS download is not enabled. Please set ROCK_OSS_ENABLE=true',
-      };
-    }
-
     try {
       // Setup OSS bucket if needed
       if (this.ossBucket === null || this.isTokenExpired()) {
         await this.setupOss(timeout);
       }
 
-      if (!this.ossBucket) {
+      // Enforce the legacy opt-in gate only on the env-fallback path.
+      // Server-supplied configs bypass it (consistent with Python OssClient).
+      if (this.ossConfig?.isEnvFallback && !envVars.ROCK_OSS_ENABLE) {
+        return {
+          success: false,
+          message: 'OSS download is not enabled. Please set ROCK_OSS_ENABLE=true',
+        };
+      }
+
+      if (!this.ossBucket || !this.ossConfig) {
         return { success: false, message: 'Failed to setup OSS bucket' };
       }
 
@@ -850,15 +863,17 @@ export class Sandbox extends AbstractSandbox {
       // Generate unique object name
       const timestamp = Date.now();
       const fileName = remotePath.split('/').pop() ?? 'file';
-      const objectName = `download-${timestamp}-${fileName}`;
+      // Prepend server-supplied prefix (e.g. "rock-transfer/") so the OSS key
+      // matches the STS RAM policy. The primary-account STS only permits
+      // writes under this prefix; bucket-root writes return 403 AccessDenied.
+      const objectName = Sandbox.buildOssObjectName(this.ossConfig?.prefix, `download-${timestamp}-${fileName}`);
 
       // Get STS credentials for ossutil
       const credentials = await this.getOssStsCredentials();
-      const bucketName = envVars.ROCK_OSS_BUCKET_NAME ?? '';
-      const region = (envVars.ROCK_OSS_BUCKET_REGION ?? '').replace(/^oss-/, ''); // Normalize: remove "oss-" prefix if present
-      // Use ROCK_OSS_BUCKET_ENDPOINT if available, otherwise build from region
-      // Endpoint format: "oss-cn-hangzhou.aliyuncs.com" (no protocol prefix)
-      const endpoint = envVars.ROCK_OSS_BUCKET_ENDPOINT ?? `oss-${region}.aliyuncs.com`;
+      const bucketName = this.ossConfig.bucket;
+      const region = this.ossConfig.region.replace(/^oss-/, ''); // Normalize: remove "oss-" prefix if present
+      // Endpoint comes from resolved config (server or env). Format: "oss-cn-hangzhou.aliyuncs.com".
+      const endpoint = this.ossConfig.endpoint;
 
       // Upload from sandbox to OSS via ossutil v2
       // ossutil v2 uses command-line parameters for credentials (no separate config needed)
@@ -913,7 +928,10 @@ export class Sandbox extends AbstractSandbox {
 
       const timestamp = Date.now();
       const fileName = sourcePath.split('/').pop() ?? 'file';
-      const objectName = `${timestamp}-${fileName}`;
+      // Prepend server-supplied prefix (e.g. "rock-transfer/") so the OSS key
+      // matches the STS RAM policy. The primary-account STS only permits
+      // writes under this prefix; bucket-root writes return 403 AccessDenied.
+      const objectName = Sandbox.buildOssObjectName(this.ossConfig?.prefix, `${timestamp}-${fileName}`);
 
       // Check file size to determine upload method
       const fs = await import('fs/promises');
@@ -977,22 +995,95 @@ export class Sandbox extends AbstractSandbox {
    * Setup OSS bucket with STS credentials
    * @param timeout - Optional timeout in milliseconds (defaults to ROCK_OSS_TIMEOUT env var or 300000ms)
    */
+  /**
+   * Compose an OSS object key by prepending the server-supplied prefix.
+   *
+   * STS tokens issued by the primary account carry a RAM policy that only
+   * permits writes under the advertised prefix (typically "rock-transfer/").
+   * Writing to the bucket root returns 403 AccessDenied. This helper applies
+   * the prefix consistently for upload and download paths.
+   *
+   * Mirrors the Python `OssClient._compute_object_name` prefix handling.
+   */
+  static buildOssObjectName(prefix: string | undefined | null, baseName: string): string {
+    const clean = (prefix ?? '').replace(/^\/+|\/+$/g, '');
+    return clean ? `${clean}/${baseName}` : baseName;
+  }
+
+  /**
+   * Resolve OSS config from server response with env-var fallback.
+   *
+   * Server-first: when admin returns a complete OSS config in /get_token,
+   * use it verbatim so the STS-issuing account matches the bucket. This is
+   * the only path that works for SDK >= 1.8 (which targets account=primary).
+   *
+   * Env fallback: only kicks in when admin is too old to return
+   * Bucket/Endpoint/Region. The legacy ROCK_OSS_ENABLE gate is enforced at
+   * call sites (e.g. downloadViaOss) only for the env-fallback path.
+   *
+   * Mirrors the Python `OssClient._resolve_config` implementation.
+   */
+  static resolveOssConfig(credentials: OssCredentials): {
+    endpoint: string;
+    bucket: string;
+    region: string;
+    prefix: string;
+    isEnvFallback: boolean;
+  } | null {
+    if (credentials.endpoint && credentials.bucket && credentials.region) {
+      return {
+        endpoint: credentials.endpoint,
+        bucket: credentials.bucket,
+        region: credentials.region,
+        prefix: credentials.prefix ?? '',
+        isEnvFallback: false,
+      };
+    }
+    if (
+      envVars.ROCK_OSS_BUCKET_ENDPOINT &&
+      envVars.ROCK_OSS_BUCKET_NAME &&
+      envVars.ROCK_OSS_BUCKET_REGION
+    ) {
+      return {
+        endpoint: envVars.ROCK_OSS_BUCKET_ENDPOINT,
+        bucket: envVars.ROCK_OSS_BUCKET_NAME,
+        region: envVars.ROCK_OSS_BUCKET_REGION,
+        prefix: '',
+        isEnvFallback: true,
+      };
+    }
+    return null;
+  }
+
   private async setupOss(timeout?: number): Promise<void> {
     const credentials = await this.getOssStsCredentials();
+
+    const resolved = Sandbox.resolveOssConfig(credentials);
+    if (!resolved) {
+      throw new Error(
+        'OSS config unavailable: admin /get_token did not return Bucket/Endpoint/Region and no ROCK_OSS_BUCKET_* env vars are set'
+      );
+    }
+
+    this.ossConfig = resolved;
 
     const OSS = (await import('ali-oss')).default;
 
     // Priority: parameter > env var > default (300000ms = 5 minutes)
     const ossTimeout = timeout ?? envVars.ROCK_OSS_TIMEOUT;
 
+    // ali-oss expects region without "oss-" prefix; endpoint normalization
+    // is handled separately in downloadViaOss when building ossutil commands.
+    const aliRegion = resolved.region.replace(/^oss-/, '');
+
     this.ossBucket = new OSS({
       secure: true, // Use HTTPS for OSS connections
       timeout: ossTimeout,
-      region: envVars.ROCK_OSS_BUCKET_REGION ?? '',
+      region: aliRegion,
       accessKeyId: credentials.accessKeyId,
       accessKeySecret: credentials.accessKeySecret,
       stsToken: credentials.securityToken,
-      bucket: envVars.ROCK_OSS_BUCKET_NAME ?? '',
+      bucket: resolved.bucket,
       refreshSTSToken: async () => {
         const newCreds = await this.getOssStsCredentials();
         return {

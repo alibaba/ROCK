@@ -513,6 +513,196 @@ describe('nohup mode PATH handling', () => {
 });
 
 /**
+ * Server-first OSS config resolution tests
+ *
+ * Regression guard for: SDK >= 1.8 with stale legacy env vars
+ * (e.g. ROCK_OSS_BUCKET_NAME=xrl-sandbox) must NOT override server-supplied
+ * config. The new admin returns Bucket/Endpoint/Region in /get_token, and the
+ * SDK requests account=primary, so the bucket must match the STS account.
+ */
+describe('Server-first OSS config resolution', () => {
+  let sandbox: Sandbox;
+  let mockPost: jest.Mock;
+  let mockGet: jest.Mock;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    mockPost = jest.fn();
+    mockGet = jest.fn();
+    mockedAxios.create = jest.fn().mockReturnValue({
+      post: mockPost,
+      get: mockGet,
+    });
+
+    // Deliberately set stale legacy env so we can prove server wins.
+    process.env.ROCK_OSS_ENABLE = 'true';
+    process.env.ROCK_OSS_BUCKET_NAME = 'xrl-sandbox';
+    process.env.ROCK_OSS_BUCKET_REGION = 'cn-hangzhou';
+    process.env.ROCK_OSS_BUCKET_ENDPOINT = 'oss-cn-hangzhou.aliyuncs.com';
+
+    sandbox = new Sandbox({ image: 'test:latest', startupTimeout: 2 });
+
+    mockPost.mockResolvedValueOnce({
+      data: {
+        status: 'Success',
+        result: { sandbox_id: 'test-id', host_name: 'test-host', host_ip: '127.0.0.1' },
+      },
+      headers: {},
+    });
+    mockGet.mockResolvedValue({
+      data: { status: 'Success', result: { is_alive: true } },
+      headers: {},
+    });
+    await sandbox.start();
+  });
+
+  afterEach(() => {
+    delete process.env.ROCK_OSS_ENABLE;
+    delete process.env.ROCK_OSS_BUCKET_NAME;
+    delete process.env.ROCK_OSS_BUCKET_REGION;
+    delete process.env.ROCK_OSS_BUCKET_ENDPOINT;
+  });
+
+  test('getOssStsCredentials requests account=primary', async () => {
+    mockGet.mockResolvedValueOnce({
+      data: {
+        status: 'Success',
+        result: {
+          access_key_id: 'STS.PRIMARY',
+          access_key_secret: 'sec',
+          security_token: 'tok',
+          expiration: '2099-01-01T00:00:00Z',
+        },
+      },
+      headers: {},
+    });
+
+    await sandbox.getOssStsCredentials();
+
+    const calledUrl = mockGet.mock.calls.at(-1)?.[0] as string;
+    expect(calledUrl).toContain('/get_token');
+    expect(calledUrl).toContain('account=primary');
+  });
+
+  test('server-supplied Bucket/Endpoint/Region overrides legacy env vars', () => {
+    // New admin returns the primary (chatos-rock) config; stale env says xrl-sandbox.
+    const credentials = {
+      accessKeyId: 'STS.PRIMARY',
+      accessKeySecret: 'sec',
+      securityToken: 'tok',
+      expiration: '2099-01-01T00:00:00Z',
+      endpoint: 'oss-cn-hangzhou.aliyuncs.com',
+      bucket: 'chatos-rock',
+      region: 'cn-hangzhou',
+      prefix: 'rock-transfer/',
+    };
+
+    const resolved = Sandbox.resolveOssConfig(credentials);
+
+    expect(resolved).not.toBeNull();
+    expect(resolved!.bucket).toBe('chatos-rock'); // server, NOT env xrl-sandbox
+    expect(resolved!.endpoint).toBe('oss-cn-hangzhou.aliyuncs.com');
+    expect(resolved!.region).toBe('cn-hangzhou');
+    expect(resolved!.prefix).toBe('rock-transfer/');
+    expect(resolved!.isEnvFallback).toBe(false);
+  });
+
+  test('falls back to env vars when server omits Bucket/Endpoint/Region (old admin)', () => {
+    // Old admin: no endpoint/bucket/region in /get_token response.
+    const credentials = {
+      accessKeyId: 'STS.LEGACY',
+      accessKeySecret: 'sec',
+      securityToken: 'tok',
+      expiration: '2099-01-01T00:00:00Z',
+    };
+
+    const resolved = Sandbox.resolveOssConfig(credentials);
+
+    expect(resolved).not.toBeNull();
+    expect(resolved!.bucket).toBe('xrl-sandbox'); // env fallback
+    expect(resolved!.endpoint).toBe('oss-cn-hangzhou.aliyuncs.com');
+    expect(resolved!.region).toBe('cn-hangzhou');
+    expect(resolved!.isEnvFallback).toBe(true);
+  });
+
+  test('returns null when neither server nor env provides complete config', () => {
+    delete process.env.ROCK_OSS_BUCKET_NAME;
+    delete process.env.ROCK_OSS_BUCKET_REGION;
+    delete process.env.ROCK_OSS_BUCKET_ENDPOINT;
+
+    const credentials = {
+      accessKeyId: 'STS',
+      accessKeySecret: 'sec',
+      securityToken: 'tok',
+      expiration: '2099-01-01T00:00:00Z',
+    };
+
+    expect(Sandbox.resolveOssConfig(credentials)).toBeNull();
+  });
+
+  test('partial server response (missing bucket) falls through to env', () => {
+    const credentials = {
+      accessKeyId: 'STS',
+      accessKeySecret: 'sec',
+      securityToken: 'tok',
+      expiration: '2099-01-01T00:00:00Z',
+      endpoint: 'oss-cn-hangzhou.aliyuncs.com',
+      // bucket missing → server config incomplete → env wins
+      region: 'cn-hangzhou',
+    };
+
+    const resolved = Sandbox.resolveOssConfig(credentials);
+    expect(resolved).not.toBeNull();
+    expect(resolved!.isEnvFallback).toBe(true);
+    expect(resolved!.bucket).toBe('xrl-sandbox');
+  });
+});
+
+/**
+ * OSS object name prefix tests
+ *
+ * Regression guard for: STS tokens from account=primary carry a RAM policy
+ * restricting writes to the advertised Prefix (e.g. "rock-transfer/").
+ * Writing to bucket root returns 403 AccessDenied — both uploadViaOss and
+ * downloadViaOss must prepend the prefix to the object key.
+ */
+describe('Sandbox.buildOssObjectName', () => {
+  test('prepends server-supplied prefix to base name', () => {
+    expect(Sandbox.buildOssObjectName('rock-transfer/', '1700000000-foo.tar.gz'))
+      .toBe('rock-transfer/1700000000-foo.tar.gz');
+  });
+
+  test('normalizes leading and trailing slashes', () => {
+    expect(Sandbox.buildOssObjectName('/rock-transfer/', 'obj')).toBe('rock-transfer/obj');
+    expect(Sandbox.buildOssObjectName('rock-transfer', 'obj')).toBe('rock-transfer/obj');
+    expect(Sandbox.buildOssObjectName('///rock-transfer///', 'obj')).toBe('rock-transfer/obj');
+  });
+
+  test('returns base name unchanged when prefix is empty/null/undefined', () => {
+    expect(Sandbox.buildOssObjectName('', 'obj')).toBe('obj');
+    expect(Sandbox.buildOssObjectName(null, 'obj')).toBe('obj');
+    expect(Sandbox.buildOssObjectName(undefined, 'obj')).toBe('obj');
+  });
+
+  test('returns base name unchanged when prefix is only slashes', () => {
+    expect(Sandbox.buildOssObjectName('/', 'obj')).toBe('obj');
+    expect(Sandbox.buildOssObjectName('////', 'obj')).toBe('obj');
+  });
+
+  test('supports nested multi-segment prefix', () => {
+    expect(Sandbox.buildOssObjectName('rock-transfer/sub/', 'obj'))
+      .toBe('rock-transfer/sub/obj');
+  });
+
+  test('preserves download- prefix on base name', () => {
+    // downloadViaOss uses "download-{ts}-{name}" as base; full key must still
+    // sit under the policy-allowed prefix.
+    expect(Sandbox.buildOssObjectName('rock-transfer/', 'download-123-a.txt'))
+      .toBe('rock-transfer/download-123-a.txt');
+  });
+});
+
+/**
  * OSS timeout configuration tests
  *
  * OSS operations should support configurable timeout via:

@@ -30,13 +30,21 @@ logger = init_logger(__name__)
 
 @dataclass
 class OssClientConfig:
-    """Resolved OSS configuration (Layer 1 env or Layer 2 server)."""
+    """Resolved OSS configuration.
+
+    Priority: admin /get_token response > env-var fallback > unavailable.
+    Env vars are kept as a fallback for older admin servers that do not yet
+    return Bucket/Endpoint/Region. For newer admins, server response always
+    wins so the STS-issuing account and the target bucket stay aligned
+    (prevents 403 when SDK>=1.8 talks to chatos-rock with legacy env pointing
+    at xrl-sandbox).
+    """
 
     endpoint: str
     bucket: str
     region: str
-    enabled_via_env: bool  # True = Layer 1 (gated by ROCK_OSS_ENABLE); False = Layer 2
-    prefix: str = ""  # Transfer-object key prefix (Layer 1 from env; Layer 2 from server response)
+    is_env_fallback: bool  # True = env fallback path (gated by ROCK_OSS_ENABLE); False = server-supplied
+    prefix: str = ""  # Transfer-object key prefix (server: response.Prefix; fallback: ROCK_OSS_TRANSFER_PREFIX)
 
 
 class OssClient:
@@ -70,20 +78,9 @@ class OssClient:
 
     @staticmethod
     def _resolve_config(sts_response: dict) -> OssClientConfig | None:
-        # Layer 1: env var (highest priority)
-        env_endpoint = env_vars.ROCK_OSS_BUCKET_ENDPOINT
-        env_bucket = env_vars.ROCK_OSS_BUCKET_NAME
-        env_region = env_vars.ROCK_OSS_BUCKET_REGION
-        if env_endpoint and env_bucket and env_region:
-            return OssClientConfig(
-                endpoint=env_endpoint,
-                bucket=env_bucket,
-                region=env_region,
-                enabled_via_env=True,
-                prefix=env_vars.ROCK_OSS_TRANSFER_PREFIX or "",  # NEW: env can carry prefix too
-            )
-
-        # Layer 2: server response (fallback default)
+        # Server-first: when admin returns a complete OSS config, use it verbatim
+        # so the STS-issuing account matches the bucket. This is the only path
+        # that works correctly for SDK>=1.8 (which requests `account=primary`).
         resp_endpoint = sts_response.get("Endpoint")
         resp_bucket = sts_response.get("Bucket")
         resp_region = sts_response.get("Region")
@@ -92,11 +89,25 @@ class OssClient:
                 endpoint=resp_endpoint,
                 bucket=resp_bucket,
                 region=resp_region,
-                enabled_via_env=False,
-                prefix=sts_response.get("Prefix") or "",  # NEW: pull prefix from server
+                is_env_fallback=False,
+                prefix=sts_response.get("Prefix") or "",
             )
 
-        # Layer 3: OSS unavailable
+        # Env fallback: only kicks in when admin is too old to return Bucket/Endpoint/Region.
+        # Still gated by ROCK_OSS_ENABLE in _setup so users keep the legacy opt-in switch.
+        env_endpoint = env_vars.ROCK_OSS_BUCKET_ENDPOINT
+        env_bucket = env_vars.ROCK_OSS_BUCKET_NAME
+        env_region = env_vars.ROCK_OSS_BUCKET_REGION
+        if env_endpoint and env_bucket and env_region:
+            return OssClientConfig(
+                endpoint=env_endpoint,
+                bucket=env_bucket,
+                region=env_region,
+                is_env_fallback=True,
+                prefix=env_vars.ROCK_OSS_TRANSFER_PREFIX or "",
+            )
+
+        # OSS unavailable: neither server nor env supplies a complete config.
         return None
 
     async def _get_sts_credentials(self) -> dict:
@@ -152,8 +163,11 @@ class OssClient:
         if config is None:
             return False
 
-        # Layer 1 also requires ROCK_OSS_ENABLE
-        if config.enabled_via_env and not env_vars.ROCK_OSS_ENABLE:
+        # Env fallback path keeps the legacy ROCK_OSS_ENABLE opt-in gate so
+        # users who explicitly set `ROCK_OSS_ENABLE=false` still see OSS off.
+        # Server-supplied configs bypass this gate: if admin advertises OSS,
+        # treat it as enabled (matches StorageClient behavior).
+        if config.is_env_fallback and not env_vars.ROCK_OSS_ENABLE:
             return False
 
         try:
