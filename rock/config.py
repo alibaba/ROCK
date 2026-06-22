@@ -550,6 +550,7 @@ class RockConfig:
         config_map = {
             "sandbox_config": (SandboxConfig, "sandbox_config"),
             "proxy_service": (ProxyServiceConfig, "proxy_service"),
+            "lifecycle": (SandboxLifecycleConfig, "lifecycle"),
         }
 
         # Update configs that are present in nacos_result
