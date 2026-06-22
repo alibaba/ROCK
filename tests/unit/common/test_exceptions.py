@@ -67,3 +67,11 @@ class TestRaiseForEnvelopeOrResult:
         response = {"status": "Failed", "error": "anything"}
         with pytest.raises(Exception, match="fallback"):
             raise_for_envelope_or_result(response, "Failed to start", "fallback")
+
+    def test_non_dict_result_skips_legacy_path(self):
+        """When result is a non-dict (e.g. a string from a bare RockResponse
+        endpoint), the legacy SandboxResponse parse must be skipped to avoid
+        a TypeError crash."""
+        response = {"status": "Failed", "error": "oops", "result": "some string"}
+        with pytest.raises(Exception, match="fallback"):
+            raise_for_envelope_or_result(response, "Failed to start", "fallback")

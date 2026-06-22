@@ -115,6 +115,22 @@ describe('Sandbox Exception Handling', () => {
       await expect(sandbox.start()).rejects.toThrow(RockException);
     });
 
+    test('should throw BadRequestRockError via legacy result.code from old admin', async () => {
+      // Old admin server: no envelope code, error code lives in result.code
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Failed',
+          result: {
+            code: Codes.BAD_REQUEST,
+            failure_reason: 'legacy error',
+          },
+        },
+        headers: {},
+      });
+
+      await expect(sandbox.start()).rejects.toThrow(BadRequestRockError);
+    });
+
     test('should throw InternalServerRockError on startup timeout', async () => {
       // Mock successful start_async but sandbox never becomes alive
       mockPost.mockResolvedValueOnce({

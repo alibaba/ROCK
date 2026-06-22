@@ -65,7 +65,7 @@ def raise_for_envelope_or_result(response: dict, container_message: str, fallbac
     if envelope_code is not None:
         raise_for_code(envelope_code, f"{container_message}: {response}")
     result = response.get("result", None)
-    if result is not None:
+    if isinstance(result, dict):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
             rock_response = SandboxResponse(**result)
