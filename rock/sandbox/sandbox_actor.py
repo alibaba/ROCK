@@ -28,28 +28,20 @@ from rock.admin.proto.request import SandboxCreateBashSessionRequest as CreateBa
 from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
 from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.common.constants import StopReason
+from rock.config import ArchiveDirStorageConfig
 from rock.deployments.abstract import AbstractDeployment
 from rock.deployments.config import DeploymentConfig
 from rock.deployments.constants import Status
 from rock.deployments.docker import DockerDeployment
 from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
+from rock.sandbox.archive.abstract import AbstractDirStorage
 from rock.sandbox.archive.constants import ArchiveKeys
-from rock.sandbox.archive.oss_storage import OssDirStorage
 from rock.sandbox.archive.registry_v2 import DockerRegistryV2ImageStorage
-from rock.sandbox.archive.s3_storage import S3DirStorage
 from rock.sandbox.gem_actor import GemActor
 from rock.utils.format import parse_size_to_bytes
 
 logger = init_logger(__name__)
-
-
-def _make_dir_storage(config: dict):
-    config = dict(config)
-    storage_type = config.pop("type", "oss")
-    if storage_type == "s3":
-        return S3DirStorage(**config)
-    return OssDirStorage(**config)
 
 
 @ray.remote(scheduling_strategy="SPREAD")
@@ -348,7 +340,7 @@ class SandboxActor(GemActor):
     ) -> None:
         """Async archive: commit+push image, then tar+upload log dir."""
         sandbox_id = self._config.container_name
-        dir_storage = _make_dir_storage(dir_storage_config)
+        dir_storage = AbstractDirStorage.from_config(ArchiveDirStorageConfig(**dir_storage_config))
         image_storage = DockerRegistryV2ImageStorage(**image_storage_config)
         archive_params = archive_params or {}
         prefix = archive_params.get("archive_prefix", "rock-archives/")
@@ -411,7 +403,7 @@ class SandboxActor(GemActor):
     ) -> None:
         """Full restore: pull image + download logs + docker start + arm watchdog."""
         sandbox_id = self._config.container_name
-        dir_storage = _make_dir_storage(dir_storage_config)
+        dir_storage = AbstractDirStorage.from_config(ArchiveDirStorageConfig(**dir_storage_config))
         image_storage = DockerRegistryV2ImageStorage(**image_storage_config)
         archive_params = archive_params or {}
         prefix = archive_params.get("archive_prefix", "rock-archives/")
