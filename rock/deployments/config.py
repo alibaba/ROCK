@@ -15,7 +15,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from rock.admin.proto.request import SandboxStartRequest
 from rock.config import RuntimeConfig
 from rock.deployments.abstract import AbstractDeployment
-from rock.utils import REQUEST_TIMEOUT_SECONDS
 
 
 class AcceleratorType(str, Enum):
@@ -84,8 +83,8 @@ class DockerDeploymentConfig(DeploymentConfig):
     docker_args: list[str] = []
     """Additional arguments to pass to the docker run command. Platform arguments will be moved to the platform field."""
 
-    startup_timeout: float = REQUEST_TIMEOUT_SECONDS
-    """Maximum time in seconds to wait for the runtime to start up."""
+    startup_timeout: float | None = None
+    """Total time budget in seconds covering docker pull + runtime startup. None means use lifecycle default."""
 
     pull: Literal["never", "always", "missing"] = "missing"
     """Docker image pull policy: 'never', 'always', or 'missing'."""
