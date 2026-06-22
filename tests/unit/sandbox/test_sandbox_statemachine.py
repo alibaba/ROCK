@@ -411,3 +411,98 @@ class TestOnDelete:
     async def test_restores_deleted_from_state_value(self):
         sm = await SandboxStateMachine.from_state_value(State.DELETED, sandbox_info={})
         assert sm.deleted.is_active
+
+
+# ---------------------------------------------------------------------------
+# state_history recording
+# ---------------------------------------------------------------------------
+
+
+class TestStateHistory:
+    @pytest.mark.asyncio
+    async def test_alive_records_history(self):
+        sm = SandboxStateMachine(sandbox_info={"sandbox_id": "sb-1"})
+        await sm.activate_initial_state()
+        await sm.send("alive", sandbox_id="sb-1", meta_store=AsyncMock(), sandbox_info={})
+        history = sm.sandbox_info["state_history"]
+        assert len(history) == 1
+        assert history[0]["from_state"] == "pending"
+        assert history[0]["to_state"] == "running"
+        assert history[0]["event"] == "alive"
+        assert "timestamp" in history[0]
+
+    @pytest.mark.asyncio
+    async def test_stop_records_history(self):
+        sm = await SandboxStateMachine.from_state_value(State.RUNNING, sandbox_info={"sandbox_id": "sb-1"})
+        await sm.send("stop", sandbox_id="sb-1", operator=AsyncMock(), meta_store=AsyncMock())
+        history = sm.sandbox_info["state_history"]
+        assert len(history) == 1
+        assert history[0]["from_state"] == "running"
+        assert history[0]["to_state"] == "stopped"
+        assert history[0]["event"] == "stop"
+
+    @pytest.mark.asyncio
+    async def test_full_lifecycle_accumulates_history(self):
+        sm = SandboxStateMachine(sandbox_info={"sandbox_id": "sb-1"})
+        await sm.activate_initial_state()
+        await sm.send("alive", sandbox_id="sb-1", meta_store=AsyncMock(), sandbox_info={})
+        await sm.send("stop", sandbox_id="sb-1", operator=AsyncMock(), meta_store=AsyncMock())
+        history = sm.sandbox_info["state_history"]
+        assert len(history) == 2
+        assert history[0]["from_state"] == "pending"
+        assert history[0]["to_state"] == "running"
+        assert history[1]["from_state"] == "running"
+        assert history[1]["to_state"] == "stopped"
+
+    @pytest.mark.asyncio
+    async def test_stop_noop_skips_history(self):
+        sm = await SandboxStateMachine.from_state_value(State.STOPPED, sandbox_info={"sandbox_id": "sb-1"})
+        await sm.send("stop_noop", sandbox_id="sb-1")
+        history = sm.sandbox_info.get("state_history", [])
+        assert len(history) == 0
+
+    @pytest.mark.asyncio
+    async def test_restart_records_history(self):
+        sm = await SandboxStateMachine.from_state_value(State.STOPPED, sandbox_info=dict(_VALID_RESTART_INFO))
+        await sm.send("restart", sandbox_id="sb-1", operator=AsyncMock(), meta_store=AsyncMock())
+        history = sm.sandbox_info["state_history"]
+        assert len(history) == 1
+        assert history[0]["from_state"] == "stopped"
+        assert history[0]["to_state"] == "pending"
+        assert history[0]["event"] == "restart"
+
+    @pytest.mark.asyncio
+    async def test_delete_records_history(self):
+        sm = await SandboxStateMachine.from_state_value(State.STOPPED, sandbox_info=dict(_VALID_DELETE_INFO))
+        await sm.send("delete", sandbox_id="sb-1", operator=AsyncMock(), meta_store=AsyncMock())
+        history = sm.sandbox_info["state_history"]
+        assert len(history) == 1
+        assert history[0]["from_state"] == "stopped"
+        assert history[0]["to_state"] == "deleted"
+        assert history[0]["event"] == "delete"
+
+    @pytest.mark.asyncio
+    async def test_history_preserved_from_state_value(self):
+        existing_history = [
+            {"from_state": "pending", "to_state": "running", "event": "alive", "timestamp": "2026-01-01T00:00:00+08:00"}
+        ]
+        sm = await SandboxStateMachine.from_state_value(
+            State.RUNNING, sandbox_info={"sandbox_id": "sb-1", "state_history": existing_history}
+        )
+        await sm.send("stop", sandbox_id="sb-1", operator=AsyncMock(), meta_store=AsyncMock())
+        history = sm.sandbox_info["state_history"]
+        assert len(history) == 2
+        assert history[0]["event"] == "alive"
+        assert history[1]["event"] == "stop"
+
+    @pytest.mark.asyncio
+    async def test_alive_copies_history_to_operator_sandbox_info(self):
+        sm = SandboxStateMachine(sandbox_info={"sandbox_id": "sb-1"})
+        await sm.activate_initial_state()
+        operator_info = {"sandbox_id": "sb-1"}
+        mock_meta_store = AsyncMock()
+        await sm.send("alive", sandbox_id="sb-1", meta_store=mock_meta_store, sandbox_info=operator_info)
+        updated_info = mock_meta_store.update.call_args[0][1]
+        assert "state_history" in updated_info
+        assert len(updated_info["state_history"]) == 1
+        assert updated_info["state_history"][0]["event"] == "alive"

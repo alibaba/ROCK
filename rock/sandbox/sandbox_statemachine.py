@@ -62,6 +62,24 @@ class SandboxStateMachine(StateChart):
 
     # Callbacks
 
+    def before_transition(self, event, source, target):
+        if source.value == target.value:
+            return
+        if self.sandbox_info is None:
+            self.sandbox_info = {}
+        history = self.sandbox_info.setdefault("state_history", [])
+        history.append(
+            {
+                "from_state": source.value.value,
+                "to_state": target.value.value,
+                "event": str(event),
+                "timestamp": get_iso8601_timestamp(),
+            }
+        )
+        # Cap history to avoid unbounded growth in long-lived sandboxes
+        if len(history) > 100:
+            del history[:-100]
+
     async def on_stop(self, sandbox_id: str, operator, meta_store, reason: StopReason = StopReason.MANUAL) -> None:
         logger.info(f"stop sandbox {sandbox_id} (reason={reason.value})")
         sandbox_info = self.sandbox_info or {}
@@ -98,6 +116,8 @@ class SandboxStateMachine(StateChart):
         sandbox_info["state"] = RockState.RUNNING
         if not sandbox_info.get("start_time"):
             sandbox_info["start_time"] = get_iso8601_timestamp()
+        if self.sandbox_info and "state_history" in self.sandbox_info:
+            sandbox_info["state_history"] = self.sandbox_info["state_history"]
         await meta_store.update(sandbox_id, sandbox_info)
 
     async def on_restart(self, sandbox_id: str, operator, meta_store) -> None:
