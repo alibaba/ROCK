@@ -269,6 +269,41 @@ async def _apply_timeout_defaults(config: DockerDeploymentConfig) -> None:
     config.startup_timeout = min(config.startup_timeout, lifecycle.max_startup_timeout_seconds)
 
 
+async def _apply_image_os_profile(config: DockerDeploymentConfig) -> None:
+    """Look up an image_os_profile by ``config.image_os`` and apply it.
+
+    Profile sources are merged in priority order:
+      1. rock YAML (runtime.image_os_profiles) — base config
+      2. Nacos image_os_profiles — incremental override (same key replaces whole profile)
+    The profile whose key equals ``config.image_os`` is selected.
+
+    Side-effects when a profile matches:
+    - config.image_os_profile is set (used by DockerDeployment to instantiate
+      ConfigurableRuntimeEnv instead of the ROCK_WORKER_ENV_TYPE fallback)
+    - config.startup_timeout is updated if the profile declares one and the SDK didn't set it
+    """
+    profiles: dict = {}
+    yaml_profiles = getattr(sandbox_manager.rock_config.runtime, "image_os_profiles", None)
+    if yaml_profiles:
+        profiles.update(yaml_profiles)
+
+    nacos = sandbox_manager.rock_config.nacos_provider
+    if nacos is not None:
+        nacos_config = await nacos.get_config() or {}
+        nacos_profiles = nacos_config.get("image_os_profiles", {})
+        if isinstance(nacos_profiles, dict):
+            profiles.update(nacos_profiles)
+
+    data = profiles.get(config.image_os)
+    if not isinstance(data, dict):
+        return
+
+    config.image_os_profile = {"name": config.image_os, **data}
+
+    profile_timeout = data.get("startup_timeout")
+    if profile_timeout and config.startup_timeout is None:
+        config.startup_timeout = float(profile_timeout)
+
 async def _apply_accelerator_type_validation(config: DockerDeploymentConfig) -> None:
     """Validate ``config.accelerator_type`` against the built-in enum union with
     Nacos-provided extras.
@@ -340,6 +375,7 @@ async def start(request: SandboxStartRequest) -> RockResponse[SandboxStartRespon
     await _apply_accelerator_type_validation(config)
     await _apply_kata_runtime_switch(config)
     await _apply_kata_disk_size(config)
+    await _apply_image_os_profile(config)
     await _apply_timeout_defaults(config)
     await _apply_disk_limits(config)
     await _apply_image_registry_mirror(config)
@@ -357,6 +393,7 @@ async def start_async(
     await _apply_accelerator_type_validation(config)
     await _apply_kata_runtime_switch(config)
     await _apply_kata_disk_size(config)
+    await _apply_image_os_profile(config)
     await _apply_timeout_defaults(config)
     await _apply_cpu_overcommit_default(config, headers.user_info.get("rock_authorization"))
     await _apply_disk_limits(config)

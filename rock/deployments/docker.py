@@ -22,7 +22,7 @@ from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Port, Status
 from rock.deployments.docker_client import TempAuthDockerClient, TempAuthDockerClientError
 from rock.deployments.hooks.abstract import CombinedDeploymentHook, DeploymentHook
-from rock.deployments.runtime_env import DockerRuntimeEnv, LocalRuntimeEnv, PipRuntimeEnv, UvRuntimeEnv
+from rock.deployments.runtime_env import ConfigurableRuntimeEnv, DockerRuntimeEnv, LocalRuntimeEnv, PipRuntimeEnv, UvRuntimeEnv
 from rock.deployments.sandbox_validator import DockerSandboxValidator
 from rock.deployments.status import PersistedServiceStatus, ServiceStatus
 from rock.logger import init_logger
@@ -76,7 +76,9 @@ class DockerDeployment(AbstractDeployment):
 
         if self._config.container_name:
             self.set_container_name(self._config.container_name)
-        if env_vars.ROCK_WORKER_ENV_TYPE == "docker":
+        if self._config.image_os_profile:
+            self._runtime_env = ConfigurableRuntimeEnv(self._config.image_os_profile.get("runtime_env", {}))
+        elif env_vars.ROCK_WORKER_ENV_TYPE == "docker":
             self._runtime_env = DockerRuntimeEnv()
         elif env_vars.ROCK_WORKER_ENV_TYPE == "local":
             self._runtime_env = LocalRuntimeEnv(self._config.runtime_config)
@@ -630,6 +632,7 @@ class DockerDeployment(AbstractDeployment):
         mirrors = self._config.runtime_config.instance_registry_mirrors
         if mirrors:
             args.extend(["-e", f"INSTANCE_ROCK_REGISTRY={','.join(mirrors)}"])
+        args.extend(self._runtime_env.get_extra_env_args(self._config))
         return args
 
     def _prepare_timezone_mount(self) -> list[str]:

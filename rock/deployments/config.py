@@ -162,6 +162,10 @@ class DockerDeploymentConfig(DeploymentConfig):
     extended_params: dict[str, str] = Field(default_factory=dict)
     """Generic extension field for storing custom string key-value pairs."""
 
+    image_os_profile: dict | None = None
+    """Matched image_os profile dict (set by _apply_image_os_profile in sandbox_api.py).
+    When set, DockerDeployment uses ConfigurableRuntimeEnv instead of the ROCK_WORKER_ENV_TYPE env var."""
+
     @model_validator(mode="before")
     def validate_platform_args(cls, data: dict) -> dict:
         """Validate and extract platform arguments from docker_args.
