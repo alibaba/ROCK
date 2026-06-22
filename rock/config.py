@@ -153,6 +153,18 @@ class OssConfig:
 
 
 @dataclass
+class SandboxLifecycleConfig:
+    default_startup_timeout_seconds: float = 600
+    """Default startup_timeout when SDK does not supply one. YAML: lifecycle.default_startup_timeout_seconds."""
+
+    min_startup_timeout_seconds: float = 600
+    """Floor for startup_timeout — SDK values below this are raised. YAML: lifecycle.min_startup_timeout_seconds."""
+
+    max_startup_timeout_seconds: float = 1800
+    """Ceiling for startup_timeout — values above this are capped. YAML: lifecycle.max_startup_timeout_seconds."""
+
+
+@dataclass
 class ProxyServiceConfig:
     timeout: float = 180.0
     max_connections: int = 500
@@ -352,6 +364,7 @@ class RockConfig:
     proxy_service: ProxyServiceConfig = field(default_factory=ProxyServiceConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    lifecycle: SandboxLifecycleConfig = field(default_factory=SandboxLifecycleConfig)
     image_registry_mirrors: list[ImageRegistryMirror] = field(default_factory=list)
     image_mirror_lookup_allowlist: list[str] = field(default_factory=list)
     nacos_provider: NacosConfigProvider | None = None
@@ -409,6 +422,8 @@ class RockConfig:
             kwargs["scheduler"] = SchedulerConfig(**config["scheduler"])
         if "database" in config:
             kwargs["database"] = DatabaseConfig(**config["database"])
+        if "lifecycle" in config:
+            kwargs["lifecycle"] = SandboxLifecycleConfig(**config["lifecycle"])
         if "image_registry_mirrors" in config:
             raw_mirrors = config["image_registry_mirrors"] or []
             kwargs["image_registry_mirrors"] = [ImageRegistryMirror(**m) for m in raw_mirrors]
@@ -504,6 +519,7 @@ class RockConfig:
         config_map = {
             "sandbox_config": (SandboxConfig, "sandbox_config"),
             "proxy_service": (ProxyServiceConfig, "proxy_service"),
+            "lifecycle": (SandboxLifecycleConfig, "lifecycle"),
         }
 
         # Update configs that are present in nacos_result

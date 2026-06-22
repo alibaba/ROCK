@@ -238,7 +238,7 @@ class DockerDeployment(AbstractDeployment):
             cmd,
         ]
 
-    def _pull_image(self) -> None:
+    def _pull_image(self, pull_timeout: int = 600) -> None:
         """Pull image using temporary authentication.
 
         Uses TempAuthDockerClient to ensure credentials are isolated
@@ -270,7 +270,7 @@ class DockerDeployment(AbstractDeployment):
                     username=self._config.registry_username,
                     password=self._config.registry_password,
                 ) as client:
-                    client.pull(self._config.image)
+                    client.pull(self._config.image, timeout=pull_timeout)
 
             self._service_status.update_status(
                 phase_name="image_pull", status=Status.SUCCESS, message="image pull success"
@@ -505,8 +505,10 @@ class DockerDeployment(AbstractDeployment):
         self._service_status.set_sandbox_id(self._container_name)
         executor = get_executor()
         loop = asyncio.get_running_loop()
+        startup_timeout = self._config.startup_timeout or 600.0
+        deadline = time.monotonic() + startup_timeout
 
-        await loop.run_in_executor(executor, self._pull_image)
+        await loop.run_in_executor(executor, self._pull_image, int(startup_timeout))
         if self._config.python_standalone_dir is not None:
             image_id = self._build_image()
         else:
@@ -598,8 +600,9 @@ class DockerDeployment(AbstractDeployment):
             RemoteSandboxRuntimeConfig(port=self._config.port, timeout=self._runtime_timeout)
         )
         self._runtime.set_executor(executor)
+        remaining = max(deadline - time.monotonic(), 1.0)
         with StageTimer("startup_timing", f"[{self._container_name}] Wait until alive", logger):
-            await self._wait_until_alive(timeout=self._config.startup_timeout)
+            await self._wait_until_alive(timeout=remaining)
         if self._config.enable_auto_clear:
             self._check_stop_task = asyncio.create_task(self._check_stop())
 
@@ -737,7 +740,7 @@ class DockerDeployment(AbstractDeployment):
 
         # Wait until container is alive
         with StageTimer("startup_timing", f"[{self._container_name}] Wait until alive", logger):
-            await self._wait_until_alive(timeout=self._config.startup_timeout)
+            await self._wait_until_alive(timeout=self._config.startup_timeout or 600.0)
 
         # Re-enable auto-clear if configured
         if self._config.enable_auto_clear:
