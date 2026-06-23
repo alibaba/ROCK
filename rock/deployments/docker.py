@@ -641,6 +641,90 @@ class DockerDeployment(AbstractDeployment):
         self._rootfs_xfs_mountpoint = None
         self._rootfs_upper_dir = None
 
+    def _setup_local_volumes_quota_shared(self) -> None:
+        """Bind anonymous volumes (from Dockerfile VOLUME) to the rootfs XFS
+        prjid so they share the ``--storage-opt size=`` bhard limit.
+
+        Must be called between ``docker create`` and ``docker start``.
+        Fail-soft: any error is logged and skipped (consistent with
+        ``_setup_log_dir_quota_shared``).
+        """
+        if self._effective_disk_limit_rootfs is None:
+            return
+
+        project_id, upper_dir = self._get_docker_rootfs_prjid_and_upper_dir()
+        if project_id is None or upper_dir is None:
+            return
+
+        try:
+            inspect_result = subprocess.run(
+                ["docker", "inspect", "--format={{json .Mounts}}", self._container_name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if inspect_result.returncode != 0 or not inspect_result.stdout.strip():
+                return
+            mounts = json.loads(inspect_result.stdout.strip())
+        except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError) as e:
+            logger.warning(f"Failed to inspect mounts for {self._container_name}: {e}")
+            return
+
+        volume_sources = [m["Source"] for m in mounts if m.get("Type") == "volume"]
+        if not volume_sources:
+            return
+
+        try:
+            upper_dev = os.stat(upper_dir).st_dev
+        except OSError as e:
+            logger.warning(f"stat failed for upper_dir {upper_dir!r}: {e}")
+            return
+
+        try:
+            findmnt_result = subprocess.run(
+                ["findmnt", "-T", upper_dir, "-o", "TARGET", "--noheadings"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if findmnt_result.returncode != 0 or not findmnt_result.stdout.strip():
+                logger.warning(f"findmnt failed for upper_dir {upper_dir!r}")
+                return
+            xfs_mountpoint = findmnt_result.stdout.strip()
+        except (subprocess.TimeoutExpired, OSError) as e:
+            logger.warning(f"findmnt command failed for upper_dir {upper_dir!r}: {e}")
+            return
+
+        for vol_source in volume_sources:
+            try:
+                if os.stat(vol_source).st_dev != upper_dev:
+                    logger.info(f"Volume {vol_source!r} on different filesystem from rootfs, skipping quota")
+                    continue
+            except OSError as e:
+                logger.warning(f"stat failed for volume source {vol_source!r}: {e}")
+                continue
+
+            set_project_cmd = f"project -s -p {shlex.quote(vol_source)} {project_id}"
+            try:
+                result = subprocess.run(
+                    ["xfs_quota", "-x", "-c", set_project_cmd, xfs_mountpoint],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if result.returncode != 0:
+                    logger.warning(
+                        f"xfs_quota project -s failed for volume {vol_source!r} prjid={project_id}: "
+                        f"{result.stderr.strip() or result.stdout.strip()}"
+                    )
+                    continue
+                logger.info(
+                    f"Attached volume {vol_source!r} to rootfs prjid={project_id} "
+                    f"(shared rootfs+volume quota, limit managed by docker --storage-opt)"
+                )
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+                logger.warning(f"Failed to share rootfs prjid with volume {vol_source!r}: {e}")
+
     async def start(self):
         """Starts the runtime."""
         with StageTimer("startup_timing", f"[{self._container_name}] Check availability", logger):
@@ -747,6 +831,7 @@ class DockerDeployment(AbstractDeployment):
                 # create→start gap (prjid exists after docker create).
                 if log_file_path is not None and not is_containerd:
                     self._setup_log_dir_quota_shared(log_file_path)
+                self._setup_local_volumes_quota_shared()
 
                 self._container_process = await loop.run_in_executor(executor, self._docker_start)
 
