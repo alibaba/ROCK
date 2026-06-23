@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from rock import env_vars
 from rock.actions.sandbox.response import DownloadFileResponse, UploadResponse
 from rock.sdk.sandbox.oss_client import OssClient, OssClientConfig
 
@@ -59,134 +58,35 @@ class TestComputeObjectName:
 
 
 class TestResolveConfig:
-    def test_server_response_takes_precedence_over_env(self):
-        # Server-first: even when env is fully set (legacy users who upgrade SDK
-        # but keep ROCK_OSS_BUCKET_NAME=xrl-sandbox), the chatos-rock bucket
-        # advertised by admin must win, otherwise STS<->bucket mismatch -> 403.
-        with (
-            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", "env.endpoint"),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", "env-bucket"),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", "env-region"),
-        ):
-            cfg = OssClient._resolve_config(
-                {
-                    "Endpoint": "srv.endpoint",
-                    "Bucket": "srv-bucket",
-                    "Region": "srv-region",
-                }
-            )
+    def test_complete_server_response_returns_config(self):
+        cfg = OssClient._resolve_config(
+            {"Endpoint": "srv.endpoint", "Bucket": "srv-bucket", "Region": "srv-region"}
+        )
+        assert cfg is not None
         assert cfg.endpoint == "srv.endpoint"
         assert cfg.bucket == "srv-bucket"
         assert cfg.region == "srv-region"
-        assert cfg.enabled_via_env is False
+        assert cfg.prefix == ""
 
-    def test_env_fallback_used_when_server_response_empty(self):
-        # Old admin that does not yet return Bucket/Endpoint/Region must keep working.
-        with (
-            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", "env.endpoint"),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", "env-bucket"),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", "env-region"),
-        ):
-            cfg = OssClient._resolve_config({})
-        assert cfg.endpoint == "env.endpoint"
-        assert cfg.bucket == "env-bucket"
-        assert cfg.region == "env-region"
-        assert cfg.enabled_via_env is True
-
-    def test_server_partial_response_falls_back_to_env(self):
-        # Server returns Endpoint/Bucket but no Region -> incomplete, must use env.
-        with (
-            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", "env.endpoint"),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", "env-bucket"),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", "env-region"),
-        ):
-            cfg = OssClient._resolve_config({"Endpoint": "srv", "Bucket": "b", "Region": None})
-        assert cfg.endpoint == "env.endpoint"
-        assert cfg.enabled_via_env is True
-
-    def test_server_used_when_env_not_all_set(self):
-        with (
-            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", ""),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", ""),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", ""),
-        ):
-            cfg = OssClient._resolve_config(
-                {
-                    "Endpoint": "srv.endpoint",
-                    "Bucket": "srv-bucket",
-                    "Region": "srv-region",
-                }
-            )
-        assert cfg.endpoint == "srv.endpoint"
-        assert cfg.enabled_via_env is False
-
-    def test_partial_env_does_not_promote_to_fallback(self):
-        # Only endpoint set; bucket / region missing -> env fallback incomplete, must use server.
-        with (
-            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", "env.endpoint"),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", ""),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", ""),
-        ):
-            cfg = OssClient._resolve_config(
-                {
-                    "Endpoint": "srv.endpoint",
-                    "Bucket": "srv-bucket",
-                    "Region": "srv-region",
-                }
-            )
-        assert cfg.endpoint == "srv.endpoint"
-        assert cfg.enabled_via_env is False
-
-    def test_returns_none_when_neither_layer_complete(self):
-        with (
-            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", ""),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", ""),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", ""),
-        ):
-            cfg = OssClient._resolve_config({"Endpoint": None, "Bucket": None, "Region": None})
-        assert cfg is None
-
-    def test_server_partial_and_env_empty_returns_none(self):
-        with (
-            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", ""),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", ""),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", ""),
-        ):
-            cfg = OssClient._resolve_config({"Endpoint": "x", "Bucket": "y", "Region": None})
-        assert cfg is None
-
-    def test_empty_dict_and_empty_env_returns_none(self):
-        with (
-            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", ""),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", ""),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", ""),
-        ):
-            cfg = OssClient._resolve_config({})
-        assert cfg is None
-
-    def test_server_prefix_wins_when_server_config_used(self):
-        with (
-            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", ""),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", ""),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", ""),
-            patch.object(env_vars, "ROCK_OSS_TRANSFER_PREFIX", "env-prefix/"),
-        ):
-            cfg = OssClient._resolve_config(
-                {"Endpoint": "srv", "Bucket": "b", "Region": "r", "Prefix": "rock-transfer/"}
-            )
+    def test_server_response_with_prefix(self):
+        cfg = OssClient._resolve_config(
+            {"Endpoint": "srv", "Bucket": "b", "Region": "r", "Prefix": "rock-transfer/"}
+        )
+        assert cfg is not None
         assert cfg.prefix == "rock-transfer/"
-        assert cfg.enabled_via_env is False
 
-    def test_env_fallback_uses_env_prefix(self):
-        with (
-            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", "env.ep"),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", "env-b"),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", "env-r"),
-            patch.object(env_vars, "ROCK_OSS_TRANSFER_PREFIX", "env-prefix/"),
-        ):
-            cfg = OssClient._resolve_config({})
-        assert cfg.enabled_via_env is True
-        assert cfg.prefix == "env-prefix/"
+    def test_partial_server_response_returns_none(self):
+        # Missing Region → incomplete
+        cfg = OssClient._resolve_config({"Endpoint": "srv", "Bucket": "b", "Region": None})
+        assert cfg is None
+
+    def test_empty_response_returns_none(self):
+        cfg = OssClient._resolve_config({})
+        assert cfg is None
+
+    def test_all_none_returns_none(self):
+        cfg = OssClient._resolve_config({"Endpoint": None, "Bucket": None, "Region": None})
+        assert cfg is None
 
 
 class TestGetStsCredentials:
@@ -253,15 +153,11 @@ class TestIsTokenExpired:
 
 
 class TestSetup:
-    async def test_env_fallback_with_enable_true(self):
+    async def test_server_config_sets_up_bucket(self):
         sandbox = _make_sandbox()
         client = OssClient(sandbox)
 
         with (
-            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", "env.endpoint"),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", "env-bucket"),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", "env-region"),
-            patch.object(env_vars, "ROCK_OSS_ENABLE", True),
             patch("rock.sdk.sandbox.oss_client.HttpUtils") as mock_http,
             patch("rock.sdk.sandbox.oss_client.oss2") as mock_oss2,
         ):
@@ -273,6 +169,9 @@ class TestSetup:
                         "AccessKeySecret": "sk",
                         "SecurityToken": "tok",
                         "Expiration": "2099-01-01T00:00:00Z",
+                        "Endpoint": "srv.endpoint",
+                        "Bucket": "srv-bucket",
+                        "Region": "srv-region",
                     },
                 }
             )
@@ -283,118 +182,15 @@ class TestSetup:
         assert client.is_available is True
         mock_oss2.Bucket.assert_called_once()
         kwargs = mock_oss2.Bucket.call_args.kwargs
-        assert kwargs["endpoint"] == "env.endpoint"
-        assert kwargs["bucket_name"] == "env-bucket"
-
-    async def test_env_fallback_with_enable_false_returns_unavailable(self):
-        sandbox = _make_sandbox()
-        client = OssClient(sandbox)
-
-        with (
-            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", "env.endpoint"),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", "env-bucket"),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", "env-region"),
-            patch.object(env_vars, "ROCK_OSS_ENABLE", False),
-            patch("rock.sdk.sandbox.oss_client.HttpUtils") as mock_http,
-        ):
-            mock_http.get = AsyncMock(
-                return_value={
-                    "status": "Success",
-                    "result": {
-                        "AccessKeyId": "ak",
-                        "AccessKeySecret": "sk",
-                        "SecurityToken": "tok",
-                        "Expiration": "2099-01-01T00:00:00Z",
-                    },
-                }
-            )
-            ok = await client.ensure_setup()
-
-        assert ok is False
-        assert client.is_available is False
-
-    async def test_server_response_used_even_when_env_set_and_enable_false(self):
-        # Core fix: a user who keeps legacy env vars (e.g. xrl-sandbox) AND has
-        # ROCK_OSS_ENABLE unset/false must still get OSS via the new server path
-        # whenever admin advertises a complete config. Server response wins.
-        sandbox = _make_sandbox()
-        client = OssClient(sandbox)
-
-        with (
-            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", "env.endpoint"),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", "env-bucket"),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", "env-region"),
-            patch.object(env_vars, "ROCK_OSS_ENABLE", False),
-            patch("rock.sdk.sandbox.oss_client.HttpUtils") as mock_http,
-            patch("rock.sdk.sandbox.oss_client.oss2") as mock_oss2,
-        ):
-            mock_http.get = AsyncMock(
-                return_value={
-                    "status": "Success",
-                    "result": {
-                        "AccessKeyId": "ak",
-                        "AccessKeySecret": "sk",
-                        "SecurityToken": "tok",
-                        "Expiration": "2099-01-01T00:00:00Z",
-                        "Endpoint": "srv.endpoint",
-                        "Bucket": "srv-bucket",
-                        "Region": "srv-region",
-                    },
-                }
-            )
-            mock_oss2.Bucket = MagicMock(return_value="bucket-instance")
-            ok = await client.ensure_setup()
-
-        assert ok is True
-        kwargs = mock_oss2.Bucket.call_args.kwargs
-        # Server values, not env values
         assert kwargs["endpoint"] == "srv.endpoint"
         assert kwargs["bucket_name"] == "srv-bucket"
         assert kwargs["region"] == "srv-region"
 
-    async def test_server_response_used_when_env_unset(self):
+    async def test_unavailable_when_server_does_not_return_config(self):
         sandbox = _make_sandbox()
         client = OssClient(sandbox)
 
-        with (
-            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", ""),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", ""),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", ""),
-            patch("rock.sdk.sandbox.oss_client.HttpUtils") as mock_http,
-            patch("rock.sdk.sandbox.oss_client.oss2") as mock_oss2,
-        ):
-            mock_http.get = AsyncMock(
-                return_value={
-                    "status": "Success",
-                    "result": {
-                        "AccessKeyId": "ak",
-                        "AccessKeySecret": "sk",
-                        "SecurityToken": "tok",
-                        "Expiration": "2099-01-01T00:00:00Z",
-                        "Endpoint": "srv.endpoint",
-                        "Bucket": "srv-bucket",
-                        "Region": "srv-region",
-                    },
-                }
-            )
-            mock_oss2.Bucket = MagicMock(return_value="bucket-instance")
-            ok = await client.ensure_setup()
-
-        assert ok is True
-        assert client.is_available is True
-        kwargs = mock_oss2.Bucket.call_args.kwargs
-        assert kwargs["endpoint"] == "srv.endpoint"
-
-    async def test_unavailable_when_neither_set(self):
-        sandbox = _make_sandbox()
-        client = OssClient(sandbox)
-
-        with (
-            patch.object(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", ""),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_NAME", ""),
-            patch.object(env_vars, "ROCK_OSS_BUCKET_REGION", ""),
-            patch("rock.sdk.sandbox.oss_client.HttpUtils") as mock_http,
-        ):
+        with patch("rock.sdk.sandbox.oss_client.HttpUtils") as mock_http:
             mock_http.get = AsyncMock(
                 return_value={
                     "status": "Success",
@@ -581,7 +377,7 @@ class TestDownloadViaOss:
 
         client = OssClient(sandbox)
         client._bucket = MagicMock()
-        client._client_config = OssClientConfig("ep", "bk", "rg", enabled_via_env=False)
+        client._client_config = OssClientConfig("ep", "bk", "rg")
 
         response = await client.download_via_oss("/sandbox/foo.txt", tmp_path / "foo.txt")
         assert response.success is False

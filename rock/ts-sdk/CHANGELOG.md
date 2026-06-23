@@ -7,21 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **`ROCK_OSS_BUCKET_NAME`, `ROCK_OSS_BUCKET_ENDPOINT`, `ROCK_OSS_BUCKET_REGION` env vars
+  are no longer read by the SDK.** OSS bucket/endpoint/region are now resolved
+  exclusively from the admin `/get_token?account=primary` response. Users who
+  still have these env vars set can safely leave them — they are simply ignored.
+- **`ROCK_OSS_ENABLE` env var is no longer read by the SDK.** OSS availability
+  is determined solely by whether the admin returns a complete config. If the
+  server provides Bucket/Endpoint/Region, OSS is enabled; otherwise it is
+  unavailable. The auto-mode upload/download threshold (1 MB) is unchanged.
+- `resolveOssConfig` no longer returns an `enabledViaEnv` field.
+
 ### Changed
 
-- **OSS bucket / endpoint / region resolution is now server-first.** When the
-  admin `/get_token` response includes `Bucket`, `Endpoint`, and `Region`,
-  those values are used verbatim. The `ROCK_OSS_BUCKET_NAME`,
-  `ROCK_OSS_BUCKET_ENDPOINT`, and `ROCK_OSS_BUCKET_REGION` environment
-  variables are now only consulted as a fallback for older admin servers
-  that do not advertise the OSS config.
-  - This fixes 403 AccessDenied errors when SDK >= 1.8 was deployed alongside
-    stale legacy env vars (e.g. `ROCK_OSS_BUCKET_NAME=xrl-sandbox`): the SDK
-    now requests STS for `account=primary` and uses the matching bucket from
-    the server response instead of the mismatched env value.
-  - `ROCK_OSS_ENABLE` continues to gate the env-fallback path; it is no
-    longer required when the server supplies a complete OSS config (matching
-    the existing `StorageClient` behavior).
 - **`getOssStsCredentials()` now requests `account=primary`.** Previously it
   hit `/get_token` with no query, which the admin defaulted to `legacy`.
   This ensures the STS-issuing account matches the bucket the server
@@ -29,8 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `Sandbox.resolveOssConfig(credentials)` static helper that mirrors the
-  Python `OssClient._resolve_config` (server-first with env fallback).
+- `Sandbox.resolveOssConfig(credentials)` static helper that resolves OSS
+  config from the server `/get_token` response (returns `null` when incomplete).
 - `Sandbox.buildOssObjectName(prefix, baseName)` static helper that prepends
   the server-supplied OSS prefix to object keys, normalizing leading/trailing
   slashes.

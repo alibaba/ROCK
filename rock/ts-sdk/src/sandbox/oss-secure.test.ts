@@ -71,11 +71,6 @@ describe('OSS client configuration', () => {
       get: mockGet,
     });
 
-    // Set OSS environment variables
-    process.env.ROCK_OSS_ENABLE = 'true';
-    process.env.ROCK_OSS_BUCKET_NAME = 'test-bucket';
-    process.env.ROCK_OSS_BUCKET_REGION = 'cn-hangzhou';
-
     sandbox = new Sandbox({
       image: 'test:latest',
       startupTimeout: 2,
@@ -83,9 +78,6 @@ describe('OSS client configuration', () => {
   });
 
   afterEach(() => {
-    delete process.env.ROCK_OSS_ENABLE;
-    delete process.env.ROCK_OSS_BUCKET_NAME;
-    delete process.env.ROCK_OSS_BUCKET_REGION;
   });
 
   describe('getOssStsCredentials()', () => {
@@ -513,14 +505,13 @@ describe('nohup mode PATH handling', () => {
 });
 
 /**
- * Server-first OSS config resolution tests
+ * Server-only OSS config resolution tests
  *
- * Regression guard for: SDK >= 1.8 with stale legacy env vars
- * (e.g. ROCK_OSS_BUCKET_NAME=xrl-sandbox) must NOT override server-supplied
- * config. The new admin returns Bucket/Endpoint/Region in /get_token, and the
- * SDK requests account=primary, so the bucket must match the STS account.
+ * The SDK resolves OSS config exclusively from the admin /get_token response.
+ * No env-var fallback exists — if the server doesn't return complete config,
+ * OSS is unavailable.
  */
-describe('Server-first OSS config resolution', () => {
+describe('Server-only OSS config resolution', () => {
   let sandbox: Sandbox;
   let mockPost: jest.Mock;
   let mockGet: jest.Mock;
@@ -533,12 +524,6 @@ describe('Server-first OSS config resolution', () => {
       post: mockPost,
       get: mockGet,
     });
-
-    // Deliberately set stale legacy env so we can prove server wins.
-    process.env.ROCK_OSS_ENABLE = 'true';
-    process.env.ROCK_OSS_BUCKET_NAME = 'xrl-sandbox';
-    process.env.ROCK_OSS_BUCKET_REGION = 'cn-hangzhou';
-    process.env.ROCK_OSS_BUCKET_ENDPOINT = 'oss-cn-hangzhou.aliyuncs.com';
 
     sandbox = new Sandbox({ image: 'test:latest', startupTimeout: 2 });
 
@@ -554,13 +539,6 @@ describe('Server-first OSS config resolution', () => {
       headers: {},
     });
     await sandbox.start();
-  });
-
-  afterEach(() => {
-    delete process.env.ROCK_OSS_ENABLE;
-    delete process.env.ROCK_OSS_BUCKET_NAME;
-    delete process.env.ROCK_OSS_BUCKET_REGION;
-    delete process.env.ROCK_OSS_BUCKET_ENDPOINT;
   });
 
   test('getOssStsCredentials requests account=primary', async () => {
@@ -584,8 +562,7 @@ describe('Server-first OSS config resolution', () => {
     expect(calledUrl).toContain('account=primary');
   });
 
-  test('server-supplied Bucket/Endpoint/Region overrides legacy env vars', () => {
-    // New admin returns the primary (chatos-rock) config; stale env says xrl-sandbox.
+  test('resolves config from server response', () => {
     const credentials = {
       accessKeyId: 'STS.PRIMARY',
       accessKeySecret: 'sec',
@@ -600,36 +577,13 @@ describe('Server-first OSS config resolution', () => {
     const resolved = Sandbox.resolveOssConfig(credentials);
 
     expect(resolved).not.toBeNull();
-    expect(resolved!.bucket).toBe('chatos-rock'); // server, NOT env xrl-sandbox
+    expect(resolved!.bucket).toBe('chatos-rock');
     expect(resolved!.endpoint).toBe('oss-cn-hangzhou.aliyuncs.com');
     expect(resolved!.region).toBe('cn-hangzhou');
     expect(resolved!.prefix).toBe('rock-transfer/');
-    expect(resolved!.enabledViaEnv).toBe(false);
   });
 
-  test('falls back to env vars when server omits Bucket/Endpoint/Region (old admin)', () => {
-    // Old admin: no endpoint/bucket/region in /get_token response.
-    const credentials = {
-      accessKeyId: 'STS.LEGACY',
-      accessKeySecret: 'sec',
-      securityToken: 'tok',
-      expiration: '2099-01-01T00:00:00Z',
-    };
-
-    const resolved = Sandbox.resolveOssConfig(credentials);
-
-    expect(resolved).not.toBeNull();
-    expect(resolved!.bucket).toBe('xrl-sandbox'); // env fallback
-    expect(resolved!.endpoint).toBe('oss-cn-hangzhou.aliyuncs.com');
-    expect(resolved!.region).toBe('cn-hangzhou');
-    expect(resolved!.enabledViaEnv).toBe(true);
-  });
-
-  test('returns null when neither server nor env provides complete config', () => {
-    delete process.env.ROCK_OSS_BUCKET_NAME;
-    delete process.env.ROCK_OSS_BUCKET_REGION;
-    delete process.env.ROCK_OSS_BUCKET_ENDPOINT;
-
+  test('returns null when server does not provide complete config', () => {
     const credentials = {
       accessKeyId: 'STS',
       accessKeySecret: 'sec',
@@ -640,21 +594,18 @@ describe('Server-first OSS config resolution', () => {
     expect(Sandbox.resolveOssConfig(credentials)).toBeNull();
   });
 
-  test('partial server response (missing bucket) falls through to env', () => {
+  test('returns null when server response is partial (missing bucket)', () => {
     const credentials = {
       accessKeyId: 'STS',
       accessKeySecret: 'sec',
       securityToken: 'tok',
       expiration: '2099-01-01T00:00:00Z',
       endpoint: 'oss-cn-hangzhou.aliyuncs.com',
-      // bucket missing → server config incomplete → env wins
       region: 'cn-hangzhou',
+      // bucket missing → incomplete → null
     };
 
-    const resolved = Sandbox.resolveOssConfig(credentials);
-    expect(resolved).not.toBeNull();
-    expect(resolved!.enabledViaEnv).toBe(true);
-    expect(resolved!.bucket).toBe('xrl-sandbox');
+    expect(Sandbox.resolveOssConfig(credentials)).toBeNull();
   });
 });
 

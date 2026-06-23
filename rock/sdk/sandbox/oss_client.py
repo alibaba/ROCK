@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING
 
 import oss2
 
-from rock import env_vars
 from rock.actions.sandbox.request import Command
 from rock.actions.sandbox.response import DownloadFileResponse, UploadResponse
 from rock.logger import init_logger
@@ -30,21 +29,12 @@ logger = init_logger(__name__)
 
 @dataclass
 class OssClientConfig:
-    """Resolved OSS configuration.
-
-    Priority: admin /get_token response > env-var fallback > unavailable.
-    Env vars are kept as a fallback for older admin servers that do not yet
-    return Bucket/Endpoint/Region. For newer admins, server response always
-    wins so the STS-issuing account and the target bucket stay aligned
-    (prevents 403 when SDK>=1.8 talks to chatos-rock with legacy env pointing
-    at xrl-sandbox).
-    """
+    """Resolved OSS configuration from admin /get_token response."""
 
     endpoint: str
     bucket: str
     region: str
-    enabled_via_env: bool  # True = env fallback path (gated by ROCK_OSS_ENABLE); False = server-supplied
-    prefix: str = ""  # Transfer-object key prefix (server: response.Prefix; fallback: ROCK_OSS_TRANSFER_PREFIX)
+    prefix: str = ""  # Transfer-object key prefix from server response (e.g. "rock-transfer/")
 
 
 class OssClient:
@@ -78,9 +68,8 @@ class OssClient:
 
     @staticmethod
     def _resolve_config(sts_response: dict) -> OssClientConfig | None:
-        # Server-first: when admin returns a complete OSS config, use it verbatim
-        # so the STS-issuing account matches the bucket. This is the only path
-        # that works correctly for SDK>=1.8 (which requests `account=primary`).
+        # Server-only: admin /get_token must return a complete OSS config.
+        # If it doesn't, OSS is simply unavailable (no env fallback).
         resp_endpoint = sts_response.get("Endpoint")
         resp_bucket = sts_response.get("Bucket")
         resp_region = sts_response.get("Region")
@@ -89,25 +78,10 @@ class OssClient:
                 endpoint=resp_endpoint,
                 bucket=resp_bucket,
                 region=resp_region,
-                enabled_via_env=False,
                 prefix=sts_response.get("Prefix") or "",
             )
 
-        # Env fallback: only kicks in when admin is too old to return Bucket/Endpoint/Region.
-        # Still gated by ROCK_OSS_ENABLE in _setup so users keep the legacy opt-in switch.
-        env_endpoint = env_vars.ROCK_OSS_BUCKET_ENDPOINT
-        env_bucket = env_vars.ROCK_OSS_BUCKET_NAME
-        env_region = env_vars.ROCK_OSS_BUCKET_REGION
-        if env_endpoint and env_bucket and env_region:
-            return OssClientConfig(
-                endpoint=env_endpoint,
-                bucket=env_bucket,
-                region=env_region,
-                enabled_via_env=True,
-                prefix=env_vars.ROCK_OSS_TRANSFER_PREFIX or "",
-            )
-
-        # OSS unavailable: neither server nor env supplies a complete config.
+        # OSS unavailable: server did not supply a complete config.
         return None
 
     async def _get_sts_credentials(self) -> dict:
@@ -161,13 +135,6 @@ class OssClient:
 
         config = self._resolve_config(sts_response)
         if config is None:
-            return False
-
-        # Env fallback path keeps the legacy ROCK_OSS_ENABLE opt-in gate so
-        # users who explicitly set `ROCK_OSS_ENABLE=false` still see OSS off.
-        # Server-supplied configs bypass this gate: if admin advertises OSS,
-        # treat it as enabled (matches StorageClient behavior).
-        if config.enabled_via_env and not env_vars.ROCK_OSS_ENABLE:
             return False
 
         try:

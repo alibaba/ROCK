@@ -118,7 +118,6 @@ export class Sandbox extends AbstractSandbox {
     bucket: string;
     region: string;
     prefix: string;
-    enabledViaEnv: boolean;
   } | null = null;
 
   // Sub-components
@@ -682,10 +681,9 @@ export class Sandbox extends AbstractSandbox {
       // Check if we should use OSS upload
       const stats = await fs.stat(sourcePath);
       const fileSize = stats.size;
-      const ossEnabled = envVars.ROCK_OSS_ENABLE;
       const ossThreshold = 1024 * 1024; // 1MB
 
-      if (uploadMode === 'oss' || (uploadMode === 'auto' && ossEnabled && fileSize > ossThreshold)) {
+      if (uploadMode === 'oss' || (uploadMode === 'auto' && fileSize > ossThreshold)) {
         return this.uploadViaOss(sourcePath, targetPath, timeout, onProgress);
       }
 
@@ -799,10 +797,9 @@ export class Sandbox extends AbstractSandbox {
 
     const fileSize = parseInt(sizeResult.stdout.trim(), 10);
     const ossThreshold = 1024 * 1024; // 1MB
-    const ossEnabled = envVars.ROCK_OSS_ENABLE;
 
-    // OSS enabled AND file >= 1MB: use OSS
-    if (ossEnabled && fileSize >= ossThreshold) {
+    // File >= 1MB: use OSS (if server provides OSS config, setupOss will succeed)
+    if (fileSize >= ossThreshold) {
       return this.downloadViaOss(remotePath, localPath, timeout, onProgress);
     }
 
@@ -842,15 +839,6 @@ export class Sandbox extends AbstractSandbox {
       // Setup OSS bucket if needed
       if (this.ossBucket === null || this.isTokenExpired()) {
         await this.setupOss(timeout);
-      }
-
-      // Enforce the legacy opt-in gate only on the env-fallback path.
-      // Server-supplied configs bypass it (consistent with Python OssClient).
-      if (this.ossConfig?.enabledViaEnv && !envVars.ROCK_OSS_ENABLE) {
-        return {
-          success: false,
-          message: 'OSS download is not enabled. Please set ROCK_OSS_ENABLE=true',
-        };
       }
 
       if (!this.ossBucket || !this.ossConfig) {
@@ -1011,15 +999,10 @@ export class Sandbox extends AbstractSandbox {
   }
 
   /**
-   * Resolve OSS config from server response with env-var fallback.
+   * Resolve OSS config from server response.
    *
-   * Server-first: when admin returns a complete OSS config in /get_token,
-   * use it verbatim so the STS-issuing account matches the bucket. This is
-   * the only path that works for SDK >= 1.8 (which targets account=primary).
-   *
-   * Env fallback: only kicks in when admin is too old to return
-   * Bucket/Endpoint/Region. The legacy ROCK_OSS_ENABLE gate is enforced at
-   * call sites (e.g. downloadViaOss) only for the env-fallback path.
+   * Admin /get_token must return a complete OSS config (Bucket, Endpoint,
+   * Region). If it doesn't, OSS is unavailable (returns null).
    *
    * Mirrors the Python `OssClient._resolve_config` implementation.
    */
@@ -1028,7 +1011,6 @@ export class Sandbox extends AbstractSandbox {
     bucket: string;
     region: string;
     prefix: string;
-    enabledViaEnv: boolean;
   } | null {
     if (credentials.endpoint && credentials.bucket && credentials.region) {
       return {
@@ -1036,20 +1018,6 @@ export class Sandbox extends AbstractSandbox {
         bucket: credentials.bucket,
         region: credentials.region,
         prefix: credentials.prefix ?? '',
-        enabledViaEnv: false,
-      };
-    }
-    if (
-      envVars.ROCK_OSS_BUCKET_ENDPOINT &&
-      envVars.ROCK_OSS_BUCKET_NAME &&
-      envVars.ROCK_OSS_BUCKET_REGION
-    ) {
-      return {
-        endpoint: envVars.ROCK_OSS_BUCKET_ENDPOINT,
-        bucket: envVars.ROCK_OSS_BUCKET_NAME,
-        region: envVars.ROCK_OSS_BUCKET_REGION,
-        prefix: '',
-        enabledViaEnv: true,
       };
     }
     return null;
@@ -1061,7 +1029,7 @@ export class Sandbox extends AbstractSandbox {
     const resolved = Sandbox.resolveOssConfig(credentials);
     if (!resolved) {
       throw new Error(
-        'OSS config unavailable: admin /get_token did not return Bucket/Endpoint/Region and no ROCK_OSS_BUCKET_* env vars are set'
+        'OSS config unavailable: admin /get_token did not return Bucket/Endpoint/Region'
       );
     }
 

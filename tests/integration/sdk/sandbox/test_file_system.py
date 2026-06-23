@@ -9,7 +9,6 @@ from unittest.mock import Mock
 import oss2
 import pytest
 
-from rock import env_vars
 from rock.actions.sandbox.request import ChmodRequest, ChownRequest, Command, CreateBashSessionRequest, WriteFileRequest
 from rock.actions.sandbox.response import ChmodResponse, ChownResponse, CommandResponse, Observation
 from rock.sdk.sandbox.client import Sandbox
@@ -95,9 +94,18 @@ async def test_download_file(sandbox_instance: Sandbox, monkeypatch):
     assert isinstance(sandbox_instance.fs, LinuxFileSystem)
 
     try:
-        #  Test 1: OSS disabled
-        logger.info("=== Test 1: OSS disabled ===")
-        monkeypatch.setattr(env_vars, "ROCK_OSS_ENABLE", False)
+        #  Test 1: OSS disabled (server returns no OSS config)
+        logger.info("=== Test 1: OSS disabled (no server config) ===")
+
+        async def mock_sts_no_config():
+            return {
+                "AccessKeyId": "mock_ak",
+                "AccessKeySecret": "mock_sk",
+                "SecurityToken": "mock_token",
+                "Expiration": "2026-03-15T00:00:00Z",
+            }
+
+        monkeypatch.setattr(sandbox_instance._oss, "_get_sts_credentials", mock_sts_no_config)
 
         response = await sandbox_instance.fs.download_file(
             remote_path="/tmp/test.txt", local_path=str(tmp_path / "test.txt")
@@ -109,18 +117,16 @@ async def test_download_file(sandbox_instance: Sandbox, monkeypatch):
         ), f"Error message should mention OSS unavailable: {response.message}"
         logger.info("✓ OSS disabled error handling works correctly")
 
-        # Setup mocks for remaining tests
-        monkeypatch.setattr(env_vars, "ROCK_OSS_ENABLE", True)
-        monkeypatch.setattr(env_vars, "ROCK_OSS_BUCKET_ENDPOINT", "oss-cn-test.aliyuncs.com")
-        monkeypatch.setattr(env_vars, "ROCK_OSS_BUCKET_NAME", "test-bucket")
-        monkeypatch.setattr(env_vars, "ROCK_OSS_BUCKET_REGION", "cn-test")
-
+        # Setup mocks for remaining tests (server returns full OSS config)
         async def mock_get_sts_credentials():
             return {
                 "AccessKeyId": "mock_ak",
                 "AccessKeySecret": "mock_sk",
                 "SecurityToken": "mock_token",
                 "Expiration": "2026-03-15T00:00:00Z",
+                "Endpoint": "oss-cn-test.aliyuncs.com",
+                "Bucket": "test-bucket",
+                "Region": "cn-test",
             }
 
         monkeypatch.setattr(sandbox_instance._oss, "_get_sts_credentials", mock_get_sts_credentials)
