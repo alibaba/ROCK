@@ -111,6 +111,21 @@ export class Sandbox extends AbstractSandbox {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private ossBucket: any = null;
   private ossTokenExpireTime: string = '';
+  // Cache of the most recent STS credentials fetched via getOssStsCredentials.
+  // setupOss already retrieves a token; downloadViaOss/uploadViaOss need the
+  // raw credentials again to pass to the in-sandbox ossutil command. Caching
+  // avoids a second /get_token round trip per transfer (latency-sensitive
+  // path). The cache is invalidated together with the bucket via the existing
+  // isTokenExpired() check.
+  private cachedOssCredentials: OssCredentials | null = null;
+  // Resolved OSS config (server-first; env is only fallback when admin is too
+  // old to advertise Bucket/Endpoint/Region in /get_token).
+  private ossConfig: {
+    endpoint: string;
+    bucket: string;
+    region: string;
+    prefix: string;
+  } | null = null;
 
   // Sub-components
   private deploy: Deploy;
@@ -673,10 +688,9 @@ export class Sandbox extends AbstractSandbox {
       // Check if we should use OSS upload
       const stats = await fs.stat(sourcePath);
       const fileSize = stats.size;
-      const ossEnabled = envVars.ROCK_OSS_ENABLE;
       const ossThreshold = 1024 * 1024; // 1MB
 
-      if (uploadMode === 'oss' || (uploadMode === 'auto' && ossEnabled && fileSize > ossThreshold)) {
+      if (uploadMode === 'oss' || (uploadMode === 'auto' && fileSize > ossThreshold)) {
         return this.uploadViaOss(sourcePath, targetPath, timeout, onProgress);
       }
 
@@ -705,7 +719,10 @@ export class Sandbox extends AbstractSandbox {
    * Get OSS STS credentials from sandbox
    */
   async getOssStsCredentials(): Promise<OssCredentials> {
-    const url = `${this.url}/get_token`;
+    // Always request the primary account: SDK >= 1.8 uses chatos-rock; the
+    // server returns matching Bucket/Endpoint/Region in this case, which the
+    // server-first config resolution relies on.
+    const url = `${this.url}/get_token?account=primary`;
     const headers = this.buildHeaders();
 
     const response = await HttpUtils.get<OssCredentials>(url, headers);
@@ -716,8 +733,25 @@ export class Sandbox extends AbstractSandbox {
 
     const credentials = OssCredentialsSchema.parse(response.result);
     this.ossTokenExpireTime = credentials.expiration;
+    this.cachedOssCredentials = credentials;
 
     return credentials;
+  }
+
+  /**
+   * Return the cached OSS STS credentials when still fresh; otherwise refetch.
+   *
+   * downloadViaOss/uploadViaOss need to pass raw credentials to the in-sandbox
+   * ossutil command. setupOss already fetched a token, so reusing that token
+   * avoids a second /get_token round trip per transfer. The 5-minute expiry
+   * buffer in isTokenExpired() guarantees we refresh before the credentials
+   * actually become invalid mid-transfer.
+   */
+  private async getCachedOssStsCredentials(): Promise<OssCredentials> {
+    if (this.cachedOssCredentials && !this.isTokenExpired()) {
+      return this.cachedOssCredentials;
+    }
+    return this.getOssStsCredentials();
   }
 
   /**
@@ -787,10 +821,9 @@ export class Sandbox extends AbstractSandbox {
 
     const fileSize = parseInt(sizeResult.stdout.trim(), 10);
     const ossThreshold = 1024 * 1024; // 1MB
-    const ossEnabled = envVars.ROCK_OSS_ENABLE;
 
-    // OSS enabled AND file >= 1MB: use OSS
-    if (ossEnabled && fileSize >= ossThreshold) {
+    // File >= 1MB: use OSS (if server provides OSS config, setupOss will succeed)
+    if (fileSize >= ossThreshold) {
       return this.downloadViaOss(remotePath, localPath, timeout, onProgress);
     }
 
@@ -826,21 +859,13 @@ export class Sandbox extends AbstractSandbox {
    * Download file via OSS as intermediary
    */
   private async downloadViaOss(remotePath: string, localPath: string, timeout?: number, onProgress?: (info: ProgressInfo) => void): Promise<DownloadFileResponse> {
-    // Check OSS is enabled
-    if (!envVars.ROCK_OSS_ENABLE) {
-      return {
-        success: false,
-        message: 'OSS download is not enabled. Please set ROCK_OSS_ENABLE=true',
-      };
-    }
-
     try {
       // Setup OSS bucket if needed
       if (this.ossBucket === null || this.isTokenExpired()) {
         await this.setupOss(timeout);
       }
 
-      if (!this.ossBucket) {
+      if (!this.ossBucket || !this.ossConfig) {
         return { success: false, message: 'Failed to setup OSS bucket' };
       }
 
@@ -850,15 +875,18 @@ export class Sandbox extends AbstractSandbox {
       // Generate unique object name
       const timestamp = Date.now();
       const fileName = remotePath.split('/').pop() ?? 'file';
-      const objectName = `download-${timestamp}-${fileName}`;
+      // Prepend server-supplied prefix (e.g. "rock-transfer/") so the OSS key
+      // matches the STS RAM policy. The primary-account STS only permits
+      // writes under this prefix; bucket-root writes return 403 AccessDenied.
+      const objectName = Sandbox.buildOssObjectName(this.ossConfig?.prefix, `download-${timestamp}-${fileName}`);
 
-      // Get STS credentials for ossutil
-      const credentials = await this.getOssStsCredentials();
-      const bucketName = envVars.ROCK_OSS_BUCKET_NAME ?? '';
-      const region = (envVars.ROCK_OSS_BUCKET_REGION ?? '').replace(/^oss-/, ''); // Normalize: remove "oss-" prefix if present
-      // Use ROCK_OSS_BUCKET_ENDPOINT if available, otherwise build from region
-      // Endpoint format: "oss-cn-hangzhou.aliyuncs.com" (no protocol prefix)
-      const endpoint = envVars.ROCK_OSS_BUCKET_ENDPOINT ?? `oss-${region}.aliyuncs.com`;
+      // Get STS credentials for ossutil. setupOss above already fetched and
+      // cached a token; reuse it to avoid a redundant /get_token round trip.
+      const credentials = await this.getCachedOssStsCredentials();
+      const bucketName = this.ossConfig.bucket;
+      const region = Sandbox.normalizeRegion(this.ossConfig.region);
+      // Endpoint comes from resolved config (server or env). Format: "oss-cn-hangzhou.aliyuncs.com".
+      const endpoint = this.ossConfig.endpoint;
 
       // Upload from sandbox to OSS via ossutil v2
       // ossutil v2 uses command-line parameters for credentials (no separate config needed)
@@ -913,7 +941,10 @@ export class Sandbox extends AbstractSandbox {
 
       const timestamp = Date.now();
       const fileName = sourcePath.split('/').pop() ?? 'file';
-      const objectName = `${timestamp}-${fileName}`;
+      // Prepend server-supplied prefix (e.g. "rock-transfer/") so the OSS key
+      // matches the STS RAM policy. The primary-account STS only permits
+      // writes under this prefix; bucket-root writes return 403 AccessDenied.
+      const objectName = Sandbox.buildOssObjectName(this.ossConfig?.prefix, `${timestamp}-${fileName}`);
 
       // Check file size to determine upload method
       const fs = await import('fs/promises');
@@ -977,22 +1008,97 @@ export class Sandbox extends AbstractSandbox {
    * Setup OSS bucket with STS credentials
    * @param timeout - Optional timeout in milliseconds (defaults to ROCK_OSS_TIMEOUT env var or 300000ms)
    */
+  /**
+   * Compose an OSS object key by prepending the server-supplied prefix.
+   *
+   * STS tokens issued by the primary account carry a RAM policy that only
+   * permits writes under the advertised prefix (typically "rock-transfer/").
+   * Writing to the bucket root returns 403 AccessDenied. This helper applies
+   * the prefix consistently for upload and download paths.
+   *
+   * Sanitization:
+   *   - whitespace trimmed
+   *   - leading/trailing slashes stripped
+   *   - internal duplicate slashes collapsed (e.g. "rock//transfer" -> "rock/transfer")
+   *   - leading slashes on baseName stripped (defensive; callers already pass
+   *     `${timestamp}-${name}` which never starts with '/').
+   *
+   * Mirrors the Python `OssClient._compute_object_name` prefix handling.
+   */
+  static buildOssObjectName(prefix: string | undefined | null, baseName: string): string {
+    const clean = (prefix ?? '')
+      .trim()
+      .replace(/^\/+|\/+$/g, '')
+      .replace(/\/+/g, '/');
+    const cleanBase = baseName.replace(/^\/+/, '');
+    return clean ? `${clean}/${cleanBase}` : cleanBase;
+  }
+
+  /**
+   * Normalize an OSS region string for ali-oss / ossutil.
+   *
+   * `ali-oss` rejects region values with the "oss-" prefix; ossutil accepts
+   * either form but is consistent only when normalized. Server responses
+   * sometimes carry the prefix and sometimes don't, so we always strip it.
+   */
+  static normalizeRegion(region: string): string {
+    return region.replace(/^oss-/, '');
+  }
+
+  /**
+   * Resolve OSS config from server response.
+   *
+   * Admin /get_token must return a complete OSS config (Bucket, Endpoint,
+   * Region). If it doesn't, OSS is unavailable (returns null).
+   *
+   * Mirrors the Python `OssClient._resolve_config` implementation.
+   */
+  static resolveOssConfig(credentials: OssCredentials): {
+    endpoint: string;
+    bucket: string;
+    region: string;
+    prefix: string;
+  } | null {
+    if (credentials.endpoint && credentials.bucket && credentials.region) {
+      return {
+        endpoint: credentials.endpoint,
+        bucket: credentials.bucket,
+        region: credentials.region,
+        prefix: credentials.prefix ?? '',
+      };
+    }
+    return null;
+  }
+
   private async setupOss(timeout?: number): Promise<void> {
     const credentials = await this.getOssStsCredentials();
+
+    const resolved = Sandbox.resolveOssConfig(credentials);
+    if (!resolved) {
+      throw new Error(
+        'OSS config unavailable: admin /get_token did not return Bucket/Endpoint/Region'
+      );
+    }
+
+    this.ossConfig = resolved;
 
     const OSS = (await import('ali-oss')).default;
 
     // Priority: parameter > env var > default (300000ms = 5 minutes)
     const ossTimeout = timeout ?? envVars.ROCK_OSS_TIMEOUT;
 
+    // ali-oss expects region without "oss-" prefix; endpoint normalization
+    // is handled separately in downloadViaOss when building ossutil commands.
+    const aliRegion = Sandbox.normalizeRegion(resolved.region);
+
     this.ossBucket = new OSS({
       secure: true, // Use HTTPS for OSS connections
       timeout: ossTimeout,
-      region: envVars.ROCK_OSS_BUCKET_REGION ?? '',
+      region: aliRegion,
       accessKeyId: credentials.accessKeyId,
       accessKeySecret: credentials.accessKeySecret,
       stsToken: credentials.securityToken,
-      bucket: envVars.ROCK_OSS_BUCKET_NAME ?? '',
+      bucket: resolved.bucket,
       refreshSTSToken: async () => {
         const newCreds = await this.getOssStsCredentials();
         return {
