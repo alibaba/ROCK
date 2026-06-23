@@ -297,10 +297,9 @@ ROCK_ENVHUB_BASE_URL=http://your-envhub-server:8081
 ROCK_SANDBOX_STARTUP_TIMEOUT_SECONDS=300
 
 # OSS 配置 (大文件上传/下载)
-ROCK_OSS_ENABLE=true
-ROCK_OSS_BUCKET_ENDPOINT=https://oss-cn-hangzhou.aliyuncs.com
-ROCK_OSS_BUCKET_NAME=your-bucket
-ROCK_OSS_BUCKET_REGION=oss-cn-hangzhou
+# OSS bucket/endpoint/region 由 admin /get_token 接口自动返回，无需手动配置。
+# 仅 timeout 可通过环境变量覆盖：
+ROCK_OSS_TIMEOUT=300000
 
 # 日志配置
 ROCK_LOGGING_PATH=/var/log/rock
@@ -637,11 +636,7 @@ console.log(`Port mapping: ${JSON.stringify(status.portMapping)}`);
 ### Q: 如何处理大文件上传？
 
 ```typescript
-// 启用 OSS 上传 (> 1MB 自动使用 OSS)
-process.env.ROCK_OSS_ENABLE = 'true';
-process.env.ROCK_OSS_BUCKET_NAME = 'your-bucket';
-// ... 其他 OSS 配置
-
+// > 1MB 自动使用 OSS 上传（OSS 配置由 admin /get_token 自动返回）
 await sandbox.upload({
   sourcePath: './large-file.zip',
   targetPath: '/remote/large-file.zip',

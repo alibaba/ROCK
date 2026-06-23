@@ -222,9 +222,7 @@ console.log(result.output);
 | `ROCK_BASE_URL` | ROCK 服务基础 URL | `http://localhost:8080` |
 | `ROCK_ENVHUB_BASE_URL` | EnvHub 服务 URL | `http://localhost:8081` |
 | `ROCK_SANDBOX_STARTUP_TIMEOUT_SECONDS` | 沙箱启动超时时间 | `180` |
-| `ROCK_OSS_ENABLE` | 是否启用 OSS 上传/下载 | `false` |
-| `ROCK_OSS_BUCKET_ENDPOINT` | OSS Endpoint | - |
-| `ROCK_OSS_BUCKET_NAME` | OSS Bucket 名称 | - |
+| `ROCK_OSS_TIMEOUT` | OSS 操作超时时间 (ms) | `300000` |
 
 ### SandboxConfig 选项
 

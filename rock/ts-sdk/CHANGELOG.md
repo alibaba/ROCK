@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **`ROCK_OSS_BUCKET_NAME`, `ROCK_OSS_BUCKET_ENDPOINT`, `ROCK_OSS_BUCKET_REGION` env vars
+  are no longer read by the SDK.** OSS bucket/endpoint/region are now resolved
+  exclusively from the admin `/get_token?account=primary` response. Users who
+  still have these env vars set can safely leave them — they are simply ignored.
+- **`ROCK_OSS_ENABLE` env var is no longer read by the SDK.** OSS availability
+  is determined solely by whether the admin returns a complete config. If the
+  server provides Bucket/Endpoint/Region, OSS is enabled; otherwise it is
+  unavailable. The auto-mode upload/download threshold (1 MB) is unchanged.
+- `resolveOssConfig` no longer returns an `enabledViaEnv` field.
+
+### Changed
+
+- **`getOssStsCredentials()` now requests `account=primary`.** Previously it
+  hit `/get_token` with no query, which the admin defaulted to `legacy`.
+  This ensures the STS-issuing account matches the bucket the server
+  advertises.
+
+### Added
+
+- `Sandbox.resolveOssConfig(credentials)` static helper that resolves OSS
+  config from the server `/get_token` response (returns `null` when incomplete).
+- `Sandbox.buildOssObjectName(prefix, baseName)` static helper that prepends
+  the server-supplied OSS prefix to object keys. Sanitization: whitespace
+  trimmed, leading/trailing slashes stripped, internal duplicate slashes
+  (`rock//transfer`) collapsed, and any leading slashes on `baseName` stripped
+  so the resulting key never produces `//` runs or bucket-root absolute paths.
+- `Sandbox.normalizeRegion(region)` static helper that strips the leading
+  `oss-` prefix accepted by ali-oss / ossutil. Centralizes the previously
+  duplicated `replace(/^oss-/, '')` calls in `setupOss` and `downloadViaOss`.
+
+### Performance
+
+- `downloadViaOss` / `uploadViaOss` now reuse the STS credentials fetched in
+  `setupOss` instead of issuing a second `/get_token` request per transfer.
+  The cache is invalidated together with the bucket via the existing
+  `isTokenExpired()` 5-minute buffer.
+
+### Fixed
+
+- **OSS 403 AccessDenied on uploads/downloads.** `uploadViaOss` and
+  `downloadViaOss` previously wrote to the bucket root (e.g.
+  `1700000000-file.tar.gz`), but primary-account STS tokens carry a RAM
+  policy that only permits writes under the advertised prefix (typically
+  `rock-transfer/`). The SDK now prepends `ossConfig.prefix` to the object
+  key, matching the Python SDK `OssClient._compute_object_name` behavior.
+
 ## [1.3.9] - 2026-03-29
 
 ### Added
