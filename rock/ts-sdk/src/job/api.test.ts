@@ -6,10 +6,11 @@ import { z } from 'zod';
 import { SandboxConfigSchema } from '../sandbox/config';
 import { BashJobConfigSchema } from './config';
 import { Job } from './api';
+import { JobExecutor } from './executor';
 import { ScatterOperator } from './operator';
 import { AbstractTrial } from './trial/abstract';
 import { registerTrial } from './trial/registry';
-import { JobResult, TrialResult, JobStatus } from './result';
+import { JobResult, TrialResult, JobStatus, ExceptionInfoSchema } from './result';
 
 // Minimal environment
 const EnvironmentConfigSchema = SandboxConfigSchema.extend({
@@ -24,7 +25,21 @@ const BASH_KEY = Symbol.for('TestBashForApi');
 class FakeTrial extends AbstractTrial {
   build(): string { return 'echo test'; }
   async collect(_sandbox?: unknown, output?: string, exit_code?: number): Promise<TrialResult> {
-    return { task_name: 'api-test', exception_info: null, started_at: null, finished_at: null, raw_output: output ?? '', exit_code: exit_code ?? 0, score: 0, status: 'completed', duration_sec: 0 };
+    const code = exit_code ?? 0;
+    return {
+      task_name: 'api-test',
+      exception_info: code === 0 ? null : ExceptionInfoSchema.parse({
+        exception_type: 'BashExitCode',
+        exception_message: `Bash script exited with code ${code}`,
+      }),
+      started_at: null,
+      finished_at: null,
+      raw_output: output ?? '',
+      exit_code: code,
+      score: 0,
+      status: code === 0 ? 'completed' : 'failed',
+      duration_sec: 0,
+    };
   }
 }
 registerTrial(BASH_KEY, FakeTrial);
@@ -66,6 +81,40 @@ describe('Job', () => {
       } catch (e: any) {
         expect(e).toBeDefined();
       }
+    });
+  });
+
+  describe('run', () => {
+    test('uses the sidecar script exit code for the final JobResult', async () => {
+      const config = makeConfig();
+      const sandbox = {
+        start: jest.fn(async () => undefined),
+        getNamespace: jest.fn(() => null),
+        getExperimentId: jest.fn(() => null),
+        createSession: jest.fn(async () => ({})),
+        writeFile: jest.fn(async () => ({ success: true, message: '' })),
+        startNohupProcess: jest.fn(async () => ({ pid: 2468, errorResponse: null })),
+        waitForProcessCompletion: jest.fn(async () => ({ success: true, message: 'done' })),
+        handleNohupOutput: jest.fn(async () => ({
+          output: 'script output',
+          exitCode: 0,
+          failureReason: '',
+          expectString: '',
+        })),
+        readFile: jest.fn(async () => ({ content: '7\n' })),
+      };
+      const job = new Job(config, { apply: () => [new FakeTrial(config as any)] });
+      (job as any).executor = new JobExecutor(() => sandbox as any);
+
+      const result = await job.run();
+
+      expect(sandbox.readFile).toHaveBeenCalledWith({
+        path: '/data/logs/user-defined/rock_job_api-test-job.exit',
+      });
+      expect(result.status).toBe(JobStatus.FAILED);
+      expect(result.exit_code).toBe(7);
+      expect(result.trial_results[0].exit_code).toBe(7);
+      expect(result.trial_results[0].exception_info?.exception_type).toBe('BashExitCode');
     });
   });
 

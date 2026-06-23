@@ -118,7 +118,7 @@ describe('JobExecutor', () => {
         'start',
         'create:rock-job-test-job:true',
         'write:/data/logs/user-defined/rock_job_test-job.sh:echo lifecycle',
-        "nohup:bash '/data/logs/user-defined/rock_job_test-job.sh':/data/logs/user-defined/rock_job_test-job.out:rock-job-test-job",
+        "nohup:bash -c 'bash '\\''/data/logs/user-defined/rock_job_test-job.sh'\\''; rc=$?; echo \"$rc\" > '\\''/data/logs/user-defined/rock_job_test-job.exit'\\''; exit \"$rc\"':/data/logs/user-defined/rock_job_test-job.out:rock-job-test-job",
       ]);
       expect(trial.events).toEqual(['ready:ns-from-sandbox:exp-from-sandbox', 'setup', 'build']);
       expect(config.namespace).toBe('ns-from-sandbox');

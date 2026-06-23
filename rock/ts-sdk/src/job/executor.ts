@@ -15,8 +15,8 @@ import type { Operator } from './operator';
 import { USER_DEFINED_LOGS } from '../bench/constants';
 import { Sandbox } from '../sandbox/client';
 import { ExceptionInfoSchema, type TrialResult } from './result';
-import type { Observation } from '../types/responses';
-import type { CreateBashSessionRequest, WriteFileRequest } from '../types/requests';
+import type { Observation, ReadFileResponse } from '../types/responses';
+import type { CreateBashSessionRequest, WriteFileRequest, ReadFileRequest } from '../types/requests';
 import { shellQuote } from '../utils/shell';
 
 // ---------------------------------------------------------------------------
@@ -42,6 +42,7 @@ export interface JobSandbox {
   getExperimentId(): string | null;
   createSession(request: CreateBashSessionRequest): Promise<unknown>;
   writeFile(request: WriteFileRequest): Promise<{ success: boolean; message?: string }>;
+  readFile(request: ReadFileRequest): Promise<ReadFileResponse>;
   startNohupProcess(
     cmd: string,
     tmpFile: string,
@@ -123,6 +124,20 @@ export class JobExecutor {
     return `${USER_DEFINED_LOGS}/rock_job_${config['job_name'] ?? 'default'}`;
   }
 
+  private static jobExitPath(config: Record<string, unknown>): string {
+    return `${JobExecutor.jobTmpPrefix(config)}.exit`;
+  }
+
+  private static buildRunScriptCommand(scriptPath: string, exitPath: string): string {
+    const inner = [
+      `bash ${shellQuote(scriptPath)}`,
+      'rc=$?',
+      `echo "$rc" > ${shellQuote(exitPath)}`,
+      'exit "$rc"',
+    ].join('; ');
+    return `bash -c ${shellQuote(inner)}`;
+  }
+
   private async _doSubmit(trial: AbstractTrial): Promise<TrialClient> {
     const config = trial.config;
     const sandbox = this.sandboxFactory((config['environment'] ?? {}) as Record<string, unknown>);
@@ -142,8 +157,9 @@ export class JobExecutor {
     }
 
     const tmpFile = `${JobExecutor.jobTmpPrefix(config)}.out`;
+    const exitPath = JobExecutor.jobExitPath(config);
     const { pid, errorResponse } = await sandbox.startNohupProcess(
-      `bash ${shellQuote(scriptPath)}`,
+      JobExecutor.buildRunScriptCommand(scriptPath, exitPath),
       tmpFile,
       session
     );
@@ -173,7 +189,7 @@ export class JobExecutor {
       false,
       null
     );
-    const exitCode = obs.exitCode ?? 1;
+    const exitCode = await this.readScriptExitCode(client, obs, success);
     const result = await client.trial.collect(client.sandbox as Sandbox, obs.output ?? '', exitCode);
     const results = Array.isArray(result) ? result : [result];
 
@@ -193,6 +209,25 @@ export class JobExecutor {
     }
 
     return result;
+  }
+
+  private async readScriptExitCode(
+    client: TrialClient,
+    obs: Observation,
+    waitSuccess: boolean
+  ): Promise<number> {
+    try {
+      const response = await client.sandbox.readFile({
+        path: JobExecutor.jobExitPath(client.trial.config),
+      });
+      const parsed = Number.parseInt(response.content.trim(), 10);
+      if (Number.isInteger(parsed)) {
+        return parsed;
+      }
+    } catch {
+      // Fall back to the nohup protocol status for older or partially failed jobs.
+    }
+    return obs.exitCode ?? (waitSuccess ? 0 : 1);
   }
 
   /**
