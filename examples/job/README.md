@@ -10,7 +10,7 @@ For installing and running an agent inside a single sandbox, see [`../install-ag
 |--------|---------|-----------|
 | [`bash/`](./bash/) | `BashJobConfig` | Run an arbitrary shell script inside a sandbox (data processing, external evaluation tools) |
 | [`harbor/`](./harbor/) | `HarborJobConfig` | Run an AI agent benchmark task (SWE-bench, Terminal Bench, …) via the Harbor framework |
-| [`observability/`](./observability/) | `BashJobConfig` | Show the exception observability layer (structured logs + optional OTLP metric) — includes an infra-free `--mode self-test` |
+| [`observability/`](./observability/) | `BashJobConfig` | Show the exception observability layer (structured logs + optional OTLP metric) via a job that soft-fails on purpose |
 
 Both backends share a single `Job(config).run()` entrypoint — pick the config type based on your scenario.
 

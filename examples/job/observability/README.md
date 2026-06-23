@@ -33,47 +33,40 @@ See [`docs/dev/job/exception-handling.md`](../../../docs/dev/job/exception-handl
 
 | File | Purpose |
 |------|---------|
-| [`observability_demo.py`](./observability_demo.py) | Entry point with two modes: `self-test` (no infra) and `run` (real `Job(config).run()`) |
+| [`observability_demo.py`](./observability_demo.py) | Entry point — echoes the two knobs, loads `JobConfig.from_yaml()`, runs `Job(config).run()`, prints per-trial `exception_info` |
+| [`observability_job_config.yaml.template`](./observability_job_config.yaml.template) | `BashJobConfig` whose script exits non-zero, producing one soft-fail event |
 
 ## Quick run
 
-### 1. Infra-free walkthrough (`--mode self-test`)
-
-Drives the reporter + `monitor_job_phase` decorator with stubs so you can see
-the exact ERROR log line and counter increment for both a soft and a hard fail.
-No sandbox, no admin, no network:
-
 ```bash
-python examples/job/observability/observability_demo.py --mode self-test
-```
+# 1. copy the template and fill in real values (<placeholders>)
+cp observability_job_config.yaml.template observability_job_config.yaml
 
-### 2. Real run (`--mode run`)
-
-Runs a `BashJobConfig` in a real sandbox. The script is chosen by `--scenario`:
-
-| `--scenario` | Script behavior | Resulting event |
-|--------------|-----------------|-----------------|
-| `success` | `exit 0` | none |
-| `soft-fail` (default) | `exit 7` | soft fail `BashExitCode`, phase `collect` |
-| `timeout` | sleeps past `--timeout` | soft fail `ProcessTimeout`, phase `collect` |
-
-```bash
-export ROCK_BASE_URL="http://localhost:8080"   # required
-export YOUR_API_KEY="<your-token>"             # sent as XRL-Authorization
-export ROCK_IMAGE="python:3.11"                # optional
-export ROCK_CLUSTER="<your-cluster>"           # optional
-
-# optional: turn metrics ON (otherwise log-only)
+# 2. (optional) turn metrics ON — otherwise the demo is log-only
 export ROCK_JOB_METRICS_OTLP_ENDPOINT="http://localhost:4318/v1/metrics"
 
-python examples/job/observability/observability_demo.py --mode run --scenario soft-fail --scatter 2
+# 3. run
+python observability_demo.py -c observability_job_config.yaml
 ```
 
-The demo prints whether metrics are on, runs the job, then summarizes
-`JobResult.status` / per-trial `exception_info`. Because this is a short-lived
-process, it calls `get_reporter().shutdown()` at the end to force a final metric
-flush before exit (the same flush is registered via `atexit`, so it's safe and
-idempotent).
+The template's script does `exit 7`, so a clean run produces exactly one
+soft-fail event. You'll see it twice in the output:
+
+```
+ERROR ... job exception phase=collect severity=soft exception_type=BashExitCode ... job_name=observability_demo ...
+...
+JobResult: status=failed  completed=0  failed=1  exit_code=...
+  trial[0] ...: SOFT FAIL -> BashExitCode: ...
+```
+
+The ERROR log line is **always** emitted. The matching counter increment on
+`rock_job.exception.total` is exported **only** when `ROCK_JOB_METRICS_OTLP_ENDPOINT`
+is set. The demo calls `get_reporter().shutdown()` at the end to force a final
+metric flush before this short-lived process exits (also registered via `atexit`,
+so it's safe and idempotent).
+
+To see a **hard fail** (`run()` raises, `severity=hard`) instead, point
+`base_url` at an unreachable admin so the sandbox can't start.
 
 ## Wiring metrics to a collector
 
