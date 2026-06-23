@@ -246,7 +246,7 @@ class DockerUtil:
         """
         try:
             subprocess.run(
-                ["docker", "rm", "-f", name],
+                ["docker", "rm", "-f", "-v", name],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=timeout,
