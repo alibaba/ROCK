@@ -536,6 +536,8 @@ class TestBuildBatchSandboxManifestCpuOvercommit:
         assert container["resources"]["limits"]["cpu"] == "4.0"
 
 
+IMAGE_AUTH_ANNOTATION = "example.com/encrypted-image-auth"
+
 IMAGE_AUTH_TEMPLATE = {
     "default": {
         "namespace": "rock-test",
@@ -544,7 +546,7 @@ IMAGE_AUTH_TEMPLATE = {
             "metadata": {
                 "labels": {"app": "test"},
                 "annotations": {
-                    "apps.batch.scheduling.alibabacloud.com/encrypted-image-auth": "{{ encrypted_image_auth }}"
+                    IMAGE_AUTH_ANNOTATION: "{{ encrypted_image_auth }}"
                 },
             },
             "spec": {"containers": [{"name": "main", "image": "python:3.11"}]},
@@ -577,8 +579,8 @@ class TestBuildBatchSandboxManifestImageAuth:
         manifest = await provider._build_batchsandbox_manifest(config)
 
         annotations = manifest["spec"]["template"]["metadata"]["annotations"]
-        assert "apps.batch.scheduling.alibabacloud.com/encrypted-image-auth" in annotations
-        encrypted = annotations["apps.batch.scheduling.alibabacloud.com/encrypted-image-auth"]
+        assert IMAGE_AUTH_ANNOTATION in annotations
+        encrypted = annotations[IMAGE_AUTH_ANNOTATION]
         assert len(encrypted) > 0  # base64 encoded ciphertext
 
     async def test_no_encrypted_auth_when_key_missing(self, monkeypatch):
@@ -591,14 +593,14 @@ class TestBuildBatchSandboxManifestImageAuth:
         manifest = await provider._build_batchsandbox_manifest(config)
 
         annotations = manifest["spec"]["template"]["metadata"].get("annotations", {})
-        assert "apps.batch.scheduling.alibabacloud.com/encrypted-image-auth" not in annotations
+        assert IMAGE_AUTH_ANNOTATION not in annotations
 
-    async def test_no_encrypted_auth_when_credentials_missing(self, monkeypatch):
+    async def test_public_auth_when_credentials_missing(self, monkeypatch):
         monkeypatch.setenv("ROCK_IMAGE_AUTH_KEY", "0" * 32)
         provider = _make_provider_with_templates(IMAGE_AUTH_TEMPLATE)
         config = make_config()
 
         manifest = await provider._build_batchsandbox_manifest(config)
 
-        annotations = manifest["spec"]["template"]["metadata"].get("annotations", {})
-        assert "apps.batch.scheduling.alibabacloud.com/encrypted-image-auth" not in annotations
+        annotations = manifest["spec"]["template"]["metadata"]["annotations"]
+        assert annotations[IMAGE_AUTH_ANNOTATION] == "public"

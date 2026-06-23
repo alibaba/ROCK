@@ -357,7 +357,7 @@ class TestK8sTemplateLoader:
                 "template": {
                     "metadata": {
                         "annotations": {
-                            "apps.batch.scheduling.alibabacloud.com/encrypted-image-auth": "{{ encrypted_image_auth }}",
+                            "example.com/image-auth": "{{ encrypted_image_auth }}",
                         }
                     },
                     "spec": {"containers": [{"name": "main", "image": "python:3.11"}]},
@@ -376,4 +376,4 @@ class TestK8sTemplateLoader:
         )
 
         annotations = manifest["spec"]["template"]["metadata"]["annotations"]
-        assert annotations["apps.batch.scheduling.alibabacloud.com/encrypted-image-auth"] == "dGVzdC1lbmNyeXB0ZWQ="
+        assert annotations["example.com/image-auth"] == "dGVzdC1lbmNyeXB0ZWQ="
