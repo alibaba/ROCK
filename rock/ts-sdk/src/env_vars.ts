@@ -99,22 +99,6 @@ export const envVars = {
   },
 
   // OSS
-  get ROCK_OSS_ENABLE(): boolean {
-    return getEnv('ROCK_OSS_ENABLE', 'false')?.toLowerCase() === 'true';
-  },
-
-  get ROCK_OSS_BUCKET_ENDPOINT(): string | undefined {
-    return getEnv('ROCK_OSS_BUCKET_ENDPOINT');
-  },
-
-  get ROCK_OSS_BUCKET_NAME(): string | undefined {
-    return getEnv('ROCK_OSS_BUCKET_NAME');
-  },
-
-  get ROCK_OSS_BUCKET_REGION(): string | undefined {
-    return getEnv('ROCK_OSS_BUCKET_REGION');
-  },
-
   get ROCK_OSS_TIMEOUT(): number {
     return parseInt(getEnv('ROCK_OSS_TIMEOUT', '300000')!, 10); // Default: 5 minutes
   },
