@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import time
 import traceback
 import uuid
@@ -39,7 +40,7 @@ from rock.admin.scheduler.tasks.sandbox_log_archive_task import (
 from rock.admin.service.ops_service import OpsService
 from rock.common.exception import request_validation_exception_handler
 from rock.config import DatabaseConfig, RockConfig, SchedulerConfig
-from rock.logger import init_logger
+from rock.logger import init_logger, reset_log_file
 from rock.sandbox.gem_manager import GemManager
 from rock.sandbox.operator.factory import OperatorContext, OperatorFactory
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
@@ -48,13 +49,17 @@ from rock.sandbox.service.warmup_service import WarmupService
 from rock.utils import EAGLE_EYE_TRACE_ID, sandbox_id_ctx_var, trace_id_ctx_var
 from rock.utils.providers import RedisProvider
 from rock.utils.system import is_primary_pod
+from rock.utils.worker import compute_pool_size, resolve_workers
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--env", type=str, default="local")
-parser.add_argument("--role", type=str, default="admin", choices=["admin", "proxy"])
-parser.add_argument("--port", type=int, default=8080)
 
-args = parser.parse_args()
+def _parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--env", type=str, default="local")
+    parser.add_argument("--role", type=str, default="admin", choices=["admin", "proxy"])
+    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--workers", type=int, default=None)
+    return parser.parse_args()
+
 
 logger = init_logger("admin")
 logging.getLogger("urllib3").setLevel(logging.WARNING)
@@ -87,7 +92,7 @@ def _init_ops_service(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config_file_path = (
-        Path(__file__).resolve().parents[2] / env_vars.ROCK_CONFIG_DIR_NAME / f"rock-{args.env}.yml"
+        Path(__file__).resolve().parents[2] / env_vars.ROCK_CONFIG_DIR_NAME / f"rock-{env_vars.ROCK_ADMIN_ENV}.yml"
         if not env_vars.ROCK_CONFIG
         else env_vars.ROCK_CONFIG
     )
@@ -100,11 +105,8 @@ async def lifespan(app: FastAPI):
             rock_config.scheduler = SchedulerConfig(**nacos_config["scheduler"])
             logger.info(f"Overrode scheduler config from Nacos with {len(rock_config.scheduler.tasks)} tasks")
 
-    env_vars.ROCK_ADMIN_ENV = args.env
-    env_vars.ROCK_ADMIN_ROLE = args.role
-
     # init redis provider (fallback to fakeredis if no host configured)
-    if args.env in ["local", "test", "dev"] or not rock_config.redis.host:
+    if env_vars.ROCK_ADMIN_ENV in ["local", "test", "dev"] or not rock_config.redis.host:
         from fakeredis import aioredis
 
         if not rock_config.redis.host:
@@ -123,7 +125,10 @@ async def lifespan(app: FastAPI):
     db_url = rock_config.database.url or "sqlite+aiosqlite:///:memory:"
     if not rock_config.database.url:
         logger.info("database.url is not configured, falling back to SQLite in-memory")
-    db_provider = DatabaseProvider(db_config=DatabaseConfig(url=db_url))
+    workers = int(os.getenv("ROCK_PROXY_WORKERS", "1")) or 1
+    effective_pool = compute_pool_size(base=rock_config.database.pool_size, workers=workers)
+    db_provider = DatabaseProvider(db_config=DatabaseConfig(url=db_url, pool_size=effective_pool))
+    logger.info(f"db pool_size={effective_pool} (base={rock_config.database.pool_size}, workers={workers})")
     await db_provider.init()
     if not rock_config.database.url:
         await db_provider.create_tables()
@@ -144,7 +149,8 @@ async def lifespan(app: FastAPI):
     scheduler_thread = None
 
     # init sandbox service
-    if args.role == "admin":
+    proxy_service_ref = None
+    if env_vars.ROCK_ADMIN_ROLE == "admin":
         # init ray service
         ray_service = RayService(rock_config.ray)
         ray_service.init()
@@ -199,6 +205,7 @@ async def lifespan(app: FastAPI):
     else:
         sandbox_manager = SandboxProxyService(rock_config=rock_config, meta_store=meta_store)
         set_sandbox_proxy_service(sandbox_manager)
+        proxy_service_ref = sandbox_manager
 
     logger.info("rock-admin start")
 
@@ -209,6 +216,10 @@ async def lifespan(app: FastAPI):
         scheduler_thread.stop()
         logger.info("Scheduler thread stopped")
 
+    if proxy_service_ref is not None:
+        await proxy_service_ref.aclose()
+        logger.info("proxy httpx clients closed")
+
     if db_provider:
         await db_provider.close()
 
@@ -218,43 +229,16 @@ async def lifespan(app: FastAPI):
     logger.info("rock-admin exit")
 
 
-app = FastAPI(lifespan=lifespan)
-
-# --- CORS configuration start ---
-# Allowed origins list
-origins = [
-    "*",  # Your frontend origin
-]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,  # Set allowed origins
-    allow_credentials=True,  # Whether to support cookie cross-origin
-    allow_methods=["*"],  # Allow all methods
-    allow_headers=["*"],  # Allow all headers
-)
-# --- CORS configuration end ---
-
-
-# Pydantic validation errors are matched by FastAPI before the catch-all Exception
-# handler below — register an explicit override so they come out as RockResponse
-# envelopes instead of the default 422 ``{"detail": [...]}``.
-app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
-
-
-@app.exception_handler(Exception)
 async def base_exception_handler(request: Request, exc: Exception):
     exc_content = {"detail": str(exc), "traceback": traceback.format_exc().split("\n")}
     logger.error(f"[app error] request:[{request}], exc:[{exc_content}]")
     return JSONResponse(status_code=500, content=exc_content)
 
 
-@app.get("/")
 async def root():
     return {"message": "hello, ROCK!"}
 
 
-@app.middleware("http")
 async def log_requests_and_responses(request: Request, call_next):
     req_logger = init_logger("accessLog")
 
@@ -297,9 +281,8 @@ async def log_requests_and_responses(request: Request, call_next):
     return response
 
 
-def main():
-    # config router
-    if args.role == "admin":
+def _include_routers(app: FastAPI, role: str) -> None:
+    if role == "admin":
         app.include_router(sandbox_router, prefix="/apis/envs/sandbox/v1", tags=["sandbox"])
         app.include_router(admin_ops_router, prefix="/apis/envs/sandbox/v1/ops", tags=["admin-ops"])
     else:
@@ -307,7 +290,54 @@ def main():
     app.include_router(warmup_router, prefix="/apis/envs/sandbox/v1", tags=["warmup"])
     app.include_router(gem_router, prefix="/apis/v1/envs/gem", tags=["gem"])
 
-    uvicorn.run(app, host="0.0.0.0", port=args.port, ws_ping_interval=None, ws_ping_timeout=None, timeout_keep_alive=30)
+
+def create_app() -> FastAPI:
+    app = FastAPI(lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
+    app.add_exception_handler(Exception, base_exception_handler)
+    app.middleware("http")(log_requests_and_responses)
+    app.add_api_route("/", root, methods=["GET"])
+    _include_routers(app, role=env_vars.ROCK_ADMIN_ROLE)
+    return app
+
+
+def main():
+    args = _parse_args()
+    os.environ["ROCK_ADMIN_ENV"] = args.env
+    os.environ["ROCK_ADMIN_ROLE"] = args.role
+
+    # Clear the log file once at deploy (master), then make every worker append
+    # to the shared file. Must run before workers spawn so only the master clears.
+    reset_log_file()
+    os.environ["ROCK_LOGGING_APPEND"] = "true"
+
+    workers = resolve_workers(
+        role=args.role,
+        override=args.workers,
+        env_workers=int(os.getenv("ROCK_PROXY_WORKERS", "0")),
+        env=args.env,
+    )
+    # write resolved count back so each worker's lifespan sizes pools deterministically
+    os.environ["ROCK_PROXY_WORKERS"] = str(workers)
+    logger.info(f"starting role={args.role} port={args.port} workers={workers}")
+
+    uvicorn.run(
+        "rock.admin.main:create_app",
+        factory=True,
+        host="0.0.0.0",
+        port=args.port,
+        workers=workers,
+        ws_ping_interval=None,
+        ws_ping_timeout=None,
+        timeout_keep_alive=30,
+    )
 
 
 if __name__ == "__main__":

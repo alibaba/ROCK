@@ -73,10 +73,34 @@ def init_file_handler(log_name: str):
         # Ensure directory exists
         os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
 
-        handler = logging.FileHandler(log_file_path, mode="w+", encoding="utf-8")
+        # Multi-worker safe: when ROCK_LOGGING_APPEND is set, every worker opens
+        # the shared file in append mode (no per-process truncate race). The
+        # one-time clear-on-deploy is done by the entrypoint via reset_log_file().
+        # Default stays "w+" so single-process services (rocklet, cli) keep their
+        # truncate-on-start behavior.
+        mode = "a" if env_vars.ROCK_LOGGING_APPEND else "w+"
+        handler = logging.FileHandler(log_file_path, mode=mode, encoding="utf-8")
         handler.setFormatter(TimezoneFormatter(log_color_enable=False, tz_string=env_vars.ROCK_TIME_ZONE))
         return handler
     return None
+
+
+def reset_log_file(file_name: str | None = None) -> None:
+    """Truncate the configured log file once (e.g. at deploy / master startup).
+
+    Under multi-worker, all workers open the same file in append mode, so the
+    one-time clear must happen here in the master BEFORE workers spawn — doing
+    it in the FileHandler would make each worker truncate and race. No-op when
+    file logging is disabled (stdout mode).
+    """
+    if not env_vars.ROCK_LOGGING_PATH:
+        return
+    file_name = file_name or env_vars.ROCK_LOGGING_FILE_NAME
+    if not file_name:
+        return
+    log_file_path = os.path.join(env_vars.ROCK_LOGGING_PATH, file_name)
+    os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+    open(log_file_path, "w").close()
 
 
 def init_logger(name: str | None = None, file_name: str | None = None):
