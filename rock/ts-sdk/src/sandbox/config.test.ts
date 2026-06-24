@@ -87,6 +87,36 @@ describe('createSandboxGroupConfig', () => {
   });
 });
 
+describe('autoDeleteSeconds validation', () => {
+  test('should default to undefined when not provided', () => {
+    const config = SandboxConfigSchema.parse({});
+    expect(config.autoDeleteSeconds).toBeUndefined();
+  });
+
+  test('should accept null', () => {
+    const config = SandboxConfigSchema.parse({ autoDeleteSeconds: null });
+    expect(config.autoDeleteSeconds).toBeNull();
+  });
+
+  test('should accept 0', () => {
+    const config = SandboxConfigSchema.parse({ autoDeleteSeconds: 0 });
+    expect(config.autoDeleteSeconds).toBe(0);
+  });
+
+  test('should accept positive number', () => {
+    const config = SandboxConfigSchema.parse({ autoDeleteSeconds: 300 });
+    expect(config.autoDeleteSeconds).toBe(300);
+  });
+
+  test('should reject negative number', () => {
+    expect(() => SandboxConfigSchema.parse({ autoDeleteSeconds: -1 })).toThrow();
+  });
+
+  test('should reject non-number value', () => {
+    expect(() => SandboxConfigSchema.parse({ autoDeleteSeconds: 'abc' })).toThrow();
+  });
+});
+
 describe('Config uses envVars (not hardcoded)', () => {
   // These tests verify that config schemas read defaults from envVars
   // rather than using hardcoded values.

@@ -52,6 +52,10 @@ const sandbox = new Sandbox({
 await sandbox.start();
 
 console.log(`Sandbox ID: ${sandbox.getSandboxId()}`);
+
+// 停止沙箱后重启（restart 仅适用于已停止的沙箱）
+await sandbox.stop();
+await sandbox.restart();
 ```
 
 ### 执行命令
@@ -235,6 +239,7 @@ interface SandboxConfig {
   cpus: number;            // CPU 核心数
   autoClearSeconds: number; // 自动清理时间
   startupTimeout: number;  // 启动超时
+  autoDeleteSeconds?: number | null; // 沙箱自动删除时间（秒），0 表示立即清理，null/undefined 表示不自动删除
   routeKey?: string;       // 路由键
   extraHeaders?: Record<string, string>; // 额外请求头
 }

@@ -30,6 +30,7 @@ export const SandboxConfigSchema = BaseConfigSchema.extend({
   experimentId: z.string().optional(),
   cluster: z.string().default(() => envVars.ROCK_DEFAULT_CLUSTER),
   namespace: z.string().optional(),
+  autoDeleteSeconds: z.number().min(0, 'autoDeleteSeconds must be >= 0').nullish(),
 });
 
 export type SandboxConfig = z.infer<typeof SandboxConfigSchema>;

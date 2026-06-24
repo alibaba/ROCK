@@ -230,13 +230,14 @@ export class Sandbox extends AbstractSandbox {
     const url = `${this.url}/start_async`;
     const headers = this.buildHeaders();
     // Use camelCase - HTTP layer will convert to snake_case
-    const data = {
+    const data: Record<string, unknown> = {
       image: this.config.image,
       autoClearTime: this.config.autoClearSeconds / 60,
       autoClearTimeMinutes: this.config.autoClearSeconds / 60,
       startupTimeout: this.config.startupTimeout,
       memory: this.config.memory,
       cpus: this.config.cpus,
+      autoDeleteSeconds: this.config.autoDeleteSeconds,
     };
 
     logger.debug(`Calling start_async API: ${url}`);
@@ -266,40 +267,7 @@ export class Sandbox extends AbstractSandbox {
     logger.info(`Sandbox ID: ${this.sandboxId}`);
 
     // Wait for sandbox to be alive
-    // First, wait a bit for the backend to process the start request
-    await sleep(2000);
-
-    const startTime = Date.now();
-    const checkTimeout = 10000; // 10s timeout for each status check
-    const checkInterval = 3000; // 3s between checks
-
-    while (Date.now() - startTime < this.config.startupTimeout * 1000) {
-        let timeoutId: ReturnType<typeof setTimeout> | undefined;
-      try {
-        logger.info(`Checking status... (elapsed: ${Math.round((Date.now() - startTime) / 1000)}s)`);
-        // Use Promise.race to implement timeout for status check
-        const statusPromise = this.getStatus();
-        const timeoutPromise = new Promise<null>((_, reject) => {
-          timeoutId = setTimeout(() => reject(new Error('Status check timeout')), checkTimeout);
-        });
-
-        const status = await Promise.race([statusPromise, timeoutPromise]);
-        if (status && status.isAlive) {
-          logger.info('Sandbox is alive');
-          return;
-        }
-      } catch (e) {
-        // Status check may fail temporarily during startup, continue waiting
-        logger.debug(`Status check failed (will retry): ${e}`);
-      } finally {
-        clearTimeout(timeoutId);
-      }
-      await sleep(checkInterval);
-    }
-
-    throw new InternalServerRockError(
-      `Failed to start sandbox within ${this.config.startupTimeout}s, sandbox: ${this.toString()}`
-    );
+    await this.waitForAlive();
   }
 
   async stop(): Promise<void> {
@@ -327,8 +295,11 @@ export class Sandbox extends AbstractSandbox {
     }
   }
 
-  async getStatus(): Promise<SandboxStatusResponse> {
-    const url = `${this.url}/get_status?sandbox_id=${this.sandboxId}`;
+  async getStatus(options?: { includeAllStates?: boolean }): Promise<SandboxStatusResponse> {
+    let url = `${this.url}/get_status?sandbox_id=${this.sandboxId}`;
+    if (options?.includeAllStates) {
+      url += '&include_all_states=true';
+    }
     const headers = this.buildHeaders();
     const response = await HttpUtils.get<SandboxStatusResponse & { code?: number }>(url, headers);
 
@@ -1109,6 +1080,88 @@ export class Sandbox extends AbstractSandbox {
       },
       refreshSTSTokenInterval: 300000, // 5 minutes
     });
+  }
+
+  async restart(): Promise<void> {
+    if (!this.sandboxId) {
+      throw new Error('sandbox_id is not set, cannot restart');
+    }
+
+    const url = `${this.url}/restart`;
+    const headers = this.buildHeaders();
+    const data = { sandboxId: this.sandboxId };
+
+    const response = await HttpUtils.post<{ code?: number }>(url, headers, data);
+
+    logger.debug(`Restart sandbox response: ${JSON.stringify(response)}`);
+
+    if (response.status !== 'Success') {
+      const code = response.result?.code;
+      raiseForCode(code, `Failed to restart sandbox: ${JSON.stringify(response)}`);
+      throw new Error(`Failed to restart sandbox: ${JSON.stringify(response)}`);
+    }
+
+    await this.waitForAlive({ includeAllStates: true, operation: 'restart' });
+  }
+
+  private async waitForAlive(options?: { includeAllStates?: boolean; operation?: string }): Promise<void> {
+    await sleep(2000);
+
+    const startTime = Date.now();
+    const checkTimeout = 10000;
+    const checkInterval = 3000;
+
+    while (Date.now() - startTime < this.config.startupTimeout * 1000) {
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      try {
+        logger.info(`Checking status... (elapsed: ${Math.round((Date.now() - startTime) / 1000)}s)`);
+        const statusPromise = this.getStatus(options);
+        const timeoutPromise = new Promise<null>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('Status check timeout')), checkTimeout);
+        });
+
+        const status = await Promise.race([statusPromise, timeoutPromise]);
+        if (status && status.isAlive) {
+          logger.info('Sandbox is alive');
+          return;
+        }
+
+        if (options?.includeAllStates && status) {
+          const errorMsg = this.parseErrorMessageFromStatus(status.status);
+          if (errorMsg) {
+            throw new InternalServerRockError(
+              `Failed to restart sandbox because ${errorMsg}, sandbox: ${this.toString()}`
+            );
+          }
+        }
+      } catch (e) {
+        if (e instanceof InternalServerRockError) {
+          throw e;
+        }
+        logger.debug(`Status check failed (will retry): ${e}`);
+      } finally {
+        clearTimeout(timeoutId);
+      }
+      await sleep(checkInterval);
+    }
+
+    const operation = options?.operation ?? 'start';
+    throw new InternalServerRockError(
+      `Failed to ${operation} sandbox within ${this.config.startupTimeout}s, sandbox: ${this.toString()}`
+    );
+  }
+
+  private parseErrorMessageFromStatus(status?: Record<string, unknown>): string | null {
+    if (!status) return null;
+    for (const [stage, details] of Object.entries(status)) {
+      if (details && typeof details === 'object') {
+        const d = details as Record<string, unknown>;
+        if (d.status === 'failed' || d.status === 'timeout') {
+          return `${stage}: ${(d.message as string) ?? 'No message provided'}`;
+        }
+      }
+    }
+    return null;
   }
 
   // Close
