@@ -1,0 +1,79 @@
+# ComposeJobConfig YAML template (v2) — harbor task (claude-code / terminal-bench / aone-bench-java100)
+#
+# v2 方案: job_config.yaml（ROCK 层元信息 + DinD 外层沙箱）+ docker-compose.yaml（容器编排）双文件。
+# ROCK 不解析 compose 内部结构，只把 compose_file 指向的文件上传进沙箱后执行 docker compose up。
+#
+# 使用前: 将所有 <...> 占位符替换为真实值，或通过上层脚本批量渲染。
+# 用法: python examples/job/compose/compose_demo.py -c examples/job/compose/job_config.yaml
+
+# ── JobConfig 基础字段 ───────────────────────────────────────────────
+job_name: harbor-compose-demo
+namespace: xrl-sandbox
+# experiment_id 不填（ComposeJobConfig 无需 Harbor 的 experiment_id 字段）
+timeout: 8000              # 整体超时（秒）；docker compose up 全生命周期
+
+# ── ComposeJobConfig 专有：指向标准 compose 文件（本地相对路径）──────
+compose_file: ./docker-compose.yaml
+abort_on_container_exit: true   # 任一 service 退出即停止整组（默认 true）
+
+# ── DinD 外层沙箱（EnvironmentConfig）──────────────────────────────
+# image 必须自带 docker/dockerd/containerd/runc 工具链。runner.sh 会在 P0 阶段主动启动 dockerd。
+# 这里直接复用 harbor runner 镜像（自带完整 docker 工具链 + harbor CLI + bash）。
+environment:
+  image: "<HARBOR_MAIN_IMAGE>"   # 自带 docker 工具链的业务镜像
+  base_url: http://xrl.alibaba-inc.com     # ROCK admin service 地址
+  cluster: vpc-sg-a
+  extra_headers:
+    XRL-Authorization: "Bearer <ROCK_TOKEN>"
+  use_kata_runtime: true   # 生产环境推荐开启 kata，强隔离
+  startup_timeout: 1800    # 沙箱启动超时（秒）
+  cpus: 16                 # 外层沙箱总 CPU（须 ≥ 内层各容器之和）
+  memory: "32g"            # 外层沙箱总内存
+
+  # 把 compose 文件 + 脚本目录上传进沙箱（runner.sh 引用 /rock/compose/ 路径）
+  uploads:
+    - ["./docker-compose.yaml", "/rock/compose/docker-compose.yaml"]
+    - ["./main.sh", "/rock/compose/main.sh"]
+    - ["./sidecars", "/rock/compose/sidecars"]
+
+  # 沙箱级环境变量（注入外层沙箱；docker compose 执行时这些值可用于 compose 文件里的 ${VAR} 插值）
+  env:
+    # 镜像（compose file 里用 ${VAR} 引用）
+    HARBOR_MAIN_IMAGE: "<HARBOR_MAIN_IMAGE>"
+    PROXY_IMAGE: "<CC_PROXY_IMAGE>"
+
+    # 模型相关
+    MODEL: "<MODEL>"                             # e.g. claude-opus-4-8
+    MODEL_API_KEY: "<MODEL_API_KEY>"
+    MODEL_BASE_URL: "<MODEL_BASE_URL>"           # e.g. https://api.anthropic.com
+
+    # Harbor agent 配置
+    HARBOR_AGENT: claude-code
+    INSTANCE_ID: "<INSTANCE_ID>"
+    DATASET: terminal-bench
+    SPLIT: test
+    DATASET_TYPE: registry
+
+    # OSS 凭证（数据集下载）
+    OSS_BUCKET: "<OSS_BUCKET>"
+    OSS_ENDPOINT: "<OSS_ENDPOINT>"              # e.g. oss-cn-hangzhou-internal.aliyuncs.com
+    OSS_REGION: "<OSS_REGION>"                  # e.g. cn-hangzhou
+    OSS_ACCESS_KEY_ID: "<OSS_ACCESS_KEY_ID>"
+    OSS_ACCESS_KEY_SECRET: "<OSS_ACCESS_KEY_SECRET>"
+
+    # Harbor 运行参数（可选覆盖）
+    N_ATTEMPTS: "1"
+    N_CONCURRENT: "1"
+    TIMEOUT_MULTIPLIER: "1.0"
+    MAX_RETRIES: "3"
+    MAX_ITERATIONS: "500"
+    SKIP_CONFIRM: "true"
+
+    # cc-proxy 配置
+    PROVIDER: anthropic
+    FORCE_PROXY: "true"
+
+  # 产物上传（复用现有机制，docker compose 结束后由 runner P2 执行）
+  oss_mirror:
+    enabled: true
+    oss_bucket: "<OSS_BUCKET>"
