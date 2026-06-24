@@ -58,6 +58,10 @@ if TYPE_CHECKING:
     ROCK_MODEL_SERVICE_TRAJ_APPEND_MODE: bool | None = None
     ROCK_JOB_PROXY_REPLAY_FILE: str
 
+    # Client-side Job exception observability
+    ROCK_JOB_METRICS_OTLP_ENDPOINT: str | None = None
+    ROCK_JOB_METRICS_HIGH_CARDINALITY_LABELS: bool = True
+
     # RuntimeEnv
     ROCK_RTENV_PYTHON_V31114_INSTALL_CMD: str
     ROCK_RTENV_PYTHON_V31212_INSTALL_CMD: str
@@ -147,6 +151,12 @@ environment_variables: dict[str, Callable[[], Any]] = {
     ),
     # Docker temp auth directory
     "ROCK_DOCKER_TEMP_AUTH_DIR": lambda: os.getenv("ROCK_DOCKER_TEMP_AUTH_DIR"),
+    # Client-side Job exception observability
+    "ROCK_JOB_METRICS_OTLP_ENDPOINT": lambda: os.getenv("ROCK_JOB_METRICS_OTLP_ENDPOINT"),
+    "ROCK_JOB_METRICS_HIGH_CARDINALITY_LABELS": lambda: os.getenv(
+        "ROCK_JOB_METRICS_HIGH_CARDINALITY_LABELS", "true"
+    ).lower()
+    == "true",
 }
 
 
