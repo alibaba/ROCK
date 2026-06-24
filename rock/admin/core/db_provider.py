@@ -23,6 +23,7 @@ class DatabaseProvider:
 
     def __init__(self, db_config: DatabaseConfig) -> None:
         self._url = self._convert_url(db_config.url)
+        self._pool_size = db_config.pool_size
         self._engine: AsyncEngine | None = None
 
     @property
@@ -40,7 +41,7 @@ class DatabaseProvider:
         engine_kwargs: dict[str, object] = {"echo": False}
         if "asyncpg" in self._url:
             engine_kwargs["connect_args"] = {"statement_cache_size": 0}
-            engine_kwargs["pool_size"] = 100
+            engine_kwargs["pool_size"] = self._pool_size
             engine_kwargs["max_overflow"] = 0
             engine_kwargs["pool_timeout"] = 120
 

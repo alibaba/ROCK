@@ -1,5 +1,6 @@
 import asyncio  # noqa: I001
 import json
+import os
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.datastructures import Headers
 
@@ -49,22 +50,33 @@ logger = init_logger(__name__)
 
 
 class SandboxProxyService:
-    _httpx_client = None
-
     def __init__(self, rock_config: RockConfig, meta_store: SandboxMetaStore):
         self._rock_config = rock_config
         self._meta_store = meta_store
         self.metrics_monitor = MetricsMonitor.create(
             export_interval_millis=20_000,
             metrics_endpoint=rock_config.runtime.metrics_endpoint,
-            user_defined_tags=rock_config.runtime.user_defined_tags,
+            user_defined_tags={
+                **(rock_config.runtime.user_defined_tags or {}),
+                "worker_pid": str(os.getpid()),
+            },
         )
         self.oss_config: OssConfig = rock_config.oss
         self.proxy_config: ProxyServiceConfig = rock_config.proxy_service
         logger.info(f"proxy config: {self.proxy_config}")
-        # Initialize httpx client with configuration
-        self._httpx_client = httpx.AsyncClient(
+        # Control-plane RPC client: short JSON calls to rocklet.
+        self._rpc_client = httpx.AsyncClient(
             timeout=self.proxy_config.timeout,
+            limits=httpx.Limits(
+                max_connections=self.proxy_config.max_connections,
+                max_keepalive_connections=self.proxy_config.max_keepalive_connections,
+            ),
+        )
+        # Data-plane proxy client: streaming/SSE/large bodies. No total timeout;
+        # per-request timeout is set via build_request(timeout=...). NEVER closed
+        # per-request — lives for the process lifetime, closed in aclose().
+        self._proxy_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(None),
             limits=httpx.Limits(
                 max_connections=self.proxy_config.max_connections,
                 max_keepalive_connections=self.proxy_config.max_keepalive_connections,
@@ -93,6 +105,11 @@ class SandboxProxyService:
 
         self._batch_get_status_max_count = rock_config.proxy_service.batch_get_status_max_count
         self._validate_oss_config_or_warn()
+
+    async def aclose(self) -> None:
+        """Close both shared httpx clients. Called on proxy shutdown."""
+        await self._rpc_client.aclose()
+        await self._proxy_client.aclose()
 
     def _validate_oss_config_or_warn(self) -> None:
         # Same resolution order as gen_oss_sts_token: env > YAML
@@ -656,7 +673,7 @@ class SandboxProxyService:
 
         # Make request
         try:
-            response = await self._httpx_client.request(
+            response = await self._rpc_client.request(
                 method=method,
                 url=full_request_url,
                 headers=headers,
@@ -870,33 +887,33 @@ class SandboxProxyService:
         request_headers = filter_headers(headers)
         payload = body or {}
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(90)) as http_client:
-            try:
-                resp = await http_client.post(
-                    url=target_url,
-                    json=payload,
-                    headers=request_headers,
-                )
-            except httpx.RequestError as exc:
-                logger.error(f"Error forwarding request to {target_url}: {exc}", exc_info=True)
-                raise Exception(f"Service unavailable: Rocklet at {host_ip}:{Port.PROXY.value} is not reachable.")
+        try:
+            resp = await self._proxy_client.post(
+                url=target_url,
+                json=payload,
+                headers=request_headers,
+                timeout=90,
+            )
+        except httpx.RequestError as exc:
+            logger.error(f"Error forwarding request to {target_url}: {exc}", exc_info=True)
+            raise Exception(f"Service unavailable: Rocklet at {host_ip}:{Port.PROXY.value} is not reachable.")
 
-            content_type = resp.headers.get("content-type", "")
-            response_headers = filter_headers(resp.headers)
+        content_type = resp.headers.get("content-type", "")
+        response_headers = filter_headers(resp.headers)
 
-            if "application/json" in content_type:
-                return JSONResponse(
-                    status_code=resp.status_code,
-                    content=resp.json(),
-                    headers=response_headers,
-                )
-
-            return Response(
+        if "application/json" in content_type:
+            return JSONResponse(
                 status_code=resp.status_code,
-                content=resp.content,
-                media_type=content_type or "application/octet-stream",
+                content=resp.json(),
                 headers=response_headers,
             )
+
+        return Response(
+            status_code=resp.status_code,
+            content=resp.content,
+            media_type=content_type or "application/octet-stream",
+            headers=response_headers,
+        )
 
     async def http_proxy(
         self,
@@ -948,22 +965,16 @@ class SandboxProxyService:
         request_headers = filter_headers(headers)
         request_kwargs: dict = {"content": body} if body else {}
 
-        client = httpx.AsyncClient(timeout=httpx.Timeout(None))
-
-        try:
-            resp = await client.send(
-                client.build_request(
-                    method=method,
-                    url=target_url,
-                    headers=request_headers,
-                    timeout=120,
-                    **request_kwargs,
-                ),
-                stream=True,
-            )
-        except Exception:
-            await client.aclose()
-            raise
+        resp = await self._proxy_client.send(
+            self._proxy_client.build_request(
+                method=method,
+                url=target_url,
+                headers=request_headers,
+                timeout=120,
+                **request_kwargs,
+            ),
+            stream=True,
+        )
 
         content_type = resp.headers.get("content-type", "")
         is_sse = "text/event-stream" in content_type
@@ -989,7 +1000,6 @@ class SandboxProxyService:
                             yield chunk
                 finally:
                     await resp.aclose()
-                    await client.aclose()
 
             return StreamingResponse(
                 event_stream(),
@@ -1016,4 +1026,3 @@ class SandboxProxyService:
             )
         finally:
             await resp.aclose()
-            await client.aclose()
