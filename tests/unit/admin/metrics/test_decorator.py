@@ -189,9 +189,9 @@ async def test_decorator_retrieves_user_info_from_meta_store(redis_provider, _me
     assert attrs["namespace"] == "n1"
 
 
-def test_record_metrics_bad_request_goes_to_failure():
-    """BadRequestRockError lands in the generic `.failure` bucket along with
-    every other exception type — there is no separate client-fault bucket."""
+def test_record_metrics_bad_request_goes_to_client_error():
+    """BadRequestRockError lands in the `.client_error` bucket, not `.failure`,
+    so client faults don't pollute server failure metrics."""
     mock_metrics_monitor = Mock(spec=MetricsMonitor)
     attributes = {"operation": "test_op"}
     start_time = 0
@@ -202,6 +202,32 @@ def test_record_metrics_bad_request_goes_to_failure():
             _record_metrics(mock_metrics_monitor, exception, attributes, start_time, "test")
 
     error_attrs = {**attributes, "error_type": "BadRequestRockError"}
-    mock_metrics_monitor.record_counter_by_name.assert_any_call("test.failure", 1, error_attrs)
+    mock_metrics_monitor.record_counter_by_name.assert_any_call("test.client_error", 1, error_attrs)
     mock_metrics_monitor.record_gauge_by_name.assert_called_once_with("test.rt", 1000.0, error_attrs)
     mock_metrics_monitor.record_counter_by_name.assert_any_call("test.total", 1, error_attrs)
+    # Verify it does NOT go to .failure
+    failure_calls = [c for c in mock_metrics_monitor.record_counter_by_name.call_args_list if c[0][0] == "test.failure"]
+    assert len(failure_calls) == 0
+
+
+def test_record_metrics_server_error_goes_to_failure():
+    """Non-client exceptions (e.g. InternalServerRockError, generic Exception)
+    still land in the `.failure` bucket."""
+    from rock.sdk.common.exceptions import InternalServerRockError
+
+    mock_metrics_monitor = Mock(spec=MetricsMonitor)
+    attributes = {"operation": "test_op"}
+    start_time = 0
+    exception = InternalServerRockError("internal error")
+
+    with patch("rock.admin.metrics.decorator.time.perf_counter", return_value=1.0):
+        with pytest.raises(InternalServerRockError):
+            _record_metrics(mock_metrics_monitor, exception, attributes, start_time, "test")
+
+    error_attrs = {**attributes, "error_type": "InternalServerRockError"}
+    mock_metrics_monitor.record_counter_by_name.assert_any_call("test.failure", 1, error_attrs)
+    # Verify it does NOT go to .client_error
+    client_error_calls = [
+        c for c in mock_metrics_monitor.record_counter_by_name.call_args_list if c[0][0] == "test.client_error"
+    ]
+    assert len(client_error_calls) == 0

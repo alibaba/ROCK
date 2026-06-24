@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from rock.admin.metrics.constants import MetricsConstants
 from rock.admin.metrics.monitor import MetricsMonitor
+from rock.sdk.common.exceptions import BadRequestRockError
 
 if TYPE_CHECKING:
     from rock.sandbox.sandbox_meta_store import SandboxMetaStore
@@ -130,7 +131,10 @@ def _record_metrics(metrics_monitor: MetricsMonitor, result, attributes: dict, s
     is_exception = isinstance(result, Exception)
     if is_exception:
         metric_attrs = {**attributes, "error_type": type(result).__name__}
-        metrics_monitor.record_counter_by_name(f"{metric_prefix}.failure", 1, metric_attrs)
+        if isinstance(result, BadRequestRockError):
+            metrics_monitor.record_counter_by_name(f"{metric_prefix}.client_error", 1, metric_attrs)
+        else:
+            metrics_monitor.record_counter_by_name(f"{metric_prefix}.failure", 1, metric_attrs)
     else:
         metric_attrs = attributes
         metrics_monitor.record_counter_by_name(f"{metric_prefix}.success", 1, metric_attrs)
