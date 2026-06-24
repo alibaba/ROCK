@@ -4,7 +4,9 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, UploadFile, WebSocket, WebSocketDisconnect
+import httpx
+from fastapi import APIRouter, File, Form, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from rock.actions import (
     CloseResponse,
@@ -271,3 +273,167 @@ async def portforward(websocket: WebSocket, port: int):
             f"ws->tcp: {ws_to_tcp_msgs} msgs, {ws_to_tcp_bytes} bytes, "
             f"tcp->ws: {tcp_to_ws_msgs} msgs, {tcp_to_ws_bytes} bytes"
         )
+
+
+# ---------------------------------------------------------------------------
+# HTTP / WebSocket proxy — forward to arbitrary ports on localhost
+# ---------------------------------------------------------------------------
+
+EXCLUDED_PROXY_HEADERS = {"host", "content-length", "transfer-encoding", "content-encoding"}
+
+
+@local_router.api_route(
+    "/proxy/{target_port}/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+)
+async def http_proxy_to_port(target_port: int, path: str, request: Request):
+    """HTTP proxy to a specific port on localhost inside the container.
+
+    Used by the admin's HTTP proxy when the caller specifies a non-default
+    target port (via Path / Header / Query).  The admin routes the request
+    to Rocklet (Port.PROXY = 22555) which then forwards it to
+    ``localhost:{target_port}`` inside the container.
+    """
+    is_valid, error_message = validate_port_forward_port(target_port)
+    if not is_valid:
+        return JSONResponse(status_code=400, content={"detail": error_message})
+
+    logger.info(f"[Proxy] HTTP proxy request: target_port={target_port}, path={path}, method={request.method}")
+
+    qs = str(request.url.query)
+    target_url = f"http://127.0.0.1:{target_port}/{path}"
+    if qs:
+        target_url += f"?{qs}"
+
+    raw_body = None
+    if request.method not in ("GET", "HEAD", "DELETE", "OPTIONS"):
+        raw_body = await request.body()
+
+    filtered_headers = {k: v for k, v in request.headers.items() if k.lower() not in EXCLUDED_PROXY_HEADERS}
+
+    client = httpx.AsyncClient(timeout=httpx.Timeout(None))
+    try:
+        resp = await client.send(
+            client.build_request(
+                method=request.method,
+                url=target_url,
+                headers=filtered_headers,
+                content=raw_body,
+                timeout=120,
+            ),
+            stream=True,
+        )
+    except Exception as e:
+        await client.aclose()
+        logger.error(f"[Proxy] HTTP proxy error: target_port={target_port}, error={e}")
+        return JSONResponse(status_code=502, content={"detail": f"Failed to connect to port {target_port}: {e}"})
+
+    content_type = resp.headers.get("content-type", "")
+    is_sse = "text/event-stream" in content_type
+    response_headers = {k: v for k, v in resp.headers.items() if k.lower() not in EXCLUDED_PROXY_HEADERS}
+
+    if is_sse:
+
+        async def event_stream():
+            try:
+                if resp.status_code >= 400:
+                    yield await resp.aread()
+                    return
+                async for chunk in resp.aiter_bytes():
+                    if chunk:
+                        yield chunk
+            finally:
+                await resp.aclose()
+                await client.aclose()
+
+        return StreamingResponse(
+            event_stream(),
+            status_code=resp.status_code,
+            media_type="text/event-stream",
+            headers=response_headers,
+        )
+
+    try:
+        raw_content = await resp.aread()
+        if "application/json" in content_type:
+            return JSONResponse(
+                status_code=resp.status_code,
+                content=resp.json(),
+                headers=response_headers,
+            )
+        return Response(
+            status_code=resp.status_code,
+            content=raw_content,
+            media_type=content_type or "application/octet-stream",
+            headers=response_headers,
+        )
+    finally:
+        await resp.aclose()
+        await client.aclose()
+
+
+@local_router.websocket("/proxy/{target_port}/{path:path}")
+async def ws_proxy_to_port(websocket: WebSocket, target_port: int, path: str = ""):
+    """WebSocket proxy to a specific port on localhost inside the container.
+
+    Used by the admin's WebSocket proxy when the caller specifies a non-default
+    target port.  The admin routes the WS connection to Rocklet which then
+    forwards it to ``localhost:{target_port}`` inside the container.
+    """
+    is_valid, error_message = validate_port_forward_port(target_port)
+    if not is_valid:
+        await websocket.close(code=1008, reason=error_message)
+        return
+
+    logger.info(f"[Proxy] WebSocket proxy request: target_port={target_port}, path={path}")
+
+    await websocket.accept()
+
+    client_subprotocols = list(getattr(websocket, "subprotocols", []) or [])
+
+    target_url = f"ws://127.0.0.1:{target_port}/{path}"
+    import websockets as websockets_lib
+
+    try:
+        async with websockets_lib.connect(
+            target_url,
+            ping_interval=None,
+            ping_timeout=None,
+            subprotocols=client_subprotocols or None,
+        ) as target_ws:
+
+            async def client_to_target():
+                while True:
+                    msg = await websocket.receive()
+                    if msg["type"] == "websocket.disconnect":
+                        break
+                    if msg.get("bytes"):
+                        await target_ws.send(msg["bytes"])
+                    elif msg.get("text"):
+                        await target_ws.send(msg["text"])
+
+            async def target_to_client():
+                async for data in target_ws:
+                    if isinstance(data, bytes):
+                        await websocket.send_bytes(data)
+                    else:
+                        await websocket.send_text(data)
+
+            done, pending = await asyncio.wait(
+                [asyncio.create_task(client_to_target()), asyncio.create_task(target_to_client())],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+    except websockets_lib.exceptions.ConnectionClosed as e:
+        logger.info(f"[Proxy] Target WS closed: target_port={target_port}, code={e.code}")
+        try:
+            await websocket.close(code=e.code, reason=e.reason or "")
+        except Exception:
+            pass
+    except Exception as e:
+        logger.error(f"[Proxy] WS proxy error: target_port={target_port}, error={e}")
+        try:
+            await websocket.close(code=1011, reason=f"Proxy error: {e}")
+        except Exception:
+            pass
