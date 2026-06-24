@@ -2868,5 +2868,19 @@
       "total": 656,
       "open": 56
     }
+  },
+  "2026-06-24": {
+    "stars": 458,
+    "forks": 67,
+    "contributors": 26,
+    "issues": {
+      "total": 491,
+      "open": 90,
+      "fixRate": 81
+    },
+    "prs": {
+      "total": 663,
+      "open": 58
+    }
   }
 }
