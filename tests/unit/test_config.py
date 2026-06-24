@@ -642,6 +642,49 @@ async def test_nacos_without_lifecycle_key_preserves_lifecycle():
     assert rock_config.lifecycle.default_startup_timeout_seconds == 800
 
 
+@pytest.mark.asyncio
+async def test_nacos_lifecycle_nested_dict_coerced_via_post_init():
+    """Nacos sending archive as a raw dict must be coerced to ArchiveConfig by __post_init__."""
+    from rock.config import ArchiveConfig
+
+    rock_config = RockConfig()
+    rock_config.nacos_provider = MagicMock()
+    rock_config.nacos_provider.get_config = AsyncMock(
+        return_value={
+            "lifecycle": {
+                "archive": {"scan_interval_sec": 99, "timeout_sec": 500},
+            }
+        }
+    )
+
+    await rock_config.update()
+
+    assert isinstance(rock_config.lifecycle.archive, ArchiveConfig)
+    assert rock_config.lifecycle.archive.scan_interval_sec == 99
+    assert rock_config.lifecycle.archive.timeout_sec == 500
+
+
+@pytest.mark.asyncio
+async def test_nacos_sandbox_config_nested_dict_coerced_via_post_init():
+    """Nacos sending log as a raw dict must be coerced to SandboxLogConfig by __post_init__."""
+    from rock.config import SandboxLogConfig
+
+    rock_config = RockConfig()
+    rock_config.nacos_provider = MagicMock()
+    rock_config.nacos_provider.get_config = AsyncMock(
+        return_value={
+            "sandbox_config": {
+                "log": {"keep_days_before_archive": 7},
+            }
+        }
+    )
+
+    await rock_config.update()
+
+    assert isinstance(rock_config.sandbox_config.log, SandboxLogConfig)
+    assert rock_config.sandbox_config.log.keep_days_before_archive == 7
+
+
 # ---------------------------------------------------------------------------
 # Integration test: from_env with _base inheritance
 # ---------------------------------------------------------------------------

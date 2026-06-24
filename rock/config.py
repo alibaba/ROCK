@@ -567,10 +567,16 @@ class RockConfig:
             "lifecycle": (SandboxLifecycleConfig, "lifecycle"),
         }
 
-        # Update configs that are present in nacos_result
+        # Update configs that are present in nacos_result (field-level merge,
+        # then re-run __post_init__ to coerce nested dicts → dataclasses)
         for key, (config_class, attr_name) in config_map.items():
             if key in nacos_result:
-                setattr(self, attr_name, config_class(**nacos_result[key]))
+                existing = getattr(self, attr_name)
+                for field_name, value in nacos_result[key].items():
+                    if hasattr(existing, field_name):
+                        setattr(existing, field_name, value)
+                if hasattr(existing, "__post_init__"):
+                    existing.__post_init__()
 
         if "image_registry_mirrors" in nacos_result:
             raw_mirrors = nacos_result["image_registry_mirrors"] or []
