@@ -9,6 +9,7 @@ import {
   InternalServerRockError,
   CommandRockError,
   raiseForCode,
+  raiseForEnvelopeOrResult,
   fromRockException,
 } from './exceptions.js';
 import { Codes } from '../types/codes.js';
@@ -94,6 +95,43 @@ describe('raiseForCode', () => {
 
   test('should throw RockException for unknown error code', () => {
     expect(() => raiseForCode(7000 as Codes, 'test')).toThrow(RockException);
+  });
+});
+
+describe('raiseForEnvelopeOrResult', () => {
+  test('should prefer envelope code over result code', () => {
+    const response = {
+      status: 'Failed',
+      code: Codes.BAD_REQUEST,
+      error: 'envelope error',
+      result: { code: Codes.INTERNAL_SERVER_ERROR, failure_reason: 'stale' },
+    };
+    expect(() => raiseForEnvelopeOrResult(response, 'Failed to start')).toThrow(BadRequestRockError);
+  });
+
+  test('should fall back to legacy result.code with deprecation warning', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const response = {
+      status: 'Failed',
+      result: { code: Codes.INTERNAL_SERVER_ERROR, failure_reason: 'legacy' },
+    };
+    expect(() => raiseForEnvelopeOrResult(response, 'Failed to start')).toThrow(InternalServerRockError);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('deprecated')
+    );
+    warnSpy.mockRestore();
+  });
+
+  test('should throw generic Error when neither envelope nor result code present', () => {
+    const response = { status: 'Failed', error: 'anything' };
+    expect(() => raiseForEnvelopeOrResult(response, 'Failed to start')).toThrow(Error);
+    expect(() => raiseForEnvelopeOrResult(response, 'Failed to start')).not.toThrow(RockException);
+  });
+
+  test('should skip legacy path when result is not an object', () => {
+    const response = { status: 'Failed', error: 'oops', result: 'some string' };
+    expect(() => raiseForEnvelopeOrResult(response, 'Failed to start')).toThrow(Error);
+    expect(() => raiseForEnvelopeOrResult(response, 'Failed to start')).not.toThrow(RockException);
   });
 });
 
