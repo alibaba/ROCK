@@ -1051,7 +1051,7 @@ export class Sandbox extends AbstractSandbox {
       // Check if we should use OSS upload
       const stats = await fs.stat(sourcePath);
       const fileSize = stats.size;
-      const ossEnabled = envVars.ROCK_OSS_ENABLE;
+      const ossEnabled = process.env['ROCK_OSS_ENABLE']?.toLowerCase() === 'true';
       const ossThreshold = 1024 * 1024; // 1MB
 
       if (uploadMode === 'oss' || (uploadMode === 'auto' && ossEnabled && fileSize > ossThreshold)) {

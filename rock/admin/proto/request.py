@@ -36,6 +36,8 @@ class SandboxStartRequest(BaseModel):
     """Username for Docker registry authentication. When both username and password are provided, docker login will be performed before pulling the image."""
     registry_password: str | None = None
     """Password for Docker registry authentication. When both username and password are provided, docker login will be performed before pulling the image."""
+    startup_timeout: float | None = None
+    """Total time budget in seconds covering docker pull + runtime startup. Overrides YAML/Nacos defaults when set. Capped at max_startup_timeout."""
     use_kata_runtime: bool = False
     """Whether to use kata container runtime (io.containerd.kata.v2) instead of --privileged mode."""
     auto_delete_seconds: int | None = None

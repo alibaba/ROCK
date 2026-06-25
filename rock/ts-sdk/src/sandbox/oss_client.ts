@@ -16,6 +16,7 @@ import type {
   DownloadFileResponse,
   OssCredentials,
 } from '../types/responses.js';
+import { OssCredentialsSchema } from '../types/responses.js';
 import type { ProgressInfo } from '../types/requests.js';
 
 const logger = initLogger('rock.sandbox.oss');
@@ -68,7 +69,10 @@ export class OssClient {
     const digest = createHash('sha256').update(payload, 'utf-8').digest('hex');
     const filename = basename(sandboxPath) || basename(localPath);
 
-    const cleanPrefix = (prefix ?? '').replace(/^\/+|\/+$/g, '');
+    const cleanPrefix = (prefix ?? '')
+      .trim()
+      .replace(/^\/+|\/+$/g, '')
+      .replace(/\/+/g, '/');
     if (cleanPrefix) {
       return `${cleanPrefix}/${digest}-${filename}`;
     }
@@ -86,35 +90,52 @@ export class OssClient {
    */
   static resolveConfig(stsResponse: Record<string, unknown>): OssClientConfig | null {
     // Layer 1: env var (highest priority)
-    const envEndpoint = envVars.ROCK_OSS_BUCKET_ENDPOINT;
-    const envBucket = envVars.ROCK_OSS_BUCKET_NAME;
-    const envRegion = envVars.ROCK_OSS_BUCKET_REGION;
+    const envEndpoint = process.env['ROCK_OSS_BUCKET_ENDPOINT'];
+    const envBucket = process.env['ROCK_OSS_BUCKET_NAME'];
+    const envRegion = process.env['ROCK_OSS_BUCKET_REGION'];
     if (envEndpoint && envBucket && envRegion) {
       return {
         endpoint: envEndpoint,
         bucket: envBucket,
         region: envRegion,
         enabledViaEnv: true,
-        prefix: (process.env['ROCK_OSS_TRANSFER_PREFIX'] ?? '') as string,
+        prefix: envVars.ROCK_OSS_TRANSFER_PREFIX ?? '',
       };
     }
 
     // Layer 2: server response (fallback)
-    const respEndpoint = stsResponse['Endpoint'] as string | undefined;
-    const respBucket = stsResponse['Bucket'] as string | undefined;
-    const respRegion = stsResponse['Region'] as string | undefined;
+    const respEndpoint =
+      (stsResponse['endpoint'] as string | undefined) ??
+      (stsResponse['Endpoint'] as string | undefined);
+    const respBucket =
+      (stsResponse['bucket'] as string | undefined) ??
+      (stsResponse['Bucket'] as string | undefined);
+    const respRegion =
+      (stsResponse['region'] as string | undefined) ??
+      (stsResponse['Region'] as string | undefined);
+    const respPrefix =
+      (stsResponse['prefix'] as string | undefined) ??
+      (stsResponse['Prefix'] as string | undefined) ??
+      '';
     if (respEndpoint && respBucket && respRegion) {
       return {
         endpoint: respEndpoint,
         bucket: respBucket,
         region: respRegion,
         enabledViaEnv: false,
-        prefix: (stsResponse['Prefix'] as string) || '',
+        prefix: respPrefix,
       };
     }
 
     // Layer 3: OSS unavailable
     return null;
+  }
+
+  /**
+   * Normalize an OSS region string for ali-oss / ossutil.
+   */
+  static normalizeRegion(region: string): string {
+    return region.replace(/^oss-/, '');
   }
 
   // ─── Public API ─────────────────────────────────────────────────
@@ -280,7 +301,7 @@ export class OssClient {
       this.clientConfig.prefix,
     );
     const ossUrl = `oss://${this.clientConfig.bucket}/${ossObjectName}`;
-    const normalizedRegion = (this.clientConfig.region ?? '').replace(/^oss-/, '');
+    const normalizedRegion = OssClient.normalizeRegion(this.clientConfig.region ?? '');
 
     const ossutilInner = `ossutil cp '${remotePath}' '${ossUrl}' --access-key-id '${credentials.accessKeyId}' --access-key-secret '${credentials.accessKeySecret}' --sts-token '${credentials.securityToken}' --endpoint '${this.clientConfig.endpoint}' --region '${normalizedRegion}'`;
     const uploadCmd = `bash -c '${ossutilInner.replace(/'/g, "'\"'\"'")}'`;
@@ -401,7 +422,7 @@ export class OssClient {
       throw new Error(`Failed to get OSS STS token: ${JSON.stringify(response)}`);
     }
 
-    const credentials = response.result as OssCredentials;
+    const credentials = OssCredentialsSchema.parse(response.result);
     this.tokenExpireTime = credentials.expiration;
     return credentials;
   }
@@ -444,7 +465,10 @@ export class OssClient {
     }
 
     // Layer 1 also requires ROCK_OSS_ENABLE
-    if (config.enabledViaEnv && !envVars.ROCK_OSS_ENABLE) {
+    if (
+      config.enabledViaEnv &&
+      process.env['ROCK_OSS_ENABLE']?.toLowerCase() !== 'true'
+    ) {
       return false;
     }
 
@@ -457,7 +481,7 @@ export class OssClient {
         secure: true,
         timeout: ossTimeout,
         endpoint: config.endpoint,
-        region: config.region,
+        region: OssClient.normalizeRegion(config.region),
         accessKeyId: credentials.accessKeyId,
         accessKeySecret: credentials.accessKeySecret,
         stsToken: credentials.securityToken,

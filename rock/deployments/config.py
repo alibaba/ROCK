@@ -15,7 +15,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from rock.admin.proto.request import SandboxStartRequest
 from rock.config import RuntimeConfig
 from rock.deployments.abstract import AbstractDeployment
-from rock.utils import REQUEST_TIMEOUT_SECONDS
 
 
 class AcceleratorType(str, Enum):
@@ -84,8 +83,8 @@ class DockerDeploymentConfig(DeploymentConfig):
     docker_args: list[str] = []
     """Additional arguments to pass to the docker run command. Platform arguments will be moved to the platform field."""
 
-    startup_timeout: float = REQUEST_TIMEOUT_SECONDS
-    """Maximum time in seconds to wait for the runtime to start up."""
+    startup_timeout: float | None = None
+    """Total time budget in seconds covering docker pull + runtime startup. None means use lifecycle default."""
 
     pull: Literal["never", "always", "missing"] = "missing"
     """Docker image pull policy: 'never', 'always', or 'missing'."""
@@ -162,6 +161,10 @@ class DockerDeploymentConfig(DeploymentConfig):
 
     extended_params: dict[str, str] = Field(default_factory=dict)
     """Generic extension field for storing custom string key-value pairs."""
+
+    image_os_profile: dict | None = None
+    """Matched image_os profile dict (set by _apply_image_os_profile in sandbox_api.py).
+    When set, DockerDeployment uses ConfigurableRuntimeEnv instead of the ROCK_WORKER_ENV_TYPE env var."""
 
     @model_validator(mode="before")
     def validate_platform_args(cls, data: dict) -> dict:

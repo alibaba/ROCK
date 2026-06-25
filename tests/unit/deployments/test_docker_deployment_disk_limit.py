@@ -5,14 +5,16 @@ Tests cover:
 - DockerDeploymentConfig default and custom disk_limit_rootfs values
 - DockerDeployment._storage_opts() argument generation
 - DockerDeployment.start() graceful degradation when storage-opt is unsupported
+- XFS project quota fallback for containerd image store
 """
 
+import subprocess
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from rock.deployments.config import DockerDeploymentConfig
-from rock.deployments.docker import DockerDeployment
+from rock.deployments.docker import XFS_PRJID_MIN, XFS_PRJID_RANGE, DockerDeployment
 
 # ---- DockerDeploymentConfig tests ----
 
@@ -148,3 +150,171 @@ class TestDockerDeploymentStartDiskLimit:
 
         assert deployment.config.disk_limit_rootfs is None
         assert deployment.effective_disk_limit_rootfs is None
+
+
+# ---- XFS quota fallback tests (containerd image store) ----
+
+
+def _make_subprocess_result(returncode=0, stdout="", stderr=""):
+    r = MagicMock(spec=subprocess.CompletedProcess)
+    r.returncode = returncode
+    r.stdout = stdout
+    r.stderr = stderr
+    return r
+
+
+class TestSetupRootfsQuotaXfs:
+    """Tests for DockerDeployment._setup_rootfs_quota_xfs()."""
+
+    @patch("rock.deployments.docker.DockerSandboxValidator")
+    def _make_deployment(self, _mock_validator, disk_limit="50g"):
+        deployment = DockerDeployment.from_config(DockerDeploymentConfig(disk_limit_rootfs=disk_limit))
+        deployment.set_container_name("test-container-abc")
+        deployment._effective_disk_limit_rootfs = None
+        return deployment
+
+    @patch("rock.deployments.docker.subprocess.run")
+    @patch("rock.deployments.docker.DockerUtil.is_xfs_prjquota_path", return_value=True)
+    def test_rootfs_xfs_fallback_sets_quota(self, _mock_xfs, mock_run):
+        """When UpperDir is on xfs+prjquota, prjid and bhard should be set."""
+        deployment = self._make_deployment()
+
+        mock_run.side_effect = [
+            # docker inspect UpperDir
+            _make_subprocess_result(stdout="/var/lib/docker/overlay2/abc123/diff"),
+            # findmnt for mountpoint
+            _make_subprocess_result(stdout="/data"),
+            # xfs_quota project -s
+            _make_subprocess_result(),
+            # xfs_quota limit
+            _make_subprocess_result(),
+        ]
+
+        deployment._setup_rootfs_quota_xfs()
+
+        assert deployment._rootfs_xfs_prjid is not None
+        assert XFS_PRJID_MIN <= deployment._rootfs_xfs_prjid < XFS_PRJID_MIN + XFS_PRJID_RANGE
+        assert deployment._rootfs_xfs_mountpoint == "/data"
+        assert deployment._rootfs_upper_dir == "/var/lib/docker/overlay2/abc123/diff"
+
+    @patch("rock.deployments.docker.subprocess.run")
+    @patch("rock.deployments.docker.DockerUtil.is_xfs_prjquota_path", return_value=False)
+    def test_rootfs_xfs_fallback_degrades_when_not_xfs(self, _mock_xfs, mock_run):
+        """When UpperDir is not on xfs+prjquota, should degrade gracefully."""
+        deployment = self._make_deployment()
+
+        mock_run.return_value = _make_subprocess_result(stdout="/var/lib/docker/overlay2/abc/diff")
+
+        deployment._setup_rootfs_quota_xfs()
+
+        assert deployment._rootfs_xfs_prjid is None
+        assert deployment._rootfs_xfs_mountpoint is None
+
+    @patch("rock.deployments.docker.subprocess.run")
+    def test_rootfs_xfs_fallback_degrades_when_no_upper_dir(self, mock_run):
+        """When UpperDir cannot be found, should degrade gracefully."""
+        deployment = self._make_deployment()
+
+        # docker inspect returns empty / <no value>
+        mock_run.side_effect = [
+            _make_subprocess_result(stdout="<no value>"),
+            # docker inspect for container id (strategy 2)
+            _make_subprocess_result(returncode=1),
+        ]
+
+        deployment._setup_rootfs_quota_xfs()
+
+        assert deployment._rootfs_xfs_prjid is None
+
+
+class TestCleanupRootfsXfsQuota:
+    """Tests for DockerDeployment._cleanup_rootfs_xfs_quota()."""
+
+    @patch("rock.deployments.docker.DockerSandboxValidator")
+    @patch("rock.deployments.docker.subprocess.run")
+    @patch("rock.deployments.docker.env_vars")
+    def test_cleanup_calls_xfs_quota(self, mock_env, mock_run, _mock_validator):
+        """Stop should invoke xfs_quota to clear limit and unbind project."""
+        mock_env.ROCK_LOGGING_PATH = "/var/log/rock"
+        mock_env.ROCK_WORKER_ENV_TYPE = "docker"
+        mock_env.ROCK_TIME_ZONE = "UTC"
+        mock_run.return_value = _make_subprocess_result()
+
+        deployment = DockerDeployment.from_config(DockerDeploymentConfig(disk_limit_rootfs="50g"))
+        deployment.set_container_name("test-container-xyz")
+        deployment._rootfs_xfs_prjid = 2147483700
+        deployment._rootfs_xfs_mountpoint = "/data"
+        deployment._rootfs_upper_dir = "/data/docker/overlay2/abc/diff"
+
+        deployment._cleanup_rootfs_xfs_quota()
+
+        assert deployment._rootfs_xfs_prjid is None
+        assert deployment._rootfs_xfs_mountpoint is None
+        assert deployment._rootfs_upper_dir is None
+
+        xfs_calls = [c for c in mock_run.call_args_list if c[0][0][0] == "xfs_quota"]
+        assert len(xfs_calls) == 3
+
+    @patch("rock.deployments.docker.DockerSandboxValidator")
+    def test_cleanup_noop_when_no_prjid(self, _mock_validator):
+        """When no XFS quota was set, cleanup should be a no-op."""
+        deployment = DockerDeployment.from_config(DockerDeploymentConfig(disk_limit_rootfs="50g"))
+        deployment.set_container_name("test-noop")
+        assert deployment._rootfs_xfs_prjid is None
+        deployment._cleanup_rootfs_xfs_quota()
+
+
+class TestGetContainerUpperDir:
+    """Tests for DockerDeployment._get_container_upper_dir()."""
+
+    @patch("rock.deployments.docker.DockerSandboxValidator")
+    @patch("rock.deployments.docker.subprocess.run")
+    def test_strategy1_docker_inspect(self, mock_run, _mock_validator):
+        """Should return UpperDir from docker inspect when available."""
+        deployment = DockerDeployment.from_config(DockerDeploymentConfig())
+        deployment.set_container_name("test-c1")
+
+        mock_run.return_value = _make_subprocess_result(stdout="/var/lib/docker/overlay2/abc/diff")
+        result = deployment._get_container_upper_dir()
+
+        assert result == "/var/lib/docker/overlay2/abc/diff"
+
+    @patch("rock.deployments.docker.DockerSandboxValidator")
+    @patch("rock.deployments.docker.subprocess.run")
+    @patch("builtins.open")
+    def test_strategy2_proc_mounts(self, mock_open, mock_run, _mock_validator):
+        """Should fall back to /proc/mounts when docker inspect returns <no value>."""
+        deployment = DockerDeployment.from_config(DockerDeploymentConfig())
+        deployment.set_container_name("test-c2")
+
+        container_id = "abcdef1234567890"
+        mock_run.side_effect = [
+            # docker inspect UpperDir → <no value>
+            _make_subprocess_result(stdout="<no value>"),
+            # docker inspect Id
+            _make_subprocess_result(stdout=container_id),
+        ]
+        mount_line = (
+            f"overlay /run/containerd/io.containerd.runtime.v2/moby/{container_id}/rootfs "
+            f"overlay rw,lowerdir=/x,upperdir=/data/snapshots/{container_id}/fs,workdir=/w 0 0\n"
+        )
+        mock_open.return_value.__enter__ = lambda s: iter([mount_line])
+        mock_open.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = deployment._get_container_upper_dir()
+        assert result == f"/data/snapshots/{container_id}/fs"
+
+    @patch("rock.deployments.docker.DockerSandboxValidator")
+    @patch("rock.deployments.docker.subprocess.run")
+    def test_returns_none_when_both_fail(self, mock_run, _mock_validator):
+        """Should return None when both strategies fail."""
+        deployment = DockerDeployment.from_config(DockerDeploymentConfig())
+        deployment.set_container_name("test-c3")
+
+        mock_run.side_effect = [
+            _make_subprocess_result(stdout="<no value>"),
+            _make_subprocess_result(returncode=1),
+        ]
+
+        result = deployment._get_container_upper_dir()
+        assert result is None

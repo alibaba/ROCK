@@ -316,7 +316,7 @@ export class LinuxFileSystem extends FileSystem {
 
     const fileSize = parseInt(sizeResult.stdout.trim(), 10);
     const ossThreshold = 1024 * 1024;
-    const ossEnabled = envVars.ROCK_OSS_ENABLE;
+    const ossEnabled = process.env['ROCK_OSS_ENABLE']?.toLowerCase() === 'true';
 
     if (ossEnabled && fileSize >= ossThreshold) {
       return this.downloadViaOssProxy(remotePath, localPath, timeout, onProgress);

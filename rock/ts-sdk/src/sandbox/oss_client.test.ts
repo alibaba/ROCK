@@ -90,6 +90,13 @@ describe('computeObjectName', () => {
     expect(name1.startsWith('rock-transfer/')).toBe(true);
   });
 
+  test('should trim and collapse duplicate slashes in prefix', () => {
+    const name = OssClient.computeObjectName(
+      'sb-1', '/local/f.txt', '/remote/f.txt', '  /rock//transfer/ ',
+    );
+    expect(name.startsWith('rock/transfer/')).toBe(true);
+  });
+
   test('should handle empty prefix gracefully', () => {
     const args = ['sb-1', '/local/f.txt', '/remote/f.txt'] as const;
     const nameWithEmpty = OssClient.computeObjectName(...args, '');
@@ -150,6 +157,23 @@ describe('resolveConfig', () => {
     expect(config!.region).toBe('cn-shanghai');
   });
 
+  test('should accept camelCase Layer 2 server response after HttpUtils conversion', () => {
+    const stsResponse = {
+      endpoint: 'oss-cn-shanghai.aliyuncs.com',
+      bucket: 'server-bucket',
+      region: 'cn-shanghai',
+      prefix: 'rock-transfer/',
+    };
+
+    const config = OssClient.resolveConfig(stsResponse);
+    expect(config).not.toBeNull();
+    expect(config!.enabledViaEnv).toBe(false);
+    expect(config!.endpoint).toBe('oss-cn-shanghai.aliyuncs.com');
+    expect(config!.bucket).toBe('server-bucket');
+    expect(config!.region).toBe('cn-shanghai');
+    expect(config!.prefix).toBe('rock-transfer/');
+  });
+
   test('should pull prefix from server response in Layer 2', () => {
     const stsResponse = {
       Endpoint: 'oss-cn-shanghai.aliyuncs.com',
@@ -194,6 +218,17 @@ describe('resolveConfig', () => {
     expect(config).not.toBeNull();
     expect(config!.enabledViaEnv).toBe(true);
     expect(config!.bucket).toBe('env-bucket'); // env wins
+  });
+});
+
+describe('normalizeRegion', () => {
+  test('should strip leading oss- prefix', () => {
+    expect(OssClient.normalizeRegion('oss-cn-hangzhou')).toBe('cn-hangzhou');
+    expect(OssClient.normalizeRegion('oss-cn-shanghai')).toBe('cn-shanghai');
+  });
+
+  test('should pass through already-normalized region unchanged', () => {
+    expect(OssClient.normalizeRegion('cn-hangzhou')).toBe('cn-hangzhou');
   });
 });
 
