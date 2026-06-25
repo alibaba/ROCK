@@ -159,6 +159,7 @@ split-on-trailing-comma = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+timeout = 120
 addopts = [
     "-v",               # Verbose output
     "-p",
