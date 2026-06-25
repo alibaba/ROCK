@@ -207,8 +207,9 @@ async def _apply_image_registry_mirror(config: DockerDeploymentConfig) -> None:
 
     _, repo_and_tag = ImageUtil.parse_registry_and_others(config.image)
     if "/" in repo_and_tag:
-        _, name_tag = repo_and_tag.split("/", 1)
+        original_namespace, name_tag = repo_and_tag.split("/", 1)
     else:
+        original_namespace = None
         name_tag = repo_and_tag
     if "@" in name_tag:
         logger.info(
@@ -224,33 +225,39 @@ async def _apply_image_registry_mirror(config: DockerDeploymentConfig) -> None:
     for mirror in mirrors:
         if not mirror.registry or not mirror.namespace:
             continue
-        candidate = f"{mirror.registry}/{mirror.namespace}/{name_tag}"
 
-        cached = _probe_cache_get(candidate)
-        if cached is True:
-            logger.info(f"image registry mirror hit (cached): {original_image!r} -> {candidate!r}")
-            _apply_mirror_hit(config, mirror, candidate)
-            return
-        if cached is False:
-            continue
+        candidates = []
+        if original_namespace:
+            candidates.append((f"{mirror.registry}/{original_namespace}/{name_tag}", f"{original_namespace}/{image_name}"))
+        if original_namespace != mirror.namespace:
+            candidates.append((f"{mirror.registry}/{mirror.namespace}/{name_tag}", f"{mirror.namespace}/{image_name}"))
 
-        try:
-            hit = await _http_probe_manifest(
-                registry=mirror.registry,
-                repo=f"{mirror.namespace}/{image_name}",
-                tag=tag,
-                username=mirror.username,
-                password=mirror.password,
-            )
-        except Exception as e:
-            logger.warning(f"image registry mirror probe failed for {candidate!r}: {e}")
-            continue
+        for candidate, repo in candidates:
+            cached = _probe_cache_get(candidate)
+            if cached is True:
+                logger.info(f"image registry mirror hit (cached): {original_image!r} -> {candidate!r}")
+                _apply_mirror_hit(config, mirror, candidate)
+                return
+            if cached is False:
+                continue
 
-        _probe_cache_set(candidate, hit)
-        if hit:
-            logger.info(f"image registry mirror hit: {original_image!r} -> {candidate!r}")
-            _apply_mirror_hit(config, mirror, candidate)
-            return
+            try:
+                hit = await _http_probe_manifest(
+                    registry=mirror.registry,
+                    repo=repo,
+                    tag=tag,
+                    username=mirror.username,
+                    password=mirror.password,
+                )
+            except Exception as e:
+                logger.warning(f"image registry mirror probe failed for {candidate!r}: {e}")
+                continue
+
+            _probe_cache_set(candidate, hit)
+            if hit:
+                logger.info(f"image registry mirror hit: {original_image!r} -> {candidate!r}")
+                _apply_mirror_hit(config, mirror, candidate)
+                return
     logger.info(f"image registry mirror miss for {original_image!r}, keep original")
 
 async def _apply_timeout_defaults(config: DockerDeploymentConfig) -> None:
