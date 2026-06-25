@@ -6,11 +6,13 @@ import { existsSync, statSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve, basename } from 'path';
 import { initLogger } from '../logger.js';
-import type { Observation, CommandResponse } from '../types/responses.js';
-import type { ChownRequest, ChmodRequest } from '../types/requests.js';
-import type { AbstractSandbox } from './client.js';
+import type { Observation, CommandResponse, DownloadFileResponse } from '../types/responses.js';
+import type { ChownRequest, ChmodRequest, DownloadOptions, ProgressInfo } from '../types/requests.js';
+import type { AbstractSandbox, Sandbox } from './client.js';
 import { RunMode } from '../common/constants.js';
 import { validatePath, validateUsername, validateChmodMode, shellQuote } from '../utils/shell.js';
+import { ENSURE_OSSUTIL_SCRIPT } from './constants.js';
+import { envVars } from '../env_vars.js';
 
 const logger = initLogger('rock.sandbox.fs');
 
@@ -268,5 +270,113 @@ export class LinuxFileSystem extends FileSystem {
         // Ignore cleanup errors
       }
     }
+  }
+
+  /**
+   * Download file from sandbox container to local machine.
+   *
+   * Supports three modes:
+   * - auto: Choose based on file size and OSS availability
+   * - direct: Force direct download via readFile API
+   * - oss: Force OSS download
+   *
+   * OSS availability is determined by OssClient (Layer 1 env > Layer 2 server response).
+   */
+  async downloadFile(
+    remotePath: string,
+    localPath: string,
+    options?: DownloadOptions,
+  ): Promise<DownloadFileResponse> {
+    const downloadMode = options?.downloadMode ?? 'auto';
+    const timeout = options?.timeout;
+    const onProgress = options?.onProgress;
+
+    if (!remotePath || remotePath.trim() === '') {
+      return { success: false, message: 'Remote path is required' };
+    }
+
+    const checkResult = await this.sandbox.execute({ command: ['test', '-f', remotePath], timeout: 60 });
+    if (checkResult.exitCode !== 0) {
+      return { success: false, message: `Remote file does not exist: ${remotePath}` };
+    }
+
+    if (downloadMode === 'direct') {
+      return this.downloadDirect(remotePath, localPath);
+    }
+
+    if (downloadMode === 'oss') {
+      return this.downloadViaOssProxy(remotePath, localPath, timeout, onProgress);
+    }
+
+    // auto mode
+    const sizeResult = await this.sandbox.execute({ command: ['stat', '-c', '%s', remotePath], timeout: 60 });
+    if (sizeResult.exitCode !== 0) {
+      return this.downloadDirect(remotePath, localPath);
+    }
+
+    const fileSize = parseInt(sizeResult.stdout.trim(), 10);
+    const ossThreshold = 1024 * 1024;
+    const ossEnabled = process.env['ROCK_OSS_ENABLE']?.toLowerCase() === 'true';
+
+    if (ossEnabled && fileSize >= ossThreshold) {
+      return this.downloadViaOssProxy(remotePath, localPath, timeout, onProgress);
+    }
+
+    return this.downloadDirect(remotePath, localPath);
+  }
+
+  private async downloadDirect(remotePath: string, localPath: string): Promise<DownloadFileResponse> {
+    try {
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const response = await this.sandbox.readFile({ path: remotePath });
+      const parentDir = path.dirname(localPath);
+      await fs.mkdir(parentDir, { recursive: true });
+      await fs.writeFile(localPath, response.content, 'utf-8');
+      return { success: true, message: `Successfully downloaded ${remotePath} to ${localPath}` };
+    } catch (e) {
+      return { success: false, message: `Direct download failed: ${e}` };
+    }
+  }
+
+  private async downloadViaOssProxy(
+    remotePath: string,
+    localPath: string,
+    timeout?: number,
+    onProgress?: (info: ProgressInfo) => void,
+  ): Promise<DownloadFileResponse> {
+    const sandbox = this.sandbox as Sandbox;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const oss = (sandbox as any)._oss;
+    if (!oss) return { success: false, message: 'OSS is not available' };
+    if (!(await oss.ensureSetup())) return { success: false, message: 'OSS is not available' };
+    if (!(await this.ensureOssutil())) return { success: false, message: 'Failed to ensure ossutil is installed and working' };
+    return oss.downloadViaOss(remotePath, localPath, timeout, onProgress);
+  }
+
+  private async ensureOssutil(): Promise<boolean> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sandbox = this.sandbox as any;
+    const process = sandbox.getProcess ? sandbox.getProcess() : null;
+    if (!process || !process.executeScript) {
+      logger.warn('Process.executeScript is not available');
+      return false;
+    }
+    const ts = Date.now().toString();
+    const result = await process.executeScript({
+      scriptContent: ENSURE_OSSUTIL_SCRIPT,
+      scriptName: `ensure_ossutil_${ts}.sh`,
+      cleanup: true,
+    });
+    if (result.exitCode !== 0) {
+      logger.warn(`ossutil install failed: ${result.output}`);
+      return false;
+    }
+    const verify = await this.sandbox.execute({ command: ['ossutil', 'version'], timeout: 60 });
+    if (verify.exitCode !== 0) {
+      logger.warn(`ossutil verify failed: ${verify.stderr}`);
+      return false;
+    }
+    return true;
   }
 }

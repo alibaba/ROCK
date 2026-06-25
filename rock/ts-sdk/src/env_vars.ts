@@ -25,7 +25,7 @@ export const envVars = {
 
   // Service
   get ROCK_SERVICE_STATUS_DIR(): string {
-    return getEnv('ROCK_SERVICE_STATUS_DIR', '/data/service_status')!;
+    return getEnv('ROCK_SERVICE_STATUS_DIR', '/tmp')!;
   },
 
   get ROCK_SCHEDULER_STATUS_DIR(): string {
@@ -98,14 +98,23 @@ export const envVars = {
     return getEnv('ROCK_TIME_ZONE', 'Asia/Shanghai')!;
   },
 
+  // Docker
+  get ROCK_DOCKER_TEMP_AUTH_DIR(): string | undefined {
+    return getEnv('ROCK_DOCKER_TEMP_AUTH_DIR');
+  },
+
   // OSS
   get ROCK_OSS_TIMEOUT(): number {
     return parseInt(getEnv('ROCK_OSS_TIMEOUT', '300000')!, 10); // Default: 5 minutes
   },
 
+  get ROCK_OSS_TRANSFER_PREFIX(): string | undefined {
+    return getEnv('ROCK_OSS_TRANSFER_PREFIX');
+  },
+
   // Pip
   get ROCK_PIP_INDEX_URL(): string {
-    return getEnv('ROCK_PIP_INDEX_URL', 'https://pypi.org/simple/')!;
+    return getEnv('ROCK_PIP_INDEX_URL', 'https://mirrors.aliyun.com/pypi/simple/')!;
   },
 
   // Monitor
@@ -135,6 +144,10 @@ export const envVars = {
     return getEnv('ROCK_ADMIN_ROLE', 'write')!;
   },
 
+  get ROCK_FORCE_PRIMARY_POD(): boolean {
+    return getEnv('ROCK_FORCE_PRIMARY_POD', 'false')?.toLowerCase() === 'true';
+  },
+
   // CLI
   get ROCK_CLI_LOAD_PATHS(): string {
     return getEnv('ROCK_CLI_LOAD_PATHS', '')!;
@@ -151,6 +164,17 @@ export const envVars = {
 
   get ROCK_MODEL_SERVICE_TRAJ_APPEND_MODE(): boolean {
     return getEnv('ROCK_MODEL_SERVICE_TRAJ_APPEND_MODE', 'false')?.toLowerCase() === 'true';
+  },
+
+  get ROCK_JOB_PROXY_REPLAY_FILE(): string {
+    return getEnv(
+      'ROCK_JOB_PROXY_REPLAY_FILE',
+      '/data/logs/user-defined/rock-job-proxy-replay.jsonl'
+    )!;
+  },
+
+  get ROCK_BASH_JOB_ARTIFACT_DIR(): string {
+    return getEnv('ROCK_BASH_JOB_ARTIFACT_DIR', '/data/logs/user-defined')!;
   },
 
   // RuntimeEnv
@@ -217,7 +241,7 @@ export const envVars = {
   },
 
   get ROCK_DEFAULT_CLUSTER(): string {
-    return getEnv('ROCK_DEFAULT_CLUSTER', 'zb')!;
+    return getEnv('ROCK_DEFAULT_CLUSTER', 'vpc-nt-a')!;
   },
 
   get ROCK_DEFAULT_AUTO_CLEAR_SECONDS(): number {

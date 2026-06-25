@@ -3,6 +3,7 @@
  */
 
 export { Agent, DefaultAgent } from './base.js';
+export { RockAgent } from './rock_agent.js';
 export {
   AgentConfigSchema,
   type AgentConfig,
@@ -12,4 +13,5 @@ export {
   type DefaultAgentConfig,
   RockAgentConfigSchema,
   type RockAgentConfig,
+  loadRockAgentConfigFromYaml,
 } from './config.js';

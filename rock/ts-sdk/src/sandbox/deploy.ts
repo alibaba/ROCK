@@ -1,5 +1,9 @@
 /**
  * Deploy - Sandbox resource deployment manager
+ *
+ * Provides:
+ * - deployWorkingDir(): Deploy local directory to sandbox
+ * - format(): Replace ${key} and <<key>> template placeholders
  */
 
 import { existsSync, statSync } from 'fs';
@@ -15,24 +19,33 @@ const logger = initLogger('rock.sandbox.deploy');
  */
 export class Deploy {
   private sandbox: Sandbox;
-  private workingDir: string | null = null;
+  private _workingDir: string | null = null;
 
   constructor(sandbox: Sandbox) {
     this.sandbox = sandbox;
   }
 
   /**
-   * Get the current working directory
+   * Returns the working_dir path deployed in the sandbox.
    */
-  getWorkingDir(): string | null {
-    return this.workingDir;
+  get workingDir(): string | null {
+    return this._workingDir;
   }
 
   /**
-   * Deploy local directory to sandbox
+   * Get the current working directory (camelCase alias)
+   */
+  getWorkingDir(): string | null {
+    return this._workingDir;
+  }
+
+  /**
+   * Deploy local directory to sandbox.
    *
-   * @param localPath - Local directory path
-   * @param targetPath - Target path in sandbox (optional)
+   * Supports multiple calls; later calls will overwrite previous paths.
+   *
+   * @param localPath - Local directory path (relative or absolute)
+   * @param targetPath - Target path in sandbox (default: /tmp/rock_workdir_<uuid>)
    * @returns The target path in sandbox
    */
   async deployWorkingDir(
@@ -63,37 +76,55 @@ export class Deploy {
     }
 
     // Update working directory
-    this.workingDir = target;
+    this._workingDir = target;
     logger.info(`[${sandboxId}] working_dir deployed: ${target}`);
 
     return target;
   }
 
   /**
-   * Format command template supporting ${} and <<>> syntax
+   * Format command template supporting ${} and <<>> syntax.
+   *
+   * Only <<key>> where key is a known variable will be replaced.
+   * Other occurrences of << >> are left untouched.
+   *
+   * Example:
+   *   deploy.format("cat <<working_dir>>/file")
+   *   => "cat /tmp/rock_workdir_abc123/file"
+   *
+   *   deploy.format("echo $((3 << 2 >> 1))")  // unaffected
+   *   => "echo $((3 << 2 >> 1))"
    *
    * @param template - Template string with placeholders
-   * @param kwargs - Additional substitution variables
+   * @param kwargs - Additional substitution variables (e.g., prompt, bin_dir)
    * @returns Formatted string
    */
   format(template: string, kwargs: Record<string, string> = {}): string {
-    // Build substitution map
-    const subs: Record<string, string | undefined> = {
+    // Build substitution map (matching Python: includes working_dir when set, filters undefined)
+    const subs: Record<string, string> = {
       ...kwargs,
-      ...(this.workingDir ? { working_dir: this.workingDir } : {}),
     };
-
-    // Replace <<key>> with ${key} for template substitution
-    let result = template;
-    for (const key of Object.keys(subs)) {
-      result = result.replace(new RegExp(`<<${key}>>`, 'g'), `\${${key}}`);
+    if (this._workingDir) {
+      subs['working_dir'] = this._workingDir;
     }
 
-    // Perform substitution
-    for (const [key, value] of Object.entries(subs)) {
-      if (value !== undefined) {
-        result = result.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), value);
+    // Filter out undefined values
+    const filteredSubs: Record<string, string> = {};
+    for (const [k, v] of Object.entries(subs)) {
+      if (v !== undefined && v !== null) {
+        filteredSubs[k] = v;
       }
+    }
+
+    // Step 1: Replace <<key>> with ${key} for known keys only
+    let result = template;
+    for (const key of Object.keys(filteredSubs)) {
+      result = result.replace(new RegExp(`<<${key}>>`, 'g'), `\$\{${key}\}`);
+    }
+
+    // Step 2: Perform ${key} substitution
+    for (const [key, value] of Object.entries(filteredSubs)) {
+      result = result.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), value);
     }
 
     return result;
