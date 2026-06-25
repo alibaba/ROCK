@@ -138,7 +138,14 @@ async def test_resource_limit_exception_memory(sandbox_manager, docker_deploymen
 @pytest.mark.need_ray
 @pytest.mark.asyncio
 async def test_get_system_resource_info(sandbox_manager):
-    total_cpu, total_mem, ava_cpu, ava_mem = await sandbox_manager._collect_system_resource_metrics()
+    (
+        total_cpu,
+        total_mem,
+        ava_cpu,
+        ava_mem,
+        total_disk,
+        ava_disk,
+    ) = await sandbox_manager._collect_system_resource_metrics()
     assert total_cpu > 0
     assert total_mem > 0
     assert ava_cpu > 0
@@ -262,9 +269,9 @@ async def test_use_standard_spec_only_disabled(sandbox_manager):
 
         # Verify that requested spec was used (not standard spec)
         assert sandbox_info["cpus"] == requested_cpus, f"Expected cpus={requested_cpus}, but got {sandbox_info['cpus']}"
-        assert sandbox_info["memory"] == requested_memory, (
-            f"Expected memory='{requested_memory}', but got {sandbox_info['memory']}"
-        )
+        assert (
+            sandbox_info["memory"] == requested_memory
+        ), f"Expected memory='{requested_memory}', but got {sandbox_info['memory']}"
 
         # Also verify sandbox is alive
         is_alive = await sandbox_manager._is_actor_alive(sandbox_id)

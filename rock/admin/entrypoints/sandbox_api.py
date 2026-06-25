@@ -37,6 +37,7 @@ from rock.common.constants import (
     KATA_DIND_DISK_SIZE_KEY,
     KATA_RUNTIME_SWITCH,
     SANDBOX_DISK_LIMIT_ROOTFS_KEY,
+    SANDBOX_DISK_OVERCOMMIT_RATIO_KEY,
     SUPPORT_KATA_SWITCH,
 )
 from rock.common.exception import handle_exceptions
@@ -87,22 +88,26 @@ async def _apply_kata_disk_size(config: DockerDeploymentConfig) -> None:
 
 
 async def _apply_disk_limits(config: DockerDeploymentConfig) -> None:
-    """Apply disk limits from RuntimeConfig (rock-xxx.yml), overridable by Nacos at runtime.
+    """Apply disk limits with priority: user request > Nacos > RuntimeConfig > None.
 
-    Priority: Nacos > RuntimeConfig (rock-xxx.yml). None in both means no limit.
     The log dir shares the rootfs prjid + bhard at runtime, so only rootfs is configurable.
+
+    When an overcommit ratio (> 1.0) is configured, it is stored on
+    ``config.disk_overcommit_ratio`` so Ray scheduling can request
+    ``disk / ratio`` resources while Docker uses the full ``disk`` value.
     """
     runtime = sandbox_manager.rock_config.runtime
     nacos = sandbox_manager.rock_config.nacos_provider
 
-    disk_limit_rootfs = runtime.sandbox_disk_limit_rootfs
+    if config.disk is None:
+        nacos_rootfs = await nacos.get_config_value(SANDBOX_DISK_LIMIT_ROOTFS_KEY) if nacos else None
+        config.disk = nacos_rootfs or runtime.sandbox_disk_limit_rootfs
 
-    if nacos is not None:
-        nacos_rootfs = await nacos.get_config_value(SANDBOX_DISK_LIMIT_ROOTFS_KEY)
-        if nacos_rootfs:
-            disk_limit_rootfs = nacos_rootfs
-
-    config.disk_limit_rootfs = disk_limit_rootfs
+    if config.disk is not None:
+        nacos_ratio_str = await nacos.get_config_value(SANDBOX_DISK_OVERCOMMIT_RATIO_KEY) if nacos else None
+        ratio = float(nacos_ratio_str) if nacos_ratio_str else runtime.sandbox_disk_overcommit_ratio
+        if ratio is not None and ratio > 1.0:
+            config.disk_overcommit_ratio = ratio
 
 
 def _probe_cache_get(candidate: str) -> bool | None:

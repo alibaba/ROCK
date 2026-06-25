@@ -110,8 +110,11 @@ class DockerDeploymentConfig(DeploymentConfig):
     limit_cpus: float | None = None
     """Hard limit on the number of CPU cores the container can use. Used as --cpus. When the SDK leaves this None, the admin gateway may derive it from cpus + Nacos `cpu_overcommit_headroom`."""
 
-    disk_limit_rootfs: str | None = None
+    disk: str | None = None
     """Maximum rootfs disk size for the container (e.g., '20g', '50g'). Maps to --storage-opt size=<value>. Only supported on overlay2 storage driver with xfs backing filesystem. None means no limit."""
+
+    disk_overcommit_ratio: float | None = None
+    """Disk overcommit ratio for Ray scheduling. When set and > 1.0, Ray requests disk/ratio resources while Docker uses the full disk value. Set by admin gateway from Nacos or RuntimeConfig."""
 
     container_name: str | None = None
     """Custom name for the container. If None, a random name will be generated."""
@@ -212,10 +215,8 @@ class DockerDeploymentConfig(DeploymentConfig):
     @classmethod
     def from_request(cls, request: SandboxStartRequest) -> DeploymentConfig:
         """Create DockerDeploymentConfig from SandboxStartRequest"""
-        return cls(
-            **request.model_dump(exclude={"sandbox_id"}),
-            container_name=request.sandbox_id,
-        )
+        data = request.model_dump(exclude={"sandbox_id"})
+        return cls(**data, container_name=request.sandbox_id)
 
 
 class RayDeploymentConfig(DockerDeploymentConfig):
