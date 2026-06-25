@@ -45,7 +45,14 @@ class TestCheckArchiveProgress:
         info = {
             "sandbox_id": "sbx-1",
             "archive_time": "2026-01-01T000000Z",
-            "intermediate_state_started_at": "2026-01-01T000000Z",
+            "state_history": [
+                {
+                    "from_state": "stopped",
+                    "to_state": "archiving",
+                    "event": "archive",
+                    "timestamp": "2026-01-01T000000Z",
+                }
+            ],
             "state": State.ARCHIVING,
         }
         manager._meta_store.list_by = AsyncMock(return_value=[info])
@@ -66,7 +73,7 @@ class TestCheckArchiveProgress:
         info = {
             "sandbox_id": "sbx-1",
             "archive_time": "2026-01-01T000000Z",
-            "intermediate_state_started_at": now,
+            "state_history": [{"from_state": "stopped", "to_state": "archiving", "event": "archive", "timestamp": now}],
             "state": State.ARCHIVING,
         }
         manager._meta_store.list_by = AsyncMock(return_value=[info])
@@ -77,11 +84,13 @@ class TestCheckArchiveProgress:
         manager._get_current_statemachine.assert_not_called()
 
     async def test_timeout_triggers_archive_failed(self, manager):
-        old_time = "2020-01-01T000000Z"
+        old_time = "2020-01-01T00:00:00+00:00"
         info = {
             "sandbox_id": "sbx-1",
             "archive_time": "t1",
-            "intermediate_state_started_at": old_time,
+            "state_history": [
+                {"from_state": "stopped", "to_state": "archiving", "event": "archive", "timestamp": old_time}
+            ],
             "state": State.ARCHIVING,
         }
         manager._meta_store.list_by = AsyncMock(return_value=[info])

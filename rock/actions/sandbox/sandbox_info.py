@@ -27,7 +27,6 @@ class SandboxInfo(TypedDict, total=False):
     stop_time: str
     delete_time: str
     archive_time: str
-    intermediate_state_started_at: str
     extended_params: dict[str, str]
     state_history: list[dict[str, str]]
 

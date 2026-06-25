@@ -23,6 +23,13 @@ from rock.utils.system import get_iso8601_timestamp
 logger = init_logger(__name__)
 
 
+def get_last_entered_at(state_history: list[dict[str, str]], target_state: str) -> str:
+    for record in reversed(state_history):
+        if record.get("to_state") == target_state:
+            return record.get("timestamp", "")
+    return ""
+
+
 class SandboxStateMachine(StateChart):
     """
     State machine for sandbox lifecycle management.
@@ -236,7 +243,6 @@ class SandboxStateMachine(StateChart):
         sandbox_info["state"] = RockState.ARCHIVING
         sandbox_info["archive_prefix"] = prefix
         sandbox_info["acr_namespace"] = acr_ns
-        sandbox_info["intermediate_state_started_at"] = get_iso8601_timestamp()
         await meta_store.archive(sandbox_id, sandbox_info)
         self.sandbox_info = sandbox_info
 
@@ -256,7 +262,6 @@ class SandboxStateMachine(StateChart):
         sandbox_info = self.sandbox_info or {}
         sandbox_info["state"] = RockState.ARCHIVED
         sandbox_info["archive_time"] = get_iso8601_timestamp()
-        sandbox_info.pop("intermediate_state_started_at", None)
         await meta_store.archive(sandbox_id, sandbox_info)
         self.sandbox_info = sandbox_info
 
@@ -265,7 +270,6 @@ class SandboxStateMachine(StateChart):
         sandbox_info = self.sandbox_info or {}
         sandbox_info["state"] = RockState.STOPPED
         sandbox_info.pop("archive_time", None)
-        sandbox_info.pop("intermediate_state_started_at", None)
         await meta_store.archive(sandbox_id, sandbox_info)
         self.sandbox_info = sandbox_info
 
@@ -286,7 +290,6 @@ class SandboxStateMachine(StateChart):
         logger.info(f"restore sandbox {sandbox_id}")
         sandbox_info = self.sandbox_info or {}
         sandbox_info["state"] = RockState.PENDING
-        sandbox_info["intermediate_state_started_at"] = get_iso8601_timestamp()
         sandbox_info.pop("stop_time", None)
         await meta_store.update(sandbox_id, sandbox_info)
         if timeout_info:
@@ -313,7 +316,6 @@ class SandboxStateMachine(StateChart):
         logger.info(f"restore failed sandbox {sandbox_id}: {reason}")
         sandbox_info = self.sandbox_info or {}
         sandbox_info["state"] = RockState.ARCHIVED
-        sandbox_info.pop("intermediate_state_started_at", None)
         await meta_store.archive(sandbox_id, sandbox_info)
         self.sandbox_info = sandbox_info
 
