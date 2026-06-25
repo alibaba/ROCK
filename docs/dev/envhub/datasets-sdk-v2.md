@@ -379,71 +379,318 @@ result = parser.extract({"instance_id": "django__django-11099", "repo": "django/
 
 ## SDK 对外接口
 
-### Listing APIs
-
-所有列表 API 支持 `offset`/`limit` 关键字参数，返回 `PageResult[T]`。
+### 快速开始
 
 ```python
-# 列出所有 organization
-list_organizations(*, offset=0, limit=None) -> PageResult[str]
+from rock.sdk.bench.models.job.config import OssRegistryInfo
+from rock.sdk.envhub.datasets import DatasetClient
 
-# 列出某 organization 下的 dataset 名
-list_org_datasets(organization, *, offset=0, limit=None) -> PageResult[str]
-
-# 列出某 dataset 下的 split 名
-list_dataset_splits(organization, dataset, *, offset=0, limit=None) -> PageResult[str]
-
-# 列出所有 (org, dataset) 对，支持 query 过滤
-list_all_datasets(concurrency=10, *, query=None, offset=0, limit=None) -> PageResult[tuple[str, str]]
-
-# 列出所有 DatasetSpec（完整扫描，含 task_ids）
-list_datasets(organization=None, *, offset=0, limit=None) -> PageResult[DatasetSpec]
-
-# 列出某 split 下的 task ID
-list_dataset_tasks(organization, dataset, split="test", *, query=None, offset=0, limit=None) -> PageResult[str] | None
-
-# 列出某 split 下的 task 条目（含类型、大小等元信息）
-list_dataset_task_entries(organization, dataset, split="test", *, query=None, offset=0, limit=None) -> PageResult[TaskEntry] | None
+client = DatasetClient(OssRegistryInfo(
+    oss_access_key_id="...",
+    oss_access_key_secret="...",
+    oss_endpoint="oss-ap-southeast-1.aliyuncs.com",
+    oss_bucket="rock-agent-pre",
+    oss_dataset_path="datasets",
+))
 ```
 
-### Query APIs
+### 接口速查表
+
+| # | 方法 | 返回类型 | 分页 | 搜索 |
+|---|------|----------|------|------|
+| 1 | `list_organizations()` | `PageResult[str]` | Yes | — |
+| 2 | `list_org_datasets(org)` | `PageResult[str]` | Yes | — |
+| 3 | `list_all_datasets(concurrency, query)` | `PageResult[tuple[str, str]]` | Yes | Yes |
+| 4 | `list_dataset_splits(org, ds)` | `PageResult[str]` | Yes | — |
+| 5 | `list_datasets(org)` | `PageResult[DatasetSpec]` | Yes | — |
+| 6 | `list_dataset_tasks(org, ds, split, query)` | `PageResult[str] \| None` | Yes | Yes |
+| 7 | `list_dataset_task_entries(org, ds, split, query)` | `PageResult[TaskEntry] \| None` | Yes | Yes |
+| 8 | `get_dataset(org, ds)` | `DatasetInfo \| None` | — | — |
+| 9 | `get_task(org, ds, split, task_id)` | `TaskInfo \| None` | — | — |
+| 10 | `get_task_metadata(org, ds, split, task_id)` | `TaskMetadata \| None` | — | — |
+| 11 | `browse_task_files(org, ds, split, task_id, prefix)` | `PageResult[FileEntry]` | Yes | — |
+| 12 | `list_task_files(org, ds, split, task_id)` | `PageResult[TaskFileInfo]` | Yes | — |
+| 13 | `read_task_file(...)` | `bytes` | — | — |
+| 14 | `download_task_file(...)` | `Path` | — | — |
+| 15 | `download_task(...)` | `Path` | — | — |
+| 16 | `upload_dataset(source, target, concurrency)` | `UploadResult` | — | — |
+| 17 | `transfer_images()` | `NotImplementedError` | — | — |
+| 18 | `audit_dataset()` | `NotImplementedError` | — | — |
+
+### 1. 列出所有组织
 
 ```python
-# 获取 dataset 概览（splits 列表 + 每个 split 的 task 数）
-get_dataset(organization, dataset) -> DatasetInfo | None
-
-# 获取 task 详情（文件列表 + 总大小）
-get_task(organization, dataset, split, task_id) -> TaskInfo | None
-
-# 获取 task metadata（自动发现 README.md / metadata.json / task.toml）
-get_task_metadata(organization, dataset, split, task_id) -> TaskMetadata | None
+client.list_organizations(*, offset=0, limit=None) -> PageResult[str]
 ```
-
-### Task File Operations
 
 ```python
-# 浏览 task 内某一层目录（类似 ls）
-browse_task_files(organization, dataset, split, task_id, prefix="", *, offset=0, limit=None) -> PageResult[FileEntry]
+page = client.list_organizations()
+# PageResult(items=['AI4AIScaling', 'JobBench', ...], total=111, offset=0, limit=None)
 
-# 递归列出 task 下所有文件
-list_task_files(organization, dataset, split, task_id, *, offset=0, limit=None) -> PageResult[TaskFileInfo]
-
-# 读取文件内容（返回 bytes）
-read_task_file(organization, dataset, split, task_id, file_path) -> bytes
-
-# 下载单个文件到本地
-download_task_file(organization, dataset, split, task_id, file_path, local_path) -> Path
-
-# 下载整个 task 到本地目录（并发下载）
-download_task(organization, dataset, split, task_id, local_dir, concurrency=4) -> Path
+page = client.list_organizations(offset=2, limit=3)
+# PageResult(items=['AI4AIScaling', 'AIScaling', 'AmazonScience'], total=111, offset=2, limit=3)
 ```
 
-### Upload
+### 2. 列出组织下的数据集
 
 ```python
-# 上传本地数据集（目录结构：local_dir/{task_id}/...）
-upload_dataset(source: LocalDatasetConfig, target: RegistryDatasetConfig, concurrency=4) -> UploadResult
+client.list_org_datasets(organization, *, offset=0, limit=None) -> PageResult[str]
 ```
+
+```python
+page = client.list_org_datasets("AI4AIScaling")
+# PageResult(items=['swe-seed'], total=1, offset=0, limit=None)
+```
+
+### 3. 列出所有数据集
+
+```python
+client.list_all_datasets(concurrency=10, *, query=None, offset=0, limit=None) -> PageResult[tuple[str, str]]
+```
+
+并发扫描所有组织，返回 `(organization, dataset)` 元组列表。支持 `query` 关键词过滤（对 `"org/dataset"` 做大小写不敏感子串匹配）。
+
+```python
+page = client.list_all_datasets(offset=0, limit=3)
+# PageResult(items=[('AI4AIScaling', 'swe-seed'), ('JobBench', 'job-bench'), ...], total=248, ...)
+
+page = client.list_all_datasets(query="pinch")
+# 只返回 org/dataset 中包含 "pinch" 的记录
+```
+
+### 4. 列出数据集的 split
+
+```python
+client.list_dataset_splits(organization, dataset, *, offset=0, limit=None) -> PageResult[str]
+```
+
+```python
+page = client.list_dataset_splits("JobBench", "job-bench")
+# PageResult(items=['easy', 'easy-assets', 'main', 'main-assets'], total=4, ...)
+```
+
+### 5. 列出完整数据集规格
+
+```python
+client.list_datasets(org=None, *, offset=0, limit=None) -> PageResult[DatasetSpec]
+```
+
+按组织列出数据集的完整规格，包含每个 split 的所有 task ID。不指定 `org` 时需遍历所有组织并枚举全部 task，建议传入 `org`。
+
+```python
+page = client.list_datasets(org="AI4AIScaling")
+# PageResult(items=[DatasetSpec(id='AI4AIScaling/swe-seed', split='test', task_ids=[...])], ...)
+```
+
+### 6. 列出 split 下的 task ID
+
+```python
+client.list_dataset_tasks(organization, dataset, split="test",
+                          *, query=None, offset=0, limit=None) -> PageResult[str] | None
+```
+
+返回 split 下所有 task ID 的字符串列表。无 task 时返回 `None`。支持 `query` 关键词过滤。
+
+```python
+page = client.list_dataset_tasks("AI4AIScaling", "swe-seed", "test")
+# PageResult(items=['dask__dask-9250', 'pydantic__pydantic-5021', ...], total=6, ...)
+
+page = client.list_dataset_tasks("AI4AIScaling", "swe-seed", "test", query="dask")
+# 只返回 task ID 中包含 "dask" 的记录
+```
+
+### 7. 列出 task 条目（含类型信息）
+
+```python
+client.list_dataset_task_entries(organization, dataset, split="test",
+                                 *, query=None, offset=0, limit=None) -> PageResult[TaskEntry] | None
+```
+
+与 `list_dataset_tasks` 类似，但返回丰富的 `TaskEntry` 对象，区分文件型和目录型 task，并携带 size/etag/updated_at 元数据。
+
+```python
+page = client.list_dataset_task_entries("AI4AIScaling", "swe-seed", "test")
+# 文件型 task:
+# TaskEntry(name='dask__dask-9250', path='dask__dask-9250.json', type='file',
+#           size=12345, file_count=1, updated_at='2026-06-10T...', etag='"abc"')
+
+page = client.list_dataset_task_entries("JobBench", "job-bench", "easy-assets")
+# 目录型 task:
+# TaskEntry(name='biostatisticians_task1', path='biostatisticians_task1', type='directory',
+#           size=None, file_count=None, updated_at=None, etag=None)
+```
+
+### 8. 获取数据集详情
+
+```python
+client.get_dataset(organization, dataset) -> DatasetInfo | None
+```
+
+返回数据集的 splits 列表和每个 split 的 task 数量。不存在时返回 `None`。
+
+```python
+info = client.get_dataset("AI4AIScaling", "swe-seed")
+# DatasetInfo(id='AI4AIScaling/swe-seed', splits=['test'], task_counts={'test': 6})
+```
+
+### 9. 获取 task 详情
+
+```python
+client.get_task(organization, dataset, split, task_id) -> TaskInfo | None
+```
+
+返回 task 的文件列表和总大小。不存在时返回 `None`。仅适用于目录型 task。
+
+```python
+task = client.get_task("JobBench", "job-bench", "easy-assets", "biostatisticians_task1")
+# TaskInfo(task_id='biostatisticians_task1', dataset_id='JobBench/job-bench', split='easy-assets',
+#          files=[TaskFileInfo(path='content.tgz', size=4317316, ...)], total_size=4317316)
+```
+
+### 10. 获取 task 元数据
+
+```python
+client.get_task_metadata(organization, dataset, split, task_id) -> TaskMetadata | None
+```
+
+智能发现 task 的元数据文件。按优先级查找：`README.md` → `readme.md` → `metadata.json` → `task.toml`。JSON 额外解析到 `parsed` 字段。全部不存在时自动生成文件列表摘要（`generated=True`）。task 完全不存在时返回 `None`。
+
+```python
+meta = client.get_task_metadata("org", "ds", "split", "task-with-readme")
+# TaskMetadata(source='README.md', format='markdown', content='# ...', parsed=None, generated=False)
+
+meta = client.get_task_metadata("org", "ds", "split", "task-with-json")
+# TaskMetadata(source='metadata.json', format='json', content='{"title": "..."}',
+#              parsed={"title": "..."}, generated=False)
+
+# fallback 自动生成:
+meta = client.get_task_metadata("JobBench", "job-bench", "easy-assets", "biostatisticians_task1")
+# TaskMetadata(source='generated', format='markdown',
+#              content='# biostatisticians_task1\n\nFiles:\n\n- content.tgz (4317316 bytes)',
+#              parsed=None, generated=True)
+```
+
+### 11. 层级浏览 task 文件
+
+```python
+client.browse_task_files(organization, dataset, split, task_id,
+                         prefix="", *, offset=0, limit=None) -> PageResult[FileEntry]
+```
+
+按目录层级浏览 task 内部的文件和子目录（类似文件管理器）。子目录排在文件前面。通过 `prefix` 参数进入子目录。
+
+```python
+page = client.browse_task_files("JobBench", "job-bench", "easy-assets", "biostatisticians_task1")
+# PageResult(items=[
+#     FileEntry(name='content.tgz', path='content.tgz', type='file',
+#               size=4317316, media_type='application/gzip', ...)
+# ], total=1, ...)
+
+page = client.browse_task_files("org", "ds", "split", "task-1", prefix="data")
+# PageResult(items=[
+#     FileEntry(name='subdir', path='data/subdir', type='directory', ...),
+#     FileEntry(name='input.json', path='data/input.json', type='file', size=500, ...)
+# ], ...)
+```
+
+### 12. 列出 task 下的所有文件（扁平）
+
+```python
+client.list_task_files(organization, dataset, split, task_id,
+                       *, offset=0, limit=None) -> PageResult[TaskFileInfo]
+```
+
+递归列出 task 下的所有文件（扁平结构，不含目录条目），返回路径、大小、修改时间。
+
+```python
+page = client.list_task_files("JobBench", "job-bench", "easy-assets", "biostatisticians_task1")
+# PageResult(items=[TaskFileInfo(path='content.tgz', size=4317316, last_modified='...')], ...)
+```
+
+### 13. 读取文件内容
+
+```python
+client.read_task_file(organization, dataset, split, task_id, file_path) -> bytes
+```
+
+以 `bytes` 形式读取 task 下指定文件的全部内容到内存。
+
+```python
+data = client.read_task_file("JobBench", "job-bench", "easy-assets", "biostatisticians_task1", "content.tgz")
+# bytes, len=4317316
+```
+
+### 14. 下载单个文件
+
+```python
+client.download_task_file(organization, dataset, split, task_id, file_path, local_path) -> Path
+```
+
+下载指定文件到本地路径，自动创建父目录。
+
+```python
+from pathlib import Path
+result = client.download_task_file(
+    "JobBench", "job-bench", "easy-assets", "biostatisticians_task1",
+    "content.tgz", Path("/tmp/content.tgz")
+)
+# Path('/tmp/content.tgz')
+```
+
+### 15. 下载整个 task
+
+```python
+client.download_task(organization, dataset, split, task_id, local_dir, concurrency=4) -> Path
+```
+
+并发下载 task 下的所有文件到本地目录。返回 task 子目录路径。
+
+```python
+task_dir = client.download_task(
+    "JobBench", "job-bench", "easy-assets", "biostatisticians_task1",
+    Path("/tmp/download"), concurrency=4
+)
+# Path('/tmp/download/biostatisticians_task1')
+```
+
+### 16. 上传数据集
+
+```python
+client.upload_dataset(source, target, concurrency=4) -> UploadResult
+```
+
+将本地目录结构上传到 OSS。每个子目录作为一个 task 上传。
+
+```python
+from rock.sdk.bench.models.job.config import LocalDatasetConfig, RegistryDatasetConfig
+
+source = LocalDatasetConfig(path=Path("/data/my-bench"))
+target = RegistryDatasetConfig(
+    name="org/my-bench", version="test", overwrite=False, registry=registry_info
+)
+result = client.upload_dataset(source, target, concurrency=8)
+# UploadResult(id='org/my-bench', split='test', uploaded=10, skipped=2, failed=0)
+```
+
+### 17-18. 预留接口
+
+```python
+client.transfer_images(**kwargs) -> None  # raises NotImplementedError
+client.audit_dataset(**kwargs) -> None    # raises NotImplementedError
+```
+
+### 文件型 vs 目录型 task
+
+OSS 上的 task 存在两种形式：
+
+| 形式 | OSS 结构 | 示例 |
+|------|----------|------|
+| **目录型** | `datasets/org/ds/split/task-id/file1, file2, ...` | JobBench/job-bench |
+| **文件型** | `datasets/org/ds/split/task-id.json` | AI4AIScaling/swe-seed |
+
+- `list_dataset_tasks` 和 `list_dataset_task_entries` 同时支持两种形式
+- `get_task`、`list_task_files`、`browse_task_files`、`download_task` 仅适用于目录型 task
+- `list_dataset_task_entries` 通过 `TaskEntry.type` 字段区分两种形式
 
 ### Format Parsing
 
