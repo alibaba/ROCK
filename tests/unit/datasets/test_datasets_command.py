@@ -6,7 +6,7 @@ import pytest
 
 from rock.cli.command.datasets import DatasetsCommand
 from rock.sdk.bench.models.job.config import OssRegistryInfo
-from rock.sdk.envhub.datasets.models import DatasetSpec
+from rock.sdk.envhub.datasets.models import DatasetSpec, PageResult
 
 
 def make_base_args(**kwargs):
@@ -167,25 +167,24 @@ def test_tasks_outputs_paginated_results(capsys):
         limit=2,
     )
     mock_client = MagicMock()
-    mock_client.list_dataset_tasks.return_value = DatasetSpec(
-        id="qwen/my-bench",
-        split="test",
-        task_ids=["task-001", "task-002", "task-003"],
+    mock_client.list_dataset_tasks.return_value = PageResult(
+        items=["task-002", "task-003"],
+        total=3,
+        offset=1,
+        limit=2,
     )
 
     with patch.object(cmd, "_build_oss_registry_info", return_value=make_registry_info()):
         with patch("rock.cli.command.datasets.DatasetClient", return_value=mock_client):
             asyncio.run(cmd._tasks(args))
 
-    mock_client.list_dataset_tasks.assert_called_once_with("qwen", "my-bench", "test")
+    mock_client.list_dataset_tasks.assert_called_once_with("qwen", "my-bench", "test", offset=1, limit=2)
     out = capsys.readouterr().out
     assert "Dataset: qwen/my-bench" in out
     assert "Split: test" in out
     assert "task-002" in out
     assert "task-003" in out
-    assert "task-001" not in out
-    assert "Total: 3" in out
-    assert "Shown: 2" in out
+    assert "Showing 2-3 of 3" in out
     assert "#Task name" in out
 
 
@@ -221,19 +220,18 @@ def test_list_default_depth_calls_list_all_datasets_and_renders_two_columns(caps
 
     with patch.object(DatasetsCommand, "_build_oss_registry_info", return_value=make_registry_info()):
         with patch("rock.cli.command.datasets.DatasetClient") as MockClient:
-            MockClient.return_value.list_all_datasets.return_value = [
-                ("alibaba", "pinch"),
-                ("qwen", "bench-1"),
-            ]
+            MockClient.return_value.list_all_datasets.return_value = PageResult(
+                items=[("alibaba", "pinch"), ("qwen", "bench-1")], total=2, offset=0, limit=None
+            )
             asyncio.run(cmd._list(args))
 
-    MockClient.return_value.list_all_datasets.assert_called_once_with()
+    MockClient.return_value.list_all_datasets.assert_called_once_with(offset=0, limit=None)
     out = capsys.readouterr().out
     assert "Organization" in out
     assert "Dataset" in out
     assert "alibaba" in out and "pinch" in out
     assert "qwen" in out and "bench-1" in out
-    assert "2 datasets in 2 organizations." in out
+    assert "2 total." in out
 
 
 def test_list_depth_1_calls_list_organizations_and_renders_one_column(capsys):
@@ -242,16 +240,18 @@ def test_list_depth_1_calls_list_organizations_and_renders_one_column(capsys):
 
     with patch.object(DatasetsCommand, "_build_oss_registry_info", return_value=make_registry_info()):
         with patch("rock.cli.command.datasets.DatasetClient") as MockClient:
-            MockClient.return_value.list_organizations.return_value = ["alibaba", "qwen"]
+            MockClient.return_value.list_organizations.return_value = PageResult(
+                items=["alibaba", "qwen"], total=2, offset=0, limit=None
+            )
             asyncio.run(cmd._list(args))
 
-    MockClient.return_value.list_organizations.assert_called_once_with()
+    MockClient.return_value.list_organizations.assert_called_once_with(offset=0, limit=None)
     MockClient.return_value.list_all_datasets.assert_not_called()
     out = capsys.readouterr().out
     assert "Organization" in out
     assert "alibaba" in out
     assert "qwen" in out
-    assert "2 organizations." in out
+    assert "2 total." in out
 
 
 def test_list_with_org_calls_list_org_datasets(capsys):
@@ -260,15 +260,16 @@ def test_list_with_org_calls_list_org_datasets(capsys):
 
     with patch.object(DatasetsCommand, "_build_oss_registry_info", return_value=make_registry_info()):
         with patch("rock.cli.command.datasets.DatasetClient") as MockClient:
-            MockClient.return_value.list_org_datasets.return_value = ["pinch", "webdev"]
+            MockClient.return_value.list_org_datasets.return_value = PageResult(
+                items=["pinch", "webdev"], total=2, offset=0, limit=None
+            )
             asyncio.run(cmd._list(args))
 
-    MockClient.return_value.list_org_datasets.assert_called_once_with("alibaba")
+    MockClient.return_value.list_org_datasets.assert_called_once_with("alibaba", offset=0, limit=None)
     MockClient.return_value.list_all_datasets.assert_not_called()
     MockClient.return_value.list_organizations.assert_not_called()
     out = capsys.readouterr().out
     assert "alibaba" in out and "pinch" in out and "webdev" in out
-    assert "2 datasets in 1 organizations." in out
 
 
 def test_list_empty_prints_no_datasets_message(capsys):
@@ -277,7 +278,9 @@ def test_list_empty_prints_no_datasets_message(capsys):
 
     with patch.object(DatasetsCommand, "_build_oss_registry_info", return_value=make_registry_info()):
         with patch("rock.cli.command.datasets.DatasetClient") as MockClient:
-            MockClient.return_value.list_all_datasets.return_value = []
+            MockClient.return_value.list_all_datasets.return_value = PageResult(
+                items=[], total=0, offset=0, limit=None
+            )
             asyncio.run(cmd._list(args))
 
     out = capsys.readouterr().out
@@ -290,7 +293,9 @@ def test_list_depth_1_empty_prints_no_organizations_message(capsys):
 
     with patch.object(DatasetsCommand, "_build_oss_registry_info", return_value=make_registry_info()):
         with patch("rock.cli.command.datasets.DatasetClient") as MockClient:
-            MockClient.return_value.list_organizations.return_value = []
+            MockClient.return_value.list_organizations.return_value = PageResult(
+                items=[], total=0, offset=0, limit=None
+            )
             asyncio.run(cmd._list(args))
 
     out = capsys.readouterr().out
@@ -327,15 +332,17 @@ def test_splits_lists_split_names(capsys):
 
     with patch.object(DatasetsCommand, "_build_oss_registry_info", return_value=make_registry_info()):
         with patch("rock.cli.command.datasets.DatasetClient") as MockClient:
-            MockClient.return_value.list_dataset_splits.return_value = ["test", "train"]
+            MockClient.return_value.list_dataset_splits.return_value = PageResult(
+                items=["test", "train"], total=2, offset=0, limit=None
+            )
             asyncio.run(cmd._splits(args))
 
-    MockClient.return_value.list_dataset_splits.assert_called_once_with("alibaba", "pinch")
+    MockClient.return_value.list_dataset_splits.assert_called_once_with("alibaba", "pinch", offset=0, limit=None)
     out = capsys.readouterr().out
     assert "Split" in out
     assert "test" in out
     assert "train" in out
-    assert "2 splits." in out
+    assert "2 total." in out
 
 
 def test_splits_empty_prints_no_splits_message(capsys):
@@ -344,7 +351,9 @@ def test_splits_empty_prints_no_splits_message(capsys):
 
     with patch.object(DatasetsCommand, "_build_oss_registry_info", return_value=make_registry_info()):
         with patch("rock.cli.command.datasets.DatasetClient") as MockClient:
-            MockClient.return_value.list_dataset_splits.return_value = []
+            MockClient.return_value.list_dataset_splits.return_value = PageResult(
+                items=[], total=0, offset=0, limit=None
+            )
             asyncio.run(cmd._splits(args))
 
     out = capsys.readouterr().out
@@ -357,11 +366,13 @@ def test_splits_singular_footer_for_one_split(capsys):
 
     with patch.object(DatasetsCommand, "_build_oss_registry_info", return_value=make_registry_info()):
         with patch("rock.cli.command.datasets.DatasetClient") as MockClient:
-            MockClient.return_value.list_dataset_splits.return_value = ["test"]
+            MockClient.return_value.list_dataset_splits.return_value = PageResult(
+                items=["test"], total=1, offset=0, limit=None
+            )
             asyncio.run(cmd._splits(args))
 
     out = capsys.readouterr().out
-    assert "1 split." in out
+    assert "1 total." in out
 
 
 def test_splits_parser_requires_org_and_dataset():
