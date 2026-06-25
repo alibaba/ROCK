@@ -299,6 +299,16 @@ class TestOnRestart:
         assert updated_info["state"] == State.PENDING
 
     @pytest.mark.asyncio
+    async def test_clears_stale_phases_on_restart(self, mock_meta_store):
+        info = dict(_VALID_RESTART_INFO)
+        info["phases"] = {"image_pull": {"status": "done", "message": "ok"}}
+        info["stop_time"] = "2026-01-01T01:00:00+08:00"
+        await self._send_restart(mock_meta_store, sandbox_info=info)
+        updated_info = mock_meta_store.update.call_args[0][1]
+        assert "phases" not in updated_info
+        assert "stop_time" not in updated_info
+
+    @pytest.mark.asyncio
     async def test_writes_timeout_built_from_spec(self, mock_meta_store):
         # auto_clear_time_minutes=30 in spec → make_timeout_info uses 30
         await self._send_restart(mock_meta_store)

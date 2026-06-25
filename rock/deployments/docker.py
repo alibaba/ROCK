@@ -970,6 +970,10 @@ class DockerDeployment(AbstractDeployment):
 
         logger.info(f"Restarting container {self._container_name} with docker start")
 
+        self._service_status.update_status(
+            phase_name="image_pull", status=Status.SUCCESS, message="skip image pull on restart"
+        )
+
         # Reuse the same Popen-based attached start used by start(), so the
         # restart path also produces a valid self._container_process. Without
         # this, _stop() would skip its `if self._container_process is not None`

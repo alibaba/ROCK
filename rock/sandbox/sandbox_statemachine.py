@@ -156,6 +156,7 @@ class SandboxStateMachine(StateChart):
         new_info = dict(info)
         new_info["state"] = RockState.PENDING
         new_info.pop("stop_time", None)
+        new_info.pop("phases", None)
         await meta_store.update(sandbox_id, new_info)
         await meta_store.update_timeout(sandbox_id, timeout_info)
 
