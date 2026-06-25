@@ -116,6 +116,21 @@ async def test_registry_only_miss_falls_back_to_namespace_replace(restore_sandbo
     assert stub_manifest_probe.probes[1]["repo"] == "rock-public/python"
 
 
+async def test_original_namespace_equals_mirror_namespace_deduplicates(restore_sandbox_manager, stub_manifest_probe):
+    """When original namespace matches mirror namespace, only one candidate is probed (no redundant request)."""
+    sandbox_api.sandbox_manager = _make_manager(
+        [ImageRegistryMirror(registry="rock-a.example.com", namespace="foo")]
+    )
+    config = DockerDeploymentConfig(image="gcr.io/foo/python:3.11")
+    stub_manifest_probe.probe_results.append(True)
+
+    await sandbox_api._apply_image_registry_mirror(config)
+
+    assert config.image == "rock-a.example.com/foo/python:3.11"
+    assert len(stub_manifest_probe.probes) == 1
+    assert stub_manifest_probe.probes[0]["repo"] == "foo/python"
+
+
 async def test_second_mirror_hit_after_first_miss(restore_sandbox_manager, stub_manifest_probe):
     """No original namespace (bare image) — only namespace-replace candidates are tried."""
     sandbox_api.sandbox_manager = _make_manager(

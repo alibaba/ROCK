@@ -229,7 +229,8 @@ async def _apply_image_registry_mirror(config: DockerDeploymentConfig) -> None:
         candidates = []
         if original_namespace:
             candidates.append((f"{mirror.registry}/{original_namespace}/{name_tag}", f"{original_namespace}/{image_name}"))
-        candidates.append((f"{mirror.registry}/{mirror.namespace}/{name_tag}", f"{mirror.namespace}/{image_name}"))
+        if original_namespace != mirror.namespace:
+            candidates.append((f"{mirror.registry}/{mirror.namespace}/{name_tag}", f"{mirror.namespace}/{image_name}"))
 
         for candidate, repo in candidates:
             cached = _probe_cache_get(candidate)
