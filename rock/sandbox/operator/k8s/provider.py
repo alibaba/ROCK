@@ -619,16 +619,17 @@ class BatchSandboxProvider(K8sProvider):
         return manifest
 
     def _encrypt_image_auth(self, config: DockerDeploymentConfig) -> str | None:
-        """Encrypt registry credentials or return 'public' for anonymous pull.
+        """Encrypt registry credentials into the pouch auth format.
 
         Returns:
-            Encrypted auth string, 'public' for anonymous pull, or None if
-            no image auth key is configured.
+            Encrypted auth string, or None if no key/credentials are available.
+            The template can use ``{{ encrypted_image_auth | default('public', true) }}``
+            to render 'public' when this returns None.
         """
         if not self._image_auth_key:
             return None
         if not config.registry_username and not config.registry_password:
-            return "public"
+            return None
 
         try:
             auth_plaintext = base64.b64encode(

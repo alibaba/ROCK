@@ -546,7 +546,7 @@ IMAGE_AUTH_TEMPLATE = {
             "metadata": {
                 "labels": {"app": "test"},
                 "annotations": {
-                    IMAGE_AUTH_ANNOTATION: "{{ encrypted_image_auth }}"
+                    IMAGE_AUTH_ANNOTATION: "{{ encrypted_image_auth | default('public', true) }}"
                 },
             },
             "spec": {"containers": [{"name": "main", "image": "python:3.11"}]},
@@ -583,7 +583,7 @@ class TestBuildBatchSandboxManifestImageAuth:
         encrypted = annotations[IMAGE_AUTH_ANNOTATION]
         assert len(encrypted) > 0  # base64 encoded ciphertext
 
-    async def test_no_encrypted_auth_when_key_missing(self, monkeypatch):
+    async def test_public_auth_when_key_missing(self, monkeypatch):
         monkeypatch.delenv("ROCK_IMAGE_AUTH_KEY", raising=False)
         provider = _make_provider_with_templates(IMAGE_AUTH_TEMPLATE)
         config = make_config()
@@ -592,8 +592,8 @@ class TestBuildBatchSandboxManifestImageAuth:
 
         manifest = await provider._build_batchsandbox_manifest(config)
 
-        annotations = manifest["spec"]["template"]["metadata"].get("annotations", {})
-        assert IMAGE_AUTH_ANNOTATION not in annotations
+        annotations = manifest["spec"]["template"]["metadata"]["annotations"]
+        assert annotations[IMAGE_AUTH_ANNOTATION] == "public"
 
     async def test_public_auth_when_credentials_missing(self, monkeypatch):
         monkeypatch.setenv("ROCK_IMAGE_AUTH_KEY", "0" * 32)
