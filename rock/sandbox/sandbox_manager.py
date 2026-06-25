@@ -120,7 +120,9 @@ class SandboxManager(BaseManager):
     async def start_async(
         self, config: DeploymentConfig, user_info: UserInfo = {}, cluster_info: ClusterInfo = {}
     ) -> SandboxStartResponse:
-        await self._check_sandbox_exists_in_redis(config)
+        total_start = time.perf_counter()
+        with StageTimer("startup_timing", f"[{config.image}] Redis exists check", logger):
+            await self._check_sandbox_exists_in_redis(config)
         self.validate_sandbox_spec(self.rock_config.runtime, config)
         with StageTimer("startup_timing", f"[{config.image}] Init config", logger):
             docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(config)
@@ -134,17 +136,20 @@ class SandboxManager(BaseManager):
             )
             docker_deployment_config.cpus = self.rock_config.runtime.standard_spec.cpus
             docker_deployment_config.memory = self.rock_config.runtime.standard_spec.memory
-        with StageTimer("startup_timing", f"[{sandbox_id}] Operator submit", logger):
+        with StageTimer("startup_timing", f"[{sandbox_id}] Ray operator submit", logger):
             sandbox_info: SandboxInfo = await self._operator.submit(docker_deployment_config, user_info)
-        await self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)
-        timeout_info = SandboxTimeoutHelper.make_timeout_info(docker_deployment_config.auto_clear_time)
-        with StageTimer("startup_timing", f"[{sandbox_id}] Meta store create", logger):
+        with StageTimer("startup_timing", f"[{sandbox_id}] Build sandbox metadata", logger):
+            await self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)
+            timeout_info = SandboxTimeoutHelper.make_timeout_info(docker_deployment_config.auto_clear_time)
+        with StageTimer("startup_timing", f"[{sandbox_id}] Meta store create (Redis+DB)", logger):
             await self._meta_store.create(
                 sandbox_id,
                 sandbox_info,
                 timeout_info=timeout_info,
                 deployment_config=docker_deployment_config,
             )
+        total_duration = time.perf_counter() - total_start
+        logger.info(f"[startup_timing] [{sandbox_id}] start_async total took {total_duration:.3f} s")
         return SandboxStartResponse(
             sandbox_id=sandbox_id,
             host_name=sandbox_info.get("host_name"),
@@ -272,22 +277,27 @@ class SandboxManager(BaseManager):
 
     @monitor_sandbox_operation()
     async def get_status(self, sandbox_id, include_all_states: bool = False) -> SandboxStatusResponse:
-        # get status from meta_store
-        sm = await self._get_current_statemachine(sandbox_id)
+        total_start = time.perf_counter()
+
+        # get status from meta_store (Redis + DB fallback)
+        with StageTimer("get_status_timing", f"[{sandbox_id}] Meta store get (Redis+DB)", logger):
+            sm = await self._get_current_statemachine(sandbox_id)
         if sm is None:
             raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
 
-        # update status from operator
+        # update status from operator (Ray)
         is_alive = False
         operator_sandbox_info: SandboxInfo | None = await self._operator.get_status(sandbox_id=sandbox_id)
         if operator_sandbox_info is not None:
             is_alive = operator_sandbox_info.get("state") == State.RUNNING
             if sm.current_state.value == State.PENDING and is_alive:
-                await sm.send(
-                    "alive", sandbox_id=sandbox_id, meta_store=self._meta_store, sandbox_info=operator_sandbox_info
-                )
+                with StageTimer("get_status_timing", f"[{sandbox_id}] Meta store alive update (Redis+DB)", logger):
+                    await sm.send(
+                        "alive", sandbox_id=sandbox_id, meta_store=self._meta_store, sandbox_info=operator_sandbox_info
+                    )
             if operator_sandbox_info.get("state") in (State.PENDING, State.RUNNING):
-                await self._refresh_timeout(sandbox_id)
+                with StageTimer("get_status_timing", f"[{sandbox_id}] Redis refresh timeout", logger):
+                    await self._refresh_timeout(sandbox_id)
 
         # compat with legacy get_status behavior by default (include_all_states == False),
         # raise 'not found' if not on pending or running status.
@@ -298,6 +308,9 @@ class SandboxManager(BaseManager):
             sandbox_info = operator_sandbox_info
         else:
             sandbox_info = sm.sandbox_info
+
+        total_duration = time.perf_counter() - total_start
+        logger.info(f"[get_status_timing] [{sandbox_id}] get_status total took {total_duration:.3f} s")
 
         return SandboxStatusResponse(
             sandbox_id=sandbox_id,
