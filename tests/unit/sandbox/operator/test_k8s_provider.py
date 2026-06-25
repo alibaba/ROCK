@@ -534,3 +534,73 @@ class TestBuildBatchSandboxManifestCpuOvercommit:
         container = manifest["spec"]["template"]["spec"]["containers"][0]
         assert container["resources"]["requests"]["cpu"] == "4.0"
         assert container["resources"]["limits"]["cpu"] == "4.0"
+
+
+IMAGE_AUTH_ANNOTATION = "example.com/encrypted-image-auth"
+
+IMAGE_AUTH_TEMPLATE = {
+    "default": {
+        "namespace": "rock-test",
+        "ports": {"proxy": 8000, "server": 8080, "ssh": 22},
+        "template": {
+            "metadata": {
+                "labels": {"app": "test"},
+                "annotations": {
+                    IMAGE_AUTH_ANNOTATION: "{{ encrypted_image_auth | default('public', true) }}"
+                },
+            },
+            "spec": {"containers": [{"name": "main", "image": "python:3.11"}]},
+        },
+    }
+}
+
+
+def _make_provider_with_templates(templates: dict) -> BatchSandboxProvider:
+    return BatchSandboxProvider(
+        k8s_config=K8sConfig(
+            kubeconfig_path=None,
+            templates=templates,
+            template_map={},
+        )
+    )
+
+
+class TestBuildBatchSandboxManifestImageAuth:
+    """build_manifest must pass encrypted image auth to the template so the
+    template can render it into the desired annotation."""
+
+    async def test_renders_encrypted_image_auth_from_template(self, monkeypatch):
+        monkeypatch.setenv("ROCK_IMAGE_AUTH_KEY", "0" * 32)
+        provider = _make_provider_with_templates(IMAGE_AUTH_TEMPLATE)
+        config = make_config()
+        config.registry_username = "user"
+        config.registry_password = "pass"
+
+        manifest = await provider._build_batchsandbox_manifest(config)
+
+        annotations = manifest["spec"]["template"]["metadata"]["annotations"]
+        assert IMAGE_AUTH_ANNOTATION in annotations
+        encrypted = annotations[IMAGE_AUTH_ANNOTATION]
+        assert len(encrypted) > 0  # base64 encoded ciphertext
+
+    async def test_public_auth_when_key_missing(self, monkeypatch):
+        monkeypatch.delenv("ROCK_IMAGE_AUTH_KEY", raising=False)
+        provider = _make_provider_with_templates(IMAGE_AUTH_TEMPLATE)
+        config = make_config()
+        config.registry_username = "user"
+        config.registry_password = "pass"
+
+        manifest = await provider._build_batchsandbox_manifest(config)
+
+        annotations = manifest["spec"]["template"]["metadata"]["annotations"]
+        assert annotations[IMAGE_AUTH_ANNOTATION] == "public"
+
+    async def test_public_auth_when_credentials_missing(self, monkeypatch):
+        monkeypatch.setenv("ROCK_IMAGE_AUTH_KEY", "0" * 32)
+        provider = _make_provider_with_templates(IMAGE_AUTH_TEMPLATE)
+        config = make_config()
+
+        manifest = await provider._build_batchsandbox_manifest(config)
+
+        annotations = manifest["spec"]["template"]["metadata"]["annotations"]
+        assert annotations[IMAGE_AUTH_ANNOTATION] == "public"

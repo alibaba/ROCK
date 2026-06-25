@@ -348,3 +348,32 @@ class TestK8sTemplateLoader:
         container = manifest["spec"]["template"]["spec"]["containers"][0]
         assert "ephemeral-storage" not in container["resources"]["requests"]
         assert "ephemeral-storage" not in container["resources"]["limits"]
+
+    def test_build_manifest_passes_encrypted_image_auth(self):
+        """Test that encrypted_image_auth is exposed to the template."""
+        templates = {
+            "default": {
+                "ports": {"proxy": 8000, "server": 8080, "ssh": 22},
+                "template": {
+                    "metadata": {
+                        "annotations": {
+                            "example.com/image-auth": "{{ encrypted_image_auth }}",
+                        }
+                    },
+                    "spec": {"containers": [{"name": "main", "image": "python:3.11"}]},
+                },
+            }
+        }
+        loader = K8sTemplateLoader(templates=templates, default_namespace="rock-test")
+
+        manifest = loader.build_manifest(
+            template_name="default",
+            sandbox_id="test-sandbox",
+            image="python:3.11",
+            cpus=2.0,
+            memory="4Gi",
+            encrypted_image_auth="dGVzdC1lbmNyeXB0ZWQ=",
+        )
+
+        annotations = manifest["spec"]["template"]["metadata"]["annotations"]
+        assert annotations["example.com/image-auth"] == "dGVzdC1lbmNyeXB0ZWQ="

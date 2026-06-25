@@ -63,6 +63,7 @@ class K8sTemplateLoader:
         num_gpus: int | None = None,
         accelerator_type: str | None = None,
         limit_cpus: float | None = None,
+        encrypted_image_auth: str | None = None,
     ) -> dict[str, Any]:
         """Build a complete BatchSandbox manifest from template.
 
@@ -87,6 +88,9 @@ class K8sTemplateLoader:
         overcommit baseline. A ``limit_cpus > cpus`` value lets the container
         burst above its reservation, mirroring the Ray path's ``--cpus`` flag.
 
+        Image auth variables are passed to the template so the template itself
+        can decide where to render them (e.g. encrypted-image-auth annotation).
+
         Args:
             template_name: Name of the template to use.
             sandbox_id: Sandbox identifier (auto-generated if missing).
@@ -99,6 +103,8 @@ class K8sTemplateLoader:
             limit_cpus: CPU hard cap for overcommit (rendered via
                 {{ limit_cpus }}). When None, falls back to ``cpus`` to keep
                 requests.cpu == limits.cpu.
+            encrypted_image_auth: Pre-encrypted pouch auth string
+                (rendered via {{ encrypted_image_auth }}).
 
         Returns:
             Complete BatchSandbox manifest.
@@ -132,6 +138,7 @@ class K8sTemplateLoader:
             "num_gpus": num_gpus if num_gpus is not None else "",
             "accelerator_type": accelerator_type if accelerator_type is not None else "",
             "limit_cpus": str(effective_limit_cpus) if effective_limit_cpus is not None else "",
+            "encrypted_image_auth": encrypted_image_auth if encrypted_image_auth is not None else "",
         }
 
         rendered = render_node(config, self._jinja_env, ctx)
