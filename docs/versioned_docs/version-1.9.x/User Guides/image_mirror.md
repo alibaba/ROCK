@@ -55,9 +55,9 @@ Mirror images from a source registry to the ROCK target registry.
 
 ```bash
 rock image mirror -f <file> \
-  --target-registry <target_registry_url> \
-  --target-username <target_username> \
-  --target-password <target_password> \
+  [--target-registry <target_registry_url>] \
+  [--target-username <target_username>] \
+  [--target-password <target_password>] \
   [--source-registry <source_registry_url>] \
   [--source-username <source_username>] \
   [--source-password <source_password>] \
@@ -70,45 +70,43 @@ rock image mirror -f <file> \
 | Parameter | Description |
 |-----------|-------------|
 | `-f, --file` | Path to the JSONL file containing the image list |
-| `--target-registry` | Target ACR registry URL (the ROCK image registry) |
-| `--target-username` | Target registry username |
-| `--target-password` | Target registry password |
 
 #### Optional Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
+| `--target-registry` | Built-in (rock-instances Singapore) | Target ACR registry URL. Defaults to the ROCK image registry, usually no need to specify |
+| `--target-username` | Built-in | Target registry username. Defaults to the built-in ROCK ACR credential |
+| `--target-password` | Built-in | Target registry password. Defaults to the built-in ROCK ACR credential |
 | `--source-registry` | *(none)* | Source registry URL. Required only when the source registry needs authentication |
 | `--source-username` | *(none)* | Source registry username |
 | `--source-password` | *(none)* | Source registry password |
 | `--mode` | `local` | Mirror mode: `local` (run on current machine) or `remote` (run on ROCK sandboxes) |
 | `--concurrency` | `3` | Number of concurrent mirror tasks (1–50). Only applies to `remote` mode |
 
+> **Note:** The `--target-registry`, `--target-username`, and `--target-password` are built into `rockcli` by default, pointing to the ROCK ACR (rock-instances). In most cases you only need to provide `-f` to start mirroring.
+
 ## Usage Examples
 
 ### Mirror Public Images (Local Mode)
 
-For images from public registries (Docker Hub, etc.) that don't need authentication:
+For images from public registries (Docker Hub, etc.) that don't need authentication, simply provide the image list file:
 
 ```bash
-rock image mirror -f images.jsonl \
-  --target-registry rock-instances-registry.ap-southeast-1.cr.aliyuncs.com \
-  --target-username <your_target_username> \
-  --target-password <your_target_password>
+rock image mirror -f images.jsonl
 ```
+
+The built-in target registry credentials are used automatically.
 
 ### Mirror Private Images (Local Mode)
 
-When the source images require authentication:
+When the source images require authentication, provide the source registry credentials:
 
 ```bash
 rock image mirror -f images.jsonl \
   --source-registry ghcr.io \
   --source-username <your_source_username> \
-  --source-password <your_source_password> \
-  --target-registry rock-instances-registry.ap-southeast-1.cr.aliyuncs.com \
-  --target-username <your_target_username> \
-  --target-password <your_target_password>
+  --source-password <your_source_password>
 ```
 
 ### Mirror Images in Remote Mode
@@ -119,24 +117,19 @@ For large-scale mirroring, use `remote` mode to distribute tasks across multiple
 rock --auth-token <token> --cluster <cluster_name> \
   image mirror -f images.jsonl \
   --mode remote \
-  --concurrency 10 \
-  --target-registry rock-instances-registry.ap-southeast-1.cr.aliyuncs.com \
-  --target-username <your_target_username> \
-  --target-password <your_target_password>
+  --concurrency 10
 ```
 
 ### Mirror Directly to Shanghai
 
-If ACR cross-region sync is blocked or too slow, you can bypass it by mirroring directly to the Shanghai registry. Specify `--cluster vpc-nt-a` to run the remote tasks on the Shanghai cluster:
+If ACR cross-region sync is blocked or too slow, you can bypass it by mirroring directly to the Shanghai registry. Specify `--cluster vpc-nt-a` to run the remote tasks on the Shanghai cluster, and override `--target-registry` to the Shanghai endpoint:
 
 ```bash
 rock --auth-token <token> --cluster vpc-nt-a \
   image mirror -f images.jsonl \
   --mode remote \
   --concurrency 10 \
-  --target-registry rock-instances-registry.cn-hangzhou.cr.aliyuncs.com \
-  --target-username <your_target_username> \
-  --target-password <your_target_password>
+  --target-registry rock-instances-registry.cn-hangzhou.cr.aliyuncs.com
 ```
 
 ## How It Works

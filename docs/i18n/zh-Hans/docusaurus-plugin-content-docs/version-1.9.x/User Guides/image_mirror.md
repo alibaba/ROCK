@@ -55,9 +55,9 @@ rock --help
 
 ```bash
 rock image mirror -f <file> \
-  --target-registry <target_registry_url> \
-  --target-username <target_username> \
-  --target-password <target_password> \
+  [--target-registry <target_registry_url>] \
+  [--target-username <target_username>] \
+  [--target-password <target_password>] \
   [--source-registry <source_registry_url>] \
   [--source-username <source_username>] \
   [--source-password <source_password>] \
@@ -70,45 +70,43 @@ rock image mirror -f <file> \
 | 参数 | 说明 |
 |------|------|
 | `-f, --file` | 包含镜像列表的 JSONL 文件路径 |
-| `--target-registry` | 目标 ACR 仓库地址（ROCK 镜像仓库） |
-| `--target-username` | 目标仓库用户名 |
-| `--target-password` | 目标仓库密码 |
 
 #### 可选参数
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
+| `--target-registry` | 内置（rock-instances 新加坡） | 目标 ACR 仓库地址，默认指向 ROCK 镜像仓库，通常无需指定 |
+| `--target-username` | 内置 | 目标仓库用户名，默认使用内置的 ROCK ACR 凭证 |
+| `--target-password` | 内置 | 目标仓库密码，默认使用内置的 ROCK ACR 凭证 |
 | `--source-registry` | *（无）* | 源仓库地址。仅当源仓库需要认证时使用 |
 | `--source-username` | *（无）* | 源仓库用户名 |
 | `--source-password` | *（无）* | 源仓库密码 |
 | `--mode` | `local` | 转储模式：`local`（在本机执行）或 `remote`（在 ROCK 沙箱中分布式执行） |
 | `--concurrency` | `3` | 并发转储任务数（1–50），仅在 `remote` 模式下生效 |
 
+> **说明：** `--target-registry`、`--target-username` 和 `--target-password` 已内置于 `rockcli` 中，默认指向 ROCK ACR（rock-instances）。大多数情况下只需提供 `-f` 即可开始转储。
+
 ## 使用示例
 
 ### 转储公共镜像（Local 模式）
 
-对于来自公共仓库（Docker Hub 等）的镜像，无需源仓库认证：
+对于来自公共仓库（Docker Hub 等）的镜像，无需源仓库认证，只需提供镜像列表文件即可：
 
 ```bash
-rock image mirror -f images.jsonl \
-  --target-registry rock-instances-registry.ap-southeast-1.cr.aliyuncs.com \
-  --target-username <your_target_username> \
-  --target-password <your_target_password>
+rock image mirror -f images.jsonl
 ```
+
+目标仓库凭证将自动使用内置默认值。
 
 ### 转储私有镜像（Local 模式）
 
-当源镜像需要认证时：
+当源镜像需要认证时，提供源仓库凭证：
 
 ```bash
 rock image mirror -f images.jsonl \
   --source-registry ghcr.io \
   --source-username <your_source_username> \
-  --source-password <your_source_password> \
-  --target-registry rock-instances-registry.ap-southeast-1.cr.aliyuncs.com \
-  --target-username <your_target_username> \
-  --target-password <your_target_password>
+  --source-password <your_source_password>
 ```
 
 ### 转储镜像（Remote 模式）
@@ -119,24 +117,19 @@ rock image mirror -f images.jsonl \
 rock --auth-token <token> --cluster <cluster_name> \
   image mirror -f images.jsonl \
   --mode remote \
-  --concurrency 10 \
-  --target-registry rock-instances-registry.ap-southeast-1.cr.aliyuncs.com \
-  --target-username <your_target_username> \
-  --target-password <your_target_password>
+  --concurrency 10
 ```
 
 ### 直接转储到上海
 
-如果 ACR 跨区域同步出现阻塞或延迟，可以绕过同步机制，直接转储到上海仓库。指定 `--cluster vpc-nt-a` 在上海集群上执行远程任务：
+如果 ACR 跨区域同步出现阻塞或延迟，可以绕过同步机制，直接转储到上海仓库。指定 `--cluster vpc-nt-a` 在上海集群上执行远程任务，并覆盖 `--target-registry` 为上海地址：
 
 ```bash
 rock --auth-token <token> --cluster vpc-nt-a \
   image mirror -f images.jsonl \
   --mode remote \
   --concurrency 10 \
-  --target-registry rock-instances-registry.cn-hangzhou.cr.aliyuncs.com \
-  --target-username <your_target_username> \
-  --target-password <your_target_password>
+  --target-registry rock-instances-registry.cn-hangzhou.cr.aliyuncs.com
 ```
 
 ## 工作原理
