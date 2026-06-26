@@ -222,8 +222,7 @@ def test_upload_dataset_new_tasks(tmp_path):
     assert result.uploaded == 2
     assert result.skipped == 0
     assert result.failed == 0
-    upload_calls = [c for c in mock_bucket.put_object.call_args_list if not c[0][0].startswith("meta/")]
-    assert len(upload_calls) == 2
+    assert mock_bucket.put_object.call_count == 2
 
 
 def test_upload_dataset_skips_existing(tmp_path):
@@ -242,8 +241,7 @@ def test_upload_dataset_skips_existing(tmp_path):
 
     assert result.uploaded == 0
     assert result.skipped == 1
-    upload_calls = [c for c in mock_bucket.put_object.call_args_list if not c[0][0].startswith("meta/")]
-    assert len(upload_calls) == 0
+    mock_bucket.put_object.assert_not_called()
 
 
 def test_upload_dataset_overwrite(tmp_path):
@@ -262,8 +260,7 @@ def test_upload_dataset_overwrite(tmp_path):
 
     assert result.uploaded == 1
     assert result.skipped == 0
-    upload_calls = [c for c in mock_bucket.put_object.call_args_list if not c[0][0].startswith("meta/")]
-    assert len(upload_calls) == 1
+    assert mock_bucket.put_object.call_count == 1
 
 
 def test_upload_dataset_oss_key_format(tmp_path):
@@ -278,8 +275,7 @@ def test_upload_dataset_oss_key_format(tmp_path):
     with patch.object(registry, "_build_bucket", return_value=mock_bucket):
         registry.upload_dataset(source, target)
 
-    upload_calls = [c for c in mock_bucket.put_object.call_args_list if not c[0][0].startswith("meta/")]
-    assert upload_calls[0][0][0] == "datasets/qwen/my-bench/train/task-001/task.toml"
+    assert mock_bucket.put_object.call_args[0][0] == "datasets/qwen/my-bench/train/task-001/task.toml"
 
 
 # ---------------------------------------------------------------------------
@@ -1048,7 +1044,7 @@ def test_get_dataset_falls_back_when_meta_incomplete():
     assert info.task_counts == {"test": 50, "train": 1}
 
 
-def test_upload_dataset_updates_meta(tmp_path):
+def test_upload_dataset_does_not_update_meta(tmp_path):
     (tmp_path / "task-001").mkdir()
     (tmp_path / "task-001" / "data.json").write_text("{}")
 
@@ -1061,8 +1057,7 @@ def test_upload_dataset_updates_meta(tmp_path):
         registry.upload_dataset(source, target)
 
     meta_calls = [c for c in mock_bucket.put_object.call_args_list if c[0][0].startswith("meta/")]
-    assert len(meta_calls) == 1
-    assert meta_calls[0][0][0] == "meta/qwen/my-bench/meta.json"
+    assert len(meta_calls) == 0
 
 
 def test_refresh_metadata_counts_all_splits():
@@ -1109,7 +1104,7 @@ def test_sync_dataset_dry_run():
     assert result.summary.to_copy == 1
 
 
-def test_sync_dataset_execute_refreshes_target_meta():
+def test_sync_dataset_execute_does_not_refresh_meta():
     from rock.sdk.envhub.datasets.sync import DatasetSyncResult, DatasetSyncSummary
 
     registry = OssDatasetRegistry(make_registry_info())
@@ -1125,8 +1120,8 @@ def test_sync_dataset_execute_refreshes_target_meta():
     with patch.object(registry, "_build_bucket", return_value=MagicMock()):
         with patch("rock.sdk.envhub.datasets.registry.oss.DatasetSyncService") as MockService:
             MockService.return_value.sync.return_value = expected
-            with patch("rock.sdk.envhub.datasets.registry.oss.OssDatasetRegistry.refresh_metadata") as mock_refresh:
+            with patch.object(registry, "refresh_metadata") as mock_refresh:
                 result = registry.sync_dataset("qwen/bench", target_info, dry_run=False)
 
     assert result.summary.copied == 2
-    mock_refresh.assert_called_once_with("qwen", "bench")
+    mock_refresh.assert_not_called()

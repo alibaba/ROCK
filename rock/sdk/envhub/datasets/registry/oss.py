@@ -647,16 +647,6 @@ class OssDatasetRegistry(BaseDatasetRegistry):
                 uploaded += 1
                 print(f"  ✓ {task_id}  ({outcome} files)")
 
-        if uploaded > 0 or skipped > 0:
-            try:
-                split_prefix = f"{self._build_prefix(org, name, split)}/"
-                count = self._count_dir_entries(split_prefix)
-                meta = self._read_meta(org, name) or {"splits": {}}
-                meta.setdefault("splits", {})[split] = {"task_count": count}
-                self._write_meta(org, name, meta)
-            except Exception:
-                logger.warning("Failed to update meta for %s/%s", org, name, exc_info=True)
-
         return UploadResult(
             id=f"{org}/{name}",
             split=split,
@@ -687,13 +677,4 @@ class OssDatasetRegistry(BaseDatasetRegistry):
         org, name = dataset.split("/", 1)
         path = f"{org}/{name}/{split}" if split else f"{org}/{name}"
 
-        result = service.sync(dataset=path, scope="folder", dry_run=dry_run, delete_extra=delete_extra)
-
-        if not dry_run and result.summary.copied > 0:
-            try:
-                target_registry = OssDatasetRegistry(target)
-                target_registry.refresh_metadata(org, name)
-            except Exception:
-                logger.warning("Failed to refresh meta on target for %s", dataset, exc_info=True)
-
-        return result
+        return service.sync(dataset=path, scope="folder", dry_run=dry_run, delete_extra=delete_extra)
