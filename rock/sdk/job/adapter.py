@@ -32,7 +32,7 @@ class TrackingAdapter(abc.ABC):
     """
 
     @abc.abstractmethod
-    def init(self, *, project: str, run_name: str, config: dict[str, Any]) -> None:
+    def init(self, *, namespace: str, experiment_id: str, job_id: str, config: dict[str, Any]) -> None:
         """Initialize a tracking session.
 
         Args:

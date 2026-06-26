@@ -106,14 +106,15 @@ class Job:
 
         try:
             config = self._config
-            project = config.namespace or config.experiment_id or config.job_name or "rock-job"
-            run_name = config.job_name or "default"
+            namespace = config.namespace or "rock-namespace"
+            experiment_id = config.experiment_id or "rock-experiment"
+            job_name = config.job_name or "default"
             init_config = {
                 "job_name": config.job_name or "",
                 "namespace": config.namespace or "",
                 "experiment_id": config.experiment_id or "",
             }
-            adapter.init(project=project, run_name=run_name, config=init_config)
+            adapter.init(namespace=namespace, experiment_id=experiment_id, job_id=job_name, config=init_config)
 
             # per-trial metrics
             for i, trial in enumerate(result.trial_results):
