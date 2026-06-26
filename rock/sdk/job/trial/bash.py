@@ -9,7 +9,7 @@ from pathlib import Path
 from rock import env_vars
 from rock.logger import init_logger
 from rock.sdk.job.config import BashJobConfig
-from rock.sdk.job.result import ExceptionInfo, TrialResult
+from rock.sdk.job.result import BashTrialResult, ExceptionInfo, TrialResult
 from rock.sdk.job.trial.abstract import AbstractTrial
 from rock.sdk.job.trial.registry import register_trial
 from rock.sdk.sandbox.client import Sandbox
@@ -156,7 +156,7 @@ class BashTrial(AbstractTrial):
                 exception_message=f"Bash script exited with code {exit_code}",
             )
 
-        return TrialResult(
+        return BashTrialResult(
             task_name=self._config.job_name or "",
             exception_info=exception_info,
             raw_output=output,
