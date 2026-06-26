@@ -12,14 +12,18 @@
   - [OssDatasetRegistry](#ossdatasetregistry)
   - [DatasetClient](#datasetclient)
   - [FormatParser](#formatparser)
+  - [DatasetSyncService](#datasetsyncservice)
 - [SDK 对外接口](#sdk-对外接口)
   - [Listing APIs](#listing-apis)
   - [Query APIs](#query-apis)
   - [Task File Operations](#task-file-operations)
+  - [Metadata Management](#metadata-management)
   - [Upload](#upload)
+  - [Sync](#sync)
   - [Format Parsing](#format-parsing)
 - [CLI 命令](#cli-命令)
 - [分页机制](#分页机制)
+- [元数据缓存机制](#元数据缓存机制)
 - [数据流](#数据流)
 - [错误处理](#错误处理)
 - [性能优化](#性能优化)
@@ -89,6 +93,13 @@ ROCK 的 Datasets SDK（`rock.sdk.envhub.datasets`）提供对 OSS 上 benchmark
 │   │   └── {split2}/
 │   └── {dataset2}/
 └── {organization2}/
+
+meta/                                # 元数据缓存层（与 datasets/ 同级）
+├── {organization}/
+│   └── {dataset}/
+│       ├── {split}.json             # 每 split 的缓存：{"task_count": N}
+│       └── {split2}.json
+└── ...
 ```
 
 **Task 的两种形态**：
@@ -96,6 +107,11 @@ ROCK 的 Datasets SDK（`rock.sdk.envhub.datasets`）提供对 OSS 上 benchmark
 - **文件型 task** — 直接位于 split 目录下的文件（task ID 为去后缀的文件名）
 
 两种形态会被合并去重后返回。
+
+**元数据缓存层**：
+- `meta/{org}/{dataset}/{split}.json` 存储 per-split 的缓存元数据（当前为 `task_count`）
+- 由 `refresh_metadata()` 写入，`get_dataset()` 优先读取
+- `upload_dataset()` 和 `sync_dataset()` 成功后自动刷新
 
 ---
 
@@ -109,6 +125,7 @@ rock/
             ├── __init__.py              # 对外入口：DatasetClient + 全部数据模型
             ├── client.py                # DatasetClient — SDK 统一入口
             ├── models.py                # 数据模型：PageResult, DatasetSpec, DatasetInfo, ...
+            ├── sync.py                  # 跨 Bucket 增量同步：DatasetOssStore + DatasetSyncService
             ├── registry/
             │   ├── base.py              # BaseDatasetRegistry — 抽象基类
             │   └── oss.py               # OssDatasetRegistry — OSS 后端实现
@@ -253,14 +270,16 @@ class UploadResult:
 
 `rock/sdk/envhub/datasets/registry/base.py` — 抽象基类，定义了 Dataset Registry 的完整接口契约。
 
-接口分为四组：
+接口分为六组：
 
 | 组别 | 方法 | 说明 |
 |------|------|------|
 | Listing | `list_organizations`, `list_org_datasets`, `list_dataset_splits`, `list_all_datasets`, `list_datasets`, `list_dataset_tasks`, `list_dataset_task_entries` | 各层级的列表查询，均返回 `PageResult` |
 | Query | `get_dataset`, `get_task`, `get_task_metadata` | 单个资源的详情查询 |
 | File Ops | `list_task_files`, `browse_task_files`, `read_task_file`, `download_task_file`, `download_task` | task 内文件的浏览、读取、下载 |
+| Metadata | `refresh_metadata` | 重新计算 per-split task 数量并写入缓存 |
 | Upload | `upload_dataset` | 上传本地数据集到 registry |
+| Sync | `sync_dataset` | 跨 Bucket 增量同步数据集 |
 
 ### OssDatasetRegistry
 
@@ -287,6 +306,30 @@ class UploadResult:
 6. **目录浏览** — `browse_task_files()` 使用 `delimiter="/"` 实现单层目录浏览，目录排在文件前，自动推测文件的 MIME 类型。
 
 7. **下载** — `download_task()` 使用 `ThreadPoolExecutor` 并发下载 task 下所有文件，默认 4 并发。自动创建本地目录结构。
+
+8. **元数据缓存（per-split meta）** — 将每个 split 的 task 数量缓存到 `meta/{org}/{dataset}/{split}.json`，避免每次 `get_dataset()` 都实时计数。
+
+   - `_read_split_meta(org, dataset, split)` — 读取缓存，不存在返回 `None`
+   - `_write_split_meta(org, dataset, split, meta)` — 写入缓存（JSON 格式）
+   - `refresh_metadata(org, dataset, split=None)` — 重新计算并写入缓存
+   - `get_dataset()` 优先读缓存，缓存缺失时降级到 `_count_dir_entries()` 实时计数
+
+   ```python
+   # 缓存 key: meta/qwen/bench/test.json
+   # 缓存内容: {"task_count": 42}
+   ```
+
+9. **并行计数** — `_count_dir_entries()` 对大规模 split（单页放不下）自动切换并行模式：
+
+   - 单页（≤1000 条）：直接返回 `len(prefix_list)`
+   - 多页 + `concurrency=1`：顺序翻页累加
+   - 多页 + `concurrency>1`：用 `_split_key_range()` 将 ASCII key-space 分成 N 段，`ThreadPoolExecutor` 并行计数后求和
+
+10. **跨 Bucket 同步** — `sync_dataset()` 基于 `DatasetSyncService` 实现增量同步：
+
+    - 对比 source/target 的 key/size/etag 差异
+    - 支持 `dry_run` 预览（返回 `DatasetSyncDiff`）和 `delete_extra` 删除多余文件
+    - 非 dry-run 且有文件拷贝时，自动在 target 上 `refresh_metadata()`
 
 ### DatasetClient
 
@@ -413,9 +456,11 @@ client = DatasetClient(OssRegistryInfo(
 | 13 | `read_task_file(...)` | `bytes` | — | — |
 | 14 | `download_task_file(...)` | `Path` | — | — |
 | 15 | `download_task(...)` | `Path` | — | — |
-| 16 | `upload_dataset(source, target, concurrency)` | `UploadResult` | — | — |
-| 17 | `transfer_images()` | `NotImplementedError` | — | — |
-| 18 | `audit_dataset()` | `NotImplementedError` | — | — |
+| 16 | `refresh_metadata(org, ds, split, concurrency)` | `dict` | — | — |
+| 17 | `upload_dataset(source, target, concurrency)` | `UploadResult` | — | — |
+| 18 | `sync_dataset(dataset, target, split, dry_run, delete_extra)` | `DatasetSyncResult` | — | — |
+| 19 | `transfer_images()` | `NotImplementedError` | — | — |
+| 20 | `audit_dataset()` | `NotImplementedError` | — | — |
 
 ### 1. 列出所有组织
 
@@ -653,13 +698,35 @@ task_dir = client.download_task(
 # Path('/tmp/download/biostatisticians_task1')
 ```
 
-### 16. 上传数据集
+### 16. 刷新元数据缓存
+
+```python
+client.refresh_metadata(organization, dataset, split=None, concurrency=4) -> dict
+```
+
+重新计算每个 split 的 task 数量，写入 `meta/{org}/{dataset}/{split}.json` 缓存。指定 `split` 时仅刷新该 split，否则刷新所有 split。
+
+```python
+# 刷新全部 splits
+meta = client.refresh_metadata("org", "ds")
+# {"splits": {"test": {"task_count": 500}, "train": {"task_count": 1600}}}
+
+# 仅刷新指定 split
+meta = client.refresh_metadata("org", "ds", split="test")
+# {"splits": {"test": {"task_count": 500}}}
+```
+
+**自动触发场景**：
+- `upload_dataset()` — 上传成功后自动刷新对应 split
+- `sync_dataset()` — 非 dry-run 且有文件拷贝时，自动在 target 上刷新
+
+### 17. 上传数据集
 
 ```python
 client.upload_dataset(source, target, concurrency=4) -> UploadResult
 ```
 
-将本地目录结构上传到 OSS。每个子目录作为一个 task 上传。
+将本地目录结构上传到 OSS。每个子目录作为一个 task 上传。上传成功后自动调用 `refresh_metadata()` 刷新缓存。
 
 ```python
 from rock.sdk.bench.models.job.config import LocalDatasetConfig, RegistryDatasetConfig
@@ -672,7 +739,38 @@ result = client.upload_dataset(source, target, concurrency=8)
 # UploadResult(id='org/my-bench', split='test', uploaded=10, skipped=2, failed=0)
 ```
 
-### 17-18. 预留接口
+### 18. 跨 Bucket 同步
+
+```python
+client.sync_dataset(dataset, target, *, split=None, dry_run=True, delete_extra=False) -> DatasetSyncResult
+```
+
+将当前 registry 的数据集增量同步到另一个 OSS Bucket。基于 key/size/etag 对比，仅拷贝变更的文件。
+
+```python
+from rock.sdk.bench.models.job.config import OssRegistryInfo
+
+target = OssRegistryInfo(
+    oss_bucket="target-bucket",
+    oss_endpoint="oss-ap-southeast-1.aliyuncs.com",
+    oss_access_key_id="...",
+    oss_access_key_secret="...",
+)
+
+# 预览模式（dry_run=True，默认）— 只返回差异，不执行拷贝
+result = client.sync_dataset("org/ds", target, split="test")
+print(f"To copy: {result.summary.to_copy}, To delete: {result.summary.to_delete}")
+print(f"Diff: {result.diff.to_copy.items[:5]}")  # 预览前 5 个待拷贝文件
+
+# 执行同步
+result = client.sync_dataset("org/ds", target, split="test", dry_run=False)
+print(f"Copied: {result.summary.copied}, Skipped: {result.summary.skipped}")
+
+# 删除 target 上多余的文件
+result = client.sync_dataset("org/ds", target, dry_run=False, delete_extra=True)
+```
+
+### 19-20. 预留接口
 
 ```python
 client.transfer_images(**kwargs) -> None  # raises NotImplementedError
@@ -711,9 +809,60 @@ class MyFormatParser(FormatParser):
 register_format("my_format", MyFormatParser)
 ```
 
+### DatasetSyncService
+
+`rock/sdk/envhub/datasets/sync.py` — 跨 Bucket 增量同步引擎。
+
+**组件**：
+
+| 类 | 说明 |
+|------|------|
+| `DatasetOssStore` | 封装单个 Bucket 的 datasets 操作（list、head、copy、delete） |
+| `DatasetSyncService` | 接收 source/target 两个 `DatasetOssStore`，执行增量同步 |
+| `DatasetSyncResult` | Pydantic 模型，包含 summary、diff、failures |
+
+**同步流程**：
+
+```
+sync_dataset(dataset="org/ds", target=OssRegistryInfo(...), dry_run=True)
+  ├─ 构建 source_store + target_store
+  ├─ DatasetSyncService(source, target)
+  └─ service.sync(dataset, scope="folder")
+       ├─ _resolve_scope() — 判断 file/folder
+       ├─ _plan() — 列出 source/target 所有 object，对比 key/size/etag
+       │     ├─ to_copy: 新增或变更的文件
+       │     ├─ to_delete: target 独有的文件（仅 delete_extra=True）
+       │     └─ skipped: 完全一致的文件
+       ├─ dry_run=True → 返回 DatasetSyncDiff（预览列表）
+       └─ dry_run=False → 执行 copy + delete，返回 DatasetSyncResult
+```
+
+**数据模型**（Pydantic）：
+
+```python
+class DatasetSyncSummary(BaseModel):
+    source_objects: int = 0    # 源端文件数
+    target_objects: int = 0    # 目标端文件数
+    to_copy: int = 0           # 待拷贝文件数
+    to_delete: int = 0         # 待删除文件数
+    copied: int = 0            # 实际拷贝数
+    deleted: int = 0           # 实际删除数
+    skipped: int = 0           # 跳过数（一致）
+    failed: int = 0            # 失败数
+
+class DatasetSyncResult(BaseModel):
+    dataset: str               # 数据集路径
+    scope: str                 # "file" 或 "folder"
+    dry_run: bool
+    delete_extra: bool
+    summary: DatasetSyncSummary
+    diff: DatasetSyncDiff | None   # 仅 dry_run=True 时有值
+    failures: list[DatasetSyncFailure]
+```
+
 ---
 
-## CLI 命令
+## SDK 对外接口
 
 所有命令通过 `rock datasets <subcommand>` 调用。全局 OSS 参数：`--bucket`、`--endpoint`、`--access-key-id`、`--access-key-secret`、`--region`。
 
@@ -847,6 +996,68 @@ def _paginate(items: list, offset: int = 0, limit: int | None = None) -> PageRes
 
 ---
 
+## 元数据缓存机制
+
+### 设计动机
+
+`get_dataset()` 需要返回每个 split 的 task 数量。对于大规模数据集（如单 split 含数千 task），每次调用 `_count_dir_entries()` 实时计数需要多次 OSS 分页请求，延迟高。引入 per-split 元数据缓存后，首次计数后将结果写入 `meta/` 路径，后续调用直接读取缓存。
+
+### 存储格式
+
+```
+meta/{org}/{dataset}/{split}.json
+```
+
+内容为 JSON：
+
+```json
+{"task_count": 42}
+```
+
+### 读写流程
+
+```
+get_dataset(org, dataset)
+  ├─ list_dataset_splits() → ["test", "train"]
+  └─ for split in splits:
+       ├─ _read_split_meta(org, dataset, split)
+       │     └─ bucket.get_object("meta/org/dataset/split.json")
+       │         ├─ 存在 → 解析 JSON，取 task_count
+       │         └─ 不存在（NoSuchKey）→ None
+       └─ if meta is None:
+            └─ _count_dir_entries(split_prefix)  # 实时降级计数
+
+refresh_metadata(org, dataset, split=None)
+  ├─ split 指定 → 仅刷新该 split
+  ├─ split=None → list_dataset_splits() 获取全部
+  └─ for split in splits:
+       ├─ _count_dir_entries(split_prefix)
+       └─ _write_split_meta(org, dataset, split, {"task_count": N})
+```
+
+### 计数策略（`_count_dir_entries`）
+
+对 OSS prefix 下的子目录（`prefix_list`）计数，三种模式自动切换：
+
+| 场景 | 策略 | 说明 |
+|------|------|------|
+| 单页（≤1000 条） | 直接返回 | `len(first_page.prefix_list)` |
+| 多页 + `concurrency=1` | 顺序翻页 | 用 `continuation_token` 逐页累加 |
+| 多页 + `concurrency>1` | 并行分片 | `_split_key_range()` 划分 ASCII key-space，`ThreadPoolExecutor` 并行计数 |
+
+并行分片原理：取首页最后一个 prefix 的名称作为 `last_seen`，在 `(last_seen, '~')` 范围内均匀生成 `concurrency-1` 个分割点，每个线程用 `start_after` 参数独立计数。
+
+### 缓存一致性
+
+缓存不保证强一致——外部直接操作 OSS（如手动上传/删除 task）不会自动更新缓存。通过以下机制保持最终一致：
+
+- `upload_dataset()` 上传成功后调用 `refresh_metadata(split=...)`
+- `sync_dataset()` 非 dry-run 且有文件拷贝时在 target 上调用 `refresh_metadata()`
+- 可随时手动调用 `client.refresh_metadata()` 强制刷新
+- `get_dataset()` 缓存缺失时降级到实时计数，不会返回错误数据
+
+---
+
 ## 数据流
 
 ### list_all_datasets（全量列表 + 分页）
@@ -884,6 +1095,40 @@ download_task(org, dataset, split, task_id, local_dir, concurrency=4)
               └─ bucket.get_object_to_file(key, local_path)
 ```
 
+### upload_dataset（上传 + 自动刷新缓存）
+
+```
+upload_dataset(source, target, concurrency=4)
+  ├─ 枚举 source.path 下所有子目录作为 task
+  ├─ ThreadPoolExecutor(max_workers=concurrency)
+  │     └─ for task_dir in task_dirs: _upload_task(bucket, org, name, split, task_dir, overwrite)
+  │           ├─ overwrite=False 且已存在 → skip (return None)
+  │           └─ 遍历 task_dir 所有文件 → bucket.put_object()
+  ├─ 统计 uploaded / skipped / failed
+  └─ if uploaded > 0:
+       └─ refresh_metadata(org, name, split=split)  # 自动刷新缓存
+```
+
+### sync_dataset（跨 Bucket 增量同步）
+
+```
+sync_dataset(dataset="org/ds", target=OssRegistryInfo(...), split="test", dry_run=False)
+  ├─ source_bucket = self._build_bucket()
+  ├─ target_bucket = oss2.Bucket(target.auth, target.endpoint, target.bucket)
+  ├─ DatasetSyncService(DatasetOssStore(source), DatasetOssStore(target))
+  └─ service.sync(dataset=path, scope="folder", dry_run, delete_extra)
+       ├─ _plan():
+       │     ├─ source.list_objects_recursive() → {relative_path: DatasetObject}
+       │     ├─ target.list_objects_recursive() → {relative_path: DatasetObject}
+       │     ├─ to_copy = keys where size/etag differ
+       │     └─ to_delete = target-only keys (if delete_extra)
+       ├─ dry_run=True → return diff preview
+       └─ dry_run=False:
+            ├─ for path in to_copy: target.copy_from(source, ...)
+            ├─ for path in to_delete: target.delete_file(...)
+            └─ if copied > 0: target_registry.refresh_metadata()
+```
+
 ---
 
 ## 错误处理
@@ -898,6 +1143,9 @@ download_task(org, dataset, split, task_id, local_dir, concurrency=4)
 | 上传部分失败 | `upload_dataset()` 记录 `logger.error`，继续处理其余 task，最终 `UploadResult.failed > 0` |
 | `get_task_metadata()` 所有候选文件不存在 | 生成 fallback Markdown（`generated=True`），不抛异常 |
 | CLI 命令结果为空 | 打印友好提示（如 "No tasks found for ..."），不抛异常 |
+| 元数据缓存读取失败 | `_read_split_meta()` 捕获所有异常返回 `None`，降级到实时计数 |
+| 元数据缓存写入失败 | `upload_dataset` / `sync_dataset` 中 `refresh_metadata` 失败仅 `logger.warning`，不影响主操作 |
+| 同步部分失败 | `DatasetSyncResult.failures` 记录失败详情，`summary.failed` 计数 |
 
 ---
 
@@ -929,11 +1177,25 @@ def _iter_objects(self, prefix, *, delimiter=None) -> Iterator:
             break
 ```
 
-### 3. 并发扫描与下载
+### 3. 元数据缓存
+
+`get_dataset()` 优先读取 `meta/{org}/{dataset}/{split}.json` 中缓存的 `task_count`，避免对每个 split 执行 `_count_dir_entries()`。缓存由 `refresh_metadata()` 写入，`upload_dataset()` 和 `sync_dataset()` 成功后自动刷新。
+
+### 4. 并行计数
+
+`_count_dir_entries()` 在结果超过单页（1000 条）时自动切换并行模式，将 key-space 分成 `concurrency` 个段并行计数，默认 4 并发。
+
+### 5. 并发扫描与下载
 
 - `list_all_datasets()` — 最多 10 并发扫描各 organization 的 dataset 列表
 - `list_datasets()` — 多 org 时并发扫描
 - `download_task()` — 可配置 1-16 并发下载文件
+- `refresh_metadata()` — 多 split 时并发刷新（最多 10 并发）
+
+### 6. 跨 Bucket 同步优化
+
+- `DatasetOssStore.copy_from()` 优先使用 OSS 服务端 `copy_object()`（同 region 零流量），失败时降级为 `get_object` + `put_object`
+- 增量同步基于 size + etag 对比，仅拷贝变更文件
 
 ---
 
@@ -943,10 +1205,13 @@ def _iter_objects(self, prefix, *, delimiter=None) -> Iterator:
 
 ```
 tests/unit/datasets/
-├── test_client.py              # DatasetClient 委托层测试
-├── test_oss_registry.py        # OssDatasetRegistry 全方法测试
+├── test_client.py              # DatasetClient 委托层测试（含 refresh_metadata、sync_dataset）
+├── test_oss_registry.py        # OssDatasetRegistry 全方法测试（含 meta 缓存、并行计数）
 ├── test_datasets_command.py    # CLI 命令测试
-└── test_formats.py             # FormatParser 注册 + 解析测试
+├── test_formats.py             # FormatParser 注册 + 解析测试
+├── test_sync.py                # DatasetSyncService 增量同步测试
+├── test_config.py              # 配置相关测试
+└── test_models.py              # 数据模型测试
 ```
 
 ### 测试手法
