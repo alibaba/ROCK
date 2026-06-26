@@ -104,6 +104,14 @@ rockcli image mirror rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base
   --target-registry rock-instances-registry.cn-hangzhou.cr.aliyuncs.com
 ```
 
+## Using the Mirrored Image
+
+After mirroring completes, `rockcli` will output the mirrored image address. Use this address when creating sandboxes:
+
+```
+rock-instances-registry.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11
+```
+
 ## How It Works
 
 1. **Parse** — Source images are parsed from the command line arguments (or from a file if `-f` is used).

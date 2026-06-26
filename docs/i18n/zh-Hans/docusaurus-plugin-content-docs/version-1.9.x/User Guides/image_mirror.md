@@ -104,6 +104,14 @@ rockcli image mirror rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base
   --target-registry rock-instances-registry.cn-hangzhou.cr.aliyuncs.com
 ```
 
+## 使用转储后的镜像
+
+转储完成后，`rockcli` 会输出转储后的镜像地址。创建沙箱时请使用该地址：
+
+```
+rock-instances-registry.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11
+```
+
 ## 工作原理
 
 1. **解析** —— 解析命令行提供的源镜像（或通过 `-f` 从文件读取）。
