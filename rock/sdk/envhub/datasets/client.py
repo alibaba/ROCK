@@ -118,8 +118,10 @@ class DatasetClient:
 
     # ── metadata ──
 
-    def refresh_metadata(self, organization: str, dataset: str, concurrency: int = 4) -> dict:
-        return self._registry.refresh_metadata(organization, dataset, concurrency)
+    def refresh_metadata(
+        self, organization: str, dataset: str, split: str | None = None, concurrency: int = 4
+    ) -> dict:
+        return self._registry.refresh_metadata(organization, dataset, split=split, concurrency=concurrency)
 
     # ── upload ──
 

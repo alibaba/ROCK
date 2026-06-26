@@ -216,7 +216,10 @@ def test_upload_dataset_new_tasks(tmp_path):
     mock_bucket.list_objects_v2.return_value = make_list_result(objects=[])
     source, target = make_upload_pair(tmp_path)
 
-    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+    with (
+        patch.object(registry, "_build_bucket", return_value=mock_bucket),
+        patch.object(registry, "refresh_metadata"),
+    ):
         result = registry.upload_dataset(source, target)
 
     assert result.uploaded == 2
@@ -255,7 +258,10 @@ def test_upload_dataset_overwrite(tmp_path):
     )
     source, target = make_upload_pair(tmp_path, overwrite=True)
 
-    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+    with (
+        patch.object(registry, "_build_bucket", return_value=mock_bucket),
+        patch.object(registry, "refresh_metadata"),
+    ):
         result = registry.upload_dataset(source, target)
 
     assert result.uploaded == 1
@@ -272,7 +278,10 @@ def test_upload_dataset_oss_key_format(tmp_path):
     mock_bucket.list_objects_v2.return_value = make_list_result(objects=[])
     source, target = make_upload_pair(tmp_path)
 
-    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+    with (
+        patch.object(registry, "_build_bucket", return_value=mock_bucket),
+        patch.object(registry, "refresh_metadata"),
+    ):
         registry.upload_dataset(source, target)
 
     assert mock_bucket.put_object.call_args[0][0] == "datasets/qwen/my-bench/train/task-001/task.toml"
@@ -917,7 +926,10 @@ def test_get_dataset_returns_info_with_task_counts():
         make_list_result(prefixes=["datasets/qwen/bench/train/t1/", "datasets/qwen/bench/train/t2/", "datasets/qwen/bench/train/t3/"]),
     ]
 
-    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+    with (
+        patch.object(registry, "_build_bucket", return_value=mock_bucket),
+        patch.object(registry, "_read_split_meta", return_value=None),
+    ):
         info = registry.get_dataset("qwen", "bench")
 
     assert info is not None
@@ -942,24 +954,24 @@ def test_get_dataset_returns_none_when_no_splits():
 # ---------------------------------------------------------------------------
 
 
-def test_read_meta_returns_parsed_json():
+def test_read_split_meta_returns_parsed_json():
     import json
 
     registry = OssDatasetRegistry(make_registry_info())
     mock_bucket = MagicMock()
-    meta = {"splits": {"test": {"task_count": 42}}}
+    meta = {"task_count": 42}
     mock_result = MagicMock()
     mock_result.read.return_value = json.dumps(meta).encode()
     mock_bucket.get_object.return_value = mock_result
 
     with patch.object(registry, "_build_bucket", return_value=mock_bucket):
-        result = registry._read_meta("qwen", "bench")
+        result = registry._read_split_meta("qwen", "bench", "test")
 
     assert result == meta
-    mock_bucket.get_object.assert_called_once_with("meta/qwen/bench/meta.json")
+    mock_bucket.get_object.assert_called_once_with("meta/qwen/bench/test.json")
 
 
-def test_read_meta_returns_none_on_no_such_key():
+def test_read_split_meta_returns_none_on_no_such_key():
     import oss2.exceptions
 
     registry = OssDatasetRegistry(make_registry_info())
@@ -967,38 +979,41 @@ def test_read_meta_returns_none_on_no_such_key():
     mock_bucket.get_object.side_effect = oss2.exceptions.NoSuchKey(404, {}, b"", {})
 
     with patch.object(registry, "_build_bucket", return_value=mock_bucket):
-        result = registry._read_meta("qwen", "bench")
+        result = registry._read_split_meta("qwen", "bench", "test")
 
     assert result is None
 
 
-def test_write_meta_puts_json():
+def test_write_split_meta_puts_json():
     import json
 
     registry = OssDatasetRegistry(make_registry_info())
     mock_bucket = MagicMock()
-    meta = {"splits": {"test": {"task_count": 10}}}
+    meta = {"task_count": 10}
 
     with patch.object(registry, "_build_bucket", return_value=mock_bucket):
-        registry._write_meta("qwen", "bench", meta)
+        registry._write_split_meta("qwen", "bench", "test", meta)
 
     mock_bucket.put_object.assert_called_once()
     key, data = mock_bucket.put_object.call_args[0]
-    assert key == "meta/qwen/bench/meta.json"
+    assert key == "meta/qwen/bench/test.json"
     assert json.loads(data) == meta
 
 
-def test_get_dataset_uses_meta_cache():
+def test_get_dataset_uses_split_meta_cache():
     registry = OssDatasetRegistry(make_registry_info())
     mock_bucket = MagicMock()
     mock_bucket.list_objects_v2.return_value = make_list_result(
         prefixes=["datasets/qwen/bench/test/", "datasets/qwen/bench/train/"]
     )
-    meta = {"splits": {"test": {"task_count": 100}, "train": {"task_count": 200}}}
 
     with (
         patch.object(registry, "_build_bucket", return_value=mock_bucket),
-        patch.object(registry, "_read_meta", return_value=meta),
+        patch.object(
+            registry,
+            "_read_split_meta",
+            side_effect=lambda o, d, s: {"task_count": 100} if s == "test" else {"task_count": 200},
+        ),
     ):
         info = registry.get_dataset("qwen", "bench")
 
@@ -1007,7 +1022,7 @@ def test_get_dataset_uses_meta_cache():
     assert mock_bucket.list_objects_v2.call_count == 1
 
 
-def test_get_dataset_falls_back_when_meta_missing():
+def test_get_dataset_falls_back_when_split_meta_missing():
     registry = OssDatasetRegistry(make_registry_info())
     mock_bucket = MagicMock()
     mock_bucket.list_objects_v2.side_effect = [
@@ -1017,7 +1032,7 @@ def test_get_dataset_falls_back_when_meta_missing():
 
     with (
         patch.object(registry, "_build_bucket", return_value=mock_bucket),
-        patch.object(registry, "_read_meta", return_value=None),
+        patch.object(registry, "_read_split_meta", return_value=None),
     ):
         info = registry.get_dataset("qwen", "bench")
 
@@ -1025,18 +1040,21 @@ def test_get_dataset_falls_back_when_meta_missing():
     assert info.task_counts == {"test": 2}
 
 
-def test_get_dataset_falls_back_when_meta_incomplete():
+def test_get_dataset_mixed_cached_and_fallback():
     registry = OssDatasetRegistry(make_registry_info())
     mock_bucket = MagicMock()
     mock_bucket.list_objects_v2.side_effect = [
         make_list_result(prefixes=["datasets/qwen/bench/test/", "datasets/qwen/bench/train/"]),
         make_list_result(prefixes=["datasets/qwen/bench/train/t1/"]),
     ]
-    meta = {"splits": {"test": {"task_count": 50}}}
 
     with (
         patch.object(registry, "_build_bucket", return_value=mock_bucket),
-        patch.object(registry, "_read_meta", return_value=meta),
+        patch.object(
+            registry,
+            "_read_split_meta",
+            side_effect=lambda o, d, s: {"task_count": 50} if s == "test" else None,
+        ),
     ):
         info = registry.get_dataset("qwen", "bench")
 
@@ -1044,7 +1062,7 @@ def test_get_dataset_falls_back_when_meta_incomplete():
     assert info.task_counts == {"test": 50, "train": 1}
 
 
-def test_upload_dataset_does_not_update_meta(tmp_path):
+def test_upload_dataset_refreshes_split_meta(tmp_path):
     (tmp_path / "task-001").mkdir()
     (tmp_path / "task-001" / "data.json").write_text("{}")
 
@@ -1053,11 +1071,13 @@ def test_upload_dataset_does_not_update_meta(tmp_path):
     mock_bucket.list_objects_v2.return_value = make_list_result(objects=[])
     source, target = make_upload_pair(tmp_path)
 
-    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+    with (
+        patch.object(registry, "_build_bucket", return_value=mock_bucket),
+        patch.object(registry, "refresh_metadata") as mock_refresh,
+    ):
         registry.upload_dataset(source, target)
 
-    meta_calls = [c for c in mock_bucket.put_object.call_args_list if c[0][0].startswith("meta/")]
-    assert len(meta_calls) == 0
+    mock_refresh.assert_called_once_with("qwen", "my-bench", split="train")
 
 
 def test_refresh_metadata_counts_all_splits():
@@ -1074,7 +1094,9 @@ def test_refresh_metadata_counts_all_splits():
 
     assert meta == {"splits": {"test": {"task_count": 2}, "train": {"task_count": 1}}}
     meta_calls = [c for c in mock_bucket.put_object.call_args_list if c[0][0].startswith("meta/")]
-    assert len(meta_calls) == 1
+    assert len(meta_calls) == 2
+    meta_keys = sorted(c[0][0] for c in meta_calls)
+    assert meta_keys == ["meta/qwen/bench/test.json", "meta/qwen/bench/train.json"]
 
 
 # ---------------------------------------------------------------------------
@@ -1104,7 +1126,7 @@ def test_sync_dataset_dry_run():
     assert result.summary.to_copy == 1
 
 
-def test_sync_dataset_execute_does_not_refresh_meta():
+def test_sync_dataset_execute_refreshes_target_meta():
     from rock.sdk.envhub.datasets.sync import DatasetSyncResult, DatasetSyncSummary
 
     registry = OssDatasetRegistry(make_registry_info())
@@ -1120,8 +1142,8 @@ def test_sync_dataset_execute_does_not_refresh_meta():
     with patch.object(registry, "_build_bucket", return_value=MagicMock()):
         with patch("rock.sdk.envhub.datasets.registry.oss.DatasetSyncService") as MockService:
             MockService.return_value.sync.return_value = expected
-            with patch.object(registry, "refresh_metadata") as mock_refresh:
-                result = registry.sync_dataset("qwen/bench", target_info, dry_run=False)
+            with patch("rock.sdk.envhub.datasets.registry.oss.OssDatasetRegistry.refresh_metadata") as mock_refresh:
+                result = registry.sync_dataset("qwen/bench", target_info, split="test", dry_run=False)
 
     assert result.summary.copied == 2
-    mock_refresh.assert_not_called()
+    mock_refresh.assert_called_once_with("qwen", "bench", split="test")
