@@ -67,13 +67,13 @@ rockcli image mirror <image> [<image>...] [options]
 对于来自公共仓库（Docker Hub 等）的镜像，无需源仓库认证：
 
 ```bash
-rockcli image mirror ex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11
+rockcli image mirror rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11
 ```
 
 同时转储多个镜像：
 
 ```bash
-rockcli image mirror ex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11 ubuntu:22.04
+rockcli image mirror rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11 ubuntu:22.04
 ```
 
 ### 转储私有镜像
@@ -91,7 +91,7 @@ rockcli image mirror ghcr.io/my-org/my-image:v1.0 \
 使用 `local` 模式通过本机 Docker 守护进程转储，而非沙箱：
 
 ```bash
-rockcli image mirror ex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11 --mode local
+rockcli image mirror rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11 --mode local
 ```
 
 ### 直接转储到上海
@@ -99,7 +99,7 @@ rockcli image mirror ex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:
 如果 ACR 跨区域同步出现阻塞或延迟，可以通过 `--cluster vpc-nt-a` 直接转储到上海仓库：
 
 ```bash
-rockcli image mirror ex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11 \
+rockcli image mirror rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11 \
   --cluster vpc-nt-a \
   --target-registry rock-instances-registry.cn-hangzhou.cr.aliyuncs.com
 ```
@@ -119,7 +119,7 @@ rockcli image mirror ex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:
 原始镜像名称映射到目标仓库时，保留其原有结构：
 
 ```
-源镜像: ex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11
+源镜像: rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11
 目标:   rock-instances-registry.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11
 
 源镜像: ghcr.io/my-org/my-image:v1.0

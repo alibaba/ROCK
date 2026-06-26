@@ -67,13 +67,13 @@ Images can also be provided via `-f <path>` (supports `txt`, `jsonl`, `skopeo` f
 For images from public registries (Docker Hub, etc.) that don't need authentication:
 
 ```bash
-rockcli image mirror ex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11
+rockcli image mirror rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11
 ```
 
 Mirror multiple images at once:
 
 ```bash
-rockcli image mirror ex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11 ubuntu:22.04
+rockcli image mirror rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11 ubuntu:22.04
 ```
 
 ### Mirror Private Images
@@ -91,7 +91,7 @@ rockcli image mirror ghcr.io/my-org/my-image:v1.0 \
 Use `local` mode to mirror via the local Docker daemon instead of sandboxes:
 
 ```bash
-rockcli image mirror ex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11 --mode local
+rockcli image mirror rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11 --mode local
 ```
 
 ### Mirror Directly to Shanghai
@@ -99,7 +99,7 @@ rockcli image mirror ex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:
 If ACR cross-region sync is blocked or too slow, you can bypass it by mirroring directly to the Shanghai registry via `--cluster vpc-nt-a`:
 
 ```bash
-rockcli image mirror ex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11 \
+rockcli image mirror rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11 \
   --cluster vpc-nt-a \
   --target-registry rock-instances-registry.cn-hangzhou.cr.aliyuncs.com
 ```
@@ -119,7 +119,7 @@ Each image mirror operation retries up to 3 times on failure.
 The original image name is mapped to the target registry while preserving its structure:
 
 ```
-Source: ex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11
+Source: rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11
 Target: rock-instances-registry.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11
 
 Source: ghcr.io/my-org/my-image:v1.0
