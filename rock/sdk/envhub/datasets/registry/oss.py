@@ -99,47 +99,50 @@ class OssDatasetRegistry(BaseDatasetRegistry):
             parts.append(split)
         return "/".join(parts)
 
-    # ── meta management ──
+    # ── meta management (per-split) ──
 
-    def _meta_key(self, org: str, dataset: str) -> str:
-        return f"meta/{org}/{dataset}/meta.json"
+    def _split_meta_key(self, org: str, dataset: str, split: str) -> str:
+        return f"meta/{org}/{dataset}/{split}.json"
 
-    def _read_meta(self, org: str, dataset: str) -> dict | None:
+    def _read_split_meta(self, org: str, dataset: str, split: str) -> dict | None:
         bucket = self._build_bucket()
         try:
-            data = bucket.get_object(self._meta_key(org, dataset)).read()
+            data = bucket.get_object(self._split_meta_key(org, dataset, split)).read()
             return _json.loads(data)
         except (oss2.exceptions.NoSuchKey, _json.JSONDecodeError, Exception):
             return None
 
-    def _write_meta(self, org: str, dataset: str, meta: dict) -> None:
+    def _write_split_meta(self, org: str, dataset: str, split: str, meta: dict) -> None:
         bucket = self._build_bucket()
-        bucket.put_object(self._meta_key(org, dataset), _json.dumps(meta, sort_keys=True).encode())
+        bucket.put_object(self._split_meta_key(org, dataset, split), _json.dumps(meta, sort_keys=True).encode())
 
-    def refresh_metadata(self, organization: str, dataset: str, concurrency: int = 4) -> dict:
-        splits = self.list_dataset_splits(organization, dataset).items
+    def refresh_metadata(
+        self, organization: str, dataset: str, split: str | None = None, concurrency: int = 4
+    ) -> dict:
+        if split:
+            splits = [split]
+        else:
+            splits = self.list_dataset_splits(organization, dataset).items
         if not splits:
-            meta: dict = {"splits": {}}
-            self._write_meta(organization, dataset, meta)
-            return meta
+            return {"splits": {}}
 
-        def _count_split(split: str) -> tuple[str, int]:
-            prefix = f"{self._build_prefix(organization, dataset, split)}/"
-            return split, self._count_dir_entries(prefix, concurrency=concurrency)
+        def _refresh_split(s: str) -> tuple[str, int]:
+            prefix = f"{self._build_prefix(organization, dataset, s)}/"
+            count = self._count_dir_entries(prefix, concurrency=concurrency)
+            self._write_split_meta(organization, dataset, s, {"task_count": count})
+            return s, count
 
         split_meta: dict[str, dict] = {}
         if len(splits) > 1:
             with ThreadPoolExecutor(max_workers=min(len(splits), 10)) as ex:
-                for s, count in ex.map(_count_split, splits):
+                for s, count in ex.map(_refresh_split, splits):
                     split_meta[s] = {"task_count": count}
         else:
             for s in splits:
-                _, count = _count_split(s)
+                _, count = _refresh_split(s)
                 split_meta[s] = {"task_count": count}
 
-        meta = {"splits": split_meta}
-        self._write_meta(organization, dataset, meta)
-        return meta
+        return {"splits": split_meta}
 
     @staticmethod
     def _last_segment(prefix: str) -> str:
@@ -431,25 +434,14 @@ class OssDatasetRegistry(BaseDatasetRegistry):
         if not splits:
             return None
 
-        meta = self._read_meta(organization, dataset)
-        meta_splits = meta.get("splits", {}) if meta else {}
-
-        missing = [s for s in splits if s not in meta_splits]
-        if not missing:
-            task_counts = {s: meta_splits[s].get("task_count", 0) for s in splits}
-            return DatasetInfo(id=f"{organization}/{dataset}", splits=splits, task_counts=task_counts)
-
-        def _count_tasks(split: str) -> tuple[str, int]:
-            split_prefix = f"{self._build_prefix(organization, dataset, split)}/"
-            return split, self._count_dir_entries(split_prefix)
-
         task_counts: dict[str, int] = {}
         for s in splits:
-            if s in meta_splits:
-                task_counts[s] = meta_splits[s].get("task_count", 0)
+            split_meta = self._read_split_meta(organization, dataset, s)
+            if split_meta is not None:
+                task_counts[s] = split_meta.get("task_count", 0)
             else:
-                _, count = _count_tasks(s)
-                task_counts[s] = count
+                split_prefix = f"{self._build_prefix(organization, dataset, s)}/"
+                task_counts[s] = self._count_dir_entries(split_prefix)
 
         return DatasetInfo(id=f"{organization}/{dataset}", splits=splits, task_counts=task_counts)
 
@@ -647,6 +639,12 @@ class OssDatasetRegistry(BaseDatasetRegistry):
                 uploaded += 1
                 print(f"  ✓ {task_id}  ({outcome} files)")
 
+        if uploaded > 0:
+            try:
+                self.refresh_metadata(org, name, split=split)
+            except Exception:
+                logger.warning("Failed to refresh meta for %s/%s split=%s", org, name, split, exc_info=True)
+
         return UploadResult(
             id=f"{org}/{name}",
             split=split,
@@ -677,4 +675,13 @@ class OssDatasetRegistry(BaseDatasetRegistry):
         org, name = dataset.split("/", 1)
         path = f"{org}/{name}/{split}" if split else f"{org}/{name}"
 
-        return service.sync(dataset=path, scope="folder", dry_run=dry_run, delete_extra=delete_extra)
+        result = service.sync(dataset=path, scope="folder", dry_run=dry_run, delete_extra=delete_extra)
+
+        if not dry_run and result.summary.copied > 0:
+            try:
+                target_registry = OssDatasetRegistry(target)
+                target_registry.refresh_metadata(org, name, split=split)
+            except Exception:
+                logger.warning("Failed to refresh meta on target for %s", dataset, exc_info=True)
+
+        return result

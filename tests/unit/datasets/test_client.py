@@ -271,7 +271,16 @@ def test_refresh_metadata_delegates():
     expected = {"splits": {"test": {"task_count": 10}}}
     with patch.object(client._registry, "refresh_metadata", return_value=expected) as m:
         result = client.refresh_metadata("qwen", "bench")
-    m.assert_called_once_with("qwen", "bench", 4)
+    m.assert_called_once_with("qwen", "bench", split=None, concurrency=4)
+    assert result == expected
+
+
+def test_refresh_metadata_delegates_with_split():
+    client = DatasetClient(make_registry_info())
+    expected = {"splits": {"test": {"task_count": 10}}}
+    with patch.object(client._registry, "refresh_metadata", return_value=expected) as m:
+        result = client.refresh_metadata("qwen", "bench", split="test")
+    m.assert_called_once_with("qwen", "bench", split="test", concurrency=4)
     assert result == expected
 
 

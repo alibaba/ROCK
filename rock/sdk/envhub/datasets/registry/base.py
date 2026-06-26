@@ -142,8 +142,10 @@ class BaseDatasetRegistry(ABC):
     # ── metadata ──
 
     @abstractmethod
-    def refresh_metadata(self, organization: str, dataset: str, concurrency: int = 4) -> dict:
-        """Recount tasks for every split and write meta.json. Returns the meta dict."""
+    def refresh_metadata(
+        self, organization: str, dataset: str, split: str | None = None, concurrency: int = 4
+    ) -> dict:
+        """Recount tasks and write per-split meta. If split is given, only refresh that split."""
         ...
 
     # ── upload ──
