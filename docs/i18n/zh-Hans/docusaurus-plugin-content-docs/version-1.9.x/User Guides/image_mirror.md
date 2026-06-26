@@ -52,10 +52,10 @@ rockcli image mirror <image> [<image>...] [options]
 | `--mode` | `skopeo` | `skopeo`（推荐，在沙箱中 skopeo copy）、`remote`（在沙箱中 docker pull/tag/push）、`local`（本机 Docker） |
 | `--concurrency` | *（自动）* | `skopeo`/`remote`：沙箱数量；`local`：本机并行镜像数 |
 | `-c, --cluster` | *（无）* | 集群路由提示。`vpc-sg-*` 走国外 ACR，其他 `vpc-*` 走国内 ACR |
+| `--namespace` | *（源 namespace）* | 目标仓库的 namespace，默认使用源镜像的 namespace |
 | `--source-username` | *（无）* | 源仓库用户名 |
 | `--source-password` | *（无）* | 源仓库密码 |
 | `--target-registry` | 内置 | 目标仓库地址，显式传入时覆盖区域默认仓 |
-| `--force, -F` | `false` | 目标 digest 相同时也强制重新传输 |
 | `--resume` | `false` | 从进度文件恢复 |
 
 > **说明：** 目标仓库凭证已内置于 `rockcli` 中。大多数情况下只需提供源镜像即可开始转储。完整选项请运行 `rockcli image mirror --help`。
@@ -75,6 +75,17 @@ rockcli image mirror rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base
 ```bash
 rockcli image mirror rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11 ubuntu:22.04
 ```
+
+### 指定目标 namespace
+
+通过 `--namespace` 将镜像转储到指定的目标 namespace（默认使用源镜像的 namespace）：
+
+```bash
+rockcli image mirror ghcr.io/my-org/my-image:v1.0 \
+  --namespace chatos
+```
+
+转储后的镜像地址为：`rock-instances-registry.ap-southeast-1.cr.aliyuncs.com/chatos/my-image:v1.0`
 
 ### 转储私有镜像
 
@@ -111,16 +122,18 @@ rockcli image mirror rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base
 ## 工作原理
 
 1. **解析** —— 解析命令行提供的源镜像（或通过 `-f` 从文件读取）。
-2. **检查** —— 登录目标仓库，检查镜像是否已存在。如果已存在则跳过。
+2. **检查** —— 登录目标仓库，检查镜像是否已存在。如果已存在则跳过（不支持覆盖）。
 3. **拉取** —— 从源仓库拉取镜像（如提供了源仓库凭证，会先登录）。
-4. **打标签** —— 将镜像重新打标签为目标仓库地址，保留原始的 namespace、镜像名和 tag。
+4. **打标签** —— 将镜像重新打标签为目标仓库地址。namespace 使用 `--namespace` 指定的值，未指定时默认使用源镜像的 namespace。
 5. **推送** —— 将重新打标签的镜像推送到目标仓库。
 
 每个镜像转储操作失败后最多重试 3 次。
 
+> **注意：** 目标仓库不支持覆盖已存在的镜像。如果需要更新镜像内容，请修改 tag 后重新转储。
+
 ### 镜像名称映射
 
-原始镜像名称映射到目标仓库时，保留其原有结构：
+默认情况下，原始镜像名称映射到目标仓库时保留源 namespace：
 
 ```
 源镜像: rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11
@@ -128,6 +141,13 @@ rockcli image mirror rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base
 
 源镜像: ghcr.io/my-org/my-image:v1.0
 目标:   rock-instances-registry.ap-southeast-1.cr.aliyuncs.com/my-org/my-image:v1.0
+```
+
+指定 `--namespace` 时，目标 namespace 替换为用户指定的值：
+
+```
+源镜像: ghcr.io/my-org/my-image:v1.0 --namespace chatos
+目标:   rock-instances-registry.ap-southeast-1.cr.aliyuncs.com/chatos/my-image:v1.0
 ```
 
 ## 转储结果
