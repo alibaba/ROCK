@@ -25,6 +25,7 @@ from rock.sdk.envhub.datasets.models import (
     UploadResult,
 )
 from rock.sdk.envhub.datasets.registry.base import BaseDatasetRegistry
+from rock.sdk.envhub.datasets.sync import DatasetOssStore, DatasetSyncResult, DatasetSyncService
 
 logger = init_logger(__name__)
 
@@ -35,6 +36,30 @@ def _paginate(items: list, offset: int = 0, limit: int | None = None) -> PageRes
     total = len(items)
     end = offset + limit if limit is not None else None
     return PageResult(items=items[offset:end], total=total, offset=offset, limit=limit)
+
+
+def _split_key_range(last_seen: str, n: int) -> list[str]:
+    """Generate *n* partition points after *last_seen* in the ASCII key-space.
+
+    Picks evenly-spaced characters between *last_seen* (exclusive) and '~'
+    (0x7E, the last printable ASCII character commonly used in OSS keys).
+    Each partition point is used as ``start_after`` for a parallel listing
+    thread, so the full range ``(last_seen, ∞)`` is covered by *n* threads.
+    """
+    if n <= 1:
+        return [last_seen]
+
+    lo = ord(last_seen[0]) if last_seen else 0x20
+    hi = 0x7E  # '~'
+    if lo >= hi:
+        return [last_seen] * n
+
+    step = (hi - lo) / n
+    points: list[str] = []
+    for i in range(n):
+        c = chr(int(lo + step * i) + 1)
+        points.append(c)
+    return points
 
 
 _METADATA_CANDIDATES = [
@@ -74,6 +99,48 @@ class OssDatasetRegistry(BaseDatasetRegistry):
             parts.append(split)
         return "/".join(parts)
 
+    # ── meta management ──
+
+    def _meta_key(self, org: str, dataset: str) -> str:
+        return f"meta/{org}/{dataset}/meta.json"
+
+    def _read_meta(self, org: str, dataset: str) -> dict | None:
+        bucket = self._build_bucket()
+        try:
+            data = bucket.get_object(self._meta_key(org, dataset)).read()
+            return _json.loads(data)
+        except (oss2.exceptions.NoSuchKey, _json.JSONDecodeError, Exception):
+            return None
+
+    def _write_meta(self, org: str, dataset: str, meta: dict) -> None:
+        bucket = self._build_bucket()
+        bucket.put_object(self._meta_key(org, dataset), _json.dumps(meta, sort_keys=True).encode())
+
+    def refresh_metadata(self, organization: str, dataset: str, concurrency: int = 4) -> dict:
+        splits = self.list_dataset_splits(organization, dataset).items
+        if not splits:
+            meta: dict = {"splits": {}}
+            self._write_meta(organization, dataset, meta)
+            return meta
+
+        def _count_split(split: str) -> tuple[str, int]:
+            prefix = f"{self._build_prefix(organization, dataset, split)}/"
+            return split, self._count_dir_entries(prefix, concurrency=concurrency)
+
+        split_meta: dict[str, dict] = {}
+        if len(splits) > 1:
+            with ThreadPoolExecutor(max_workers=min(len(splits), 10)) as ex:
+                for s, count in ex.map(_count_split, splits):
+                    split_meta[s] = {"task_count": count}
+        else:
+            for s in splits:
+                _, count = _count_split(s)
+                split_meta[s] = {"task_count": count}
+
+        meta = {"splits": split_meta}
+        self._write_meta(organization, dataset, meta)
+        return meta
+
     @staticmethod
     def _last_segment(prefix: str) -> str:
         return prefix.rstrip("/").rsplit("/", 1)[-1]
@@ -82,9 +149,7 @@ class OssDatasetRegistry(BaseDatasetRegistry):
         bucket = self._build_bucket()
         marker = ""
         while True:
-            kwargs: dict[str, Any] = dict(
-                prefix=prefix, continuation_token=marker, max_keys=_LIST_MAX_KEYS
-            )
+            kwargs: dict[str, Any] = dict(prefix=prefix, continuation_token=marker, max_keys=_LIST_MAX_KEYS)
             if delimiter is not None:
                 kwargs["delimiter"] = delimiter
             result = bucket.list_objects_v2(**kwargs)
@@ -100,11 +165,97 @@ class OssDatasetRegistry(BaseDatasetRegistry):
                 break
 
     def _list_prefixes(self, prefix: str) -> list[str]:
-        return [
-            e.key
-            for e in self._iter_objects(prefix, delimiter="/")
-            if isinstance(e, _PrefixEntry)
-        ]
+        return [e.key for e in self._iter_objects(prefix, delimiter="/") if isinstance(e, _PrefixEntry)]
+
+    def _list_dir_names(self, prefix: str) -> list[str]:
+        """List subdirectory names under *prefix* using delimiter-based listing.
+
+        Mirrors harbor's ``list_dir`` — only looks at ``common_prefixes``,
+        skips ``object_list`` entirely.  Results are in OSS's native
+        lexicographic order so no extra sort is needed.
+        """
+        bucket = self._build_bucket()
+        names: list[str] = []
+        marker = ""
+        while True:
+            result = bucket.list_objects_v2(
+                prefix=prefix, continuation_token=marker, max_keys=_LIST_MAX_KEYS, delimiter="/"
+            )
+            for p in result.prefix_list:
+                names.append(self._last_segment(p))
+            if result.is_truncated:
+                marker = result.next_continuation_token
+            else:
+                break
+        return names
+
+    def _count_dir_entries(self, prefix: str, concurrency: int = 4) -> int:
+        """Count subdirectories under *prefix*.
+
+        For small results (≤1 page) returns immediately.  For large results,
+        partitions the key-space via ``start_after`` and counts in parallel.
+        """
+        bucket = self._build_bucket()
+
+        first = bucket.list_objects_v2(prefix=prefix, max_keys=_LIST_MAX_KEYS, delimiter="/")
+        if not first.is_truncated:
+            return len(first.prefix_list)
+
+        if concurrency <= 1:
+            return self._count_dir_entries_seq(prefix, bucket, first)
+
+        return self._count_dir_entries_parallel(prefix, bucket, first, concurrency)
+
+    def _count_dir_entries_seq(self, prefix: str, bucket: oss2.Bucket, first_page) -> int:
+        count = len(first_page.prefix_list)
+        marker = first_page.next_continuation_token
+        while True:
+            result = bucket.list_objects_v2(
+                prefix=prefix, continuation_token=marker, max_keys=_LIST_MAX_KEYS, delimiter="/"
+            )
+            count += len(result.prefix_list)
+            if result.is_truncated:
+                marker = result.next_continuation_token
+            else:
+                break
+        return count
+
+    def _count_dir_entries_parallel(self, prefix: str, bucket: oss2.Bucket, first_page, concurrency: int) -> int:
+        """Partition the key-space using ``start_after`` and count in parallel.
+
+        Uses the last prefix of the first page to estimate the data range,
+        then divides the remaining range into *concurrency-1* segments.
+        """
+        first_count = len(first_page.prefix_list)
+        last_seen = self._last_segment(first_page.prefix_list[-1])
+
+        remaining_partitions = _split_key_range(last_seen, concurrency - 1)
+
+        def _count_range(start_after: str) -> int:
+            n = 0
+            sa = f"{prefix}{start_after}"
+            first_call = True
+            cont = ""
+            while True:
+                if first_call:
+                    result = bucket.list_objects_v2(
+                        prefix=prefix, start_after=sa, max_keys=_LIST_MAX_KEYS, delimiter="/"
+                    )
+                    first_call = False
+                else:
+                    result = bucket.list_objects_v2(
+                        prefix=prefix, continuation_token=cont, max_keys=_LIST_MAX_KEYS, delimiter="/"
+                    )
+                n += len(result.prefix_list)
+                if result.is_truncated:
+                    cont = result.next_continuation_token
+                else:
+                    break
+            return n
+
+        with ThreadPoolExecutor(max_workers=concurrency) as ex:
+            futures = [ex.submit(_count_range, pt) for pt in remaining_partitions]
+            return first_count + sum(f.result() for f in futures)
 
     def _extract_tasks_from_split(self, split_prefix: str) -> list[str]:
         dir_tasks: list[str] = []
@@ -123,26 +274,30 @@ class OssDatasetRegistry(BaseDatasetRegistry):
                 name = relative.rsplit(".", 1)[0] if "." in relative else relative
                 file_tasks.append(name)
 
+        if not file_tasks:
+            return dir_tasks
         return sorted(set(dir_tasks + file_tasks))
 
     def list_organizations(self, *, offset: int = 0, limit: int | None = None) -> PageResult[str]:
         base = self._registry.oss_dataset_path or "datasets"
-        orgs = sorted(self._last_segment(p) for p in self._list_prefixes(f"{base}/"))
+        orgs = self._list_dir_names(f"{base}/")
         return _paginate(orgs, offset, limit)
 
-    def list_org_datasets(
-        self, organization: str, *, offset: int = 0, limit: int | None = None
-    ) -> PageResult[str]:
+    def list_org_datasets(self, organization: str, *, offset: int = 0, limit: int | None = None) -> PageResult[str]:
         base = self._registry.oss_dataset_path or "datasets"
-        datasets = sorted(self._last_segment(p) for p in self._list_prefixes(f"{base}/{organization}/"))
+        datasets = self._list_dir_names(f"{base}/{organization}/")
         return _paginate(datasets, offset, limit)
 
     def list_dataset_splits(
         self, organization: str, dataset: str, *, offset: int = 0, limit: int | None = None
     ) -> PageResult[str]:
         base = self._registry.oss_dataset_path or "datasets"
-        splits = sorted(self._last_segment(p) for p in self._list_prefixes(f"{base}/{organization}/{dataset}/"))
+        splits = self._list_dir_names(f"{base}/{organization}/{dataset}/")
         return _paginate(splits, offset, limit)
+
+    def _list_org_dataset_names(self, org: str) -> list[str]:
+        base = self._registry.oss_dataset_path or "datasets"
+        return self._list_dir_names(f"{base}/{org}/")
 
     def list_all_datasets(
         self, concurrency: int = 10, *, query: str | None = None, offset: int = 0, limit: int | None = None
@@ -152,7 +307,7 @@ class OssDatasetRegistry(BaseDatasetRegistry):
             return PageResult(items=[], total=0, offset=offset, limit=limit)
         pairs: list[tuple[str, str]] = []
         with ThreadPoolExecutor(max_workers=concurrency) as ex:
-            future_to_org = {ex.submit(lambda o: self.list_org_datasets(o).items, o): o for o in orgs}
+            future_to_org = {ex.submit(self._list_org_dataset_names, o): o for o in orgs}
             for fut in as_completed(future_to_org):
                 org = future_to_org[fut]
                 for ds in fut.result():
@@ -180,8 +335,7 @@ class OssDatasetRegistry(BaseDatasetRegistry):
                 name = self._last_segment(ds_prefix)
                 for split_prefix in self._list_prefixes(ds_prefix):
                     split = self._last_segment(split_prefix)
-                    task_ids = self._extract_tasks_from_split(split_prefix)
-                    specs.append(DatasetSpec(id=f"{org}/{name}", split=split, task_ids=task_ids))
+                    specs.append(DatasetSpec(id=f"{org}/{name}", split=split))
             return specs
 
         datasets: list[DatasetSpec] = []
@@ -277,19 +431,25 @@ class OssDatasetRegistry(BaseDatasetRegistry):
         if not splits:
             return None
 
+        meta = self._read_meta(organization, dataset)
+        meta_splits = meta.get("splits", {}) if meta else {}
+
+        missing = [s for s in splits if s not in meta_splits]
+        if not missing:
+            task_counts = {s: meta_splits[s].get("task_count", 0) for s in splits}
+            return DatasetInfo(id=f"{organization}/{dataset}", splits=splits, task_counts=task_counts)
+
         def _count_tasks(split: str) -> tuple[str, int]:
             split_prefix = f"{self._build_prefix(organization, dataset, split)}/"
-            return split, len(self._extract_tasks_from_split(split_prefix))
+            return split, self._count_dir_entries(split_prefix)
 
         task_counts: dict[str, int] = {}
-        if len(splits) > 1:
-            with ThreadPoolExecutor(max_workers=min(len(splits), 10)) as ex:
-                for split, count in ex.map(_count_tasks, splits):
-                    task_counts[split] = count
-        else:
-            for s in splits:
-                split, count = _count_tasks(s)
-                task_counts[split] = count
+        for s in splits:
+            if s in meta_splits:
+                task_counts[s] = meta_splits[s].get("task_count", 0)
+            else:
+                _, count = _count_tasks(s)
+                task_counts[s] = count
 
         return DatasetInfo(id=f"{organization}/{dataset}", splits=splits, task_counts=task_counts)
 
@@ -306,9 +466,7 @@ class OssDatasetRegistry(BaseDatasetRegistry):
             total_size=total_size,
         )
 
-    def get_task_metadata(
-        self, organization: str, dataset: str, split: str, task_id: str
-    ) -> TaskMetadata | None:
+    def get_task_metadata(self, organization: str, dataset: str, split: str, task_id: str) -> TaskMetadata | None:
         for filename, fmt in _METADATA_CANDIDATES:
             try:
                 data = self.read_task_file(organization, dataset, split, task_id, filename)
@@ -489,6 +647,16 @@ class OssDatasetRegistry(BaseDatasetRegistry):
                 uploaded += 1
                 print(f"  ✓ {task_id}  ({outcome} files)")
 
+        if uploaded > 0 or skipped > 0:
+            try:
+                split_prefix = f"{self._build_prefix(org, name, split)}/"
+                count = self._count_dir_entries(split_prefix)
+                meta = self._read_meta(org, name) or {"splits": {}}
+                meta.setdefault("splits", {})[split] = {"task_count": count}
+                self._write_meta(org, name, meta)
+            except Exception:
+                logger.warning("Failed to update meta for %s/%s", org, name, exc_info=True)
+
         return UploadResult(
             id=f"{org}/{name}",
             split=split,
@@ -496,3 +664,36 @@ class OssDatasetRegistry(BaseDatasetRegistry):
             skipped=skipped,
             failed=failed,
         )
+
+    # ── sync ──
+
+    def sync_dataset(
+        self,
+        dataset: str,
+        target: OssRegistryInfo,
+        *,
+        split: str | None = None,
+        dry_run: bool = True,
+        delete_extra: bool = False,
+    ) -> DatasetSyncResult:
+        source_bucket = self._build_bucket()
+        target_auth = oss2.Auth(target.oss_access_key_id or "", target.oss_access_key_secret or "")
+        target_bucket = oss2.Bucket(target_auth, target.oss_endpoint or "", target.oss_bucket)
+
+        source_store = DatasetOssStore(source_bucket)
+        target_store = DatasetOssStore(target_bucket)
+        service = DatasetSyncService(source_store, target_store)
+
+        org, name = dataset.split("/", 1)
+        path = f"{org}/{name}/{split}" if split else f"{org}/{name}"
+
+        result = service.sync(dataset=path, scope="folder", dry_run=dry_run, delete_extra=delete_extra)
+
+        if not dry_run and result.summary.copied > 0:
+            try:
+                target_registry = OssDatasetRegistry(target)
+                target_registry.refresh_metadata(org, name)
+            except Exception:
+                logger.warning("Failed to refresh meta on target for %s", dataset, exc_info=True)
+
+        return result

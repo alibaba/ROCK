@@ -23,7 +23,9 @@ def make_registry_info():
 
 def test_dataset_client_list_delegates_to_registry():
     client = DatasetClient(make_registry_info())
-    expected = PageResult(items=[DatasetSpec(id="qwen/bench", split="train", task_ids=[])], total=1, offset=0, limit=None)
+    expected = PageResult(
+        items=[DatasetSpec(id="qwen/bench", split="train", task_ids=[])], total=1, offset=0, limit=None
+    )
 
     with patch.object(client._registry, "list_datasets", return_value=expected) as mock_list:
         result = client.list_datasets(org="qwen")
@@ -261,4 +263,25 @@ def test_list_all_datasets_with_query_delegates():
     with patch.object(client._registry, "list_all_datasets", return_value=expected) as m:
         result = client.list_all_datasets(query="pinch")
     m.assert_called_once_with(10, query="pinch", offset=0, limit=None)
+    assert result == expected
+
+
+def test_refresh_metadata_delegates():
+    client = DatasetClient(make_registry_info())
+    expected = {"splits": {"test": {"task_count": 10}}}
+    with patch.object(client._registry, "refresh_metadata", return_value=expected) as m:
+        result = client.refresh_metadata("qwen", "bench")
+    m.assert_called_once_with("qwen", "bench", 4)
+    assert result == expected
+
+
+def test_sync_dataset_delegates():
+    from unittest.mock import MagicMock
+
+    client = DatasetClient(make_registry_info())
+    target = make_registry_info()
+    expected = MagicMock()
+    with patch.object(client._registry, "sync_dataset", return_value=expected) as m:
+        result = client.sync_dataset("qwen/bench", target, split="test", dry_run=False)
+    m.assert_called_once_with("qwen/bench", target, split="test", dry_run=False, delete_extra=False)
     assert result == expected

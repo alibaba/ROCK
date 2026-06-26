@@ -57,9 +57,7 @@ class DatasetClient:
     def list_organizations(self, *, offset: int = 0, limit: int | None = None) -> PageResult[str]:
         return self._registry.list_organizations(offset=offset, limit=limit)
 
-    def list_org_datasets(
-        self, organization: str, *, offset: int = 0, limit: int | None = None
-    ) -> PageResult[str]:
+    def list_org_datasets(self, organization: str, *, offset: int = 0, limit: int | None = None) -> PageResult[str]:
         return self._registry.list_org_datasets(organization, offset=offset, limit=limit)
 
     def list_all_datasets(
@@ -80,9 +78,7 @@ class DatasetClient:
     def get_task(self, organization: str, dataset: str, split: str, task_id: str) -> TaskInfo | None:
         return self._registry.get_task(organization, dataset, split, task_id)
 
-    def get_task_metadata(
-        self, organization: str, dataset: str, split: str, task_id: str
-    ) -> TaskMetadata | None:
+    def get_task_metadata(self, organization: str, dataset: str, split: str, task_id: str) -> TaskMetadata | None:
         return self._registry.get_task_metadata(organization, dataset, split, task_id)
 
     # ── task file operations ──
@@ -120,6 +116,11 @@ class DatasetClient:
     ) -> Path:
         return self._registry.download_task(organization, dataset, split, task_id, local_dir, concurrency)
 
+    # ── metadata ──
+
+    def refresh_metadata(self, organization: str, dataset: str, concurrency: int = 4) -> dict:
+        return self._registry.refresh_metadata(organization, dataset, concurrency)
+
     # ── upload ──
 
     def upload_dataset(
@@ -129,6 +130,19 @@ class DatasetClient:
         concurrency: int = 4,
     ) -> UploadResult:
         return self._registry.upload_dataset(source, target, concurrency)
+
+    # ── sync ──
+
+    def sync_dataset(
+        self,
+        dataset: str,
+        target: OssRegistryInfo,
+        *,
+        split: str | None = None,
+        dry_run: bool = True,
+        delete_extra: bool = False,
+    ):
+        return self._registry.sync_dataset(dataset, target, split=split, dry_run=dry_run, delete_extra=delete_extra)
 
     # ── reserved interfaces (not yet implemented) ──
 

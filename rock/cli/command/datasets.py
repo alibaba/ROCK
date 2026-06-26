@@ -185,7 +185,9 @@ class DatasetsCommand(Command):
     async def _files(self, args: argparse.Namespace) -> None:
         registry_info = self._build_oss_registry_info(args)
         client = DatasetClient(registry_info)
-        page = client.list_task_files(args.org, args.dataset, args.split, args.task, offset=args.offset, limit=args.limit)
+        page = client.list_task_files(
+            args.org, args.dataset, args.split, args.task, offset=args.offset, limit=args.limit
+        )
 
         if not page.items:
             print(f"No files found for task '{args.task}' in '{args.org}/{args.dataset}' split '{args.split}'.")

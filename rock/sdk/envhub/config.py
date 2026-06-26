@@ -72,6 +72,8 @@ class ProxyConfig(BaseModel):
                 "set one (recording mode) or the other (replay mode), not both."
             )
         return self
+
+
 class TrackingConfig(BaseModel):
     """Experiment tracking configuration.
 

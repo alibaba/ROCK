@@ -6,7 +6,7 @@ import pytest
 
 from rock.cli.command.datasets import DatasetsCommand
 from rock.sdk.bench.models.job.config import OssRegistryInfo
-from rock.sdk.envhub.datasets.models import DatasetSpec, PageResult
+from rock.sdk.envhub.datasets.models import PageResult
 
 
 def make_base_args(**kwargs):
@@ -278,9 +278,7 @@ def test_list_empty_prints_no_datasets_message(capsys):
 
     with patch.object(DatasetsCommand, "_build_oss_registry_info", return_value=make_registry_info()):
         with patch("rock.cli.command.datasets.DatasetClient") as MockClient:
-            MockClient.return_value.list_all_datasets.return_value = PageResult(
-                items=[], total=0, offset=0, limit=None
-            )
+            MockClient.return_value.list_all_datasets.return_value = PageResult(items=[], total=0, offset=0, limit=None)
             asyncio.run(cmd._list(args))
 
     out = capsys.readouterr().out
