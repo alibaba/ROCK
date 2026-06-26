@@ -9,6 +9,7 @@ from rock.cli.config import ConfigManager
 from rock.logger import init_logger
 from rock.sdk.bench.models.job.config import LocalDatasetConfig, OssRegistryInfo, RegistryDatasetConfig
 from rock.sdk.envhub.datasets.client import DatasetClient
+from rock.sdk.envhub.datasets.models import PageResult
 
 logger = init_logger(__name__)
 
@@ -27,20 +28,38 @@ def _positive_int(value: str) -> int:
     return ivalue
 
 
+def _page_summary(page: PageResult) -> str:
+    shown = len(page.items)
+    if page.offset == 0 and (page.limit is None or shown < page.limit):
+        return f"{page.total} total."
+    start = page.offset + 1
+    end = page.offset + shown
+    return f"Showing {start}-{end} of {page.total}."
+
+
 class DatasetsCommand(Command):
     name = "datasets"
 
     async def arun(self, args: argparse.Namespace) -> None:
-        if args.datasets_command == "list":
+        cmd = args.datasets_command
+        if cmd == "list":
             await self._list(args)
-        elif args.datasets_command == "tasks":
+        elif cmd == "info":
+            await self._info(args)
+        elif cmd == "tasks":
             await self._tasks(args)
-        elif args.datasets_command == "splits":
+        elif cmd == "splits":
             await self._splits(args)
-        elif args.datasets_command == "upload":
+        elif cmd == "files":
+            await self._files(args)
+        elif cmd == "cat":
+            await self._cat(args)
+        elif cmd == "download":
+            await self._download(args)
+        elif cmd == "upload":
             await self._upload(args)
         else:
-            raise ValueError(f"Unknown datasets command: {args.datasets_command}")
+            raise ValueError(f"Unknown datasets command: {cmd}")
 
     def _build_oss_registry_info(self, args: argparse.Namespace) -> OssRegistryInfo:
         ds_cfg = ConfigManager(Path(args.config) if args.config else None).get_config().dataset_config
@@ -61,21 +80,26 @@ class DatasetsCommand(Command):
     async def _list(self, args: argparse.Namespace) -> None:
         registry_info = self._build_oss_registry_info(args)
         client = DatasetClient(registry_info)
+        offset = args.offset
+        limit = args.limit
 
         if getattr(args, "org", None):
-            datasets = client.list_org_datasets(args.org)
-            pairs = [(args.org, d) for d in datasets]
+            page = client.list_org_datasets(args.org, offset=offset, limit=limit)
+            pairs = [(args.org, d) for d in page.items]
             self._render_org_dataset_pairs(pairs)
+            print(f"\n{_page_summary(page)}")
             return
 
         depth = getattr(args, "depth", None) or 2
         if depth == 1:
-            orgs = client.list_organizations()
-            self._render_orgs(orgs)
+            page = client.list_organizations(offset=offset, limit=limit)
+            self._render_orgs(page.items)
+            print(f"\n{_page_summary(page)}")
             return
 
-        pairs = client.list_all_datasets()
-        self._render_org_dataset_pairs(pairs)
+        page = client.list_all_datasets(offset=offset, limit=limit)
+        self._render_org_dataset_pairs(page.items)
+        print(f"\n{_page_summary(page)}")
 
     @staticmethod
     def _render_org_dataset_pairs(pairs: list[tuple[str, str]]) -> None:
@@ -89,8 +113,6 @@ class DatasetsCommand(Command):
         print("-" * len(header))
         for o, d in pairs:
             print(f"{o:<{col_org}}  {d:<{col_ds}}")
-        n_orgs = len({o for o, _ in pairs})
-        print(f"\n{len(pairs)} datasets in {n_orgs} organizations.")
 
     @staticmethod
     def _render_orgs(orgs: list[str]) -> None:
@@ -102,51 +124,107 @@ class DatasetsCommand(Command):
         print("-" * width)
         for o in orgs:
             print(o)
-        print(f"\n{len(orgs)} organizations.")
 
     async def _tasks(self, args: argparse.Namespace) -> None:
         registry_info = self._build_oss_registry_info(args)
         client = DatasetClient(registry_info)
-        spec = client.list_dataset_tasks(args.org, args.dataset, args.split)
+        page = client.list_dataset_tasks(args.org, args.dataset, args.split, offset=args.offset, limit=args.limit)
 
-        if spec is None or not spec.task_ids:
+        if page is None or not page.items:
             print(f"No tasks found for dataset '{args.org}/{args.dataset}' split '{args.split}'.")
-            return
-
-        total = len(spec.task_ids)
-        start = args.offset
-        end = start + args.limit if args.limit is not None else None
-        shown_task_ids = spec.task_ids[start:end]
-
-        if not shown_task_ids:
-            print("No tasks found after applying offset/limit.")
             return
 
         print()
         print("=" * 80)
-        print(f"Dataset: {spec.id}  Split: {spec.split}  Total: {total}  Shown: {len(shown_task_ids)}")
+        print(f"Dataset: {args.org}/{args.dataset}  Split: {args.split}  {_page_summary(page)}")
         print("=" * 80)
         print("#Task name")
         print("-" * 10)
-        for task_id in shown_task_ids:
+        for task_id in page.items:
             print(task_id)
 
     async def _splits(self, args: argparse.Namespace) -> None:
         registry_info = self._build_oss_registry_info(args)
         client = DatasetClient(registry_info)
-        splits = client.list_dataset_splits(args.org, args.dataset)
+        page = client.list_dataset_splits(args.org, args.dataset, offset=args.offset, limit=args.limit)
 
-        if not splits:
+        if not page.items:
             print(f"No splits found for dataset '{args.org}/{args.dataset}'.")
             return
 
-        width = max(len("Split"), max(len(s) for s in splits))
+        width = max(len("Split"), max(len(s) for s in page.items))
         print(f"{'Split':<{width}}")
         print("-" * width)
-        for s in splits:
+        for s in page.items:
             print(s)
-        word = "split" if len(splits) == 1 else "splits"
-        print(f"\n{len(splits)} {word}.")
+        print(f"\n{_page_summary(page)}")
+
+    async def _info(self, args: argparse.Namespace) -> None:
+        registry_info = self._build_oss_registry_info(args)
+        client = DatasetClient(registry_info)
+        info = client.get_dataset(args.org, args.dataset)
+
+        if info is None:
+            print(f"Dataset '{args.org}/{args.dataset}' not found.")
+            return
+
+        print(f"\nDataset: {info.id}")
+        print(f"Splits:  {len(info.splits)}")
+        print()
+        col_split = max(len("Split"), max(len(s) for s in info.splits))
+        col_tasks = len("Tasks")
+        header = f"{'Split':<{col_split}}  {'Tasks':>{col_tasks}}"
+        print(header)
+        print("-" * len(header))
+        for s in info.splits:
+            count = info.task_counts.get(s, 0)
+            print(f"{s:<{col_split}}  {count:>{col_tasks}}")
+        total = sum(info.task_counts.values())
+        print(f"\nTotal: {total} tasks across {len(info.splits)} splits.")
+
+    async def _files(self, args: argparse.Namespace) -> None:
+        registry_info = self._build_oss_registry_info(args)
+        client = DatasetClient(registry_info)
+        page = client.list_task_files(
+            args.org, args.dataset, args.split, args.task, offset=args.offset, limit=args.limit
+        )
+
+        if not page.items:
+            print(f"No files found for task '{args.task}' in '{args.org}/{args.dataset}' split '{args.split}'.")
+            return
+
+        files = page.items
+        col_path = max(len("Path"), max(len(f.path) for f in files))
+        col_size = max(len("Size"), max(len(str(f.size)) for f in files))
+        header = f"{'Path':<{col_path}}  {'Size':>{col_size}}  Last Modified"
+        print(header)
+        print("-" * len(header))
+        for f in files:
+            print(f"{f.path:<{col_path}}  {f.size:>{col_size}}  {f.last_modified}")
+        total_size = sum(f.size for f in files)
+        print(f"\n{_page_summary(page)} Total size: {total_size} bytes.")
+
+    async def _cat(self, args: argparse.Namespace) -> None:
+        registry_info = self._build_oss_registry_info(args)
+        client = DatasetClient(registry_info)
+        data = client.read_task_file(args.org, args.dataset, args.split, args.task, args.file)
+        sys.stdout.buffer.write(data)
+
+    async def _download(self, args: argparse.Namespace) -> None:
+        registry_info = self._build_oss_registry_info(args)
+        client = DatasetClient(registry_info)
+        local_dir = Path(args.dir)
+
+        file_path = getattr(args, "file", None)
+        if file_path:
+            dest = local_dir / file_path
+            client.download_task_file(args.org, args.dataset, args.split, args.task, file_path, dest)
+            print(f"Downloaded: {dest}")
+        else:
+            task_dir = client.download_task(
+                args.org, args.dataset, args.split, args.task, local_dir, concurrency=args.concurrency
+            )
+            print(f"Downloaded task '{args.task}' to {task_dir}")
 
     async def _upload(self, args: argparse.Namespace) -> None:
         local_dir = Path(args.dir)
@@ -188,6 +266,17 @@ class DatasetsCommand(Command):
             )
             parser.add_argument("--region", help="OSS region (overrides config.ini)")
 
+        def add_page_args(parser: argparse.ArgumentParser) -> None:
+            parser.add_argument("--offset", type=_non_negative_int, default=0, help="Skip first N items (default: 0)")
+            parser.add_argument("--limit", type=_positive_int, default=None, help="Maximum number of items to show")
+
+        # rock datasets info
+        info_parser = datasets_subparsers.add_parser("info", help="Show dataset details (splits and task counts)")
+        info_parser.add_argument("--org", required=True, help="Organization name")
+        info_parser.add_argument("--dataset", required=True, help="Dataset name")
+        add_oss_args(info_parser)
+
+        # rock datasets list
         list_parser = datasets_subparsers.add_parser("list", help="List datasets in OSS registry")
         list_group = list_parser.add_mutually_exclusive_group()
         list_group.add_argument(
@@ -199,19 +288,60 @@ class DatasetsCommand(Command):
         )
         list_group.add_argument("--org", help="List datasets under the given organization only")
         add_oss_args(list_parser)
+        add_page_args(list_parser)
+
+        # rock datasets tasks
         tasks_parser = datasets_subparsers.add_parser("tasks", help="List task IDs under one dataset split")
         tasks_parser.add_argument("--org", required=True, help="Organization name")
         tasks_parser.add_argument("--dataset", required=True, help="Dataset name")
         tasks_parser.add_argument("--split", default="test", help="Split name (default: test)")
-        tasks_parser.add_argument("--offset", type=_non_negative_int, default=0, help="Skip first N tasks")
-        tasks_parser.add_argument("--limit", type=_positive_int, default=None, help="Maximum number of tasks to show")
         add_oss_args(tasks_parser)
+        add_page_args(tasks_parser)
 
+        # rock datasets splits
         splits_parser = datasets_subparsers.add_parser("splits", help="List splits under one dataset")
         splits_parser.add_argument("--org", required=True, help="Organization name")
         splits_parser.add_argument("--dataset", required=True, help="Dataset name")
         add_oss_args(splits_parser)
+        add_page_args(splits_parser)
 
+        # rock datasets files
+        files_parser = datasets_subparsers.add_parser("files", help="List files under a task")
+        files_parser.add_argument("--org", required=True, help="Organization name")
+        files_parser.add_argument("--dataset", required=True, help="Dataset name")
+        files_parser.add_argument("--split", default="test", help="Split name (default: test)")
+        files_parser.add_argument("--task", required=True, help="Task ID")
+        add_oss_args(files_parser)
+        add_page_args(files_parser)
+
+        # rock datasets cat
+        cat_parser = datasets_subparsers.add_parser("cat", help="Print file content to stdout")
+        cat_parser.add_argument("--org", required=True, help="Organization name")
+        cat_parser.add_argument("--dataset", required=True, help="Dataset name")
+        cat_parser.add_argument("--split", default="test", help="Split name (default: test)")
+        cat_parser.add_argument("--task", required=True, help="Task ID")
+        cat_parser.add_argument("--file", required=True, help="File path relative to task directory")
+        add_oss_args(cat_parser)
+
+        # rock datasets download
+        download_parser = datasets_subparsers.add_parser("download", help="Download task files to local directory")
+        download_parser.add_argument("--org", required=True, help="Organization name")
+        download_parser.add_argument("--dataset", required=True, help="Dataset name")
+        download_parser.add_argument("--split", default="test", help="Split name (default: test)")
+        download_parser.add_argument("--task", required=True, help="Task ID")
+        download_parser.add_argument("--file", required=False, help="Download a single file (omit to download all)")
+        download_parser.add_argument("--dir", required=True, help="Local directory to download into")
+        download_parser.add_argument(
+            "--concurrency",
+            type=int,
+            default=4,
+            choices=range(1, 17),
+            metavar="[1-16]",
+            help="Download concurrency (default: 4)",
+        )
+        add_oss_args(download_parser)
+
+        # rock datasets upload
         upload_parser = datasets_subparsers.add_parser("upload", help="Upload local task dirs to OSS")
         upload_parser.add_argument("--org", required=True, help="Organization name")
         upload_parser.add_argument("--dataset", required=True, help="Dataset name")
