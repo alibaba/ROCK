@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-from rock.sdk.bench.models.job.config import LocalDatasetConfig, RegistryDatasetConfig
+from rock.sdk.bench.models.job.config import LocalDatasetConfig, OssRegistryInfo, RegistryDatasetConfig
 from rock.sdk.envhub.datasets.models import (
     DatasetInfo,
     DatasetSpec,
@@ -61,9 +61,7 @@ class BaseDatasetRegistry(ABC):
         ...
 
     @abstractmethod
-    def list_org_datasets(
-        self, organization: str, *, offset: int = 0, limit: int | None = None
-    ) -> PageResult[str]:
+    def list_org_datasets(self, organization: str, *, offset: int = 0, limit: int | None = None) -> PageResult[str]:
         """List dataset names under one organization."""
         ...
 
@@ -94,9 +92,7 @@ class BaseDatasetRegistry(ABC):
         ...
 
     @abstractmethod
-    def get_task_metadata(
-        self, organization: str, dataset: str, split: str, task_id: str
-    ) -> TaskMetadata | None:
+    def get_task_metadata(self, organization: str, dataset: str, split: str, task_id: str) -> TaskMetadata | None:
         """Discover and return task metadata from README/metadata.json/task.toml."""
         ...
 
@@ -143,6 +139,13 @@ class BaseDatasetRegistry(ABC):
         """Download all files under a task to local directory. Returns the local directory."""
         ...
 
+    # ── metadata ──
+
+    @abstractmethod
+    def refresh_metadata(self, organization: str, dataset: str, concurrency: int = 4) -> dict:
+        """Recount tasks for every split and write meta.json. Returns the meta dict."""
+        ...
+
     # ── upload ──
 
     @abstractmethod
@@ -153,4 +156,19 @@ class BaseDatasetRegistry(ABC):
         concurrency: int = 4,
     ) -> UploadResult:
         """Upload source.path/{task_id}/ subdirs to target (org/name/split from target.name and target.version)."""
+        ...
+
+    # ── sync ──
+
+    @abstractmethod
+    def sync_dataset(
+        self,
+        dataset: str,
+        target: OssRegistryInfo,
+        *,
+        split: str | None = None,
+        dry_run: bool = True,
+        delete_extra: bool = False,
+    ):
+        """Sync a dataset from this registry to a target bucket."""
         ...
