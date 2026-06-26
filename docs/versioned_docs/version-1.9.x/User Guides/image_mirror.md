@@ -52,10 +52,10 @@ Images can also be provided via `-f <path>` (supports `txt`, `jsonl`, `skopeo` f
 | `--mode` | `skopeo` | `skopeo` (recommended, skopeo copy in sandboxes), `remote` (docker pull/tag/push in sandboxes), `local` (local Docker) |
 | `--concurrency` | *(auto)* | `skopeo`/`remote`: number of sandboxes; `local`: parallel image count |
 | `-c, --cluster` | *(none)* | Cluster routing hint. `vpc-sg-*` routes to overseas ACR, other `vpc-*` routes to domestic ACR |
-| `--namespace` | *(source namespace)* | Target registry namespace. Defaults to the source image's namespace |
 | `--source-username` | *(none)* | Source registry username |
 | `--source-password` | *(none)* | Source registry password |
 | `--target-registry` | Built-in | Target registry URL. Overrides the region default when explicitly provided |
+| `--force, -F` | `false` | Force re-transfer even if target digest matches |
 | `--resume` | `false` | Resume from progress file |
 
 > **Note:** The target registry credentials are built into `rockcli` by default. In most cases you only need to provide the source images to start mirroring. Run `rockcli image mirror --help` for the full option list.
@@ -75,17 +75,6 @@ Mirror multiple images at once:
 ```bash
 rockcli image mirror rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11 ubuntu:22.04
 ```
-
-### Specify Target Namespace
-
-Use `--namespace` to mirror images into a specific target namespace (defaults to the source image's namespace):
-
-```bash
-rockcli image mirror ghcr.io/my-org/my-image:v1.0 \
-  --namespace chatos
-```
-
-The mirrored image address will be: `rock-instances-registry.ap-southeast-1.cr.aliyuncs.com/chatos/my-image:v1.0`
 
 ### Mirror Private Images
 
@@ -122,18 +111,16 @@ After mirroring completes, `rockcli` will output the mirrored image address. Use
 ## How It Works
 
 1. **Parse** — Source images are parsed from the command line arguments (or from a file if `-f` is used).
-2. **Check** — The tool logs into the target registry and checks if the image already exists. If it does, the image is skipped (overwriting is not supported).
+2. **Check** — The tool logs into the target registry and checks if the image already exists. If it does, the image is skipped.
 3. **Pull** — The image is pulled from the source registry (logging in first if source credentials are provided).
-4. **Tag** — The image is re-tagged to match the target registry URL. The namespace is set to the `--namespace` value if specified, otherwise the source image's namespace is used.
+4. **Tag** — The image is re-tagged to match the target registry URL while preserving the original namespace, name, and tag.
 5. **Push** — The re-tagged image is pushed to the target registry.
 
 Each image mirror operation retries up to 3 times on failure.
 
-> **Note:** The target registry does not support overwriting existing images. If you need to update the image content, modify the tag and mirror again.
-
 ### Image Name Mapping
 
-By default, the original image name is mapped to the target registry while preserving the source namespace:
+The original image name is mapped to the target registry while preserving its structure:
 
 ```
 Source: rex-registry-vpc.ap-southeast-1.cr.aliyuncs.com/chatos/base:python3.11
@@ -141,13 +128,6 @@ Target: rock-instances-registry.ap-southeast-1.cr.aliyuncs.com/chatos/base:pytho
 
 Source: ghcr.io/my-org/my-image:v1.0
 Target: rock-instances-registry.ap-southeast-1.cr.aliyuncs.com/my-org/my-image:v1.0
-```
-
-When `--namespace` is specified, the target namespace is replaced with the user-specified value:
-
-```
-Source: ghcr.io/my-org/my-image:v1.0 --namespace chatos
-Target: rock-instances-registry.ap-southeast-1.cr.aliyuncs.com/chatos/my-image:v1.0
 ```
 
 ## Build Results
