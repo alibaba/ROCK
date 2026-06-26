@@ -19,6 +19,7 @@ class RedisProvider:
         self.port = port
         self.password = password
         self.client: redis.Redis | None = None
+        self._pool: redis.asyncio.ConnectionPool | None = None
 
     async def init_pool(self):
         """
@@ -26,15 +27,26 @@ class RedisProvider:
         """
         logger.info("Initializing Redis connection pool...")
         # Create asynchronous connection pool
-        pool = redis.asyncio.ConnectionPool(
+        # - health_check_interval=30: send PING before reusing idle connections
+        #   to detect stale connections closed by intermediate network devices (SLB/VIPServer).
+        #   Without this, a zombie connection causes TCP retransmission timeout (~30s)
+        #   before the client realizes the connection is dead.
+        # - socket_connect_timeout=5: fail fast on new connection establishment.
+        # - socket_timeout=5: fail fast on command execution.
+        # - tcp_keepalive=True: OS-level keepalive to detect dead peers faster.
+        self._pool = redis.asyncio.ConnectionPool(
             host=self.host,
             port=self.port,
             password=self.password,
-            decode_responses=True,  # Automatically decode Redis bytes responses to str
-            max_connections=500,  # Set maximum connections according to your needs
+            decode_responses=True,
+            max_connections=2000,
+            health_check_interval=30,
+            socket_connect_timeout=5,
+            socket_timeout=5,
+            socket_keepalive=True,
         )
         # Create Redis client based on connection pool
-        self.client = redis.asyncio.Redis.from_pool(pool)
+        self.client = redis.asyncio.Redis.from_pool(self._pool)
         await self.client.ping()
         logger.info("Redis connection pool initialized and connection successful.")
 
@@ -53,6 +65,31 @@ class RedisProvider:
         if self.client is None:
             raise RuntimeError("RedisManager is not initialized. Please call 'init_pool()' first.")
         return self.client
+
+    async def exists(self, key: str) -> bool:
+        """Check if a key exists in Redis using the EXISTS command (O(1))."""
+        import time
+
+        client = self._ensure_client()
+        pool = self._pool
+        available = len(pool._available_connections) if pool else -1
+        in_use = len(pool._in_use_connections) if pool else -1
+        logger.info(f"[debug] exists: pool state available={available}, in_use={in_use}")
+        t0 = time.perf_counter()
+        result = await client.exists(key)
+        logger.info(f"[debug] exists: client.exists took {time.perf_counter() - t0:.3f} s")
+        return bool(result)
+
+    def log_pool_detailed_status(self):
+        """Log detailed Redis connection pool status for debugging."""
+        if self._pool:
+            available = len(self._pool._available_connections)
+            in_use = len(self._pool._in_use_connections)
+            max_conn = self._pool.max_connections
+            logger.info(
+                f"Redis pool detailed: available={available}, in_use={in_use}, "
+                f"max={max_conn}, total_created={available + in_use}"
+            )
 
     # --- RedisJSON functionality encapsulation ---
 
@@ -73,8 +110,43 @@ class RedisProvider:
         :param obj: A Python object that can be serialized to JSON.
         """
         logger.debug(f"JSON SET on key '{key}' at path '{path}'")
+        import time
+
+        # Step 1: Ensure client
+        t0 = time.perf_counter()
+        client = self._ensure_client()
+        logger.info(f"[debug] json_set step1: ensure_client took {time.perf_counter() - t0:.3f} s")
+
+        # Step 2: Check pool state
+        t1 = time.perf_counter()
+        pool = self._pool
+        available = len(pool._available_connections) if pool else -1
+        in_use = len(pool._in_use_connections) if pool else -1
+        logger.info(
+            f"[debug] json_set step2: pool state available={available}, in_use={in_use} (took {time.perf_counter() - t1:.3f} s)"
+        )
+
+        # Step 2.5: Check pool connection config
+        if pool:
+            conn_kwargs = pool.connection_kwargs
+            logger.info(
+                f"[debug] json_set step2.5: pool config socket_timeout={conn_kwargs.get('socket_timeout')}, "
+                f"socket_connect_timeout={conn_kwargs.get('socket_connect_timeout')}, "
+                f"health_check_interval={conn_kwargs.get('health_check_interval')}"
+            )
+
+        # Step 3: Get json_client
+        t2 = time.perf_counter()
+        json_client = client.json()
+        logger.info(f"[debug] json_set step3: get json_client took {time.perf_counter() - t2:.3f} s")
+
+        # Step 4: Actual set operation
         try:
-            await self.json_client.set(key, path, obj)
+            t3 = time.perf_counter()
+            result = await json_client.set(key, path, obj)
+            elapsed = time.perf_counter() - t3
+            logger.info(f"[debug] json_set step4: actual set took {elapsed:.3f} s")
+            return result
         except Exception as e:
             logger.error(f"Error on JSON SET for key '{key}': {e}", exc_info=True)
             raise
@@ -113,8 +185,16 @@ class RedisProvider:
         """
         logger.debug(f"JSON GET from key '{key}' at path '{path}'")
         try:
+            import time
+
+            pool = self._pool
+            available = len(pool._available_connections) if pool else -1
+            in_use = len(pool._in_use_connections) if pool else -1
+            logger.info(f"[debug] json_get: pool state available={available}, in_use={in_use}")
+            t0 = time.perf_counter()
             # RedisJSON's GET can return a list even for a single match
             result = await self.json_client.get(key, path)
+            logger.info(f"[debug] json_get: actual get took {time.perf_counter() - t0:.3f} s")
             # Unwrap if it's a single-element list from a specific path query
             if isinstance(result, list) and len(result) == 1 and path != "$":
                 return result[0]

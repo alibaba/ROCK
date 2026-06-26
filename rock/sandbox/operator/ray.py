@@ -1,4 +1,5 @@
 import json
+import time
 
 import ray
 
@@ -60,7 +61,9 @@ class RayOperator(AbstractOperator):
         async with self._ray_service.get_ray_rwlock().read_lock():
             sandbox_id = config.container_name
             logger.info(f"[{sandbox_id}] start_async params:{json.dumps(config.model_dump(), indent=2)}")
+            t0 = time.perf_counter()
             sandbox_actor: SandboxActor = await self.create_actor(config)
+            logger.info(f"[startup_timing] [{sandbox_id}] Ray create_actor " f"took {time.perf_counter() - t0:.3f} s")
             sandbox_actor.set_metrics_endpoint.remote(self._runtime_config.metrics_endpoint)
             sandbox_actor.set_user_defined_tags.remote(self._runtime_config.user_defined_tags)
             sandbox_actor.start.remote()
@@ -71,7 +74,11 @@ class RayOperator(AbstractOperator):
             sandbox_actor.set_user_id.remote(user_id)
             sandbox_actor.set_experiment_id.remote(experiment_id)
             sandbox_actor.set_namespace.remote(namespace)
+            t0 = time.perf_counter()
             sandbox_info: SandboxInfo = await self._ray_service.async_ray_get(sandbox_actor.sandbox_info.remote())
+            logger.info(
+                f"[startup_timing] [{sandbox_id}] Ray sandbox_info.remote() " f"took {time.perf_counter() - t0:.3f} s"
+            )
             sandbox_info["user_id"] = user_id
             sandbox_info["experiment_id"] = experiment_id
             sandbox_info["namespace"] = namespace
@@ -82,34 +89,95 @@ class RayOperator(AbstractOperator):
 
     async def get_status(self, sandbox_id: str) -> SandboxInfo | None:
         if self.use_rocklet():
+            t0 = time.perf_counter()
             sandbox_info: SandboxInfo = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
+            logger.info(
+                f"[operator_get_status_timing] [{sandbox_id}] Redis build_sandbox_from_redis "
+                f"took {time.perf_counter() - t0:.3f} s"
+            )
             if sandbox_info is None:
                 return None
+
             host_ip = sandbox_info.get("host_ip")
+
+            t0 = time.perf_counter()
             remote_status = await self.get_remote_status(sandbox_id, host_ip)
+            logger.info(
+                f"[operator_get_status_timing] [{sandbox_id}] HTTP get_remote_status "
+                f"took {time.perf_counter() - t0:.3f} s"
+            )
+
+            t0 = time.perf_counter()
             is_alive = await self._check_alive_status(sandbox_id, host_ip, remote_status)
+            logger.info(
+                f"[operator_get_status_timing] [{sandbox_id}] HTTP check_alive_status "
+                f"took {time.perf_counter() - t0:.3f} s"
+            )
+
             # TODO: sink update state according to is_alive logic into SandboxInfo
             if is_alive:
                 sandbox_info["state"] = State.RUNNING
             sandbox_info.update(remote_status.to_dict())
+
             return sandbox_info
         async with self._ray_service.get_ray_rwlock().read_lock():
+            total_start = time.perf_counter()
             try:
+                t0 = time.perf_counter()
                 actor: SandboxActor = await self._ray_service.async_ray_get_actor(self._get_actor_name(sandbox_id))
+                logger.info(
+                    f"[operator_get_status_timing] [{sandbox_id}] Ray get_actor "
+                    f"took {time.perf_counter() - t0:.3f} s"
+                )
             except (ValueError, Exception):
                 logger.debug(f"Actor for sandbox {sandbox_id} not found, returning None")
                 return None
+
+            t0 = time.perf_counter()
             sandbox_info: SandboxInfo = await self._ray_service.async_ray_get(actor.sandbox_info.remote())
+            logger.info(
+                f"[operator_get_status_timing] [{sandbox_id}] Ray sandbox_info.remote() "
+                f"took {time.perf_counter() - t0:.3f} s"
+            )
+
+            t0 = time.perf_counter()
             remote_status: ServiceStatus = await self._ray_service.async_ray_get(actor.get_status.remote())
+            logger.info(
+                f"[operator_get_status_timing] [{sandbox_id}] Ray get_status.remote() "
+                f"took {time.perf_counter() - t0:.3f} s"
+            )
+
             sandbox_info["phases"] = {name: phase.to_dict() for name, phase in remote_status.phases.items()}
             sandbox_info["port_mapping"] = remote_status.get_port_mapping()
+
+            t0 = time.perf_counter()
             alive = await self._ray_service.async_ray_get(actor.is_alive.remote())
+            logger.info(
+                f"[operator_get_status_timing] [{sandbox_id}] Ray is_alive.remote() "
+                f"took {time.perf_counter() - t0:.3f} s"
+            )
+
             # TODO: sink update state according to is_alive logic into SandboxInfo
             if alive.is_alive:
                 sandbox_info["state"] = State.RUNNING
             if not self._redis_provider:
+                logger.info(
+                    f"[operator_get_status_timing] [{sandbox_id}] ray get_status total "
+                    f"took {time.perf_counter() - total_start:.3f} s"
+                )
                 return sandbox_info
+
+            t0 = time.perf_counter()
             redis_info = await self.get_sandbox_info_from_redis(sandbox_id)
+            logger.info(
+                f"[operator_get_status_timing] [{sandbox_id}] Redis get_sandbox_info "
+                f"took {time.perf_counter() - t0:.3f} s"
+            )
+
+            logger.info(
+                f"[operator_get_status_timing] [{sandbox_id}] ray get_status total "
+                f"took {time.perf_counter() - total_start:.3f} s"
+            )
             if redis_info:
                 redis_info.update(sandbox_info)
                 return redis_info

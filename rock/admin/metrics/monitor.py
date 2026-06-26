@@ -181,7 +181,7 @@ class MetricsMonitor:
             t0 = time.perf_counter()
             result = original_export(metrics_data, *args, **kwargs)
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
-            logger.info(
+            logger.debug(
                 "OTLP export metric_prefix=%s endpoint=%s data_points=%d duration_ms=%.1f result=%s",
                 self.metric_prefix,
                 endpoint,

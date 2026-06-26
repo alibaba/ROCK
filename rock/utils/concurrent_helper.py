@@ -97,6 +97,63 @@ class Timer:
         return False
 
 
+class EventLoopLagMonitor:
+    """Monitor asyncio event loop lag by measuring scheduling delays.
+
+    Schedules a periodic callback via ``loop.call_later`` and measures the
+    gap between the expected fire time and the actual fire time.  A large
+    gap means the event loop is saturated (blocked by CPU work or too many
+    ready callbacks).
+
+    Usage::
+
+        monitor = EventLoopLagMonitor(interval=1.0, warn_threshold=0.5)
+        monitor.start()   # returns the background Task
+        # ... application runs ...
+        monitor.stop()
+    """
+
+    def __init__(self, interval: float = 1.0, warn_threshold: float = 0.5, logger=None):
+        self._interval = interval
+        self._warn_threshold = warn_threshold
+        self._logger = logger
+        self._task: asyncio.Task | None = None
+        self._max_lag: float = 0.0
+        self._lag_count: int = 0
+        self._sample_count: int = 0
+
+    async def _monitor_loop(self):
+        loop = asyncio.get_running_loop()
+        while True:
+            expected = self._interval
+            t0 = loop.time()
+            await asyncio.sleep(self._interval)
+            actual = loop.time() - t0
+            lag = actual - expected
+            self._sample_count += 1
+
+            if lag > self._max_lag:
+                self._max_lag = lag
+
+            if lag > self._warn_threshold:
+                self._lag_count += 1
+                if self._logger:
+                    self._logger.warning(
+                        f"[event_loop_lag] lag={lag:.3f}s (max={self._max_lag:.3f}s, "
+                        f"samples={self._sample_count}, lag_count={self._lag_count})"
+                    )
+
+    def start(self) -> asyncio.Task:
+        """Start the background monitor task. Returns the asyncio.Task."""
+        self._task = asyncio.create_task(self._monitor_loop())
+        return self._task
+
+    def stop(self):
+        """Cancel the background monitor task."""
+        if self._task and not self._task.done():
+            self._task.cancel()
+
+
 class StageTimer:
     """Context manager that logs elapsed time for a named stage."""
 

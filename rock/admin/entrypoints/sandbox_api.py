@@ -50,6 +50,11 @@ from rock.utils.docker import ImageUtil
 
 logger = init_logger(__name__)
 
+
+def _log_duration(phase: str, stage: str, start: float):
+    duration = time.perf_counter() - start
+    logger.info(f"[{phase}] {stage} took {duration:.3f} s")
+
 _MIRROR_PROBE_CACHE: dict[str, tuple[bool, float]] = {}
 _MIRROR_PROBE_TTL_SECONDS = 60.0
 
@@ -389,19 +394,47 @@ async def start_async(
     request: SandboxStartRequest,
     headers: Annotated[StartHeaders, Depends()],
 ) -> RockResponse[SandboxStartResponse]:
+    total_start = time.perf_counter()
     config = DockerDeploymentConfig.from_request(request)
+
+    t0 = time.perf_counter()
     await _apply_accelerator_type_validation(config)
+    _log_duration("start_async_timing", "Apply accelerator type validation", t0)
+
+    t0 = time.perf_counter()
     await _apply_kata_runtime_switch(config)
     await _apply_kata_disk_size(config)
+    _log_duration("start_async_timing", "Apply kata runtime switch + disk size", t0)
+
+    t0 = time.perf_counter()
     await _apply_image_os_profile(config)
+    _log_duration("start_async_timing", "Apply image OS profile", t0)
+
+    t0 = time.perf_counter()
     await _apply_timeout_defaults(config)
     await _apply_cpu_overcommit_default(config, headers.user_info.get("rock_authorization"))
+    _log_duration("start_async_timing", "Apply timeout defaults + CPU overcommit", t0)
+
+    t0 = time.perf_counter()
     await _apply_disk_limits(config)
+    _log_duration("start_async_timing", "Apply disk limits", t0)
+
+    t0 = time.perf_counter()
     await _apply_image_registry_mirror(config)
+    _log_duration("start_async_timing", "Apply image registry mirror", t0)
+
+    t0 = time.perf_counter()
     sandbox_start_response = await sandbox_manager.start_async(
         config,
         user_info=headers.user_info,
         cluster_info=headers.cluster_info,
+    )
+    _log_duration("start_async_timing", "sandbox_manager.start_async", t0)
+
+    total_duration = time.perf_counter() - total_start
+    logger.info(
+        f"[start_async_timing] [{sandbox_start_response.sandbox_id}] "
+        f"API start_async total took {total_duration:.3f} s"
     )
     return RockResponse(result=sandbox_start_response)
 
@@ -427,15 +460,27 @@ async def get_sandbox_statistics(sandbox_id: NonBlankStr):
 @sandbox_router.get("/get_status")
 @handle_exceptions(error_message="get sandbox status failed")
 async def get_status(sandbox_id: NonBlankStr, include_all_states: bool = False):
+    total_start = time.perf_counter()
+
     # TODO: do judgement inside operator
-    if (
+    t0 = time.perf_counter()
+    use_v2 = (
         sandbox_manager.rock_config.nacos_provider is not None
         and await sandbox_manager.rock_config.nacos_provider.get_switch_status(GET_STATUS_SWITCH)
-    ):
-        return RockResponse(
-            result=await sandbox_manager.get_status_v2(sandbox_id, include_all_states=include_all_states)
-        )
-    return RockResponse(result=await sandbox_manager.get_status(sandbox_id, include_all_states=include_all_states))
+    )
+    _log_duration("get_status_timing", f"[{sandbox_id}] Nacos switch check", t0)
+
+    t0 = time.perf_counter()
+    if use_v2:
+        result = await sandbox_manager.get_status_v2(sandbox_id, include_all_states=include_all_states)
+    else:
+        result = await sandbox_manager.get_status(sandbox_id, include_all_states=include_all_states)
+    _log_duration("get_status_timing", f"[{sandbox_id}] sandbox_manager.get_status", t0)
+
+    total_duration = time.perf_counter() - total_start
+    logger.info(f"[get_status_timing] [{sandbox_id}] API get_status total took {total_duration:.3f} s")
+
+    return RockResponse(result=result)
 
 
 @sandbox_router.post("/execute")
