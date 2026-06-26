@@ -26,7 +26,9 @@ class SandboxInfo(TypedDict, total=False):
     start_time: str
     stop_time: str
     delete_time: str
+    archive_time: str
     extended_params: dict[str, str]
+    state_history: list[dict[str, str]]
 
 
 _SANDBOX_INFO_KEYS = frozenset(SandboxInfo.__annotations__.keys())

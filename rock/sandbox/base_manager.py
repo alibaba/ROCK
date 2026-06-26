@@ -1,5 +1,6 @@
 import asyncio
 import time
+from abc import ABC, abstractmethod
 
 import ray
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -16,7 +17,7 @@ from rock.utils import get_executor
 logger = init_logger(__name__)
 
 
-class BaseManager:
+class BaseManager(ABC):
     _check_job_bg_task: object = None
     rock_config: RockConfig = None
 
@@ -36,6 +37,7 @@ class BaseManager:
         )
         self._report_interval = 10
         self._check_job_interval = 180
+        self._reconcile_interval = rock_config.lifecycle.reconcile_interval_seconds
         self._setup_scheduler()
         self.deployment_manager = DeploymentManager(rock_config, enable_runtime_auto_clear)
 
@@ -61,7 +63,6 @@ class BaseManager:
         logger.info("APScheduler started for metrics collection")
 
     def _setup_job_check_scheduler(self):
-        """Set up scheduler"""
         self.scheduler = AsyncIOScheduler(
             timezone="UTC", job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 30}
         )
@@ -71,8 +72,14 @@ class BaseManager:
             id="job_check",
             name="Sandbox Job Check",
         )
+        self.scheduler.add_job(
+            func=self._reconcile,
+            trigger=IntervalTrigger(seconds=self._reconcile_interval),
+            id="reconcile",
+            name="Sandbox Reconcile",
+        )
         self.scheduler.start()
-        logger.info("APScheduler started for job check")
+        logger.info("APScheduler started for job check and reconcile")
 
     async def _collect_and_report_metrics(self):
         start_time = time.time()
@@ -132,6 +139,14 @@ class BaseManager:
             image = sandbox_info.get("image", "default")
             meta[sandbox_info.get("sandbox_id")] = {"image": image}
         return cnt, meta
+
+    @abstractmethod
+    async def _check_job_background(self):
+        ...
+
+    @abstractmethod
+    async def _reconcile(self):
+        ...
 
     def stop_monitoring(self):
         if self.scheduler and self.scheduler.running:

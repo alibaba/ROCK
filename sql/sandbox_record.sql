@@ -10,6 +10,8 @@ CREATE TABLE sandbox_record (
 	create_time VARCHAR(64) NOT NULL, 
 	start_time VARCHAR(64), 
 	stop_time VARCHAR(64), 
+	archive_time VARCHAR(64), 
+	delete_time VARCHAR(64), 
 	host_name VARCHAR(255), 
 	auth_token VARCHAR(512), 
 	rock_authorization_encrypted VARCHAR(1024), 
@@ -23,20 +25,20 @@ CREATE TABLE sandbox_record (
 	PRIMARY KEY (sandbox_id)
 );
 
-CREATE INDEX ix_sandbox_record_image ON sandbox_record (image);
+CREATE INDEX ix_sandbox_record_cluster_name ON sandbox_record (cluster_name);
+
+CREATE INDEX ix_sandbox_record_create_user_gray_flag ON sandbox_record (create_user_gray_flag);
+
+CREATE INDEX ix_sandbox_record_experiment_id ON sandbox_record (experiment_id);
 
 CREATE INDEX ix_sandbox_record_host_ip ON sandbox_record (host_ip);
 
 CREATE INDEX ix_sandbox_record_host_name ON sandbox_record (host_name);
 
-CREATE INDEX ix_sandbox_record_state ON sandbox_record (state);
-
-CREATE INDEX ix_sandbox_record_create_user_gray_flag ON sandbox_record (create_user_gray_flag);
-
-CREATE INDEX ix_sandbox_record_user_id ON sandbox_record (user_id);
+CREATE INDEX ix_sandbox_record_image ON sandbox_record (image);
 
 CREATE INDEX ix_sandbox_record_namespace ON sandbox_record (namespace);
 
-CREATE INDEX ix_sandbox_record_experiment_id ON sandbox_record (experiment_id);
+CREATE INDEX ix_sandbox_record_state ON sandbox_record (state);
 
-CREATE INDEX ix_sandbox_record_cluster_name ON sandbox_record (cluster_name);
+CREATE INDEX ix_sandbox_record_user_id ON sandbox_record (user_id);

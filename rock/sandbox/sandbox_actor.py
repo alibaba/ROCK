@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import os
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -8,6 +9,7 @@ import tempfile
 import ray
 from fastapi import UploadFile
 
+from rock import env_vars
 from rock.actions import (
     BashObservation,
     CloseBashSessionResponse,
@@ -32,9 +34,22 @@ from rock.deployments.constants import Status
 from rock.deployments.docker import DockerDeployment
 from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
+from rock.sandbox.archive.constants import ArchiveKeys
+from rock.sandbox.archive.oss_storage import OssDirStorage
+from rock.sandbox.archive.registry_v2 import DockerRegistryV2ImageStorage
+from rock.sandbox.archive.s3_storage import S3DirStorage
 from rock.sandbox.gem_actor import GemActor
+from rock.utils.format import parse_size_to_bytes
 
 logger = init_logger(__name__)
+
+
+def _make_dir_storage(config: dict):
+    config = dict(config)
+    storage_type = config.pop("type", "oss")
+    if storage_type == "s3":
+        return S3DirStorage(**config)
+    return OssDirStorage(**config)
 
 
 @ray.remote(scheduling_strategy="SPREAD")
@@ -126,6 +141,14 @@ class SandboxActor(GemActor):
                 process.kill()
                 await process.wait()
             raise subprocess.TimeoutExpired(args, timeout)
+
+    async def _get_image_size(self, image_tag: str) -> int:
+        result = await self._run_shell_command("docker", "image", "inspect", "--format={{.Size}}", image_tag)
+        return int(result.stdout.decode().strip())
+
+    async def _get_dir_size(self, dir_path: str) -> int:
+        result = await self._run_shell_command("du", "-sb", dir_path)
+        return int(result.stdout.decode().split()[0])
 
     async def start(self):
         try:
@@ -316,3 +339,106 @@ class SandboxActor(GemActor):
                 "disk_limit_rootfs": self._config.disk_limit_rootfs,
             }
         return {}
+
+    async def archive(
+        self,
+        dir_storage_config: dict,
+        image_storage_config: dict,
+        archive_params: dict | None = None,
+    ) -> None:
+        """Async archive: commit+push image, then tar+upload log dir."""
+        sandbox_id = self._config.container_name
+        dir_storage = _make_dir_storage(dir_storage_config)
+        image_storage = DockerRegistryV2ImageStorage(**image_storage_config)
+        archive_params = archive_params or {}
+        prefix = archive_params.get("archive_prefix", "rock-archives/")
+        acr_ns = archive_params.get("acr_namespace", "sandbox_archive")
+
+        local_tag = f"archive-staging-{sandbox_id}:latest"
+        await self._run_shell_command("docker", "commit", sandbox_id, local_tag)
+
+        max_image = archive_params.get("max_image_push_size", "")
+        if max_image:
+            image_size = await self._get_image_size(local_tag)
+            max_bytes = parse_size_to_bytes(max_image)
+            if image_size > max_bytes:
+                await self._run_shell_command("docker", "rmi", local_tag, check=False)
+                raise RuntimeError(
+                    f"[{sandbox_id}] image size {image_size} bytes exceeds limit {max_image} ({max_bytes} bytes)"
+                )
+
+        ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, acr_ns)
+        try:
+            await image_storage.push_from_local(local_tag, ref)
+        except Exception:
+            await self._run_shell_command("docker", "rmi", local_tag, check=False)
+            raise
+        await self._run_shell_command("docker", "rmi", local_tag, check=False)
+
+        log_root = env_vars.ROCK_LOGGING_PATH
+        if not log_root:
+            logger.info(f"[{sandbox_id}] ROCK_LOGGING_PATH not set, skipping log dir archive")
+            return
+
+        log_dir = f"{log_root}/{sandbox_id}"
+        key = ArchiveKeys.dir_key(sandbox_id, prefix)
+
+        if os.path.isdir(log_dir):
+            max_dir = archive_params.get("max_dir_upload_size", "")
+            if max_dir:
+                dir_size = await self._get_dir_size(log_dir)
+                max_bytes = parse_size_to_bytes(max_dir)
+                if dir_size > max_bytes:
+                    raise RuntimeError(
+                        f"[{sandbox_id}] log dir size {dir_size} bytes exceeds limit {max_dir} ({max_bytes} bytes)"
+                    )
+            try:
+                await dir_storage.upload_dir(log_dir, key)
+            except Exception:
+                await image_storage.delete(ref)
+                raise
+            shutil.rmtree(log_dir, ignore_errors=True)
+        else:
+            logger.info(f"[{sandbox_id}] log dir {log_dir} not found, skipping log archive")
+
+    async def restore_and_start(
+        self,
+        dir_storage_config: dict,
+        image_storage_config: dict,
+        archive_params: dict | None = None,
+    ) -> None:
+        """Full restore: pull image + download logs + docker start + arm watchdog."""
+        sandbox_id = self._config.container_name
+        dir_storage = _make_dir_storage(dir_storage_config)
+        image_storage = DockerRegistryV2ImageStorage(**image_storage_config)
+        archive_params = archive_params or {}
+        prefix = archive_params.get("archive_prefix", "rock-archives/")
+        acr_ns = archive_params.get("acr_namespace", "sandbox_archive")
+
+        ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, acr_ns)
+        await image_storage.pull_to_local(ref)
+
+        log_root = env_vars.ROCK_LOGGING_PATH
+        if log_root:
+            key = ArchiveKeys.dir_key(sandbox_id, prefix)
+            target_dir = f"{log_root}/{sandbox_id}"
+            if await dir_storage.exists(key):
+                try:
+                    if os.path.exists(target_dir):
+                        shutil.rmtree(target_dir)
+                    await dir_storage.download_to_dir(key, target_dir)
+                except Exception as e:
+                    logger.warning(f"[{sandbox_id}] log restore failed, continuing without logs: {e}")
+            else:
+                logger.warning(f"[{sandbox_id}] archived log key {key} not found in OSS, skipping log restore")
+        else:
+            logger.info(f"[{sandbox_id}] ROCK_LOGGING_PATH not set, skipping log restore")
+
+        if isinstance(self._deployment, DockerDeployment):
+            await self._deployment.restart_from_image(ref)
+        else:
+            await self._deployment.restart()
+        if isinstance(self._deployment, DockerDeployment):
+            self._clean_container_background()
+        await self._setup_monitor()
+        logger.info(f"[{sandbox_id}] restore_and_start complete")

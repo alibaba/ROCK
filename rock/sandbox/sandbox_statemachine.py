@@ -15,11 +15,19 @@ from rock.admin.metrics.billing import log_billing_info
 from rock.common.constants import DeleteReason, StopReason
 from rock.deployments.config import DockerDeploymentConfig
 from rock.logger import init_logger
+from rock.sandbox.archive.constants import ArchiveKeys
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils.system import get_iso8601_timestamp
 
 logger = init_logger(__name__)
+
+
+def get_last_entered_at(state_history: list[dict[str, str]], target_state: str) -> str:
+    for record in reversed(state_history):
+        if record.get("to_state") == target_state:
+            return record.get("timestamp", "")
+    return ""
 
 
 class SandboxStateMachine(StateChart):
@@ -46,6 +54,8 @@ class SandboxStateMachine(StateChart):
     pending = SMState("Pending", initial=True, value=RockState.PENDING)
     running = SMState("Running", value=RockState.RUNNING)
     stopped = SMState("Stopped", value=RockState.STOPPED)
+    archiving = SMState("Archiving", value=RockState.ARCHIVING)
+    archived = SMState("Archived", value=RockState.ARCHIVED)
     deleted = SMState("Deleted", final=True, value=RockState.DELETED)
 
     # Transitions
@@ -53,7 +63,12 @@ class SandboxStateMachine(StateChart):
     stop_noop = stopped.to(stopped)
     alive = pending.to(running)
     restart = stopped.to(pending)
-    delete = stopped.to(deleted)
+    delete = stopped.to(deleted) | archived.to(deleted)
+    archive = stopped.to(archiving)
+    archive_done = archiving.to(archived)
+    archive_failed = archiving.to(stopped)
+    restore = archived.to(pending)
+    restore_failed = pending.to(archived)
 
     def __init__(self, **kwargs):
         """Initialize with optional sandbox_info."""
@@ -61,6 +76,24 @@ class SandboxStateMachine(StateChart):
         self.sandbox_info: SandboxInfo | None = kwargs.get("sandbox_info")
 
     # Callbacks
+
+    def before_transition(self, event, source, target):
+        if source.value == target.value:
+            return
+        if self.sandbox_info is None:
+            self.sandbox_info = {}
+        history = self.sandbox_info.setdefault("state_history", [])
+        history.append(
+            {
+                "from_state": source.value.value,
+                "to_state": target.value.value,
+                "event": str(event),
+                "timestamp": get_iso8601_timestamp(),
+            }
+        )
+        # Cap history to avoid unbounded growth in long-lived sandboxes
+        if len(history) > 100:
+            del history[:-100]
 
     async def on_stop(self, sandbox_id: str, operator, meta_store, reason: StopReason = StopReason.MANUAL) -> None:
         logger.info(f"stop sandbox {sandbox_id} (reason={reason.value})")
@@ -98,6 +131,8 @@ class SandboxStateMachine(StateChart):
         sandbox_info["state"] = RockState.RUNNING
         if not sandbox_info.get("start_time"):
             sandbox_info["start_time"] = get_iso8601_timestamp()
+        if self.sandbox_info and "state_history" in self.sandbox_info:
+            sandbox_info["state_history"] = self.sandbox_info["state_history"]
         await meta_store.update(sandbox_id, sandbox_info)
 
     async def on_restart(self, sandbox_id: str, operator, meta_store) -> None:
@@ -136,6 +171,7 @@ class SandboxStateMachine(StateChart):
         new_info = dict(info)
         new_info["state"] = RockState.PENDING
         new_info.pop("stop_time", None)
+        new_info.pop("phases", None)
         await meta_store.update(sandbox_id, new_info)
         await meta_store.update_timeout(sandbox_id, timeout_info)
 
@@ -145,6 +181,8 @@ class SandboxStateMachine(StateChart):
         operator,
         meta_store,
         reason: DeleteReason = DeleteReason.MANUAL,
+        dir_storage=None,
+        image_storage=None,
     ) -> None:
         logger.info(f"delete sandbox {sandbox_id} (reason={reason.value})")
         sandbox_info = self.sandbox_info or {}
@@ -168,8 +206,116 @@ class SandboxStateMachine(StateChart):
                     "rely on ContainerCleanupTask to reap docker container"
                 )
 
+        if sandbox_info.get("archive_time") and dir_storage and image_storage:
+            prefix = sandbox_info.get("archive_prefix", "rock-archives/")
+            acr_ns = sandbox_info.get("acr_namespace", "sandbox_archive")
+            key = ArchiveKeys.dir_key(sandbox_id, prefix)
+            ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, acr_ns)
+            try:
+                await dir_storage.delete(key)
+            except Exception as e:
+                logger.warning(f"delete: cleanup archive dir {key} failed: {e}")
+            try:
+                await image_storage.delete(ref)
+            except Exception as e:
+                logger.warning(f"delete: cleanup archive image {ref} failed: {e}")
+
         sandbox_info["state"] = RockState.DELETED
         sandbox_info["delete_time"] = get_iso8601_timestamp()
+        await meta_store.archive(sandbox_id, sandbox_info)
+        self.sandbox_info = sandbox_info
+
+    async def on_archive(
+        self,
+        sandbox_id: str,
+        meta_store,
+        operator=None,
+        dir_storage=None,
+        image_storage=None,
+        archive_params: dict | None = None,
+    ) -> None:
+        logger.info(f"archive sandbox {sandbox_id}")
+        sandbox_info = self.sandbox_info or {}
+        archive_params = archive_params or {}
+        prefix = archive_params.get("archive_prefix", "rock-archives/")
+        acr_ns = archive_params.get("acr_namespace", "sandbox_archive")
+
+        sandbox_info["state"] = RockState.ARCHIVING
+        sandbox_info["archive_prefix"] = prefix
+        sandbox_info["acr_namespace"] = acr_ns
+        await meta_store.archive(sandbox_id, sandbox_info)
+        self.sandbox_info = sandbox_info
+
+        if operator:
+            spec = sandbox_info.get("spec") or {}
+            config = DockerDeploymentConfig(**spec)
+            await operator.start_archive(
+                config=config,
+                host_ip=sandbox_info.get("host_ip"),
+                dir_storage_config=dir_storage.client_config,
+                image_storage_config=image_storage.client_config,
+                archive_params=archive_params,
+            )
+
+    async def on_archive_done(self, sandbox_id: str, meta_store) -> None:
+        logger.info(f"archive done sandbox {sandbox_id}")
+        sandbox_info = self.sandbox_info or {}
+        sandbox_info["state"] = RockState.ARCHIVED
+        sandbox_info["archive_time"] = get_iso8601_timestamp()
+        await meta_store.archive(sandbox_id, sandbox_info)
+        self.sandbox_info = sandbox_info
+
+    async def on_archive_failed(self, sandbox_id: str, meta_store, reason: str = "") -> None:
+        logger.info(f"archive failed sandbox {sandbox_id}: {reason}")
+        sandbox_info = self.sandbox_info or {}
+        sandbox_info["state"] = RockState.STOPPED
+        sandbox_info.pop("archive_time", None)
+        await meta_store.archive(sandbox_id, sandbox_info)
+        self.sandbox_info = sandbox_info
+
+    async def on_restore(
+        self,
+        sandbox_id: str,
+        meta_store,
+        timeout_info: dict | None = None,
+        operator=None,
+        dir_storage=None,
+        image_storage=None,
+    ) -> None:
+        """ARCHIVED → PENDING: fire-and-forget actor does pull+download+docker start.
+
+        Writes to Redis so that operator.get_status can probe alive status
+        (PENDING alive detection drives the PENDING → RUNNING transition).
+        """
+        logger.info(f"restore sandbox {sandbox_id}")
+        sandbox_info = self.sandbox_info or {}
+        sandbox_info["state"] = RockState.PENDING
+        sandbox_info.pop("stop_time", None)
+        await meta_store.update(sandbox_id, sandbox_info)
+        if timeout_info:
+            await meta_store.update_timeout(sandbox_id, timeout_info)
+        self.sandbox_info = sandbox_info
+
+        if operator:
+            spec = sandbox_info.get("spec") or {}
+            archive_params = {
+                "archive_prefix": sandbox_info.get("archive_prefix", "rock-archives/"),
+                "acr_namespace": sandbox_info.get("acr_namespace", "sandbox_archive"),
+            }
+            config = DockerDeploymentConfig(**spec)
+            await operator.start_restore(
+                config=config,
+                host_ip=sandbox_info.get("host_ip"),
+                dir_storage_config=dir_storage.client_config,
+                image_storage_config=image_storage.client_config,
+                archive_params=archive_params,
+            )
+
+    async def on_restore_failed(self, sandbox_id: str, meta_store, reason: str = "") -> None:
+        """PENDING → ARCHIVED: timeout or unrecoverable error during restore."""
+        logger.info(f"restore failed sandbox {sandbox_id}: {reason}")
+        sandbox_info = self.sandbox_info or {}
+        sandbox_info["state"] = RockState.ARCHIVED
         await meta_store.archive(sandbox_id, sandbox_info)
         self.sandbox_info = sandbox_info
 
@@ -180,6 +326,8 @@ class SandboxStateMachine(StateChart):
             RockState.PENDING: "pending",
             RockState.RUNNING: "running",
             RockState.STOPPED: "stopped",
+            RockState.ARCHIVING: "archiving",
+            RockState.ARCHIVED: "archived",
             RockState.DELETED: "deleted",
         }
         sm = (

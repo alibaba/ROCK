@@ -179,6 +179,7 @@ async def lifespan(app: FastAPI):
                 meta_store=meta_store,
             )
         set_sandbox_manager(sandbox_manager)
+
         warmup_service = WarmupService(rock_config.warmup)
         await warmup_service.init()
         set_warmup_service(warmup_service)

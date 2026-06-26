@@ -172,12 +172,22 @@ class ArchiveAcrConfig:
 
 @dataclass
 class ArchiveConfig:
+    enabled: bool = False
+    allowed_keys: list[str] | None = None
     dir_storage: ArchiveDirStorageConfig = field(default_factory=ArchiveDirStorageConfig)
     acr: ArchiveAcrConfig = field(default_factory=ArchiveAcrConfig)
-    scan_interval_sec: int = 30
-    timeout_sec: int = 1800
     max_retries: int = 3
     prefix: str = "rock-archives/"
+    max_image_push_size: str = "16g"
+    max_dir_upload_size: str = "16g"
+
+    def is_allowed(self, rock_authorization: str | None) -> bool:
+        """Check if the caller is allowed to use archive. None = open to all."""
+        if self.allowed_keys is None:
+            return True
+        if not isinstance(self.allowed_keys, list):
+            return False
+        return rock_authorization in self.allowed_keys
 
     def __post_init__(self):
         if isinstance(self.dir_storage, dict):
@@ -188,6 +198,9 @@ class ArchiveConfig:
 
 @dataclass
 class SandboxLifecycleConfig:
+    reconcile_interval_seconds: int = 30
+    archive_timeout_seconds: int = 1800
+    restore_timeout_seconds: int = 1800
     archive: ArchiveConfig = field(default_factory=ArchiveConfig)
 
     default_startup_timeout_seconds: float = 600
@@ -595,4 +608,5 @@ class RockConfig:
             f", image_registry_mirrors={self.image_registry_mirrors}"
             f", image_mirror_lookup_allowlist={self.image_mirror_lookup_allowlist}"
             f", instance_registry_mirrors={self.runtime.instance_registry_mirrors}"
+            f", lifecycle={self.lifecycle}"
         )

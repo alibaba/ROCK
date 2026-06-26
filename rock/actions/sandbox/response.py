@@ -16,6 +16,8 @@ class State(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
     STOPPED = "stopped"
+    ARCHIVING = "archiving"
+    ARCHIVED = "archived"
     DELETED = "deleted"
 
 
@@ -54,6 +56,7 @@ class SandboxStatusResponse(BaseModel):
     start_time: str | None = None
     stop_time: str | None = None
     create_time: str | None = None
+    state_history: list[dict[str, str]] = []
 
 
 class CommandResponse(BaseModel):
