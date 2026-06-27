@@ -120,7 +120,12 @@ class SandboxManager(BaseManager):
     async def start_async(
         self, config: DeploymentConfig, user_info: UserInfo = {}, cluster_info: ClusterInfo = {}
     ) -> SandboxStartResponse:
-        await self._check_sandbox_exists_in_redis(config)
+        _timings: dict[str, float] = {}
+
+        with StageTimer("startup_timing", f"[{config.image}] Check sandbox exists in redis", logger) as _st:
+            _t0 = time.perf_counter()
+            await self._check_sandbox_exists_in_redis(config)
+            _timings["check_redis"] = time.perf_counter() - _t0
         self.validate_sandbox_spec(self.rock_config.runtime, config)
         with StageTimer("startup_timing", f"[{config.image}] Init config", logger):
             docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(config)
@@ -136,15 +141,25 @@ class SandboxManager(BaseManager):
             docker_deployment_config.memory = self.rock_config.runtime.standard_spec.memory
         with StageTimer("startup_timing", f"[{sandbox_id}] Operator submit", logger):
             sandbox_info: SandboxInfo = await self._operator.submit(docker_deployment_config, user_info)
-        await self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)
+
+        with StageTimer("startup_timing", f"[{sandbox_id}] Build sandbox info metadata", logger) as _st:
+            _t0 = time.perf_counter()
+            await self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)
+            _timings["build_metadata"] = time.perf_counter() - _t0
         timeout_info = SandboxTimeoutHelper.make_timeout_info(docker_deployment_config.auto_clear_time)
         with StageTimer("startup_timing", f"[{sandbox_id}] Meta store create", logger):
+            _t0 = time.perf_counter()
             await self._meta_store.create(
                 sandbox_id,
                 sandbox_info,
                 timeout_info=timeout_info,
                 deployment_config=docker_deployment_config,
             )
+            _timings["meta_store_create"] = time.perf_counter() - _t0
+
+        logger.info(
+            f"[{sandbox_id}] start_async total timings: " + ", ".join(f"{k}={v:.3f}s" for k, v in _timings.items())
+        )
         return SandboxStartResponse(
             sandbox_id=sandbox_id,
             host_name=sandbox_info.get("host_name"),
@@ -272,22 +287,36 @@ class SandboxManager(BaseManager):
 
     @monitor_sandbox_operation()
     async def get_status(self, sandbox_id, include_all_states: bool = False) -> SandboxStatusResponse:
+        _timings: dict[str, float] = {}
+
         # get status from meta_store
-        sm = await self._get_current_statemachine(sandbox_id)
+        with StageTimer("status_timing", f"[{sandbox_id}] Get current statemachine", logger):
+            _t0 = time.perf_counter()
+            sm = await self._get_current_statemachine(sandbox_id)
+            _timings["get_statemachine"] = time.perf_counter() - _t0
         if sm is None:
             raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
 
         # update status from operator
         is_alive = False
-        operator_sandbox_info: SandboxInfo | None = await self._operator.get_status(sandbox_id=sandbox_id)
+        with StageTimer("status_timing", f"[{sandbox_id}] Operator get status", logger):
+            _t0 = time.perf_counter()
+            operator_sandbox_info: SandboxInfo | None = await self._operator.get_status(sandbox_id=sandbox_id)
+            _timings["operator_get_status"] = time.perf_counter() - _t0
         if operator_sandbox_info is not None:
             is_alive = operator_sandbox_info.get("state") == State.RUNNING
             if sm.current_state.value == State.PENDING and is_alive:
-                await sm.send(
-                    "alive", sandbox_id=sandbox_id, meta_store=self._meta_store, sandbox_info=operator_sandbox_info
-                )
+                with StageTimer("status_timing", f"[{sandbox_id}] State transition alive", logger):
+                    _t0 = time.perf_counter()
+                    await sm.send(
+                        "alive", sandbox_id=sandbox_id, meta_store=self._meta_store, sandbox_info=operator_sandbox_info
+                    )
+                    _timings["state_transition_alive"] = time.perf_counter() - _t0
             if operator_sandbox_info.get("state") in (State.PENDING, State.RUNNING):
-                await self._refresh_timeout(sandbox_id)
+                with StageTimer("status_timing", f"[{sandbox_id}] Refresh timeout", logger):
+                    _t0 = time.perf_counter()
+                    await self._refresh_timeout(sandbox_id)
+                    _timings["refresh_timeout"] = time.perf_counter() - _t0
 
         # compat with legacy get_status behavior by default (include_all_states == False),
         # raise 'not found' if not on pending or running status.
@@ -299,6 +328,9 @@ class SandboxManager(BaseManager):
         else:
             sandbox_info = sm.sandbox_info
 
+        logger.info(
+            f"[{sandbox_id}] get_status total timings: " + ", ".join(f"{k}={v:.3f}s" for k, v in _timings.items())
+        )
         return SandboxStatusResponse(
             sandbox_id=sandbox_id,
             status=sandbox_info.get("phases"),
@@ -436,6 +468,4 @@ class SandboxManager(BaseManager):
                 parse_size_to_bytes(deployment_config.disk_limit_rootfs)
             except ValueError as e:
                 logger.warning(f"Invalid disk_limit_rootfs size: {deployment_config.disk_limit_rootfs}", exc_info=e)
-                raise BadRequestRockError(
-                    f"Invalid disk_limit_rootfs size: {deployment_config.disk_limit_rootfs}"
-                )
+                raise BadRequestRockError(f"Invalid disk_limit_rootfs size: {deployment_config.disk_limit_rootfs}")

@@ -7,6 +7,7 @@ All DB operations are awaited for consistency.
 
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
@@ -77,11 +78,17 @@ class SandboxMetaStore:
         prior DB-fallback read) cannot leak into the alive key.
         """
         redis_payload = pick_sandbox_info_fields(sandbox_info)
+        _t = time.perf_counter()
         await self._redis.json_set(alive_sandbox_key(sandbox_id), "$", redis_payload)
+        logger.info(f"[{sandbox_id}] meta_store.create redis_set_alive took {time.perf_counter() - _t:.3f}s")
         if timeout_info is not None:
+            _t2 = time.perf_counter()
             await self._redis.json_set(timeout_sandbox_key(sandbox_id), "$", timeout_info)
+            logger.info(f"[{sandbox_id}] meta_store.create redis_set_timeout took {time.perf_counter() - _t2:.3f}s")
 
+        _t3 = time.perf_counter()
         await self._db.create(sandbox_id, sandbox_info, deployment_config)
+        logger.info(f"[{sandbox_id}] meta_store.create db_create took {time.perf_counter() - _t3:.3f}s")
 
     @monitor_metastore_operation
     async def update(self, sandbox_id: str, sandbox_info: SandboxInfo) -> None:
@@ -129,11 +136,15 @@ class SandboxMetaStore:
     @monitor_metastore_operation
     async def get(self, sandbox_id: str, check_db: bool = False) -> SandboxInfo | None:
         """Read sandbox info from the Redis alive key."""
+        _t = time.perf_counter()
         result = await self._redis.json_get(alive_sandbox_key(sandbox_id), "$")
+        logger.info(f"[{sandbox_id}] meta_store.get redis_get took {time.perf_counter() - _t:.3f}s")
         if result and len(result) > 0:
             return result[0]
         if check_db:
+            _t2 = time.perf_counter()
             result = await self._db.get(sandbox_id)
+            logger.info(f"[{sandbox_id}] meta_store.get db_get took {time.perf_counter() - _t2:.3f}s")
             if result:
                 return result
         return None
@@ -153,7 +164,9 @@ class SandboxMetaStore:
     @monitor_metastore_operation
     async def update_timeout(self, sandbox_id: str, timeout_info: dict[str, str]) -> None:
         """Overwrite the Redis timeout key with *timeout_info*."""
+        _t = time.perf_counter()
         await self._redis.json_set(timeout_sandbox_key(sandbox_id), "$", timeout_info)
+        logger.info(f"[{sandbox_id}] meta_store.update_timeout redis_set took {time.perf_counter() - _t:.3f}s")
 
     async def iter_alive_sandbox_ids(self) -> AsyncIterator[str]:
         """Yield active sandbox IDs from the DB."""

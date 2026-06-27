@@ -14,7 +14,7 @@ V = TypeVar("V")
 _thread_pool = None
 _thread_pool_lock = threading.Lock()
 _global_executor: ThreadPoolExecutor | None = None
-MAX_WORKERS = 300
+MAX_WORKERS = 500
 
 
 def _get_thread_pool():
