@@ -28,12 +28,12 @@ from rock.admin.proto.response import SandboxStartResponse, SandboxStatusRespons
 from rock.common.constants import DeleteReason, StopReason
 from rock.config import RockConfig, RuntimeConfig
 from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
-from rock.sandbox.operator.fc import FCOperatorConfig
 from rock.logger import init_logger
 from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
 from rock.sandbox.base_manager import BaseManager
 from rock.sandbox.operator.abstract import AbstractOperator
+from rock.sandbox.operator.fc import FCOperatorConfig
 from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.sandbox_statemachine import SandboxStateMachine
@@ -453,6 +453,4 @@ class SandboxManager(BaseManager):
                 parse_size_to_bytes(deployment_config.disk_limit_rootfs)
             except ValueError as e:
                 logger.warning(f"Invalid disk_limit_rootfs size: {deployment_config.disk_limit_rootfs}", exc_info=e)
-                raise BadRequestRockError(
-                    f"Invalid disk_limit_rootfs size: {deployment_config.disk_limit_rootfs}"
-                )
+                raise BadRequestRockError(f"Invalid disk_limit_rootfs size: {deployment_config.disk_limit_rootfs}")

@@ -3,7 +3,7 @@
 本目录包含将 ROCK Sandbox 运行时（rocklet）部署到阿里云函数计算的参考配置。
 
 **注意：** 这是 FC平台函数部署配置，不是 ROCK 的 Deployment pattern。
-ROCK 通过 FCOperator 管理已部署的 FC函数的 WebSocket 会话。
+ROCK 通过 FCOperator 管理已部署的 FC函数的 SDK InvokeFunction 会话。
 
 ## 目录结构
 

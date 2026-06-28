@@ -2,7 +2,7 @@
 FC (Function Compute) Integration Tests (IT)
 
 Tests for FC runtime and session management integration.
-Validates module interfaces and behaviors match the design specification.
+Validates module interfaces and behaviors match the SDK InvokeFunction design.
 
 FC (Function Compute) is Alibaba Cloud's serverless compute service.
 
@@ -10,15 +10,16 @@ Note: FC uses Operator-level configuration (FCOperatorConfig), not Deployment-le
 
 Test Coverage:
 - IT-FC-01: FCOperatorConfig validation and defaults
-- IT-FC-03: FCSessionManager WebSocket session management
+- IT-FC-03: FCSessionManager SDK InvokeFunction session management
 - IT-FC-04: FCRuntime session operations (create/run/close)
 - IT-FC-08: Error handling and recovery
-- IT-FC-09: ReconnectConfig and session state
-- IT-FC-10: WebSocket reconnection logic
-- IT-FC-11: HTTP retry mechanism
+- IT-FC-09: SessionState and CircuitBreaker
+- IT-FC-10: SDK retry and circuit breaker logic
 """
 
+import asyncio
 import json
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -27,6 +28,82 @@ from rock.logger import init_logger
 from rock.sandbox.operator.fc import FCOperatorConfig
 
 logger = init_logger(__name__)
+
+
+# ============================================================
+# Test helpers: fake FC SDK
+# ============================================================
+
+
+def _make_fc_client(response_body: dict | None = None):
+    """Create a mock FC SDK client with configurable response.
+
+    By default, get_function_with_options raises to simulate function not existing.
+    Tests can set client.get_function_with_options.return_value to simulate existing function.
+    """
+    client = MagicMock()
+    response = MagicMock()
+    response.body = json.dumps(response_body or {"output": "root@fc:~$ "})
+    client.invoke_function_with_options = MagicMock(return_value=response)
+    # By default, function does not exist (get_function raises)
+    client.get_function_with_options = MagicMock(side_effect=Exception("FunctionNotFound"))
+    # Create/delete function return mock responses
+    create_response = MagicMock()
+    create_response.body = MagicMock(function_name="mock-function")
+    client.create_function_with_options = MagicMock(return_value=create_response)
+    client.delete_function_with_options = MagicMock(return_value=MagicMock())
+    return client
+
+
+@pytest.fixture(autouse=True)
+def _fake_fc_sdk(monkeypatch):
+    """Inject a fake alibabacloud FC SDK into sys.modules for all tests."""
+    fake_client_module = MagicMock()
+    fake_client_module.Client = MagicMock(return_value=MagicMock())
+
+    fake_models_module = MagicMock()
+
+    def _make_request_class(name):
+        class _Req:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+            def to_map(self):
+                return dict(self.__dict__)
+        _Req.__name__ = name
+        return _Req
+
+    for cls_name in [
+        "CreateFunctionInput",
+        "CreateFunctionRequest",
+        "CustomContainerConfig",
+        "HeaderFieldSessionAffinityConfig",
+        "GetFunctionRequest",
+        "ListFunctionsRequest",
+        "InvokeFunctionRequest",
+        "InvokeFunctionHeaders",
+    ]:
+        setattr(fake_models_module, cls_name, _make_request_class(cls_name))
+
+    fake_tea_openapi_module = MagicMock()
+    fake_tea_openapi_module.models = MagicMock()
+    fake_tea_openapi_module.models.Config = MagicMock()
+
+    class _RuntimeOptions:
+        def __init__(self, **kwargs):
+            self.common_headers = None
+            self.__dict__.update(kwargs)
+
+    fake_tea_util_module = MagicMock()
+    fake_tea_util_module.models = MagicMock()
+    fake_tea_util_module.models.RuntimeOptions = _RuntimeOptions
+
+    monkeypatch.setitem(sys.modules, "alibabacloud_fc20230330", MagicMock())
+    monkeypatch.setitem(sys.modules, "alibabacloud_fc20230330.client", fake_client_module)
+    monkeypatch.setitem(sys.modules, "alibabacloud_fc20230330.models", fake_models_module)
+    monkeypatch.setitem(sys.modules, "alibabacloud_tea_openapi", fake_tea_openapi_module)
+    monkeypatch.setitem(sys.modules, "alibabacloud_tea_openapi.models", fake_tea_openapi_module.models)
+    monkeypatch.setitem(sys.modules, "alibabacloud_tea_util", fake_tea_util_module)
+    monkeypatch.setitem(sys.modules, "alibabacloud_tea_util.models", fake_tea_util_module.models)
 
 
 # ============================================================
@@ -62,8 +139,6 @@ class TestFCOperatorConfig:
         config = FCOperatorConfig()
 
         assert config.type == "fc"
-        # All fields are optional and default to None
-        # They will be merged with FCConfig defaults at runtime
         assert config.function_name is None
         assert config.region is None
         assert config.memory is None
@@ -91,7 +166,7 @@ class TestFCOperatorConfig:
 
     def test_session_ttl_custom(self):
         """IT-FC-01d: Verify session_ttl can be set."""
-        config = FCOperatorConfig(session_ttl=7200)  # 2 hours in seconds
+        config = FCOperatorConfig(session_ttl=7200)
         assert config.session_ttl == 7200
 
     def test_session_ttl_default(self):
@@ -101,14 +176,14 @@ class TestFCOperatorConfig:
 
 
 # ============================================================
-# IT-FC-03: FCSessionManager WebSocket session management
+# IT-FC-03: FCSessionManager SDK InvokeFunction session management
 # ============================================================
 
 
 class TestFCSessionManager:
     """Integration tests for FCSessionManager.
 
-    Purpose: Verify WebSocket session creation, command execution,
+    Purpose: Verify SDK InvokeFunction session creation, command execution,
     and session cleanup.
     """
 
@@ -123,38 +198,83 @@ class TestFCSessionManager:
             region="cn-hangzhou",
             function_name="test-function",
         )
-        return FCSessionManager(config)
+        return FCSessionManager(config, fc_client=_make_fc_client())
 
-    def test_build_websocket_url(self, session_manager):
-        """IT-FC-03a: Verify WebSocket URL is built correctly."""
-        url = session_manager._websocket_url
+    @pytest.mark.asyncio
+    async def test_create_session_invokes_function(self, session_manager):
+        """IT-FC-03a: Verify create_session calls InvokeFunction with correct payload."""
+        await session_manager.create_session("test-session")
 
-        assert "wss://" in url
-        assert "test_account" in url
-        assert "cn-hangzhou" in url
-        assert "stateful-async-invocation" in url
+        assert session_manager._fc_client.invoke_function_with_options.called
+        call_args = session_manager._fc_client.invoke_function_with_options.call_args
+        payload = json.loads(call_args.args[1].body)
+        assert payload["action"] == "create_session"
+        assert payload["session"] == "test-session"
+        assert "test-session" in session_manager.sessions
 
-    def test_build_http_url(self, session_manager):
-        """IT-FC-03b: Verify HTTP URL is built correctly."""
-        url = session_manager._http_url
+    @pytest.mark.asyncio
+    async def test_create_session_passes_session_id_header(self, session_manager):
+        """IT-FC-03b: Verify session affinity header is set."""
+        await session_manager.create_session("test-session")
 
-        assert "https://" in url
-        assert "test_account" in url
-        assert "invocations" in url
+        call_args = session_manager._fc_client.invoke_function_with_options.call_args
+        headers = call_args.args[2]
+        assert headers.common_headers == {"x-rock-session-id": "test-session"}
 
-    def test_build_auth_headers(self, session_manager):
-        """IT-FC-03c: Verify authentication headers are built correctly."""
-        headers = session_manager._build_auth_headers(session_id="test-session")
+    @pytest.mark.asyncio
+    async def test_execute_command_invokes_function(self, session_manager):
+        """IT-FC-03c: Verify execute_command sends correct payload."""
+        await session_manager.create_session("test-session")
 
-        assert headers["Content-Type"] == "application/json"
-        assert headers["x-fc-account-id"] == "test_account"
-        # session_id 使用自定义 Header，与 s.yaml affinityHeaderFieldName 保持一致
-        assert headers["x-rock-session-id"] == "test-session"
+        await session_manager.execute_command(
+            session_id="test-session",
+            command="echo hello",
+        )
+
+        call_args = session_manager._fc_client.invoke_function_with_options.call_args
+        payload = json.loads(call_args.args[1].body)
+        assert payload["action"] == "run_in_session"
+        assert payload["command"] == "echo hello"
+
+    @pytest.mark.asyncio
+    async def test_close_session_invokes_function(self, session_manager):
+        """IT-FC-03d: Verify close_session sends close payload."""
+        await session_manager.create_session("test-session")
+        await session_manager.close_session("test-session")
+
+        # Last call should be close_session
+        all_calls = session_manager._fc_client.invoke_function_with_options.call_args_list
+        last_payload = json.loads(all_calls[-1].args[1].body)
+        assert last_payload["action"] == "close_session"
+        assert "test-session" not in session_manager.sessions
 
     @pytest.mark.asyncio
     async def test_is_session_alive_false_for_nonexistent(self, session_manager):
-        """IT-FC-03d: Verify is_session_alive returns False for nonexistent session."""
+        """IT-FC-03e: Verify is_session_alive returns False for nonexistent session."""
         assert await session_manager.is_session_alive("nonexistent") is False
+
+    @pytest.mark.asyncio
+    async def test_is_session_alive_true_for_existing(self, session_manager):
+        """IT-FC-03f: Verify is_session_alive returns True for existing session."""
+        await session_manager.create_session("test-session")
+        assert await session_manager.is_session_alive("test-session") is True
+
+    @pytest.mark.asyncio
+    async def test_get_session_stats(self, session_manager):
+        """IT-FC-03g: Verify get_session_stats returns session information."""
+        await session_manager.create_session("test-session")
+
+        stats = await session_manager.get_session_stats("test-session")
+
+        assert stats is not None
+        assert stats["session_id"] == "test-session"
+        assert "is_alive" in stats
+
+    @pytest.mark.asyncio
+    async def test_get_session_stats_nonexistent(self, session_manager):
+        """IT-FC-03h: Verify get_session_stats returns None for nonexistent session."""
+        stats = await session_manager.get_session_stats("nonexistent")
+        assert stats is None
 
 
 # ============================================================
@@ -177,25 +297,39 @@ class TestFCRuntime:
             account_id="test_account",
             access_key_id="test_ak",
             access_key_secret="test_sk",
+            session_id="test-session",
         )
-        return FCRuntime(config)
+        return FCRuntime(config, fc_client=_make_fc_client())
 
     def test_runtime_initialization(self, fc_runtime):
         """IT-FC-04a: Verify runtime initializes correctly."""
         assert fc_runtime.config is not None
         assert fc_runtime.session_manager is not None
-        assert fc_runtime._http_client is None  # Lazy initialization
+        assert fc_runtime._started is False
 
     @pytest.mark.asyncio
     async def test_runtime_close(self, fc_runtime):
         """IT-FC-04b: Verify runtime close cleans up resources."""
-        # Initialize HTTP client
-        await fc_runtime._ensure_http_client()
-        assert fc_runtime._http_client is not None
-
-        # Close should cleanup
         await fc_runtime.close()
-        assert fc_runtime._http_client is None
+        assert fc_runtime._started is False
+
+    @pytest.mark.asyncio
+    async def test_is_alive(self, fc_runtime):
+        """IT-FC-04c: Verify is_alive returns True when function responds."""
+        fc_runtime.session_manager._fc_client.invoke_function_with_options.return_value.body = (
+            json.dumps({"is_alive": True})
+        )
+        result = await fc_runtime.is_alive()
+        assert result.is_alive is True
+
+    @pytest.mark.asyncio
+    async def test_is_alive_returns_false_on_error(self, fc_runtime):
+        """IT-FC-04d: Verify is_alive returns False on error."""
+        fc_runtime.session_manager._fc_client.invoke_function_with_options.side_effect = (
+            Exception("Connection refused")
+        )
+        result = await fc_runtime.is_alive()
+        assert result.is_alive is False
 
 
 # ============================================================
@@ -213,7 +347,6 @@ class TestFCErrorHandling:
         """IT-FC-08a: Verify config with missing credentials defaults to None."""
         config = FCOperatorConfig()
 
-        # Missing credentials default to None (can be set via environment or config file)
         assert config.account_id is None
         assert config.access_key_id is None
         assert config.access_key_secret is None
@@ -230,97 +363,56 @@ class TestFCErrorHandling:
             function_name="test-function",
             region="cn-hangzhou",
         )
-        runtime = FCRuntime(config)
+        runtime = FCRuntime(config, fc_client=_make_fc_client())
 
-        # Runtime should be initialized but not started
         assert runtime.config is not None
         assert runtime.session_manager is not None
         assert runtime._started is False
 
-        # Cleanup
         await runtime.close()
 
+    @pytest.mark.asyncio
+    async def test_invoke_without_client_raises(self):
+        """IT-FC-08c: Verify InvokeFunction raises when no client is set."""
+        from rock.sandbox.operator.fc import FCRuntimeError, FCSessionManager
 
-# ============================================================
-# IT-FC-09: ReconnectConfig and SessionState
-# ============================================================
-
-
-class TestReconnectConfig:
-    """Integration tests for ReconnectConfig.
-
-    Purpose: Verify reconnection configuration defaults and calculations.
-    """
-
-    def test_default_values(self):
-        """IT-FC-09a: Verify default reconnection configuration values."""
-        from rock.sandbox.operator.fc import ReconnectConfig
-
-        config = ReconnectConfig()
-
-        assert config.max_retries == 3
-        assert config.base_delay == 1.0
-        assert config.max_delay == 30.0
-        assert config.backoff_factor == 2.0
-
-    def test_get_delay_exponential_backoff(self):
-        """IT-FC-09b: Verify exponential backoff calculation."""
-        from rock.sandbox.operator.fc import ReconnectConfig
-
-        config = ReconnectConfig(base_delay=1.0, backoff_factor=2.0)
-
-        # Exponential backoff: 1s, 2s, 4s, 8s...
-        assert config.get_delay(0) == 1.0
-        assert config.get_delay(1) == 2.0
-        assert config.get_delay(2) == 4.0
-        assert config.get_delay(3) == 8.0
-
-    def test_get_delay_capped_at_max(self):
-        """IT-FC-09c: Verify delay is capped at max_delay."""
-        from rock.sandbox.operator.fc import ReconnectConfig
-
-        config = ReconnectConfig(base_delay=1.0, max_delay=10.0, backoff_factor=2.0)
-
-        # Even with high attempt number, delay should not exceed max_delay
-        assert config.get_delay(10) == 10.0
-        assert config.get_delay(100) == 10.0
-
-    def test_custom_values(self):
-        """IT-FC-09d: Verify custom reconnection configuration."""
-        from rock.sandbox.operator.fc import ReconnectConfig
-
-        config = ReconnectConfig(
-            max_retries=5,
-            base_delay=0.5,
-            max_delay=60.0,
-            backoff_factor=3.0,
+        config = FCOperatorConfig(
+            account_id="test",
+            access_key_id="ak",
+            access_key_secret="sk",
+            function_name="test-function",
+            region="cn-hangzhou",
         )
+        sm = FCSessionManager(config, fc_client=None)
 
-        assert config.max_retries == 5
-        assert config.base_delay == 0.5
-        assert config.max_delay == 60.0
-        assert config.backoff_factor == 3.0
+        with pytest.raises(FCRuntimeError, match="FC SDK client not initialized"):
+            await sm._invoke_function({"action": "test"})
+
+
+# ============================================================
+# IT-FC-09: SessionState and CircuitBreaker
+# ============================================================
 
 
 class TestSessionState:
-    """Integration tests for SessionState (fc.py).
+    """Integration tests for SessionState.
 
     Purpose: Verify session state tracking functionality.
     """
 
     def test_default_values(self):
-        """IT-FC-09e: Verify SessionState default values."""
+        """IT-FC-09a: Verify SessionState default values."""
         from rock.sandbox.operator.fc import SessionState
 
         state = SessionState(session_id="test-session")
 
         assert state.session_id == "test-session"
         assert state.ps1 == "root@fc:~$ "
-        assert state.reconnect_count == 0
-        assert state.websocket is None
+        assert state.created_at > 0
+        assert state.last_activity > 0
 
     def test_touch_updates_last_activity(self):
-        """IT-FC-09f: Verify touch() updates last_activity."""
+        """IT-FC-09b: Verify touch() updates last_activity."""
         import time
 
         from rock.sandbox.operator.fc import SessionState
@@ -328,22 +420,79 @@ class TestSessionState:
         state = SessionState(session_id="test")
         initial_activity = state.last_activity
 
-        # Wait a bit and touch
         time.sleep(0.01)
         state.touch()
 
         assert state.last_activity > initial_activity
 
 
+class TestCircuitBreaker:
+    """Integration tests for CircuitBreaker.
+
+    Purpose: Verify circuit breaker state transitions.
+    """
+
+    @pytest.mark.asyncio
+    async def test_starts_closed(self):
+        """IT-FC-09c: Circuit breaker starts in CLOSED state."""
+        from rock.sandbox.operator.fc import CircuitBreaker, CircuitState
+
+        cb = CircuitBreaker()
+        assert cb.state == CircuitState.CLOSED
+        assert await cb.can_execute() is True
+
+    @pytest.mark.asyncio
+    async def test_opens_after_threshold(self):
+        """IT-FC-09d: Circuit breaker opens after failure threshold."""
+        from rock.sandbox.operator.fc import CircuitBreaker, CircuitState
+
+        cb = CircuitBreaker(failure_threshold=3)
+        for _ in range(3):
+            await cb.record_failure()
+
+        assert cb.state == CircuitState.OPEN
+        assert await cb.can_execute() is False
+
+    @pytest.mark.asyncio
+    async def test_half_open_after_timeout(self):
+        """IT-FC-09e: Circuit breaker transitions to HALF_OPEN after timeout."""
+        from rock.sandbox.operator.fc import CircuitBreaker, CircuitState
+
+        cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.1)
+        await cb.record_failure()
+        assert cb.state == CircuitState.OPEN
+
+        await asyncio.sleep(0.15)
+        assert await cb.can_execute() is True
+        assert cb.state == CircuitState.HALF_OPEN
+
+    @pytest.mark.asyncio
+    async def test_closes_after_success_in_half_open(self):
+        """IT-FC-09f: Circuit breaker closes after successes in HALF_OPEN."""
+        from rock.sandbox.operator.fc import CircuitBreaker, CircuitState
+
+        cb = CircuitBreaker(failure_threshold=1, success_threshold=2, recovery_timeout=0.1)
+        await cb.record_failure()
+
+        await asyncio.sleep(0.15)
+        await cb.can_execute()  # transitions to HALF_OPEN
+
+        await cb.record_success()
+        await cb.record_success()
+
+        assert cb.state == CircuitState.CLOSED
+
+
+
 # ============================================================
-# IT-FC-10: WebSocket reconnection logic
+# IT-FC-10: SDK retry and circuit breaker logic
 # ============================================================
 
 
-class TestFCSessionManagerReconnect:
-    """Integration tests for FCSessionManager reconnection.
+class TestFCSessionManagerRetry:
+    """Integration tests for FCSessionManager retry logic.
 
-    Purpose: Verify WebSocket reconnection behavior.
+    Purpose: Verify InvokeFunction retry with exponential backoff.
     """
 
     @pytest.fixture
@@ -354,244 +503,74 @@ class TestFCSessionManagerReconnect:
             account_id="test_account",
             access_key_id="test_ak",
             access_key_secret="test_sk",
+            function_name="test-function",
+            region="cn-hangzhou",
         )
-        return FCSessionManager(config)
-
-    @pytest.fixture
-    def mock_websocket(self):
-        """Create a mock WebSocket connection."""
-        ws = AsyncMock()
-        ws.open = True
-        ws.send = AsyncMock()
-        ws.recv = AsyncMock(return_value=json.dumps({"type": "ready"}))
-        ws.close = AsyncMock()
-        return ws
+        return FCSessionManager(config, fc_client=_make_fc_client())
 
     @pytest.mark.asyncio
-    async def test_create_session_with_retries(self, session_manager, mock_websocket):
-        """IT-FC-10a: Verify session creation with retry on first failure."""
-        with patch("rock.sandbox.operator.fc.runtime.websockets") as mock_ws_module:
-            # First attempt fails, second succeeds
-            mock_ws_module.connect = AsyncMock()
-            mock_ws_module.connect.side_effect = [
-                Exception("Connection failed"),
-                mock_websocket,
-            ]
-            mock_ws_module.exceptions.ConnectionClosed = Exception
+    async def test_retries_on_failure(self, session_manager):
+        """IT-FC-10a: Verify retry on first failure, success on second."""
+        response = MagicMock()
+        response.body = json.dumps({"output": "ok"})
 
-            # Should succeed after retry
-            result = await session_manager.create_session("test-session")
-
-            assert result is not None
-            assert "test-session" in session_manager.sessions
-
-    @pytest.mark.asyncio
-    async def test_reconnect_session_success(self, session_manager, mock_websocket):
-        """IT-FC-10b: Verify _reconnect_session returns True on success."""
-        from rock.sandbox.operator.fc import SessionState
-
-        # Setup existing session
-        state = SessionState(session_id="test-session", ps1="custom$ ")
-        session_manager.sessions["test-session"] = state
-
-        with patch("rock.sandbox.operator.fc.runtime.websockets") as mock_ws_module:
-            mock_ws_module.connect = AsyncMock(return_value=mock_websocket)
-            mock_ws_module.exceptions.ConnectionClosed = Exception
-
-            result = await session_manager._reconnect_session("test-session")
-
-            assert result is True
-            assert state.reconnect_count == 1
-
-    @pytest.mark.asyncio
-    async def test_reconnect_session_failure(self, session_manager):
-        """IT-FC-10c: Verify _reconnect_session returns False on failure."""
-        from rock.sandbox.operator.fc import SessionState
-
-        state = SessionState(session_id="test-session")
-        session_manager.sessions["test-session"] = state
-
-        with patch("rock.sandbox.operator.fc.runtime.websockets") as mock_ws_module:
-            mock_ws_module.connect = AsyncMock(side_effect=Exception("Connection failed"))
-            mock_ws_module.exceptions.ConnectionClosed = Exception
-
-            result = await session_manager._reconnect_session("test-session")
-
-            assert result is False
-
-    @pytest.mark.asyncio
-    async def test_get_session_stats(self, session_manager):
-        """IT-FC-10d: Verify get_session_stats returns session information."""
-        from rock.sandbox.operator.fc import SessionState
-
-        state = SessionState(session_id="test-session")
-        session_manager.sessions["test-session"] = state
-
-        stats = await session_manager.get_session_stats("test-session")
-
-        assert stats is not None
-        assert stats["session_id"] == "test-session"
-        assert "reconnect_count" in stats
-        assert "is_alive" in stats
-
-    @pytest.mark.asyncio
-    async def test_get_session_stats_nonexistent(self, session_manager):
-        """IT-FC-10e: Verify get_session_stats returns None for nonexistent session."""
-        stats = await session_manager.get_session_stats("nonexistent")
-        assert stats is None
-
-
-# ============================================================
-# IT-FC-11: HTTP retry mechanism
-# ============================================================
-
-
-class TestFCRuntimeHttpRetry:
-    """Integration tests for FCRuntime HTTP retry mechanism.
-
-    Purpose: Verify HTTP request retry with exponential backoff.
-    """
-
-    @pytest.fixture
-    def fc_runtime(self):
-        from rock.sandbox.operator.fc import FCRuntime
-
-        config = FCOperatorConfig(
-            account_id="test_account",
-            access_key_id="test_ak",
-            access_key_secret="test_sk",
+        session_manager._fc_client.invoke_function_with_options = MagicMock(
+            side_effect=[Exception("Network error"), response]
         )
-        return FCRuntime(config)
-
-    def test_retryable_status_codes_defined(self, fc_runtime):
-        """IT-FC-11a: Verify RETRYABLE_STATUS_CODES contains expected codes."""
-        expected_codes = {429, 500, 502, 503, 504}
-        assert fc_runtime.RETRYABLE_STATUS_CODES == expected_codes
-
-    @pytest.mark.asyncio
-    async def test_retry_on_503_status(self, fc_runtime):
-        """IT-FC-11b: Verify retry on 503 status code."""
-        mock_client = AsyncMock()
-
-        # First response: 503, second response: 200
-        mock_response_503 = MagicMock()
-        mock_response_503.status_code = 503
-        mock_response_503.text = "Service Unavailable"
-
-        mock_response_200 = MagicMock()
-        mock_response_200.status_code = 200
-        mock_response_200.json = MagicMock(return_value={"status": "ok"})
-        mock_response_200.raise_for_status = MagicMock()
-
-        mock_client.post = AsyncMock(side_effect=[mock_response_503, mock_response_200])
-
-        fc_runtime._http_client = mock_client
-
-        # Use a short delay for testing
-        with patch("asyncio.sleep", new_callable=AsyncMock):
-            result = await fc_runtime._http_request_with_retry(
-                {"action": "test"},
-                max_retries=2,
-            )
-
-        assert result == {"status": "ok"}
-        assert mock_client.post.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_no_retry_on_400_status(self, fc_runtime):
-        """IT-FC-11c: Verify no retry on 400 status code."""
-        mock_client = AsyncMock()
-
-        mock_response = MagicMock()
-        mock_response.status_code = 400
-        mock_response.text = "Bad Request"
-        mock_response.raise_for_status = MagicMock(
-            side_effect=Exception("400 Bad Request")
-        )
-
-        mock_client.post = AsyncMock(return_value=mock_response)
-
-        fc_runtime._http_client = mock_client
-
-        with pytest.raises(RuntimeError):
-            await fc_runtime._http_request_with_retry(
-                {"action": "test"},
-                max_retries=3,
-            )
-
-        # Should only call once (no retry for 400)
-        assert mock_client.post.call_count == 1
-
-    @pytest.mark.asyncio
-    async def test_failure_after_max_retries(self, fc_runtime):
-        """IT-FC-11d: Verify failure after max retries exhausted."""
-        mock_client = AsyncMock()
-
-        mock_response = MagicMock()
-        mock_response.status_code = 503
-        mock_response.text = "Service Unavailable"
-
-        mock_client.post = AsyncMock(return_value=mock_response)
-
-        fc_runtime._http_client = mock_client
 
         with patch("asyncio.sleep", new_callable=AsyncMock):
-            with pytest.raises(RuntimeError) as exc_info:
-                await fc_runtime._http_request_with_retry(
-                    {"action": "test"},
-                    max_retries=2,
+            result = await session_manager._invoke_function(
+                {"action": "test"}, max_retries=2
+            )
+
+        assert result == {"output": "ok"}
+        assert session_manager._fc_client.invoke_function_with_options.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_raises_after_max_retries(self, session_manager):
+        """IT-FC-10b: Verify failure after max retries exhausted."""
+        from rock.sandbox.operator.fc import FCRuntimeError
+
+        session_manager._fc_client.invoke_function_with_options = MagicMock(
+            side_effect=Exception("Persistent error")
+        )
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(FCRuntimeError, match="failed after"):
+                await session_manager._invoke_function(
+                    {"action": "test"}, max_retries=2
                 )
 
-        assert "failed after" in str(exc_info.value).lower()
-        # Should try max_retries + 1 times
-        assert mock_client.post.call_count == 3
+        assert session_manager._fc_client.invoke_function_with_options.call_count == 3
 
     @pytest.mark.asyncio
-    async def test_success_on_first_attempt(self, fc_runtime):
-        """IT-FC-11e: Verify success on first attempt without retry."""
-        mock_client = AsyncMock()
+    async def test_success_on_first_attempt(self, session_manager):
+        """IT-FC-10c: Verify success on first attempt without retry."""
+        result = await session_manager._invoke_function({"action": "test"})
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json = MagicMock(return_value={"result": "success"})
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client.post = AsyncMock(return_value=mock_response)
-
-        fc_runtime._http_client = mock_client
-
-        result = await fc_runtime._http_request_with_retry({"action": "test"})
-
-        assert result == {"result": "success"}
-        assert mock_client.post.call_count == 1
+        assert result == {"output": "root@fc:~$ "}
+        assert session_manager._fc_client.invoke_function_with_options.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_connection_timeout_triggers_retry(self, fc_runtime):
-        """IT-FC-11f: Verify connection timeout triggers retry."""
-        import asyncio
+    async def test_circuit_breaker_blocks_when_open(self, session_manager):
+        """IT-FC-10d: Verify circuit breaker blocks calls when open."""
+        from rock.sandbox.operator.fc import FCRuntimeError
 
-        mock_client = AsyncMock()
+        # Force circuit breaker open
+        session_manager._circuit_breaker._state = session_manager._circuit_breaker._state.__class__.OPEN
+        session_manager._circuit_breaker._last_failure_time = float("inf")
 
-        # First call: timeout, second call: success
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json = MagicMock(return_value={"status": "ok"})
-        mock_response.raise_for_status = MagicMock()
+        with pytest.raises(FCRuntimeError, match="Circuit breaker is OPEN"):
+            await session_manager._invoke_function({"action": "test"})
 
-        mock_client.post = AsyncMock(
-            side_effect=[
-                asyncio.TimeoutError("Connection timeout"),
-                mock_response,
-            ]
-        )
+    @pytest.mark.asyncio
+    async def test_record_success_resets_failures(self, session_manager):
+        """IT-FC-10e: Verify successful call resets failure count."""
+        # Record some failures first
+        await session_manager._circuit_breaker.record_failure()
+        await session_manager._circuit_breaker.record_failure()
+        assert session_manager._circuit_breaker._failure_count == 2
 
-        fc_runtime._http_client = mock_client
-
-        with patch("asyncio.sleep", new_callable=AsyncMock):
-            result = await fc_runtime._http_request_with_retry(
-                {"action": "test"},
-                max_retries=2,
-            )
-
-        assert result == {"status": "ok"}
-        assert mock_client.post.call_count == 2
+        # Successful call resets
+        await session_manager._invoke_function({"action": "test"})
+        assert session_manager._circuit_breaker._failure_count == 0

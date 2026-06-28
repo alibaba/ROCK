@@ -10,7 +10,6 @@ from rock.sandbox.operator.fc.runtime import (
     FCRuntimeError,
     FCSandboxNotFoundError,
     FCSessionManager,
-    ReconnectConfig,
     SessionState,
 )
 
@@ -19,7 +18,6 @@ __all__ = [
     "FCOperatorConfig",
     "FCRuntime",
     "FCSessionManager",
-    "ReconnectConfig",
     "CircuitBreaker",
     "CircuitState",
     "SessionState",

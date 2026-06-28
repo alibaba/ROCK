@@ -16,7 +16,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROCK_ROOT="$(cd "$SCRIPT_DIR/../../../../../../.." && pwd)"
+ROCK_ROOT="$(cd "$SCRIPT_DIR/../../../../../.." && pwd)"
 OUTPUT_DIR="$SCRIPT_DIR/dist"
 OUTPUT_FILE="$OUTPUT_DIR/fc_rocklet_runtime.zip"
 
