@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 from sqlalchemy.exc import DisconnectionError, InterfaceError, OperationalError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from rock.admin.core.db_provider import DatabaseProvider
 from rock.admin.core.schema import SandboxRecord
@@ -115,29 +114,29 @@ class SandboxTable:
         config_dict = config.model_dump() if config is not None else {}
         merged = {**config_dict, **info}
         filtered = _pick_columns(merged)
-
         for col, default in SandboxRecord._NOT_NULL_DEFAULTS.items():
             if col not in filtered:
                 filtered[col] = default
-
         filtered["status"] = dict(info)
         if config_dict:
             filtered["spec"] = config_dict
 
-        record = SandboxRecord(sandbox_id=sandbox_id, **filtered)
-        async with AsyncSession(self._db.engine) as session:
-            session.add(record)
-            await session.commit()
+        def _w(session):
+            session.add(SandboxRecord(sandbox_id=sandbox_id, **filtered))
+            session.commit()
+
+        await self._db.run_in_session(_w)
 
     @_retry_on_disconnect
     @monitor_metastore_operation
     async def get(self, sandbox_id: str) -> dict | None:
         """Return a sandbox row as a plain dict, or ``None`` if not found."""
-        async with AsyncSession(self._db.engine) as session:
-            record = await session.get(SandboxRecord, sandbox_id)
-            if record is None:
-                return None
-            return record.to_dict()
+
+        def _q(session):
+            record = session.get(SandboxRecord, sandbox_id)
+            return record.to_dict() if record is not None else None
+
+        return await self._db.run_in_session(_q)
 
     @_retry_on_disconnect
     @monitor_metastore_operation
@@ -146,24 +145,29 @@ class SandboxTable:
         filtered = _pick_columns(info)
         filtered["status"] = dict(info)
 
-        async with AsyncSession(self._db.engine) as session:
-            record = await session.get(SandboxRecord, sandbox_id)
+        def _w(session):
+            record = session.get(SandboxRecord, sandbox_id)
             if record is None:
                 logger.warning("update: sandbox_id=%s not found", sandbox_id)
                 return
             for key, value in filtered.items():
                 setattr(record, key, value)
-            await session.commit()
+            session.commit()
+
+        await self._db.run_in_session(_w)
 
     @_retry_on_disconnect
     @monitor_metastore_operation
     async def delete(self, sandbox_id: str) -> None:
         """Hard-delete a sandbox record."""
-        async with AsyncSession(self._db.engine) as session:
-            record = await session.get(SandboxRecord, sandbox_id)
+
+        def _w(session):
+            record = session.get(SandboxRecord, sandbox_id)
             if record is not None:
-                await session.delete(record)
-                await session.commit()
+                session.delete(record)
+                session.commit()
+
+        await self._db.run_in_session(_w)
 
     @_retry_on_disconnect
     @monitor_metastore_operation
@@ -172,10 +176,12 @@ class SandboxTable:
         if column not in SandboxRecord.LIST_BY_ALLOWLIST:
             raise ValueError(f"Querying by column '{column}' is not allowed")
         col_attr = getattr(SandboxRecord, column)
-        stmt = select(SandboxRecord).where(col_attr == value)
-        async with AsyncSession(self._db.engine) as session:
-            result = await session.execute(stmt)
-            return [r.to_dict() for r in result.scalars().all()]
+
+        def _q(session):
+            stmt = select(SandboxRecord).where(col_attr == value)
+            return [r.to_dict() for r in session.execute(stmt).scalars().all()]
+
+        return await self._db.run_in_session(_q)
 
     @_retry_on_disconnect
     @monitor_metastore_operation
@@ -186,10 +192,12 @@ class SandboxTable:
         if not values:
             return []
         col_attr = getattr(SandboxRecord, column)
-        stmt = select(SandboxRecord).where(col_attr.in_(values))
-        async with AsyncSession(self._db.engine) as session:
-            result = await session.execute(stmt)
-            return [r.to_dict() for r in result.scalars().all()]
+
+        def _q(session):
+            stmt = select(SandboxRecord).where(col_attr.in_(values))
+            return [r.to_dict() for r in session.execute(stmt).scalars().all()]
+
+        return await self._db.run_in_session(_q)
 
 
 def _pick_columns(data: dict[str, Any]) -> dict[str, Any]:

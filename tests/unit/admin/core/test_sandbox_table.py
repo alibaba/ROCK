@@ -1,5 +1,7 @@
 """Tests for SandboxTable — SQLite in-memory (fast) and PostgreSQL (Docker)."""
 
+import threading
+
 import pytest
 from sqlalchemy.exc import IntegrityError
 
@@ -198,3 +200,27 @@ class TestSandboxTableWithPostgres:
 
     async def test_get_nonexistent_returns_none(self, db):
         assert await db.get("does-not-exist") is None
+
+
+@pytest.mark.asyncio
+async def test_read_runs_in_db_sync_thread(monkeypatch):
+    provider = DatabaseProvider(db_config=DatabaseConfig(url="sqlite:///:memory:", pool_size=4))
+    await provider.init()
+    await provider.create_tables()
+    table = SandboxTable(provider)
+    try:
+        captured = {}
+        orig = provider.run_in_session
+
+        async def spy(fn):
+            def wrapped(session):
+                captured["thread"] = threading.current_thread().name
+                return fn(session)
+
+            return await orig(wrapped)
+
+        monkeypatch.setattr(provider, "run_in_session", spy)
+        assert await table.get("nope") is None
+        assert captured["thread"].startswith("db-sync")
+    finally:
+        await provider.close()
