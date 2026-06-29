@@ -28,3 +28,13 @@ async def test_engine_uses_configured_pool_size_for_postgres(monkeypatch):
     await provider.init()
     assert captured["pool_size"] == 7
     assert captured["max_overflow"] == 0
+
+
+def test_convert_sync_url_postgres():
+    assert DatabaseProvider._convert_sync_url("postgresql://u:p@h:5432/db") == "postgresql+psycopg2://u:p@h:5432/db"
+    assert DatabaseProvider._convert_sync_url("postgres://u:p@h:5432/db") == "postgresql+psycopg2://u:p@h:5432/db"
+
+
+def test_convert_sync_url_sqlite_unchanged():
+    assert DatabaseProvider._convert_sync_url("sqlite:///:memory:") == "sqlite:///:memory:"
+    assert DatabaseProvider._convert_sync_url("sqlite:///x.db") == "sqlite:///x.db"

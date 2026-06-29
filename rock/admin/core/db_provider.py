@@ -66,3 +66,11 @@ class DatabaseProvider:
             prefix = "postgresql://" if url.startswith("postgresql://") else "postgres://"
             return "postgresql+asyncpg://" + url[len(prefix) :]
         return url
+
+    @staticmethod
+    def _convert_sync_url(url: str) -> str:
+        """Convert a DB URL to its synchronous-driver form (psycopg2 / stdlib sqlite)."""
+        if url.startswith("postgresql://") or url.startswith("postgres://"):
+            prefix = "postgresql://" if url.startswith("postgresql://") else "postgres://"
+            return "postgresql+psycopg2://" + url[len(prefix) :]
+        return url  # sqlite:/// stays as-is (stdlib sqlite3)
