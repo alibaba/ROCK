@@ -60,7 +60,7 @@ class TestSandboxTableMetrics:
 
     async def test_failure_records_error_type(self, table, mock_monitor):
         table._db = Mock()
-        table._db.engine = property(lambda self: (_ for _ in ()).throw(RuntimeError("db down")))
+        table._db.run_in_session = Mock(side_effect=RuntimeError("db down"))
 
         with pytest.raises(Exception):
             await table.get("nonexistent-will-fail")

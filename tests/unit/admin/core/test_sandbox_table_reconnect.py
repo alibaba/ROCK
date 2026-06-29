@@ -10,8 +10,6 @@ and data is preserved (same PGDATA directory, new process).
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 import pytest
 
 from rock.admin.core.sandbox_table import SandboxTable
@@ -108,27 +106,21 @@ class TestSandboxTablePgProcessRestart:
 
     @pytest.fixture
     async def table(self, restartable_pg):
-        """pool_size=1, pool_pre_ping=False — decorator must handle stale connections."""
-        from sqlalchemy.ext.asyncio import create_async_engine
+        """Real provider on the restartable PG; pool_size=1.
 
-        from rock.admin.core.schema import Base
+        SandboxTable runs DB work in the sync engine via run_in_session, so a PG
+        process restart surfaces as a psycopg2 OperationalError/InterfaceError
+        that @_retry_on_disconnect must bridge with back-off (1+2+4+8s).
+        """
+        from rock.admin.core.db_provider import DatabaseProvider
+        from rock.config import DatabaseConfig
 
-        url = restartable_pg["url"].replace("postgresql://", "postgresql+asyncpg://")
-        engine = create_async_engine(
-            url,
-            pool_size=1,
-            max_overflow=0,
-            pool_pre_ping=False,
-            connect_args={"statement_cache_size": 0},
-        )
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-
-        provider = MagicMock()
-        provider.engine = engine
+        provider = DatabaseProvider(db_config=DatabaseConfig(url=restartable_pg["url"], pool_size=1))
+        await provider.init()
+        await provider.create_tables()
         t = SandboxTable(provider)
         yield t
-        await engine.dispose()
+        await provider.close()
 
     _OUTAGE_SECONDS = 4
 

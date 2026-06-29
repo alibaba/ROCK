@@ -116,8 +116,17 @@ class DatabaseProvider:
 
     @staticmethod
     def _convert_sync_url(url: str) -> str:
-        """Convert a DB URL to its synchronous-driver form (psycopg2 / stdlib sqlite)."""
+        """Convert a DB URL to its synchronous-driver form (psycopg2 / stdlib sqlite).
+
+        Accepts both plain and async-driver URLs so the sync engine never ends
+        up on an async driver (aiosqlite / asyncpg), which would raise
+        MissingGreenlet when used from the thread pool.
+        """
+        if url.startswith("postgresql+asyncpg://"):
+            return "postgresql+psycopg2://" + url[len("postgresql+asyncpg://") :]
         if url.startswith("postgresql://") or url.startswith("postgres://"):
             prefix = "postgresql://" if url.startswith("postgresql://") else "postgres://"
             return "postgresql+psycopg2://" + url[len(prefix) :]
-        return url  # sqlite:/// stays as-is (stdlib sqlite3)
+        if url.startswith("sqlite+aiosqlite://"):
+            return "sqlite://" + url[len("sqlite+aiosqlite://") :]
+        return url  # sqlite:/// and other sync URLs pass through unchanged

@@ -45,6 +45,15 @@ def test_convert_sync_url_sqlite_unchanged():
     assert DatabaseProvider._convert_sync_url("sqlite:///x.db") == "sqlite:///x.db"
 
 
+def test_convert_sync_url_normalizes_async_drivers():
+    assert DatabaseProvider._convert_sync_url("sqlite+aiosqlite:///:memory:") == "sqlite:///:memory:"
+    assert DatabaseProvider._convert_sync_url("sqlite+aiosqlite:///x.db") == "sqlite:///x.db"
+    assert (
+        DatabaseProvider._convert_sync_url("postgresql+asyncpg://u:p@h:5432/db")
+        == "postgresql+psycopg2://u:p@h:5432/db"
+    )
+
+
 @pytest.mark.asyncio
 async def test_sync_engine_uses_pool_size_and_pre_ping_for_postgres(monkeypatch):
     captured = {}
