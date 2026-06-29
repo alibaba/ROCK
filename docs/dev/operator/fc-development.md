@@ -98,7 +98,33 @@ FC 3.0 SDK 端点格式：`UID.{region-id}.fc.aliyuncs.com`
 
 ## 部署
 
+FC Operator 支持两种部署方式：
+
+| 方式 | 运行时 | 特点 |
+|------|--------|------|
+| 方案 A | `custom-container` | Docker 镜像，需推送 ACR |
+| **方案 B** | **`custom.debian12`** | **自定义运行时，预打包依赖，无需 Docker（推荐）** |
+
+### 方案 A：custom-container
+
+使用 Docker 镜像部署，需先将镜像推送到 ACR（阿里云容器镜像服务）：
+
+```bash
+# 1. 构建并推送镜像到 ACR
+docker build -t <registry>/<namespace>/rock-rocklet:latest \
+  -f rock/sandbox/operator/fc/runtime_example/container/Dockerfile .
+docker push <registry>/<namespace>/rock-rocklet:latest
+
+# 2. 部署函数（s.yaml 中配置 custom-container）
+cd rock/sandbox/operator/fc/runtime_example/container
+s deploy --use-local -y
+```
+
+适用于需要完整 Docker 环境的场景，但构建和推送镜像较慢。
+
 ### 方案 B：自定义运行时（推荐）
+
+使用 `custom.debian12` 运行时，预打包 Python 依赖，无需 Docker 镜像：
 
 ```bash
 cd rock/sandbox/operator/fc/runtime_example/runtime
@@ -106,7 +132,7 @@ cd rock/sandbox/operator/fc/runtime_example/runtime
 s deploy --use-local -y
 ```
 
-详见 [runtime_example/README.md](../../rock/sandbox/operator/fc/runtime_example/README.md)。
+构建快、部署简单，详见 [runtime_example/README.md](../../rock/sandbox/operator/fc/runtime_example/README.md)。
 
 ## 测试
 
