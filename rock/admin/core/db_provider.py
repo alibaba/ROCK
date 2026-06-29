@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -17,6 +19,8 @@ if TYPE_CHECKING:
     from rock.config import DatabaseConfig
 
 logger = init_logger(__name__)
+
+_T = TypeVar("_T")
 
 
 class DatabaseProvider:
@@ -75,6 +79,22 @@ class DatabaseProvider:
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         Base.metadata.create_all(self._sync_engine)
+
+    async def run_in_session(self, fn: Callable[[Session], _T]) -> _T:
+        """Run a synchronous DB callable in the dedicated thread pool, off the event loop.
+
+        ``fn`` receives a fresh sync ``Session`` and must finish all work
+        (including ORM attribute access / ``to_dict()``) before returning.
+        """
+        if self._sync_session is None or self._db_executor is None:
+            raise RuntimeError("DatabaseProvider not initialised. Call init() first.")
+
+        def _run() -> _T:
+            with self._sync_session() as session:
+                return fn(session)
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._db_executor, _run)
 
     async def close(self) -> None:
         if self._engine is not None:

@@ -1,3 +1,7 @@
+import asyncio
+import threading
+import time
+
 import pytest
 
 from rock.admin.core.db_provider import DatabaseProvider
@@ -70,3 +74,45 @@ async def test_init_sets_up_sync_session_and_executor_for_sqlite():
     assert provider._sync_session is not None
     assert provider._db_executor is not None
     await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_run_in_session_executes_in_db_sync_thread():
+    provider = DatabaseProvider(db_config=DatabaseConfig(url="sqlite:///:memory:", pool_size=4))
+    await provider.init()
+    try:
+        name = await provider.run_in_session(lambda s: threading.current_thread().name)
+        assert name.startswith("db-sync")
+    finally:
+        await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_run_in_session_returns_value_and_propagates_errors():
+    provider = DatabaseProvider(db_config=DatabaseConfig(url="sqlite:///:memory:", pool_size=4))
+    await provider.init()
+    try:
+        assert await provider.run_in_session(lambda s: 42) == 42
+        with pytest.raises(ValueError, match="boom"):
+            await provider.run_in_session(lambda s: (_ for _ in ()).throw(ValueError("boom")))
+    finally:
+        await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_run_in_session_runs_concurrently_on_distinct_threads():
+    provider = DatabaseProvider(db_config=DatabaseConfig(url="sqlite:///:memory:", pool_size=4))
+    await provider.init()
+    try:
+
+        def slow(_s):
+            time.sleep(0.2)
+            return threading.current_thread().name
+
+        results = await asyncio.gather(
+            provider.run_in_session(slow),
+            provider.run_in_session(slow),
+        )
+        assert len(set(results)) == 2  # two calls land on different worker threads
+    finally:
+        await provider.close()
