@@ -27,9 +27,7 @@ from rock.sandbox.operator.fc.runtime import (
 class TestInvokeFunction:
     """Verify _invoke_function correctly calls the FC SDK."""
 
-    async def test_invokes_with_correct_function_name(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_invokes_with_correct_function_name(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
         await sm._invoke_function({"action": "is_alive"})
 
@@ -37,9 +35,7 @@ class TestInvokeFunction:
         call_args = mock_fc_client.invoke_function_with_options.call_args
         assert call_args.args[0] == fc_operator_config.function_name
 
-    async def test_payload_is_json_serialized(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_payload_is_json_serialized(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
         payload = {"action": "create_session", "session": "sid-1"}
         await sm._invoke_function(payload)
@@ -48,9 +44,7 @@ class TestInvokeFunction:
         request = call_args.args[1]
         assert json.loads(request.body) == payload
 
-    async def test_session_id_sets_common_headers(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_session_id_sets_common_headers(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
         await sm._invoke_function({"action": "run"}, session_id="sid-affinity")
 
@@ -59,9 +53,7 @@ class TestInvokeFunction:
         assert hasattr(headers, "common_headers")
         assert headers.common_headers == {"x-rock-session-id": "sid-affinity"}
 
-    async def test_no_session_id_no_common_headers(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_no_session_id_no_common_headers(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
         await sm._invoke_function({"action": "execute"})
 
@@ -71,13 +63,9 @@ class TestInvokeFunction:
         common_headers = getattr(headers, "common_headers", None)
         assert not common_headers
 
-    async def test_response_body_parsed_as_json(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_response_body_parsed_as_json(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
-        mock_fc_client.invoke_function_with_options.return_value.body = json.dumps(
-            {"output": "hello", "exit_code": 0}
-        )
+        mock_fc_client.invoke_function_with_options.return_value.body = json.dumps({"output": "hello", "exit_code": 0})
 
         result = await sm._invoke_function({"action": "run"})
         assert result == {"output": "hello", "exit_code": 0}
@@ -87,9 +75,7 @@ class TestInvokeFunction:
         with pytest.raises(FCRuntimeError, match="FC SDK client not initialized"):
             await sm._invoke_function({"action": "is_alive"})
 
-    async def test_retries_on_failure(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk, monkeypatch
-    ):
+    async def test_retries_on_failure(self, fc_operator_config, mock_fc_client, fake_fc_sdk, monkeypatch):
         # Fail twice, succeed on third attempt
         good_response = MagicMock()
         good_response.body = json.dumps({"ok": True})
@@ -101,6 +87,7 @@ class TestInvokeFunction:
 
         # Patch asyncio.sleep to avoid real delays
         from rock.sandbox.operator.fc import runtime as rt_module
+
         monkeypatch.setattr(rt_module.asyncio, "sleep", AsyncMock())
 
         sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
@@ -109,12 +96,11 @@ class TestInvokeFunction:
         assert result == {"ok": True}
         assert mock_fc_client.invoke_function_with_options.call_count == 3
 
-    async def test_raises_after_max_retries(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk, monkeypatch
-    ):
+    async def test_raises_after_max_retries(self, fc_operator_config, mock_fc_client, fake_fc_sdk, monkeypatch):
         mock_fc_client.invoke_function_with_options.side_effect = RuntimeError("permanent error")
 
         from rock.sandbox.operator.fc import runtime as rt_module
+
         monkeypatch.setattr(rt_module.asyncio, "sleep", AsyncMock())
 
         sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
@@ -123,9 +109,7 @@ class TestInvokeFunction:
 
         assert mock_fc_client.invoke_function_with_options.call_count == 2
 
-    async def test_circuit_breaker_blocks_when_open(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_circuit_breaker_blocks_when_open(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
         # Force circuit breaker into OPEN state
         sm._circuit_breaker._state = CircuitState.OPEN
@@ -145,13 +129,9 @@ class TestInvokeFunction:
 class TestSessionLifecycle:
     """Verify create / run / close session use _invoke_function with correct payloads."""
 
-    async def test_create_session_calls_invoke_with_action(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_create_session_calls_invoke_with_action(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
-        mock_fc_client.invoke_function_with_options.return_value.body = json.dumps(
-            {"output": "root@fc:~$ "}
-        )
+        mock_fc_client.invoke_function_with_options.return_value.body = json.dumps({"output": "root@fc:~$ "})
 
         result = await sm.create_session("sid-1")
 
@@ -163,18 +143,14 @@ class TestSessionLifecycle:
         assert payload["session_type"] == "bash"
         assert result == {"output": "root@fc:~$ "}
 
-    async def test_create_session_stores_state(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_create_session_stores_state(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
         await sm.create_session("sid-stored", ps1="custom$ ")
 
         assert "sid-stored" in sm.sessions
         assert sm.sessions["sid-stored"].ps1 == "custom$ "
 
-    async def test_create_session_passes_session_id_for_affinity(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_create_session_passes_session_id_for_affinity(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
         await sm.create_session("sid-affinity")
 
@@ -182,9 +158,7 @@ class TestSessionLifecycle:
         headers = call_args.args[2]
         assert headers.common_headers == {"x-rock-session-id": "sid-affinity"}
 
-    async def test_create_session_closes_existing_first(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_create_session_closes_existing_first(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
         # Pre-populate a session
         sm.sessions["sid-existing"] = MagicMock()
@@ -194,9 +168,7 @@ class TestSessionLifecycle:
         # Should have been called at least twice (close + create)
         assert mock_fc_client.invoke_function_with_options.call_count >= 2
 
-    async def test_execute_command_calls_invoke_with_action(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_execute_command_calls_invoke_with_action(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
         sm.sessions["sid-run"] = MagicMock()
 
@@ -213,16 +185,12 @@ class TestSessionLifecycle:
         assert output == "hello world"
         assert exit_code == 0
 
-    async def test_execute_command_raises_for_unknown_session(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_execute_command_raises_for_unknown_session(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
         with pytest.raises(ValueError, match="not found"):
             await sm.execute_command("nonexistent", "echo test")
 
-    async def test_close_session_calls_invoke_with_action(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_close_session_calls_invoke_with_action(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
         sm.sessions["sid-close"] = MagicMock()
 
@@ -232,9 +200,7 @@ class TestSessionLifecycle:
         payload = json.loads(call_args.args[1].body)
         assert payload["action"] == "close_session"
 
-    async def test_close_session_removes_from_sessions(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_close_session_removes_from_sessions(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
         sm.sessions["sid-remove"] = MagicMock()
 
@@ -242,9 +208,7 @@ class TestSessionLifecycle:
 
         assert "sid-remove" not in sm.sessions
 
-    async def test_close_session_unknown_session_noop(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_close_session_unknown_session_noop(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
         await sm.close_session("nonexistent")
         mock_fc_client.invoke_function_with_options.assert_not_called()
@@ -265,15 +229,14 @@ class TestSessionLifecycle:
 class TestStatelessOperations:
     """Verify execute / read_file / write_file / is_alive via InvokeFunction."""
 
-    async def test_execute_no_session_id(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_execute_no_session_id(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         runtime = FCRuntime(fc_operator_config, fc_client=mock_fc_client)
         mock_fc_client.invoke_function_with_options.return_value.body = json.dumps(
             {"stdout": "output", "stderr": "", "exit_code": 0}
         )
 
         from rock.actions import Command
+
         result = await runtime.execute(Command(command="echo test", timeout=30, shell=True))
 
         call_args = mock_fc_client.invoke_function_with_options.call_args
@@ -288,13 +251,9 @@ class TestStatelessOperations:
         assert result.stdout == "output"
         assert result.exit_code == 0
 
-    async def test_is_alive_no_session_id(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_is_alive_no_session_id(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         runtime = FCRuntime(fc_operator_config, fc_client=mock_fc_client)
-        mock_fc_client.invoke_function_with_options.return_value.body = json.dumps(
-            {"is_alive": True}
-        )
+        mock_fc_client.invoke_function_with_options.return_value.body = json.dumps({"is_alive": True})
 
         result = await runtime.is_alive()
 
@@ -307,24 +266,19 @@ class TestStatelessOperations:
 
         assert result.is_alive is True
 
-    async def test_is_alive_returns_false_on_error(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_is_alive_returns_false_on_error(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         runtime = FCRuntime(fc_operator_config, fc_client=mock_fc_client)
         mock_fc_client.invoke_function_with_options.side_effect = RuntimeError("network down")
 
         result = await runtime.is_alive()
         assert result.is_alive is False
 
-    async def test_read_file_uses_session_id(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_read_file_uses_session_id(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         runtime = FCRuntime(fc_operator_config, fc_client=mock_fc_client)
-        mock_fc_client.invoke_function_with_options.return_value.body = json.dumps(
-            {"content": "file content"}
-        )
+        mock_fc_client.invoke_function_with_options.return_value.body = json.dumps({"content": "file content"})
 
         from rock.actions import ReadFileRequest
+
         result = await runtime.read_file(ReadFileRequest(path="/tmp/test.txt"))
 
         call_args = mock_fc_client.invoke_function_with_options.call_args
@@ -338,18 +292,13 @@ class TestStatelessOperations:
 
         assert result.content == "file content"
 
-    async def test_write_file_uses_session_id(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_write_file_uses_session_id(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         runtime = FCRuntime(fc_operator_config, fc_client=mock_fc_client)
-        mock_fc_client.invoke_function_with_options.return_value.body = json.dumps(
-            {"success": True}
-        )
+        mock_fc_client.invoke_function_with_options.return_value.body = json.dumps({"success": True})
 
         from rock.actions import WriteFileRequest
-        await runtime.write_file(
-            WriteFileRequest(path="/tmp/test.txt", content="hello")
-        )
+
+        await runtime.write_file(WriteFileRequest(path="/tmp/test.txt", content="hello"))
 
         call_args = mock_fc_client.invoke_function_with_options.call_args
         payload = json.loads(call_args.args[1].body)
@@ -359,32 +308,66 @@ class TestStatelessOperations:
         headers = call_args.args[2]
         assert headers.common_headers == {"x-rock-session-id": fc_operator_config.session_id}
 
-    async def test_create_session_returns_output(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_create_session_returns_output(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         runtime = FCRuntime(fc_operator_config, fc_client=mock_fc_client)
-        mock_fc_client.invoke_function_with_options.return_value.body = json.dumps(
-            {"output": "root@fc:~$ "}
-        )
+        mock_fc_client.invoke_function_with_options.return_value.body = json.dumps({"output": "root@fc:~$ "})
 
         from rock.actions import CreateSessionRequest
+
         result = await runtime.create_session(CreateSessionRequest(session="sid-new"))
 
         assert result.output == "root@fc:~$ "
 
-    async def test_run_in_session_returns_observation(
-        self, fc_operator_config, mock_fc_client, fake_fc_sdk
-    ):
+    async def test_run_in_session_returns_observation(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
         runtime = FCRuntime(fc_operator_config, fc_client=mock_fc_client)
         # Pre-populate session state
         runtime.session_manager.sessions["sid-run"] = MagicMock()
-        mock_fc_client.invoke_function_with_options.return_value.body = json.dumps(
-            {"output": "hello", "exit_code": 0}
-        )
+        mock_fc_client.invoke_function_with_options.return_value.body = json.dumps({"output": "hello", "exit_code": 0})
 
         from rock.actions.sandbox.request import Action
+
         action = Action(session="sid-run", command="echo hello", action_type="bash")
         result = await runtime.run_in_session(action)
 
         assert result.output == "hello"
         assert result.exit_code == 0
+
+
+class TestInvokeFunctionTimeout:
+    """W7: Verify timeout parameter is used for SDK RuntimeOptions."""
+
+    async def test_timeout_sets_read_timeout(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
+        sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
+        await sm._invoke_function({"action": "execute"}, timeout=180.0)
+
+        call_args = mock_fc_client.invoke_function_with_options.call_args
+        runtime = call_args.args[3]
+        # timeout=180 → read_timeout = 180*1000 + 10000 = 190000
+        assert runtime.read_timeout == 190000
+
+    async def test_default_timeout_60s(self, fc_operator_config, mock_fc_client, fake_fc_sdk):
+        sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
+        await sm._invoke_function({"action": "execute"})
+
+        call_args = mock_fc_client.invoke_function_with_options.call_args
+        runtime = call_args.args[3]
+        # Default timeout=60 → read_timeout = 60*1000 + 10000 = 70000
+        assert runtime.read_timeout == 70000
+
+
+class TestCreateSessionLockFree:
+    """W11: Verify create_session closes old session outside the lock."""
+
+    async def test_close_old_session_outside_lock(self, fc_operator_config, mock_fc_client, fake_fc_sdk, monkeypatch):
+        sm = FCSessionManager(fc_operator_config, fc_client=mock_fc_client)
+        # Pre-populate an existing session
+        sm.sessions["sid-existing"] = MagicMock()
+
+        close_mock = AsyncMock()
+        monkeypatch.setattr(sm, "_close_session_internal", close_mock)
+        monkeypatch.setattr(sm, "_invoke_function", AsyncMock(return_value={"output": "ok"}))
+
+        await sm.create_session("sid-existing")
+
+        # _close_session_internal should have been called (outside lock)
+        close_mock.assert_awaited_once_with("sid-existing")

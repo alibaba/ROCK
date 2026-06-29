@@ -89,10 +89,13 @@ class SandboxManager(BaseManager):
             raise InternalServerRockError(f"update aes key failed, {str(e)}")
 
     async def _check_sandbox_exists_in_redis(self, config: DeploymentConfig):
+        sandbox_id = None
         if isinstance(config, DockerDeploymentConfig) and config.container_name:
             sandbox_id = config.container_name
-            if await self._meta_store.exists(sandbox_id):
-                raise BadRequestRockError(f"Sandbox {sandbox_id} already exists")
+        elif isinstance(config, FCOperatorConfig) and config.session_id:
+            sandbox_id = config.session_id
+        if sandbox_id and await self._meta_store.exists(sandbox_id):
+            raise BadRequestRockError(f"Sandbox {sandbox_id} already exists")
 
     def _setup_sandbox_actor_metadata(self, sandbox_actor: SandboxActor, user_info: UserInfo) -> None:
         user_id = user_info.get("user_id", "default")
@@ -150,9 +153,8 @@ class SandboxManager(BaseManager):
 
         # Create timeout info based on config type
         if isinstance(deployment_config, FCOperatorConfig):
-            timeout_info = SandboxTimeoutHelper.make_timeout_info(
-                deployment_config.session_ttl // 60 if deployment_config.session_ttl else 10
-            )
+            effective_ttl = deployment_config.session_ttl or self.rock_config.fc.default_session_ttl
+            timeout_info = SandboxTimeoutHelper.make_timeout_info(effective_ttl // 60)
         else:
             timeout_info = SandboxTimeoutHelper.make_timeout_info(deployment_config.auto_clear_time)
         with StageTimer("startup_timing", f"[{sandbox_id}] Meta store create", logger):

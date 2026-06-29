@@ -136,24 +136,24 @@ async def invoke_dispatch(request: Request):
 
     if action == "create_session":
         req = CreateSessionRequest(**fields)
-        return serialize_model(await runtime.create_session(req))
+        return serialize_model(await rocklet.create_session(req))
     elif action == "run_in_session":
         req = Action(**fields)
-        return serialize_model(await runtime.run_in_session(req))
+        return serialize_model(await rocklet.run_in_session(req))
     elif action == "close_session":
         req = CloseSessionRequest(**fields)
-        return serialize_model(await runtime.close_session(req))
+        return serialize_model(await rocklet.close_session(req))
     elif action == "execute":
         req = Command(**fields)
-        return serialize_model(await runtime.execute(command=req))
+        return serialize_model(await rocklet.execute(command=req))
     elif action == "read_file":
         req = ReadFileRequest(**fields)
-        return serialize_model(await runtime.read_file(req))
+        return serialize_model(await rocklet.read_file(req))
     elif action == "write_file":
         req = WriteFileRequest(**fields)
-        return serialize_model(await runtime.write_file(req))
+        return serialize_model(await rocklet.write_file(req))
     elif action == "is_alive":
-        return serialize_model(await runtime.is_alive())
+        return serialize_model(await rocklet.is_alive())
     elif action == "upload":
         upload_path = fields.get("path")
         upload_content = fields.get("content", "")

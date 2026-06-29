@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from rock.actions.sandbox.response import State
+from rock.common.constants import StopReason
 from rock.sandbox.operator.fc.config import FCOperatorConfig
 from rock.sandbox.operator.fc.operator import FCOperator
 
@@ -42,7 +43,6 @@ class TestSubmit:
         assert operator._sandbox_functions[fc_operator_config.session_id] == "rock-sandbox-func"
         mock_runtime.create_session.assert_awaited_once()
 
-    @pytest.mark.xfail(reason="C7: submit() returns memory as int, SandboxManager expects str like '4096m'")
     async def test_submit_returns_memory_as_string(self, operator, fc_operator_config, monkeypatch):
         monkeypatch.setattr(operator, "_get_or_create_function", AsyncMock(return_value="rock-sandbox-func"))
         mock_runtime = MagicMock()
@@ -52,7 +52,7 @@ class TestSubmit:
         info = await operator.submit(fc_operator_config, {})
 
         assert isinstance(info["memory"], str)
-        assert info["memory"].endswith(("m", "g"))
+        assert info["memory"].endswith("m")
 
     async def test_submit_does_not_delete_function_on_session_failure(self, operator, fc_operator_config, monkeypatch):
         """Session failure should NOT delete function (template may be shared)."""
@@ -83,10 +83,10 @@ class TestGetStatus:
         assert info["state"] == State.RUNNING
         assert info["sandbox_id"] == sid
 
-    async def test_raises_when_not_found(self, operator):
-        operator._redis_provider = None
-        with pytest.raises(ValueError, match="not found"):
-            await operator.get_status("missing-sid")
+    async def test_returns_none_when_not_found(self, operator):
+        """W5: get_status should return None (not raise) for unknown sandbox."""
+        info = await operator.get_status("missing-sid")
+        assert info is None
 
 
 class TestStop:
@@ -108,6 +108,44 @@ class TestStop:
 
     async def test_stop_untracked_returns_true(self, operator):
         assert await operator.stop("unknown") is True
+
+
+class TestRestart:
+    async def test_restart_stops_then_submits(self, operator, fc_operator_config, monkeypatch):
+        """restart() should stop the old session and submit a new one."""
+        stop_mock = AsyncMock(return_value=True)
+        monkeypatch.setattr(operator, "stop", stop_mock)
+        monkeypatch.setattr(operator, "_get_or_create_function", AsyncMock(return_value="rock-sandbox-func"))
+        mock_runtime = MagicMock()
+        mock_runtime.create_session = AsyncMock(return_value=MagicMock(output="root@fc:~$ "))
+        monkeypatch.setattr("rock.sandbox.operator.fc.operator.FCRuntime", MagicMock(return_value=mock_runtime))
+
+        info = await operator.restart(fc_operator_config)
+
+        stop_mock.assert_awaited_once_with(fc_operator_config.session_id, reason=StopReason.MANUAL)
+        assert info["sandbox_id"] == fc_operator_config.session_id
+        assert info["state"] == State.RUNNING
+
+    async def test_restart_rejects_non_fc_config(self, operator, fc_operator_config):
+        """W6: restart() should reject non-FCOperatorConfig."""
+        from rock.deployments.config import DockerDeploymentConfig
+
+        docker_config = DockerDeploymentConfig(image="test", memory="4g", cpus=2)
+        docker_config.container_name = "docker-sid"
+        with pytest.raises(ValueError, match="Cannot restart FC sandbox with config type"):
+            await operator.restart(docker_config)
+
+
+class TestDelete:
+    async def test_delete_delegates_to_stop(self, operator, fc_operator_config, monkeypatch):
+        """delete() should delegate to stop()."""
+        stop_mock = AsyncMock(return_value=True)
+        monkeypatch.setattr(operator, "stop", stop_mock)
+
+        result = await operator.delete(fc_operator_config)
+
+        assert result is True
+        stop_mock.assert_awaited_once_with(fc_operator_config.session_id, reason=StopReason.MANUAL)
 
 
 class TestCreateFunction:

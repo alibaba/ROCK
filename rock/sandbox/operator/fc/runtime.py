@@ -120,7 +120,7 @@ class CircuitBreaker:
 
     @property
     def state(self) -> CircuitState:
-        """Get current circuit state, checking for recovery timeout."""
+        """Get current circuit state (does not check for recovery timeout)."""
         return self._state
 
     async def can_execute(self) -> bool:
@@ -259,8 +259,9 @@ class FCSessionManager:
 
                 request = InvokeFunctionRequest(body=json.dumps(payload))
                 headers = InvokeFunctionHeaders()
+                effective_timeout = timeout or 60.0
                 runtime = RuntimeOptions(
-                    read_timeout=120000,
+                    read_timeout=int(effective_timeout * 1000) + 10000,
                     connect_timeout=10000,
                 )
 
@@ -319,10 +320,14 @@ class FCSessionManager:
         Returns:
             Session initialization response from the rocklet.
         """
+        need_close = False
         async with self._lock:
             if session_id in self.sessions:
                 logger.warning(f"Session {session_id} already exists, closing old session")
-                await self._close_session_internal(session_id)
+                need_close = True
+
+        if need_close:
+            await self._close_session_internal(session_id)
 
         payload = {
             "action": "create_session",
@@ -457,7 +462,6 @@ class FCRuntime(AbstractSandbox):
 
         self.config: FCOperatorConfig = config
         self.session_manager = FCSessionManager(config, fc_client=fc_client)
-        self._started = False
 
     async def is_alive(self, *, timeout: float | None = None) -> IsAliveResponse:
         """Check if the FC runtime is alive."""
@@ -584,5 +588,4 @@ class FCRuntime(AbstractSandbox):
     async def close(self) -> CloseResponse:
         """Close the runtime and cleanup resources."""
         await self.session_manager.close_all_sessions()
-        self._started = False
         return CloseResponse()

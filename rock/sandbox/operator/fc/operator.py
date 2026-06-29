@@ -86,16 +86,17 @@ class FCOperator(AbstractOperator):
             acceleration_type="Default",
         )
 
+        idle_timeout = config.session_idle_timeout or self._fc_config.default_session_idle_timeout
+
         sa_config = HeaderFieldSessionAffinityConfig(
             affinity_header_field_name=SESSION_AFFINITY_HEADER,
             session_concurrency_per_instance=1,
-            session_idle_timeout_in_seconds=config.session_idle_timeout or 300,
+            session_idle_timeout_in_seconds=idle_timeout,
             session_ttlin_seconds=config.session_ttl or self._fc_config.default_session_ttl,
         )
         sa_config_str = json.dumps(sa_config.to_map())
 
         env_vars = dict(config.env or {})
-        idle_timeout = config.session_idle_timeout or self._fc_config.default_session_idle_timeout
         env_vars["ROCK_SESSION_IDLE_TIMEOUT"] = str(idle_timeout)
 
         body = CreateFunctionInput(
@@ -112,7 +113,7 @@ class FCOperator(AbstractOperator):
             session_affinity="HEADER_FIELD",
             session_affinity_config=sa_config_str,
             instance_concurrency=200,
-            idle_timeout=config.session_idle_timeout,
+            idle_timeout=idle_timeout,
         )
 
         request = CreateFunctionRequest(body=body)
@@ -240,24 +241,7 @@ class FCOperator(AbstractOperator):
             logger.error(f"Failed to get/create FC function for {session_id}: {e}")
             raise
 
-        final_config = FCOperatorConfig(
-            type="fc",
-            session_id=session_id,
-            function_name=function_name,
-            region=merged_config.region,
-            account_id=merged_config.account_id,
-            access_key_id=merged_config.access_key_id,
-            access_key_secret=merged_config.access_key_secret,
-            security_token=merged_config.security_token,
-            image=merged_config.image,
-            env=merged_config.env,
-            memory=merged_config.memory,
-            cpus=merged_config.cpus,
-            session_ttl=merged_config.session_ttl,
-            session_idle_timeout=merged_config.session_idle_timeout,
-            function_timeout=merged_config.function_timeout,
-            extended_params=merged_config.extended_params,
-        )
+        final_config = final_config.model_copy(update={"function_name": function_name})
 
         runtime = FCRuntime(final_config, fc_client=self._fc_client)
 
@@ -284,7 +268,7 @@ class FCOperator(AbstractOperator):
             type="fc",
             function_name=function_name,
             region=final_config.region,
-            memory=final_config.memory,
+            memory=f"{final_config.memory}m",
             cpus=final_config.cpus,
             state=State.RUNNING,
             host_name=f"{final_config.account_id}.{final_config.region}.fc.aliyuncs.com",
@@ -301,7 +285,7 @@ class FCOperator(AbstractOperator):
             config = self._runtime_configs.get(sandbox_id)
 
         if runtime is None:
-            raise ValueError(f"FC sandbox {sandbox_id} not found")
+            return None
 
         is_alive = await runtime.is_alive()
 
@@ -323,6 +307,22 @@ class FCOperator(AbstractOperator):
             runtime = self._runtimes.pop(sandbox_id, None)
             _config = self._runtime_configs.pop(sandbox_id, None)  # noqa: F841
             function_name = self._sandbox_functions.pop(sandbox_id, None)
+            should_delete_function = False
+            if function_name:
+                ref_count = self._function_refs.get(function_name, 0) - 1
+                if ref_count <= 0:
+                    self._function_refs.pop(function_name, None)
+                    template_hash = None
+                    for h, fn in self._function_cache.items():
+                        if fn == function_name:
+                            template_hash = h
+                            break
+                    if template_hash:
+                        self._function_cache.pop(template_hash, None)
+                    should_delete_function = True
+                else:
+                    self._function_refs[function_name] = ref_count
+                    logger.info(f"FC function {function_name} kept ({ref_count} instances still active)")
 
         if runtime:
             try:
@@ -331,27 +331,12 @@ class FCOperator(AbstractOperator):
             except Exception as e:
                 logger.warning(f"Failed to close FC runtime for {sandbox_id}: {e}")
 
-            if function_name:
-                async with self._runtimes_lock:
-                    ref_count = self._function_refs.get(function_name, 0) - 1
-                    if ref_count <= 0:
-                        self._function_refs.pop(function_name, None)
-                        template_hash = None
-                        for h, fn in self._function_cache.items():
-                            if fn == function_name:
-                                template_hash = h
-                                break
-                        if template_hash:
-                            self._function_cache.pop(template_hash, None)
-
-                        try:
-                            await self._delete_function(function_name)
-                            logger.info(f"FC function {function_name} deleted (last instance stopped)")
-                        except Exception as e:
-                            logger.warning(f"Failed to delete FC function {function_name}: {e}")
-                    else:
-                        self._function_refs[function_name] = ref_count
-                        logger.info(f"FC function {function_name} kept ({ref_count} instances still active)")
+            if should_delete_function:
+                try:
+                    await self._delete_function(function_name)
+                    logger.info(f"FC function {function_name} deleted (last instance stopped)")
+                except Exception as e:
+                    logger.warning(f"Failed to delete FC function {function_name}: {e}")
 
             logger.info(f"FC sandbox {sandbox_id} stopped successfully")
             return True
@@ -368,6 +353,8 @@ class FCOperator(AbstractOperator):
         sandbox_id = config.session_id if hasattr(config, "session_id") else config.container_name
         logger.info(f"Restarting FC sandbox {sandbox_id}")
         await self.stop(sandbox_id, reason=StopReason.MANUAL)
+        if not isinstance(config, FCOperatorConfig):
+            raise ValueError(f"Cannot restart FC sandbox with config type {type(config).__name__}")
         return await self.submit(config)
 
     async def delete(self, config: DeploymentConfig, host_ip: str | None = None) -> bool:
@@ -388,24 +375,29 @@ class FCOperator(AbstractOperator):
         from alibabacloud_tea_util.models import RuntimeOptions
 
         deleted = 0
+        active_functions = set(self._function_cache.values())
         try:
-            request = ListFunctionsRequest()
-            runtime = RuntimeOptions()
-            response = await asyncio.to_thread(
-                self._fc_client.list_functions_with_options,
-                request,
-                None,
-                runtime,
-            )
+            next_token = None
+            while True:
+                request = ListFunctionsRequest(prefix="rock-tpl-", next_token=next_token, limit=100)
+                runtime = RuntimeOptions()
+                response = await asyncio.to_thread(
+                    self._fc_client.list_functions_with_options,
+                    request,
+                    None,
+                    runtime,
+                )
 
-            active_functions = set(self._function_cache.values())
+                if response.body and response.body.functions:
+                    for func in response.body.functions:
+                        func_name = getattr(func, "function_name", None)
+                        if func_name and func_name not in active_functions:
+                            if await self._delete_function(func_name):
+                                deleted += 1
 
-            if response.body and response.body.functions:
-                for func in response.body.functions:
-                    func_name = getattr(func, "function_name", None)
-                    if func_name and func_name.startswith("rock-tpl-") and func_name not in active_functions:
-                        if await self._delete_function(func_name):
-                            deleted += 1
+                next_token = getattr(response.body, "next_token", None) if response.body else None
+                if not next_token:
+                    break
         except Exception as e:
             logger.warning(f"Failed to list functions for cleanup: {e}")
 

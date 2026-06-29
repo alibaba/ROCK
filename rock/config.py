@@ -325,7 +325,7 @@ class FCConfig:
 
     # Credentials
     access_key_id: str | None = None
-    access_key_secret: str = field(default="", repr=False)
+    access_key_secret: str | None = field(default=None, repr=False)
     security_token: str | None = None
 
     # Resource defaults
