@@ -1,7 +1,9 @@
 """EnvHub server implementation"""
 
 import argparse
+import asyncio
 import logging
+import sys
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -87,6 +89,12 @@ async def health_check():
 
 def main():
     """Main function, supports command line arguments"""
+    # Set uvloop as global event loop policy
+    if sys.platform != "win32":
+        import uvloop
+
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
     parser = argparse.ArgumentParser(description="EnvHub Server")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8081, help="Port to bind to (default: 8081)")
@@ -100,7 +108,7 @@ def main():
     initialize_env_hub(db_url=args.db_url)
 
     # Start server
-    uvicorn.run(app, host=args.host, port=args.port, reload=False, log_level="info")
+    uvicorn.run(app, host=args.host, port=args.port, reload=False, log_level="info", loop="uvloop", http="httptools")
 
 
 if __name__ == "__main__":

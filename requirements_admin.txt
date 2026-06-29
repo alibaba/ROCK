@@ -225,6 +225,8 @@ h11==0.16.0
     #   uvicorn
 httpcore==1.0.9
     # via httpx
+httptools==0.6.4 ; sys_platform != 'win32'
+    # via rl-rock
 httpx==0.28.1
     # via rl-rock
 hyperlink==21.0.0
@@ -435,7 +437,7 @@ ray==2.43.0
     # via rl-rock
 reasoning-gym==0.1.23
     # via gem-llm
-redis==7.0.1
+redis==7.2.2
     # via
     #   fakeredis
     #   rl-rock
@@ -545,6 +547,8 @@ urllib3==2.5.0
 uuid==1.30
     # via rl-rock
 uvicorn==0.38.0
+    # via rl-rock
+uvloop==0.21.0 ; sys_platform != 'win32'
     # via rl-rock
 virtualenv==20.35.4
     # via ray

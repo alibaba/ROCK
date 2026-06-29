@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import json
+import sys
 import time
 import traceback
 import uuid
@@ -103,6 +104,12 @@ async def root():
 
 
 def main():
+    # Set uvloop as global event loop policy
+    if sys.platform != "win32":
+        import uvloop
+
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
     import uvicorn
 
     # First parser just for version checking
@@ -123,7 +130,7 @@ def main():
     parser.add_argument("--port", type=int, default=8000, help="Port to run the server on")
 
     args = parser.parse_args(remaining_args)
-    uvicorn.run(app, host=args.host, port=args.port, access_log=False)
+    uvicorn.run(app, host=args.host, port=args.port, access_log=False, loop="uvloop", http="httptools")
 
 
 if __name__ == "__main__":

@@ -59,6 +59,8 @@ rocklet = [
     # Rocklet execution environment dependencies
     "fastapi",
     "uvicorn",
+    "uvloop; sys_platform != 'win32'",
+    "httptools; sys_platform != 'win32'",
     "pexpect; sys_platform != 'win32'",
     "bashlex; sys_platform != 'win32'",
     "psutil",
@@ -85,6 +87,8 @@ builder = [
 model-service = [
     "fastapi",
     "uvicorn",
+    "uvloop; sys_platform != 'win32'",
+    "httptools; sys_platform != 'win32'",
     "psutil",
     "swebench",
     "alibabacloud_cr20181201==2.0.5",

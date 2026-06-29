@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import sys
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -84,6 +85,12 @@ def main(
     config: ModelServiceConfig,
 ):
     """Run the LLM Service."""
+    # Set uvloop as global event loop policy
+    if sys.platform != "win32":
+        import uvloop
+
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
     # Create app and add router
     app = create_app(config)
     if model_servie_type == "local":
@@ -94,7 +101,15 @@ def main(
         app.include_router(proxy_router, prefix="", tags=["proxy"])
 
     logger.info(f"Starting LLM Service on {config.host}:{config.port}, type: {model_servie_type}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level="info", reload=False)
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level="info",
+        reload=False,
+        loop="uvloop",
+        http="httptools",
+    )
 
 
 def create_config_from_args(args) -> ModelServiceConfig:
