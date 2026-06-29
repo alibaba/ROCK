@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
+from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from rock.admin.core.schema import Base
 from rock.logger import init_logger
@@ -25,6 +29,10 @@ class DatabaseProvider:
         self._url = self._convert_url(db_config.url)
         self._pool_size = db_config.pool_size
         self._engine: AsyncEngine | None = None
+        self._sync_url = self._convert_sync_url(db_config.url)
+        self._sync_engine = None
+        self._sync_session: sessionmaker | None = None
+        self._db_executor: ThreadPoolExecutor | None = None
 
     @property
     def engine(self) -> AsyncEngine:
@@ -47,15 +55,34 @@ class DatabaseProvider:
 
         self._engine = create_async_engine(self._url, **engine_kwargs)
 
+        sync_kwargs: dict[str, object] = {"echo": False, "pool_pre_ping": True}
+        if self._sync_url.startswith("sqlite"):
+            # in-memory/shared: single connection shared across threads, else each
+            # worker thread gets its own empty in-memory database
+            sync_kwargs["poolclass"] = StaticPool
+            sync_kwargs["connect_args"] = {"check_same_thread": False}
+        else:
+            sync_kwargs["pool_size"] = self._pool_size
+            sync_kwargs["max_overflow"] = 0
+            sync_kwargs["pool_timeout"] = 120
+
+        self._sync_engine = create_engine(self._sync_url, **sync_kwargs)
+        self._sync_session = sessionmaker(bind=self._sync_engine, class_=Session, expire_on_commit=False)
+        self._db_executor = ThreadPoolExecutor(max_workers=self._pool_size, thread_name_prefix="db-sync")
+
     async def create_tables(self) -> None:
-        """Create all tables defined in Base.metadata (idempotent)."""
+        """Create all tables on both async and sync engines (idempotent)."""
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        Base.metadata.create_all(self._sync_engine)
 
     async def close(self) -> None:
-        """Dispose of the engine and release all connections."""
         if self._engine is not None:
             await self._engine.dispose()
+        if self._sync_engine is not None:
+            self._sync_engine.dispose()
+        if self._db_executor is not None:
+            self._db_executor.shutdown(wait=False)
 
     @staticmethod
     def _convert_url(url: str) -> str:

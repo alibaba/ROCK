@@ -24,6 +24,7 @@ async def test_engine_uses_configured_pool_size_for_postgres(monkeypatch):
         return object()
 
     monkeypatch.setattr("rock.admin.core.db_provider.create_async_engine", fake_create_async_engine)
+    monkeypatch.setattr("rock.admin.core.db_provider.create_engine", lambda url, **k: object())
     provider = DatabaseProvider(db_config=DatabaseConfig(url="postgresql://u:p@h:5432/db", pool_size=7))
     await provider.init()
     assert captured["pool_size"] == 7
@@ -38,3 +39,34 @@ def test_convert_sync_url_postgres():
 def test_convert_sync_url_sqlite_unchanged():
     assert DatabaseProvider._convert_sync_url("sqlite:///:memory:") == "sqlite:///:memory:"
     assert DatabaseProvider._convert_sync_url("sqlite:///x.db") == "sqlite:///x.db"
+
+
+@pytest.mark.asyncio
+async def test_sync_engine_uses_pool_size_and_pre_ping_for_postgres(monkeypatch):
+    captured = {}
+
+    def fake_create_engine(url, **kwargs):
+        captured.update(kwargs)
+        captured["url"] = url
+        return object()
+
+    monkeypatch.setattr("rock.admin.core.db_provider.create_async_engine", lambda url, **k: object())
+    monkeypatch.setattr("rock.admin.core.db_provider.create_engine", fake_create_engine)
+
+    provider = DatabaseProvider(db_config=DatabaseConfig(url="postgresql://u:p@h:5432/db", pool_size=7))
+    await provider.init()
+
+    assert captured["url"] == "postgresql+psycopg2://u:p@h:5432/db"
+    assert captured["pool_size"] == 7
+    assert captured["max_overflow"] == 0
+    assert captured["pool_pre_ping"] is True
+    assert provider._db_executor._max_workers == 7
+
+
+@pytest.mark.asyncio
+async def test_init_sets_up_sync_session_and_executor_for_sqlite():
+    provider = DatabaseProvider(db_config=DatabaseConfig(url="sqlite:///:memory:", pool_size=4))
+    await provider.init()
+    assert provider._sync_session is not None
+    assert provider._db_executor is not None
+    await provider.close()
