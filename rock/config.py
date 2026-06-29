@@ -210,7 +210,7 @@ class DatabaseConfig:
     #   SQLite:     sqlite:///relative/path.db  or  sqlite:////absolute/path.db
     #   PostgreSQL: postgresql://user:password@host:port/dbname
     url: str = ""
-    pool_size: int = 100  # per-process PG pool; multi-worker shrinks this (see utils.worker)
+    pool_size: int = 300  # per-process PG pool; multi-worker shrinks this (see utils.worker)
 
 
 @dataclass
