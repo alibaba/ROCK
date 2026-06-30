@@ -1,7 +1,6 @@
 import os
 import socket
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -94,20 +93,24 @@ def rocklet_remote_server() -> RemoteServer:
 @pytest.fixture(name="admin_client", scope="session")
 def admin_client_fixture():
     """Create test client using TestClient"""
-    # Save original sys.argv
-    original_argv = sys.argv.copy()
-    # Modify sys.argv
-    sys.argv = ["main.py", "--env", "local", "--role", "admin"]
+    # create_app()/lifespan read env+role from env vars (not argv). Use env=local
+    # (ray operator) + role=admin so the gem service gets wired up.
+    overrides = {"ROCK_ADMIN_ENV": "local", "ROCK_ADMIN_ROLE": "admin"}
+    saved = {k: os.environ.get(k) for k in overrides}
+    os.environ.update(overrides)
     try:
-        from rock.admin.main import app, gem_router
+        from rock.admin.main import create_app
 
-        # Register env router
-        app.include_router(gem_router, prefix="/apis/v1/envs/gem", tags=["gem"])
+        # create_app() already wires up gem_router (see _include_routers)
+        app = create_app()
         with TestClient(app) as client:
             yield client
     finally:
-        # Restore original sys.argv
-        sys.argv = original_argv
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 @pytest.fixture(scope="session")
