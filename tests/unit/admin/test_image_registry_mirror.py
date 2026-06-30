@@ -87,17 +87,52 @@ async def test_first_mirror_hit_rewrites_image(restore_sandbox_manager, stub_man
         ]
     )
     config = DockerDeploymentConfig(image="gcr.io/foo/python:3.11")
+    # First probe: registry-only (preserve original namespace "foo") -> hit
     stub_manifest_probe.probe_results.append(True)
 
     await sandbox_api._apply_image_registry_mirror(config)
 
-    assert config.image == "rock-a.example.com/rock-public/python:3.11"
+    assert config.image == "rock-a.example.com/foo/python:3.11"
     assert config.registry_username is None
     assert config.registry_password is None
     assert len(stub_manifest_probe.probes) == 1
+    assert stub_manifest_probe.probes[0]["repo"] == "foo/python"
+
+
+async def test_registry_only_miss_falls_back_to_namespace_replace(restore_sandbox_manager, stub_manifest_probe):
+    sandbox_api.sandbox_manager = _make_manager(
+        [ImageRegistryMirror(registry="rock-a.example.com", namespace="rock-public")]
+    )
+    config = DockerDeploymentConfig(image="gcr.io/foo/python:3.11")
+    # First probe: registry-only (foo/python) -> miss
+    # Second probe: registry+namespace (rock-public/python) -> hit
+    stub_manifest_probe.probe_results.extend([False, True])
+
+    await sandbox_api._apply_image_registry_mirror(config)
+
+    assert config.image == "rock-a.example.com/rock-public/python:3.11"
+    assert len(stub_manifest_probe.probes) == 2
+    assert stub_manifest_probe.probes[0]["repo"] == "foo/python"
+    assert stub_manifest_probe.probes[1]["repo"] == "rock-public/python"
+
+
+async def test_original_namespace_equals_mirror_namespace_deduplicates(restore_sandbox_manager, stub_manifest_probe):
+    """When original namespace matches mirror namespace, only one candidate is probed (no redundant request)."""
+    sandbox_api.sandbox_manager = _make_manager(
+        [ImageRegistryMirror(registry="rock-a.example.com", namespace="foo")]
+    )
+    config = DockerDeploymentConfig(image="gcr.io/foo/python:3.11")
+    stub_manifest_probe.probe_results.append(True)
+
+    await sandbox_api._apply_image_registry_mirror(config)
+
+    assert config.image == "rock-a.example.com/foo/python:3.11"
+    assert len(stub_manifest_probe.probes) == 1
+    assert stub_manifest_probe.probes[0]["repo"] == "foo/python"
 
 
 async def test_second_mirror_hit_after_first_miss(restore_sandbox_manager, stub_manifest_probe):
+    """No original namespace (bare image) — only namespace-replace candidates are tried."""
     sandbox_api.sandbox_manager = _make_manager(
         [
             ImageRegistryMirror(registry="rock-a.example.com", namespace="rock-public"),
@@ -114,6 +149,7 @@ async def test_second_mirror_hit_after_first_miss(restore_sandbox_manager, stub_
 
 
 async def test_full_miss_keeps_original_image(restore_sandbox_manager, stub_manifest_probe):
+    """No original namespace — each mirror has 1 candidate, both miss."""
     sandbox_api.sandbox_manager = _make_manager(
         [
             ImageRegistryMirror(registry="rock-a.example.com", namespace="rock-public"),
@@ -208,17 +244,22 @@ async def test_invalid_mirror_entry_skipped(restore_sandbox_manager, stub_manife
 
 
 async def test_candidate_strips_registry_and_namespace_preserves_repo(restore_sandbox_manager, stub_manifest_probe):
+    """With original namespace 'project', first probe keeps it, second uses mirror namespace."""
     sandbox_api.sandbox_manager = _make_manager(
         [ImageRegistryMirror(registry="rock-a.example.com", namespace="rock-public")]
     )
     config = DockerDeploymentConfig(image="gcr.io/project/subdir/myimage:v1")
-    stub_manifest_probe.probe_results.append(False)
+    # First probe: registry-only (project/subdir/myimage) -> miss
+    # Second probe: registry+namespace (rock-public/subdir/myimage) -> miss
+    stub_manifest_probe.probe_results.extend([False, False])
 
     await sandbox_api._apply_image_registry_mirror(config)
 
-    assert stub_manifest_probe.probes[0]["image"] == "rock-a.example.com/rock-public/subdir/myimage:v1"
-    assert stub_manifest_probe.probes[0]["repo"] == "rock-public/subdir/myimage"
+    assert stub_manifest_probe.probes[0]["image"] == "rock-a.example.com/project/subdir/myimage:v1"
+    assert stub_manifest_probe.probes[0]["repo"] == "project/subdir/myimage"
     assert stub_manifest_probe.probes[0]["tag"] == "v1"
+    assert stub_manifest_probe.probes[1]["image"] == "rock-a.example.com/rock-public/subdir/myimage:v1"
+    assert stub_manifest_probe.probes[1]["repo"] == "rock-public/subdir/myimage"
 
 
 async def test_missing_tag_defaults_to_latest(restore_sandbox_manager, stub_manifest_probe):
@@ -371,12 +412,13 @@ async def test_wildcard_allowlist_lets_every_image_through(restore_sandbox_manag
         [ImageRegistryMirror(registry="rock-a.example.com", namespace="rock-public")],
         allowlist=["*"],
     )
+    # First probe: registry-only (foo/python) -> hit
     stub_manifest_probe.probe_results.append(True)
     config = DockerDeploymentConfig(image="gcr.io/foo/python:3.11")
 
     await sandbox_api._apply_image_registry_mirror(config)
 
-    assert config.image == "rock-a.example.com/rock-public/python:3.11"
+    assert config.image == "rock-a.example.com/foo/python:3.11"
     assert len(stub_manifest_probe.probes) == 1
 
 
@@ -385,12 +427,16 @@ async def test_prefix_allowlist_matches_only_listed_images(restore_sandbox_manag
         [ImageRegistryMirror(registry="rock-a.example.com", namespace="rock-public")],
         allowlist=["aaaaaa/bbb/", "swe-bench:"],
     )
-    stub_manifest_probe.probe_results.extend([True, True])
+    # "aaaaaa/bbb/swe-bench:..." has original_namespace="aaaaaa":
+    #   1st probe: registry-only (aaaaaa/bbb/swe-bench) -> hit
+    stub_manifest_probe.probe_results.append(True)
 
     allowed = DockerDeploymentConfig(image="aaaaaa/bbb/swe-bench:astropy__astropy-12907")
     await sandbox_api._apply_image_registry_mirror(allowed)
-    assert allowed.image == "rock-a.example.com/rock-public/bbb/swe-bench:astropy__astropy-12907"
+    assert allowed.image == "rock-a.example.com/aaaaaa/bbb/swe-bench:astropy__astropy-12907"
 
+    # "swe-bench:..." has no namespace -> only namespace-replace candidate
+    stub_manifest_probe.probe_results.append(True)
     bare_prefix = DockerDeploymentConfig(image="swe-bench:python__python-1")
     await sandbox_api._apply_image_registry_mirror(bare_prefix)
     assert bare_prefix.image == "rock-a.example.com/rock-public/swe-bench:python__python-1"

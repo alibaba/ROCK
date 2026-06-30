@@ -190,6 +190,15 @@ class ArchiveConfig:
 class SandboxLifecycleConfig:
     archive: ArchiveConfig = field(default_factory=ArchiveConfig)
 
+    default_startup_timeout_seconds: float = 600
+    """Default startup_timeout when SDK does not supply one. YAML: lifecycle.default_startup_timeout_seconds."""
+
+    min_startup_timeout_seconds: float = 600
+    """Floor for startup_timeout — SDK values below this are raised. YAML: lifecycle.min_startup_timeout_seconds."""
+
+    max_startup_timeout_seconds: float = 1800
+    """Ceiling for startup_timeout — values above this are capped. YAML: lifecycle.max_startup_timeout_seconds."""
+
     def __post_init__(self):
         if isinstance(self.archive, dict):
             self.archive = ArchiveConfig(**self.archive)
@@ -322,6 +331,11 @@ class RuntimeConfig:
     INSTANCE_ROCK_REGISTRY=<comma-joined>. Each entry is a host/namespace
     string (e.g. "reg-a.aliyuncs.com/mirror-1"). When empty, the env var is
     not set and downstream tools skip mirror rewriting."""
+
+    image_os_profiles: dict = field(default_factory=dict)
+    """Profiles keyed by image_os value (e.g. "android"). Nacos image_os_profiles
+    are merged on top at request time via _apply_image_os_profile().
+    YAML: runtime.image_os_profiles.<image_os>: {runtime_env: {...}, startup_timeout, ...}"""
 
     def __post_init__(self) -> None:
         # Convert dict to StandardSpec if needed
@@ -550,12 +564,19 @@ class RockConfig:
         config_map = {
             "sandbox_config": (SandboxConfig, "sandbox_config"),
             "proxy_service": (ProxyServiceConfig, "proxy_service"),
+            "lifecycle": (SandboxLifecycleConfig, "lifecycle"),
         }
 
-        # Update configs that are present in nacos_result
+        # Update configs that are present in nacos_result (field-level merge,
+        # then re-run __post_init__ to coerce nested dicts → dataclasses)
         for key, (config_class, attr_name) in config_map.items():
             if key in nacos_result:
-                setattr(self, attr_name, config_class(**nacos_result[key]))
+                existing = getattr(self, attr_name)
+                for field_name, value in nacos_result[key].items():
+                    if hasattr(existing, field_name):
+                        setattr(existing, field_name, value)
+                if hasattr(existing, "__post_init__"):
+                    existing.__post_init__()
 
         if "image_registry_mirrors" in nacos_result:
             raw_mirrors = nacos_result["image_registry_mirrors"] or []
@@ -567,6 +588,7 @@ class RockConfig:
             runtime_overrides = nacos_result["runtime"]
             if "instance_registry_mirrors" in runtime_overrides:
                 self.runtime.instance_registry_mirrors = list(runtime_overrides["instance_registry_mirrors"] or [])
+
 
         logger.info(
             f"Updated config from Nacos: sandbox_config={self.sandbox_config}, proxy_service={self.proxy_service}"

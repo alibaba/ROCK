@@ -48,14 +48,14 @@ class ContainerCleanupTask(BaseTask):
         log_redirect = '[ -n "$ROCK_LOGGING_PATH" ] && CLEANUP_LOG="$ROCK_LOGGING_PATH/container_cleanup.log" || CLEANUP_LOG="/dev/null"'
         command = (
             f"{log_redirect}; nohup bash -c '"
-            f"docker ps -aq --filter status=created | xargs -r docker rm; "
+            f"docker ps -aq --filter status=created | xargs -r docker rm -v; "
             f'cutoff=$(date -d "{self.max_age_hours} hours ago" +%s); '
             f"docker ps -aq --filter status=exited | "
             f'xargs -r docker inspect --format "{{{{.Id}}}} {{{{.State.FinishedAt}}}}" | '
             f"while read -r id finished; do "
             f'[ "$finished" = "0001-01-01T00:00:00Z" ] && continue; '
             f'finished_ts=$(date -d "$finished" +%s 2>/dev/null) || continue; '
-            f'[ "$finished_ts" -lt "$cutoff" ] && docker rm "$id"; '
+            f'[ "$finished_ts" -lt "$cutoff" ] && docker rm -v "$id"; '
             f"done"
             f'\' > "$CLEANUP_LOG" 2>&1 & echo {PID_PREFIX}${{!}}{PID_SUFFIX}'
         )

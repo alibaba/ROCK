@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import hashlib
 import json
 import os
 import random
@@ -22,7 +23,7 @@ from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Port, Status
 from rock.deployments.docker_client import TempAuthDockerClient, TempAuthDockerClientError
 from rock.deployments.hooks.abstract import CombinedDeploymentHook, DeploymentHook
-from rock.deployments.runtime_env import DockerRuntimeEnv, LocalRuntimeEnv, PipRuntimeEnv, UvRuntimeEnv
+from rock.deployments.runtime_env import ConfigurableRuntimeEnv, DockerRuntimeEnv, LocalRuntimeEnv, PipRuntimeEnv, UvRuntimeEnv
 from rock.deployments.sandbox_validator import DockerSandboxValidator
 from rock.deployments.status import PersistedServiceStatus, ServiceStatus
 from rock.logger import init_logger
@@ -46,6 +47,9 @@ from rock.utils import (
 __all__ = ["DockerDeployment", "DockerDeploymentConfig"]
 CHECK_CLEAR_INTERVAL_SECONDS = 300
 
+XFS_PRJID_MIN = 1 << 31
+XFS_PRJID_RANGE = (1 << 32) - XFS_PRJID_MIN
+
 
 logger = init_logger(__name__)
 
@@ -65,6 +69,9 @@ class DockerDeployment(AbstractDeployment):
         if registry_password:
             self._config.registry_password = registry_password
         self._effective_disk_limit_rootfs: str | None = self._config.disk_limit_rootfs
+        self._rootfs_xfs_prjid: int | None = None
+        self._rootfs_xfs_mountpoint: str | None = None
+        self._rootfs_upper_dir: str | None = None
         self._runtime: RemoteSandboxRuntime | None = None
         self._container_process = None
         self._runtime_timeout = 0.15
@@ -76,7 +83,9 @@ class DockerDeployment(AbstractDeployment):
 
         if self._config.container_name:
             self.set_container_name(self._config.container_name)
-        if env_vars.ROCK_WORKER_ENV_TYPE == "docker":
+        if self._config.image_os_profile:
+            self._runtime_env = ConfigurableRuntimeEnv(self._config.image_os_profile.get("runtime_env", {}))
+        elif env_vars.ROCK_WORKER_ENV_TYPE == "docker":
             self._runtime_env = DockerRuntimeEnv()
         elif env_vars.ROCK_WORKER_ENV_TYPE == "local":
             self._runtime_env = LocalRuntimeEnv(self._config.runtime_config)
@@ -238,7 +247,7 @@ class DockerDeployment(AbstractDeployment):
             cmd,
         ]
 
-    def _pull_image(self) -> None:
+    def _pull_image(self, pull_timeout: int = 600) -> None:
         """Pull image using temporary authentication.
 
         Uses TempAuthDockerClient to ensure credentials are isolated
@@ -270,7 +279,7 @@ class DockerDeployment(AbstractDeployment):
                     username=self._config.registry_username,
                     password=self._config.registry_password,
                 ) as client:
-                    client.pull(self._config.image)
+                    client.pull(self._config.image, timeout=pull_timeout)
 
             self._service_status.update_status(
                 phase_name="image_pull", status=Status.SUCCESS, message="image pull success"
@@ -428,10 +437,13 @@ class DockerDeployment(AbstractDeployment):
         limit would clobber it. Cleanup is also docker's responsibility:
         `docker rm` resets the prjid's limit when the upper dir is torn down.
         """
-        if self._effective_disk_limit_rootfs is None:
+        if self._rootfs_xfs_prjid is not None and self._rootfs_upper_dir is not None:
+            project_id, upper_dir = self._rootfs_xfs_prjid, self._rootfs_upper_dir
+        elif self._effective_disk_limit_rootfs is not None:
+            project_id, upper_dir = self._get_docker_rootfs_prjid_and_upper_dir()
+        else:
             return
 
-        project_id, upper_dir = self._get_docker_rootfs_prjid_and_upper_dir()
         logger.info(f"setup_log_dir_quota_shared: log={log_file_path!r}, prjid={project_id}, upper_dir={upper_dir!r}")
         if project_id is None or upper_dir is None:
             logger.info(f"docker rootfs prjid unavailable for {log_file_path!r}; cannot share, fall back")
@@ -457,7 +469,7 @@ class DockerDeployment(AbstractDeployment):
             )
             if findmnt_result.returncode != 0 or not findmnt_result.stdout.strip():
                 logger.warning(
-                    f"findmnt failed for upper_dir {upper_dir!r}: " f"{findmnt_result.stderr.strip() or 'empty output'}"
+                    f"findmnt failed for upper_dir {upper_dir!r}: {findmnt_result.stderr.strip() or 'empty output'}"
                 )
                 return
             xfs_mountpoint = findmnt_result.stdout.strip()
@@ -483,6 +495,238 @@ class DockerDeployment(AbstractDeployment):
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
             logger.warning(f"Failed to share rootfs prjid with log dir {log_file_path!r}: {e}")
 
+    def _get_container_upper_dir(self) -> str | None:
+        """Return the overlay UpperDir for the container.
+
+        Strategy 1 — ``docker inspect`` (overlay2, available after create):
+        Strategy 2 — ``/proc/mounts`` (containerd image store, available after start):
+        Returns None if both fail.
+        """
+        # Strategy 1: docker inspect
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", "--format={{.GraphDriver.Data.UpperDir}}", self._container_name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            upper = result.stdout.strip()
+            if result.returncode == 0 and upper and upper != "<no value>":
+                return upper
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            pass
+
+        # Strategy 2: /proc/mounts — overlay mounts whose target path contains the container id
+        try:
+            container_id_result = subprocess.run(
+                ["docker", "inspect", "--format={{.Id}}", self._container_name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if container_id_result.returncode != 0 or not container_id_result.stdout.strip():
+                return None
+            container_id = container_id_result.stdout.strip()
+
+            with open("/proc/mounts") as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) < 4:
+                        continue
+                    fstype, mount_target, options = parts[2], parts[1], parts[3]
+                    if fstype != "overlay" or container_id not in mount_target:
+                        continue
+                    for opt in options.split(","):
+                        if opt.startswith("upperdir="):
+                            return opt[len("upperdir=") :]
+        except OSError:
+            pass
+        return None
+
+    def _setup_rootfs_quota_xfs(self) -> None:
+        """Set XFS project quota on the container's UpperDir as a fallback.
+
+        Called after ``docker start`` when ``--storage-opt`` is not supported
+        but the user configured ``disk_limit_rootfs``.  Best-effort: any
+        failure logs a warning and silently skips quota setup.
+        """
+        upper_dir = self._get_container_upper_dir()
+        if not upper_dir:
+            logger.warning(f"[{self._container_name}] cannot find container UpperDir, skipping XFS quota fallback")
+            return
+
+        if not DockerUtil.is_xfs_prjquota_path(upper_dir):
+            logger.info(f"[{self._container_name}] UpperDir {upper_dir!r} not on xfs+prjquota, skipping XFS quota")
+            return
+
+        try:
+            prjid = (
+                int(hashlib.sha1(self._container_name.encode()).hexdigest()[:8], 16) % XFS_PRJID_RANGE
+            ) + XFS_PRJID_MIN
+
+            findmnt_result = subprocess.run(
+                ["findmnt", "-T", upper_dir, "-o", "TARGET", "--noheadings"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if findmnt_result.returncode != 0 or not findmnt_result.stdout.strip():
+                logger.warning(f"[{self._container_name}] findmnt failed for {upper_dir!r}, skipping XFS quota")
+                return
+            mountpoint = findmnt_result.stdout.strip()
+
+            set_project_cmd = f"project -s -p {shlex.quote(upper_dir)} {prjid}"
+            result = subprocess.run(
+                ["xfs_quota", "-x", "-c", set_project_cmd, mountpoint],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    f"[{self._container_name}] xfs_quota project -s failed: "
+                    f"{result.stderr.strip() or result.stdout.strip()}"
+                )
+                return
+
+            limit_cmd = f"limit -p bhard={self._config.disk_limit_rootfs} {prjid}"
+            result = subprocess.run(
+                ["xfs_quota", "-x", "-c", limit_cmd, mountpoint],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    f"[{self._container_name}] xfs_quota limit failed: {result.stderr.strip() or result.stdout.strip()}"
+                )
+                return
+
+            self._rootfs_xfs_prjid = prjid
+            self._rootfs_xfs_mountpoint = mountpoint
+            self._rootfs_upper_dir = upper_dir
+            logger.info(
+                f"[{self._container_name}] XFS quota fallback: prjid={prjid}, "
+                f"bhard={self._config.disk_limit_rootfs}, upper_dir={upper_dir!r}"
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+            logger.warning(f"[{self._container_name}] XFS quota fallback failed: {e}")
+
+    def _cleanup_rootfs_xfs_quota(self) -> None:
+        """Remove XFS project quota set by ``_setup_rootfs_quota_xfs``."""
+        if self._rootfs_xfs_prjid is None or self._rootfs_xfs_mountpoint is None:
+            return
+        prjid = self._rootfs_xfs_prjid
+        mountpoint = self._rootfs_xfs_mountpoint
+
+        def _run_xfs_quota(cmd: str) -> None:
+            try:
+                subprocess.run(
+                    ["xfs_quota", "-x", "-c", cmd, mountpoint],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+                logger.warning(f"[{self._container_name}] xfs_quota cleanup ({cmd!r}) failed: {e}")
+
+        _run_xfs_quota(f"limit -p bhard=0 bsoft=0 {prjid}")
+
+        if self._rootfs_upper_dir:
+            _run_xfs_quota(f"project -C -p {shlex.quote(self._rootfs_upper_dir)} {prjid}")
+
+        if self._container_name and env_vars.ROCK_LOGGING_PATH:
+            log_dir = f"{env_vars.ROCK_LOGGING_PATH}/{self._container_name}"
+            _run_xfs_quota(f"project -C -p {shlex.quote(log_dir)} {prjid}")
+
+        self._rootfs_xfs_prjid = None
+        self._rootfs_xfs_mountpoint = None
+        self._rootfs_upper_dir = None
+
+    def _setup_local_volumes_quota_shared(self) -> None:
+        """Bind anonymous volumes (from Dockerfile VOLUME) to the rootfs XFS
+        prjid so they share the ``--storage-opt size=`` bhard limit.
+
+        Must be called between ``docker create`` and ``docker start``.
+        Fail-soft: any error is logged and skipped (consistent with
+        ``_setup_log_dir_quota_shared``).
+        """
+        if self._effective_disk_limit_rootfs is None:
+            return
+
+        project_id, upper_dir = self._get_docker_rootfs_prjid_and_upper_dir()
+        if project_id is None or upper_dir is None:
+            return
+
+        try:
+            inspect_result = subprocess.run(
+                ["docker", "inspect", "--format={{json .Mounts}}", self._container_name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if inspect_result.returncode != 0 or not inspect_result.stdout.strip():
+                return
+            mounts = json.loads(inspect_result.stdout.strip())
+        except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError) as e:
+            logger.warning(f"Failed to inspect mounts for {self._container_name}: {e}")
+            return
+
+        volume_sources = [m["Source"] for m in mounts if m.get("Type") == "volume"]
+        if not volume_sources:
+            return
+
+        try:
+            upper_dev = os.stat(upper_dir).st_dev
+        except OSError as e:
+            logger.warning(f"stat failed for upper_dir {upper_dir!r}: {e}")
+            return
+
+        try:
+            findmnt_result = subprocess.run(
+                ["findmnt", "-T", upper_dir, "-o", "TARGET", "--noheadings"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if findmnt_result.returncode != 0 or not findmnt_result.stdout.strip():
+                logger.warning(f"findmnt failed for upper_dir {upper_dir!r}")
+                return
+            xfs_mountpoint = findmnt_result.stdout.strip()
+        except (subprocess.TimeoutExpired, OSError) as e:
+            logger.warning(f"findmnt command failed for upper_dir {upper_dir!r}: {e}")
+            return
+
+        for vol_source in volume_sources:
+            try:
+                if os.stat(vol_source).st_dev != upper_dev:
+                    logger.info(f"Volume {vol_source!r} on different filesystem from rootfs, skipping quota")
+                    continue
+            except OSError as e:
+                logger.warning(f"stat failed for volume source {vol_source!r}: {e}")
+                continue
+
+            set_project_cmd = f"project -s -p {shlex.quote(vol_source)} {project_id}"
+            try:
+                result = subprocess.run(
+                    ["xfs_quota", "-x", "-c", set_project_cmd, xfs_mountpoint],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if result.returncode != 0:
+                    logger.warning(
+                        f"xfs_quota project -s failed for volume {vol_source!r} prjid={project_id}: "
+                        f"{result.stderr.strip() or result.stdout.strip()}"
+                    )
+                    continue
+                logger.info(
+                    f"Attached volume {vol_source!r} to rootfs prjid={project_id} "
+                    f"(shared rootfs+volume quota, limit managed by docker --storage-opt)"
+                )
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+                logger.warning(f"Failed to share rootfs prjid with volume {vol_source!r}: {e}")
+
     async def start(self):
         """Starts the runtime."""
         with StageTimer("startup_timing", f"[{self._container_name}] Check availability", logger):
@@ -490,11 +734,11 @@ class DockerDeployment(AbstractDeployment):
                 raise Exception("Docker is not available")
 
         storage_opt_supported = DockerUtil.detect_storage_opt_support()
-        # Resolve effective rootfs quota: downgrade to None if storage-opt is not supported.
         if self._config.disk_limit_rootfs is not None and not storage_opt_supported:
             logger.warning(
-                f"[{self.config.container_name}] --storage-opt not supported on this worker "
-                f"(requires overlay2 + xfs + prjquota), ignoring disk_limit_rootfs={self._config.disk_limit_rootfs}"
+                f"[{self.config.container_name}] disk_limit_rootfs not supported on this worker "
+                f"(requires overlay2 or containerd snapshotter on xfs+prjquota), "
+                f"ignoring disk_limit_rootfs={self._config.disk_limit_rootfs}"
             )
             self._effective_disk_limit_rootfs = None
         else:
@@ -505,8 +749,10 @@ class DockerDeployment(AbstractDeployment):
         self._service_status.set_sandbox_id(self._container_name)
         executor = get_executor()
         loop = asyncio.get_running_loop()
+        startup_timeout = self._config.startup_timeout or 600.0
+        deadline = time.monotonic() + startup_timeout
 
-        await loop.run_in_executor(executor, self._pull_image)
+        await loop.run_in_executor(executor, self._pull_image, int(startup_timeout))
         if self._config.python_standalone_dir is not None:
             image_id = self._build_image()
         else:
@@ -583,12 +829,22 @@ class DockerDeployment(AbstractDeployment):
             # fails before _wait_until_alive sets _container_process up for _stop to manage, we own the
             # orphan and must remove it. _wait_until_alive's own failure path already calls self.stop().
             try:
-                # Bind log dir to the docker-allocated rootfs prjid in the create→start gap,
-                # before any container process can write. The bhard is set by `--storage-opt
-                # size=` on the rootfs prjid, so log and rootfs share one quota.
-                if log_file_path is not None:
+                is_containerd = DockerUtil.detect_containerd_image_store()
+
+                # [overlay2] Bind log dir to the docker-allocated rootfs prjid in the
+                # create→start gap (prjid exists after docker create).
+                if log_file_path is not None and not is_containerd:
                     self._setup_log_dir_quota_shared(log_file_path)
+                self._setup_local_volumes_quota_shared()
+
                 self._container_process = await loop.run_in_executor(executor, self._docker_start)
+
+                # [containerd fallback] --storage-opt is silently ignored by containerd,
+                # apply XFS project quota on the container's UpperDir instead.
+                if self._config.disk_limit_rootfs is not None and is_containerd:
+                    self._setup_rootfs_quota_xfs()
+                    if log_file_path is not None:
+                        self._setup_log_dir_quota_shared(log_file_path)
             except Exception:
                 DockerUtil.remove_container_force(self._container_name)
                 raise
@@ -598,8 +854,9 @@ class DockerDeployment(AbstractDeployment):
             RemoteSandboxRuntimeConfig(port=self._config.port, timeout=self._runtime_timeout)
         )
         self._runtime.set_executor(executor)
+        remaining = max(deadline - time.monotonic(), 1.0)
         with StageTimer("startup_timing", f"[{self._container_name}] Wait until alive", logger):
-            await self._wait_until_alive(timeout=self._config.startup_timeout)
+            await self._wait_until_alive(timeout=remaining)
         if self._config.enable_auto_clear:
             self._check_stop_task = asyncio.create_task(self._check_stop())
 
@@ -627,6 +884,7 @@ class DockerDeployment(AbstractDeployment):
         mirrors = self._config.runtime_config.instance_registry_mirrors
         if mirrors:
             args.extend(["-e", f"INSTANCE_ROCK_REGISTRY={','.join(mirrors)}"])
+        args.extend(self._runtime_env.get_extra_env_args(self._config))
         return args
 
     def _prepare_timezone_mount(self) -> list[str]:
@@ -737,7 +995,7 @@ class DockerDeployment(AbstractDeployment):
 
         # Wait until container is alive
         with StageTimer("startup_timing", f"[{self._container_name}] Wait until alive", logger):
-            await self._wait_until_alive(timeout=self._config.startup_timeout)
+            await self._wait_until_alive(timeout=self._config.startup_timeout or 600.0)
 
         # Re-enable auto-clear if configured
         if self._config.enable_auto_clear:
@@ -823,6 +1081,7 @@ class DockerDeployment(AbstractDeployment):
                 logger.warning(f"Failed to kill container {self._container_name} with SIGKILL")
 
             self._container_process = None
+            self._cleanup_rootfs_xfs_quota()
             self._cleanup_kata_disk()
             self._container_name = None
 

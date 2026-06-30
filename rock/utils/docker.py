@@ -82,36 +82,64 @@ class DockerUtil:
 
     @classmethod
     def detect_storage_opt_support(cls) -> bool:
-        """Detect whether --storage-opt size= is supported in this environment.
+        """Detect whether rootfs disk-limit can be enforced in this environment.
 
-        Requirements:
-        - Docker storage driver is overlay2
-        - Docker root directory is on an XFS mount with prjquota/pquota enabled
-          (checked via is_xfs_prjquota_path)
+        Supported configurations:
+        1. overlay2 storage driver + XFS with prjquota  (native ``--storage-opt size=``)
+        2. containerd image store (snapshotter) + XFS with prjquota  (XFS quota fallback;
+           ``--storage-opt`` is silently ignored by containerd, quota is applied manually)
 
         Returns:
-            True if --storage-opt size= can be used, False otherwise.
+            True if rootfs disk-limit can be enforced, False otherwise.
         """
         info = cls.get_docker_info()
         if info is None:
             return False
 
-        # Check 1: Driver must be overlay2
-        if info.get("Driver") != "overlay2":
-            logger.info(f"detect_storage_opt_support: storage driver is {info.get('Driver')!r}, not overlay2")
-            return False
-
-        # Check 2: DockerRootDir must be on XFS with prjquota/pquota
         docker_root = info.get("DockerRootDir")
         if not docker_root:
             logger.warning("detect_storage_opt_support: DockerRootDir not found in docker info")
             return False
 
-        if not cls.is_xfs_prjquota_path(docker_root):
-            return False
+        driver = info.get("Driver", "")
 
-        logger.info(f"detect_storage_opt_support: supported — overlay2, {docker_root!r} is xfs+prjquota")
-        return True
+        # Path 1: overlay2 — native --storage-opt size=
+        if driver == "overlay2":
+            if not cls.is_xfs_prjquota_path(docker_root):
+                return False
+            logger.info(f"detect_storage_opt_support: supported — overlay2, {docker_root!r} is xfs+prjquota")
+            return True
+
+        # Path 2: containerd image store — XFS quota fallback
+        if cls.detect_containerd_image_store(info):
+            if not cls.is_xfs_prjquota_path(docker_root):
+                return False
+            logger.info(
+                f"detect_storage_opt_support: supported — containerd image store, "
+                f"{docker_root!r} is xfs+prjquota (will use XFS quota fallback)"
+            )
+            return True
+
+        logger.info(f"detect_storage_opt_support: storage driver is {driver!r}, not overlay2 or containerd snapshotter")
+        return False
+
+    @classmethod
+    def detect_containerd_image_store(cls, info: dict | None = None) -> bool:
+        """Return True when Docker is using the containerd image store (snapshotter).
+
+        Detection is based on the ``driver-type`` entry inside ``DriverStatus``
+        from ``docker info``.  When the containerd image store is enabled the
+        driver-type is ``io.containerd.snapshotter.v1`` regardless of which
+        snapshotter (overlayfs, native, btrfs …) is active.
+        """
+        if info is None:
+            info = cls.get_docker_info()
+        if info is None:
+            return False
+        for entry in info.get("DriverStatus") or []:
+            if isinstance(entry, list) and len(entry) == 2 and entry[0] == "driver-type":
+                return entry[1] == "io.containerd.snapshotter.v1"
+        return False
 
     @classmethod
     def is_docker_available(cls):
@@ -218,7 +246,7 @@ class DockerUtil:
         """
         try:
             subprocess.run(
-                ["docker", "rm", "-f", name],
+                ["docker", "rm", "-f", "-v", name],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=timeout,

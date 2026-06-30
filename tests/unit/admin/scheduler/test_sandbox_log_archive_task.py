@@ -187,7 +187,7 @@ class TestDiscovery:
         set_rock_config_provider(lambda: _fake_rock_config())
 
         task = SandboxLogArchiveTask(log_root="/data/logs")
-        runtime = _runtime([_FakeExecResult(stdout="")])
+        runtime = _runtime([_FakeExecResult(), _FakeExecResult(stdout="")])
 
         result = await task.run_action(runtime)
 
@@ -209,10 +209,11 @@ class TestDiscovery:
         set_rock_config_provider(lambda: _fake_rock_config())
 
         task = SandboxLogArchiveTask(log_root="/data/logs")
-        runtime = _runtime([_FakeExecResult(stdout="")])
+        runtime = _runtime([_FakeExecResult(), _FakeExecResult(stdout="")])
         await task.run_action(runtime)
 
-        cmd = runtime.execute.await_args_list[0].args[0].command
+        # index 1: discover command (index 0 is stale archive cleanup)
+        cmd = runtime.execute.await_args_list[1].args[0].command
         assert "-type d" in cmd, "discovery must restrict to directories"
         assert "-maxdepth 1" in cmd, "must not recurse into sandbox log subdirs"
         assert cmd.lstrip().startswith("find "), f"expected find, got: {cmd[:50]}"
@@ -232,7 +233,7 @@ class TestClassification:
         fake_table.list_by_in = AsyncMock(return_value=[])
 
         task = SandboxLogArchiveTask(log_root="/data/logs")
-        runtime = _runtime([_FakeExecResult(stdout="sb-orphan")])
+        runtime = _runtime([_FakeExecResult(), _FakeExecResult(stdout="sb-orphan")])
 
         result = await task.run_action(runtime)
 
@@ -246,7 +247,7 @@ class TestClassification:
         fake_table.list_by_in = AsyncMock(return_value=[_row("sb-alive", state="alive")])
 
         task = SandboxLogArchiveTask(log_root="/data/logs")
-        runtime = _runtime([_FakeExecResult(stdout="sb-alive")])
+        runtime = _runtime([_FakeExecResult(), _FakeExecResult(stdout="sb-alive")])
 
         result = await task.run_action(runtime)
 
@@ -260,7 +261,7 @@ class TestClassification:
         fake_table.list_by_in = AsyncMock(return_value=[_row("sb-young", state="stopped", stop_time=_iso_days_ago(1))])
 
         task = SandboxLogArchiveTask(log_root="/data/logs")
-        runtime = _runtime([_FakeExecResult(stdout="sb-young")])
+        runtime = _runtime([_FakeExecResult(), _FakeExecResult(stdout="sb-young")])
 
         result = await task.run_action(runtime)
 
@@ -276,6 +277,7 @@ class TestClassification:
         task = SandboxLogArchiveTask(log_root="/data/logs")
         runtime = _runtime(
             [
+                _FakeExecResult(),  # cleanup stale archives
                 _FakeExecResult(stdout="sb-old"),  # discover
                 _FakeExecResult(stdout=""),  # archive cmd
             ]
@@ -285,7 +287,7 @@ class TestClassification:
 
         assert result["archived"] == 1
         assert result["failed"] == 0
-        assert runtime.execute.await_count == 2
+        assert runtime.execute.await_count == 3
 
     @pytest.mark.asyncio
     async def test_stop_time_malformed_skipped(self, fake_table):
@@ -294,7 +296,7 @@ class TestClassification:
         fake_table.list_by_in = AsyncMock(return_value=[_row("sb-bad", state="stopped", stop_time="not-a-date")])
 
         task = SandboxLogArchiveTask(log_root="/data/logs")
-        runtime = _runtime([_FakeExecResult(stdout="sb-bad")])
+        runtime = _runtime([_FakeExecResult(), _FakeExecResult(stdout="sb-bad")])
 
         result = await task.run_action(runtime)
 
@@ -317,11 +319,11 @@ class TestArchiveCommand:
         fake_table.list_by_in = AsyncMock(return_value=[_row("sb-1", state="stopped", stop_time=_iso_days_ago(10))])
 
         task = SandboxLogArchiveTask(log_root="/data/logs")
-        runtime = _runtime([_FakeExecResult(stdout="sb-1"), _FakeExecResult()])
+        runtime = _runtime([_FakeExecResult(), _FakeExecResult(stdout="sb-1"), _FakeExecResult()])
 
         await task.run_action(runtime)
 
-        archive_call = runtime.execute.await_args_list[1]
+        archive_call = runtime.execute.await_args_list[2]
         cmd_obj = archive_call.args[0]
         assert "SECRET_AK" not in cmd_obj.command
         assert "SECRET_SK" not in cmd_obj.command
@@ -337,13 +339,66 @@ class TestArchiveCommand:
         fake_table.list_by_in = AsyncMock(return_value=[_row("sb-x", state="stopped", stop_time=_iso_days_ago(5))])
 
         task = SandboxLogArchiveTask(log_root="/data/logs")
-        runtime = _runtime([_FakeExecResult(stdout="sb-x"), _FakeExecResult()])
+        runtime = _runtime([_FakeExecResult(), _FakeExecResult(stdout="sb-x"), _FakeExecResult()])
 
         await task.run_action(runtime)
 
-        archive_cmd = runtime.execute.await_args_list[1].args[0].command
+        archive_cmd = runtime.execute.await_args_list[2].args[0].command
         # build_sandbox_log_key("sb-x", "archives/") => "archives/sandbox-logs/sb-x.tar.gz"
         assert "oss://my-bucket/archives/sandbox-logs/sb-x.tar.gz" in archive_cmd
+
+    @pytest.mark.asyncio
+    async def test_stale_archive_cleanup_runs_before_archival(self, fake_table):
+        """Stale sb-archive-* temp dirs must be cleaned before archiving."""
+        set_sandbox_table_provider(lambda: fake_table)
+        set_rock_config_provider(lambda: _fake_rock_config(keep_days=3))
+        fake_table.list_by_in = AsyncMock(return_value=[_row("sb-1", state="stopped", stop_time=_iso_days_ago(5))])
+
+        task = SandboxLogArchiveTask(log_root="/data/logs")
+        runtime = _runtime(
+            [
+                _FakeExecResult(),  # cleanup stale archives
+                _FakeExecResult(stdout="sb-1"),  # discover
+                _FakeExecResult(),  # archive cmd
+            ]
+        )
+
+        result = await task.run_action(runtime)
+
+        assert result["archived"] == 1
+        cleanup_cmd = runtime.execute.await_args_list[0].args[0].command
+        assert "sb-archive-" in cleanup_cmd
+        assert "-mmin +120" in cleanup_cmd
+
+    @pytest.mark.asyncio
+    async def test_archive_timeout_is_3600(self, fake_table):
+        """Archive command must use 3600s timeout (not default 1200s)."""
+        set_sandbox_table_provider(lambda: fake_table)
+        set_rock_config_provider(lambda: _fake_rock_config(keep_days=3))
+        fake_table.list_by_in = AsyncMock(return_value=[_row("sb-1", state="stopped", stop_time=_iso_days_ago(5))])
+
+        task = SandboxLogArchiveTask(log_root="/data/logs")
+        runtime = _runtime([_FakeExecResult(), _FakeExecResult(stdout="sb-1"), _FakeExecResult()])
+
+        await task.run_action(runtime)
+
+        archive_cmd_obj = runtime.execute.await_args_list[2].args[0]
+        assert archive_cmd_obj.timeout == 3600
+
+    @pytest.mark.asyncio
+    async def test_archive_command_checks_oss_existence(self, fake_table):
+        """Archive command must check OSS existence before tar+upload."""
+        set_sandbox_table_provider(lambda: fake_table)
+        set_rock_config_provider(lambda: _fake_rock_config(bucket="b", keep_days=3))
+        fake_table.list_by_in = AsyncMock(return_value=[_row("sb-1", state="stopped", stop_time=_iso_days_ago(5))])
+
+        task = SandboxLogArchiveTask(log_root="/data/logs")
+        runtime = _runtime([_FakeExecResult(), _FakeExecResult(stdout="sb-1"), _FakeExecResult()])
+
+        await task.run_action(runtime)
+
+        archive_cmd = runtime.execute.await_args_list[2].args[0].command
+        assert "ossutil stat" in archive_cmd
 
     @pytest.mark.asyncio
     async def test_one_failure_does_not_abort_loop(self, fake_table):
@@ -360,6 +415,7 @@ class TestArchiveCommand:
         task = SandboxLogArchiveTask(log_root="/data/logs")
         runtime = _runtime(
             [
+                _FakeExecResult(),  # cleanup stale archives
                 _FakeExecResult(stdout="sb-fail\nsb-ok"),  # discover
                 RuntimeError("ossutil down"),  # archive sb-fail raises
                 _FakeExecResult(),  # archive sb-ok succeeds

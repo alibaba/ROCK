@@ -71,11 +71,6 @@ describe('OSS client configuration', () => {
       get: mockGet,
     });
 
-    // Set OSS environment variables
-    process.env.ROCK_OSS_ENABLE = 'true';
-    process.env.ROCK_OSS_BUCKET_NAME = 'test-bucket';
-    process.env.ROCK_OSS_BUCKET_REGION = 'cn-hangzhou';
-
     sandbox = new Sandbox({
       image: 'test:latest',
       startupTimeout: 2,
@@ -83,9 +78,6 @@ describe('OSS client configuration', () => {
   });
 
   afterEach(() => {
-    delete process.env.ROCK_OSS_ENABLE;
-    delete process.env.ROCK_OSS_BUCKET_NAME;
-    delete process.env.ROCK_OSS_BUCKET_REGION;
   });
 
   describe('getOssStsCredentials()', () => {
@@ -165,6 +157,122 @@ describe('OSS client configuration', () => {
       });
 
       await expect(sandbox.getOssStsCredentials()).rejects.toThrow();
+    });
+
+    test('caches credentials so a second call within validity window does not refetch', async () => {
+      // Reviewer point 5: setupOss already fetches a token; downloadViaOss
+      // must not issue a redundant /get_token round trip on every transfer.
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            sandbox_id: 'test-id',
+            host_name: 'test-host',
+            host_ip: '127.0.0.1',
+          },
+        },
+        headers: {},
+      });
+      mockGet.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: { is_alive: true },
+        },
+        headers: {},
+      });
+      await sandbox.start();
+
+      const oneHourLater = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      mockGet.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            access_key_id: 'STS.FIRST',
+            access_key_secret: 'S1',
+            security_token: 'T1',
+            expiration: oneHourLater,
+          },
+        },
+        headers: {},
+      });
+
+      // First call hits the network.
+      const first = await sandbox.getOssStsCredentials();
+      expect(first.accessKeyId).toBe('STS.FIRST');
+      const getCallCountAfterFirst = mockGet.mock.calls.length;
+
+      // Second call via the cache helper must NOT call mockGet again while
+      // the token is still fresh.
+      const cached = await (
+        sandbox as unknown as {
+          getCachedOssStsCredentials(): Promise<typeof first>;
+        }
+      ).getCachedOssStsCredentials();
+
+      expect(cached).toBe(first);
+      expect(mockGet.mock.calls.length).toBe(getCallCountAfterFirst);
+    });
+
+    test('refetches credentials when cached token is expired', async () => {
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            sandbox_id: 'test-id',
+            host_name: 'test-host',
+            host_ip: '127.0.0.1',
+          },
+        },
+        headers: {},
+      });
+      mockGet.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: { is_alive: true },
+        },
+        headers: {},
+      });
+      await sandbox.start();
+
+      const oneHourLater = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      mockGet.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            access_key_id: 'STS.FIRST',
+            access_key_secret: 'S1',
+            security_token: 'T1',
+            expiration: oneHourLater,
+          },
+        },
+        headers: {},
+      });
+      await sandbox.getOssStsCredentials();
+
+      // Manually expire the token.
+      (sandbox as unknown as { ossTokenExpireTime: string }).ossTokenExpireTime =
+        '2020-01-01T00:00:00Z';
+
+      mockGet.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            access_key_id: 'STS.SECOND',
+            access_key_secret: 'S2',
+            security_token: 'T2',
+            expiration: oneHourLater,
+          },
+        },
+        headers: {},
+      });
+
+      const refreshed = await (
+        sandbox as unknown as {
+          getCachedOssStsCredentials(): Promise<{ accessKeyId: string }>;
+        }
+      ).getCachedOssStsCredentials();
+
+      expect(refreshed.accessKeyId).toBe('STS.SECOND');
     });
   });
 
@@ -509,6 +617,198 @@ describe('nohup mode PATH handling', () => {
     // With bash -c: uses bash which has correct PATH
     const hasBashWrapper = true;
     expect(hasBashWrapper).toBe(true);
+  });
+});
+
+/**
+ * Server-only OSS config resolution tests
+ *
+ * The SDK resolves OSS config exclusively from the admin /get_token response.
+ * No env-var fallback exists — if the server doesn't return complete config,
+ * OSS is unavailable.
+ */
+describe('Server-only OSS config resolution', () => {
+  let sandbox: Sandbox;
+  let mockPost: jest.Mock;
+  let mockGet: jest.Mock;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    mockPost = jest.fn();
+    mockGet = jest.fn();
+    mockedAxios.create = jest.fn().mockReturnValue({
+      post: mockPost,
+      get: mockGet,
+    });
+
+    sandbox = new Sandbox({ image: 'test:latest', startupTimeout: 2 });
+
+    mockPost.mockResolvedValueOnce({
+      data: {
+        status: 'Success',
+        result: { sandbox_id: 'test-id', host_name: 'test-host', host_ip: '127.0.0.1' },
+      },
+      headers: {},
+    });
+    mockGet.mockResolvedValue({
+      data: { status: 'Success', result: { is_alive: true } },
+      headers: {},
+    });
+    await sandbox.start();
+  });
+
+  test('getOssStsCredentials requests account=primary', async () => {
+    mockGet.mockResolvedValueOnce({
+      data: {
+        status: 'Success',
+        result: {
+          access_key_id: 'STS.PRIMARY',
+          access_key_secret: 'sec',
+          security_token: 'tok',
+          expiration: '2099-01-01T00:00:00Z',
+        },
+      },
+      headers: {},
+    });
+
+    await sandbox.getOssStsCredentials();
+
+    const calledUrl = mockGet.mock.calls.at(-1)?.[0] as string;
+    expect(calledUrl).toContain('/get_token');
+    expect(calledUrl).toContain('account=primary');
+  });
+
+  test('resolves config from server response', () => {
+    const credentials = {
+      accessKeyId: 'STS.PRIMARY',
+      accessKeySecret: 'sec',
+      securityToken: 'tok',
+      expiration: '2099-01-01T00:00:00Z',
+      endpoint: 'oss-cn-hangzhou.aliyuncs.com',
+      bucket: 'chatos-rock',
+      region: 'cn-hangzhou',
+      prefix: 'rock-transfer/',
+    };
+
+    const resolved = Sandbox.resolveOssConfig(credentials);
+
+    expect(resolved).not.toBeNull();
+    expect(resolved!.bucket).toBe('chatos-rock');
+    expect(resolved!.endpoint).toBe('oss-cn-hangzhou.aliyuncs.com');
+    expect(resolved!.region).toBe('cn-hangzhou');
+    expect(resolved!.prefix).toBe('rock-transfer/');
+  });
+
+  test('returns null when server does not provide complete config', () => {
+    const credentials = {
+      accessKeyId: 'STS',
+      accessKeySecret: 'sec',
+      securityToken: 'tok',
+      expiration: '2099-01-01T00:00:00Z',
+    };
+
+    expect(Sandbox.resolveOssConfig(credentials)).toBeNull();
+  });
+
+  test('returns null when server response is partial (missing bucket)', () => {
+    const credentials = {
+      accessKeyId: 'STS',
+      accessKeySecret: 'sec',
+      securityToken: 'tok',
+      expiration: '2099-01-01T00:00:00Z',
+      endpoint: 'oss-cn-hangzhou.aliyuncs.com',
+      region: 'cn-hangzhou',
+      // bucket missing → incomplete → null
+    };
+
+    expect(Sandbox.resolveOssConfig(credentials)).toBeNull();
+  });
+});
+
+/**
+ * OSS object name prefix tests
+ *
+ * Regression guard for: STS tokens from account=primary carry a RAM policy
+ * restricting writes to the advertised Prefix (e.g. "rock-transfer/").
+ * Writing to bucket root returns 403 AccessDenied — both uploadViaOss and
+ * downloadViaOss must prepend the prefix to the object key.
+ */
+describe('Sandbox.buildOssObjectName', () => {
+  test('prepends server-supplied prefix to base name', () => {
+    expect(Sandbox.buildOssObjectName('rock-transfer/', '1700000000-foo.tar.gz'))
+      .toBe('rock-transfer/1700000000-foo.tar.gz');
+  });
+
+  test('normalizes leading and trailing slashes', () => {
+    expect(Sandbox.buildOssObjectName('/rock-transfer/', 'obj')).toBe('rock-transfer/obj');
+    expect(Sandbox.buildOssObjectName('rock-transfer', 'obj')).toBe('rock-transfer/obj');
+    expect(Sandbox.buildOssObjectName('///rock-transfer///', 'obj')).toBe('rock-transfer/obj');
+  });
+
+  test('returns base name unchanged when prefix is empty/null/undefined', () => {
+    expect(Sandbox.buildOssObjectName('', 'obj')).toBe('obj');
+    expect(Sandbox.buildOssObjectName(null, 'obj')).toBe('obj');
+    expect(Sandbox.buildOssObjectName(undefined, 'obj')).toBe('obj');
+  });
+
+  test('returns base name unchanged when prefix is only slashes', () => {
+    expect(Sandbox.buildOssObjectName('/', 'obj')).toBe('obj');
+    expect(Sandbox.buildOssObjectName('////', 'obj')).toBe('obj');
+  });
+
+  test('supports nested multi-segment prefix', () => {
+    expect(Sandbox.buildOssObjectName('rock-transfer/sub/', 'obj'))
+      .toBe('rock-transfer/sub/obj');
+  });
+
+  test('preserves download- prefix on base name', () => {
+    // downloadViaOss uses "download-{ts}-{name}" as base; full key must still
+    // sit under the policy-allowed prefix.
+    expect(Sandbox.buildOssObjectName('rock-transfer/', 'download-123-a.txt'))
+      .toBe('rock-transfer/download-123-a.txt');
+  });
+
+  test('treats whitespace-only prefix as empty (no "   /file")', () => {
+    expect(Sandbox.buildOssObjectName('   ', 'obj')).toBe('obj');
+    expect(Sandbox.buildOssObjectName('\t\n ', 'obj')).toBe('obj');
+  });
+
+  test('collapses internal duplicate slashes in prefix', () => {
+    expect(Sandbox.buildOssObjectName('rock//transfer', 'obj'))
+      .toBe('rock/transfer/obj');
+    expect(Sandbox.buildOssObjectName('rock///transfer///sub', 'obj'))
+      .toBe('rock/transfer/sub/obj');
+  });
+
+  test('strips leading slashes from base name to avoid "//"', () => {
+    expect(Sandbox.buildOssObjectName('rock-transfer/', '/data.tar'))
+      .toBe('rock-transfer/data.tar');
+    expect(Sandbox.buildOssObjectName('rock-transfer/', '///data.tar'))
+      .toBe('rock-transfer/data.tar');
+    // Even without a prefix, a leading-slash baseName must not produce a
+    // bucket-rooted absolute key.
+    expect(Sandbox.buildOssObjectName('', '/data.tar')).toBe('data.tar');
+  });
+});
+
+describe('Sandbox.normalizeRegion', () => {
+  test('strips leading "oss-" prefix', () => {
+    expect(Sandbox.normalizeRegion('oss-cn-hangzhou')).toBe('cn-hangzhou');
+    expect(Sandbox.normalizeRegion('oss-cn-shanghai')).toBe('cn-shanghai');
+  });
+
+  test('passes through already-normalized region unchanged', () => {
+    expect(Sandbox.normalizeRegion('cn-hangzhou')).toBe('cn-hangzhou');
+  });
+
+  test('only strips leading prefix, not internal occurrences', () => {
+    // Defensive: a hypothetical region containing "oss-" mid-string must not
+    // be mangled.
+    expect(Sandbox.normalizeRegion('cn-oss-hangzhou')).toBe('cn-oss-hangzhou');
+  });
+
+  test('handles empty string', () => {
+    expect(Sandbox.normalizeRegion('')).toBe('');
   });
 });
 

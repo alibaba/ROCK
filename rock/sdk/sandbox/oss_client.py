@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 import shlex
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -16,7 +17,6 @@ from typing import TYPE_CHECKING
 
 import oss2
 
-from rock import env_vars
 from rock.actions.sandbox.request import Command
 from rock.actions.sandbox.response import DownloadFileResponse, UploadResponse
 from rock.logger import init_logger
@@ -30,13 +30,12 @@ logger = init_logger(__name__)
 
 @dataclass
 class OssClientConfig:
-    """Resolved OSS configuration (Layer 1 env or Layer 2 server)."""
+    """Resolved OSS configuration from admin /get_token response."""
 
     endpoint: str
     bucket: str
     region: str
-    enabled_via_env: bool  # True = Layer 1 (gated by ROCK_OSS_ENABLE); False = Layer 2
-    prefix: str = ""  # Transfer-object key prefix (Layer 1 from env; Layer 2 from server response)
+    prefix: str = ""  # Transfer-object key prefix from server response (e.g. "rock-transfer/")
 
 
 class OssClient:
@@ -63,27 +62,19 @@ class OssClient:
         digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
         filename = Path(sandbox_path).name or Path(local_path).name
         # Honor server-pushed Prefix so chatos-rock's rock-transfer/ lifecycle catches the object.
-        clean_prefix = (prefix or "").strip("/")
+        # Sanitize: trim whitespace, strip leading/trailing slashes, collapse internal "//" runs.
+        # Without this, a stray prefix like " ", "/rock-transfer/" or "rock//transfer" would
+        # produce a malformed OSS key (e.g. "   /file", "//file", "rock//transfer/file").
+        clean_prefix = re.sub(r"/+", "/", (prefix or "").strip().strip("/"))
+        clean_filename = f"{digest}-{filename}".lstrip("/")
         if clean_prefix:
-            return f"{clean_prefix}/{digest}-{filename}"
-        return f"{digest}-{filename}"
+            return f"{clean_prefix}/{clean_filename}"
+        return clean_filename
 
     @staticmethod
     def _resolve_config(sts_response: dict) -> OssClientConfig | None:
-        # Layer 1: env var (highest priority)
-        env_endpoint = env_vars.ROCK_OSS_BUCKET_ENDPOINT
-        env_bucket = env_vars.ROCK_OSS_BUCKET_NAME
-        env_region = env_vars.ROCK_OSS_BUCKET_REGION
-        if env_endpoint and env_bucket and env_region:
-            return OssClientConfig(
-                endpoint=env_endpoint,
-                bucket=env_bucket,
-                region=env_region,
-                enabled_via_env=True,
-                prefix=env_vars.ROCK_OSS_TRANSFER_PREFIX or "",  # NEW: env can carry prefix too
-            )
-
-        # Layer 2: server response (fallback default)
+        # Server-only: admin /get_token must return a complete OSS config.
+        # If it doesn't, OSS is simply unavailable (no env fallback).
         resp_endpoint = sts_response.get("Endpoint")
         resp_bucket = sts_response.get("Bucket")
         resp_region = sts_response.get("Region")
@@ -92,11 +83,10 @@ class OssClient:
                 endpoint=resp_endpoint,
                 bucket=resp_bucket,
                 region=resp_region,
-                enabled_via_env=False,
-                prefix=sts_response.get("Prefix") or "",  # NEW: pull prefix from server
+                prefix=sts_response.get("Prefix") or "",
             )
 
-        # Layer 3: OSS unavailable
+        # OSS unavailable: server did not supply a complete config.
         return None
 
     async def _get_sts_credentials(self) -> dict:
@@ -150,10 +140,6 @@ class OssClient:
 
         config = self._resolve_config(sts_response)
         if config is None:
-            return False
-
-        # Layer 1 also requires ROCK_OSS_ENABLE
-        if config.enabled_via_env and not env_vars.ROCK_OSS_ENABLE:
             return False
 
         try:

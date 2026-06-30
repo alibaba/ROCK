@@ -207,8 +207,9 @@ async def _apply_image_registry_mirror(config: DockerDeploymentConfig) -> None:
 
     _, repo_and_tag = ImageUtil.parse_registry_and_others(config.image)
     if "/" in repo_and_tag:
-        _, name_tag = repo_and_tag.split("/", 1)
+        original_namespace, name_tag = repo_and_tag.split("/", 1)
     else:
+        original_namespace = None
         name_tag = repo_and_tag
     if "@" in name_tag:
         logger.info(
@@ -224,35 +225,91 @@ async def _apply_image_registry_mirror(config: DockerDeploymentConfig) -> None:
     for mirror in mirrors:
         if not mirror.registry or not mirror.namespace:
             continue
-        candidate = f"{mirror.registry}/{mirror.namespace}/{name_tag}"
 
-        cached = _probe_cache_get(candidate)
-        if cached is True:
-            logger.info(f"image registry mirror hit (cached): {original_image!r} -> {candidate!r}")
-            _apply_mirror_hit(config, mirror, candidate)
-            return
-        if cached is False:
-            continue
+        candidates = []
+        if original_namespace:
+            candidates.append((f"{mirror.registry}/{original_namespace}/{name_tag}", f"{original_namespace}/{image_name}"))
+        if original_namespace != mirror.namespace:
+            candidates.append((f"{mirror.registry}/{mirror.namespace}/{name_tag}", f"{mirror.namespace}/{image_name}"))
 
-        try:
-            hit = await _http_probe_manifest(
-                registry=mirror.registry,
-                repo=f"{mirror.namespace}/{image_name}",
-                tag=tag,
-                username=mirror.username,
-                password=mirror.password,
-            )
-        except Exception as e:
-            logger.warning(f"image registry mirror probe failed for {candidate!r}: {e}")
-            continue
+        for candidate, repo in candidates:
+            cached = _probe_cache_get(candidate)
+            if cached is True:
+                logger.info(f"image registry mirror hit (cached): {original_image!r} -> {candidate!r}")
+                _apply_mirror_hit(config, mirror, candidate)
+                return
+            if cached is False:
+                continue
 
-        _probe_cache_set(candidate, hit)
-        if hit:
-            logger.info(f"image registry mirror hit: {original_image!r} -> {candidate!r}")
-            _apply_mirror_hit(config, mirror, candidate)
-            return
+            try:
+                hit = await _http_probe_manifest(
+                    registry=mirror.registry,
+                    repo=repo,
+                    tag=tag,
+                    username=mirror.username,
+                    password=mirror.password,
+                )
+            except Exception as e:
+                logger.warning(f"image registry mirror probe failed for {candidate!r}: {e}")
+                continue
+
+            _probe_cache_set(candidate, hit)
+            if hit:
+                logger.info(f"image registry mirror hit: {original_image!r} -> {candidate!r}")
+                _apply_mirror_hit(config, mirror, candidate)
+                return
     logger.info(f"image registry mirror miss for {original_image!r}, keep original")
 
+async def _apply_timeout_defaults(config: DockerDeploymentConfig) -> None:
+    """Apply startup_timeout default, min and max from SandboxLifecycleConfig (YAML + Nacos).
+
+    startup_timeout covers docker pull + wait-until-alive combined.
+    - config.startup_timeout is None: SDK didn't set it, apply lifecycle.default_startup_timeout_seconds.
+    - config.startup_timeout is set: keep the user value.
+    - In all cases: clamp to [min_startup_timeout_seconds, max_startup_timeout_seconds].
+    Nacos updates lifecycle via RockConfig.update() called in DeploymentManager.init_config().
+    """
+    lifecycle = sandbox_manager.rock_config.lifecycle
+    if config.startup_timeout is None:
+        config.startup_timeout = lifecycle.default_startup_timeout_seconds
+    config.startup_timeout = max(config.startup_timeout, lifecycle.min_startup_timeout_seconds)
+    config.startup_timeout = min(config.startup_timeout, lifecycle.max_startup_timeout_seconds)
+
+
+async def _apply_image_os_profile(config: DockerDeploymentConfig) -> None:
+    """Look up an image_os_profile by ``config.image_os`` and apply it.
+
+    Profile sources are merged in priority order:
+      1. rock YAML (runtime.image_os_profiles) — base config
+      2. Nacos image_os_profiles — incremental override (same key replaces whole profile)
+    The profile whose key equals ``config.image_os`` is selected.
+
+    Side-effects when a profile matches:
+    - config.image_os_profile is set (used by DockerDeployment to instantiate
+      ConfigurableRuntimeEnv instead of the ROCK_WORKER_ENV_TYPE fallback)
+    - config.startup_timeout is updated if the profile declares one and the SDK didn't set it
+    """
+    profiles: dict = {}
+    yaml_profiles = getattr(sandbox_manager.rock_config.runtime, "image_os_profiles", None)
+    if yaml_profiles:
+        profiles.update(yaml_profiles)
+
+    nacos = sandbox_manager.rock_config.nacos_provider
+    if nacos is not None:
+        nacos_config = await nacos.get_config() or {}
+        nacos_profiles = nacos_config.get("image_os_profiles", {})
+        if isinstance(nacos_profiles, dict):
+            profiles.update(nacos_profiles)
+
+    data = profiles.get(config.image_os)
+    if not isinstance(data, dict):
+        return
+
+    config.image_os_profile = {"name": config.image_os, **data}
+
+    profile_timeout = data.get("startup_timeout")
+    if profile_timeout and config.startup_timeout is None:
+        config.startup_timeout = float(profile_timeout)
 
 async def _apply_accelerator_type_validation(config: DockerDeploymentConfig) -> None:
     """Validate ``config.accelerator_type`` against the built-in enum union with
@@ -325,6 +382,8 @@ async def start(request: SandboxStartRequest) -> RockResponse[SandboxStartRespon
     await _apply_accelerator_type_validation(config)
     await _apply_kata_runtime_switch(config)
     await _apply_kata_disk_size(config)
+    await _apply_image_os_profile(config)
+    await _apply_timeout_defaults(config)
     await _apply_disk_limits(config)
     await _apply_image_registry_mirror(config)
     sandbox_start_response = await sandbox_manager.start(config)
@@ -341,6 +400,8 @@ async def start_async(
     await _apply_accelerator_type_validation(config)
     await _apply_kata_runtime_switch(config)
     await _apply_kata_disk_size(config)
+    await _apply_image_os_profile(config)
+    await _apply_timeout_defaults(config)
     await _apply_cpu_overcommit_default(config, headers.user_info.get("rock_authorization"))
     await _apply_disk_limits(config)
     await _apply_image_registry_mirror(config)
