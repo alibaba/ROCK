@@ -1,0 +1,79 @@
+# =============================================================================
+# FC Custom Container Deployment Configuration
+# =============================================================================
+#
+# 方案 A：使用自定义容器部署 rocklet（推荐）
+#
+# 部署步骤：
+#   1. 构建并推送镜像到 ACR
+#   2. 修改 image 配置为你的镜像地址
+#   3. 执行: s deploy
+#
+# =============================================================================
+
+edition: 3.0.0
+name: rock-serverless-runtime-rocklet
+access: default
+
+vars:
+  region: cn-hangzhou
+  functionName: rock-serverless-runtime-rocklet
+  # TODO: 替换为你的 ACR 镜像地址
+  containerImage: registry.cn-hangzhou.aliyuncs.com/your-namespace/rock-rocklet:latest
+
+resources:
+  rock-rocklet:
+    component: fc3
+    props:
+      region: ${vars.region}
+      functionName: ${vars.functionName}
+      description: "ROCK Rocklet Sandbox Runtime (Custom Container)"
+
+      # 使用自定义容器运行时
+      runtime: custom-container
+
+      # 容器配置
+      customContainerConfig:
+        # ACR 镜像地址
+        image: ${vars.containerImage}
+        # 容器监听端口
+        port: 9000
+        # 健康检查配置
+        healthCheckConfig:
+          httpGetUrl: /is_alive
+          initialDelaySeconds: 3
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        # 加速配置（可选，需要开通镜像加速服务）
+        # accelerationType: Default
+
+      # 资源配置
+      memorySize: 4096
+      cpu: 2
+      diskSize: 10240
+      timeout: 3600
+
+      # 单实例多并发
+      instanceConcurrency: 200
+
+      # 会话隔离配置
+      instanceIsolationMode: SESSION_EXCLUSIVE
+      sessionAffinity: HEADER_FIELD
+      sessionAffinityConfig:
+        affinityHeaderFieldName: x-rock-session-id
+        sessionConcurrencyPerInstance: 1
+        sessionIdleTimeoutInSeconds: 1800  # 30分钟
+        sessionTTLInSeconds: 86400  # 24小时
+
+      # 环境变量
+      environmentVariables:
+        PYTHONUNBUFFERED: "1"
+        # 可以添加其他环境变量
+        # ROCK_LOG_LEVEL: INFO
+
+      # 日志配置（可选）
+      # logConfig:
+      #   enableRequestMetrics: true
+      #   enableInstanceMetrics: true
+      #   logBeginRule: DefaultRegex

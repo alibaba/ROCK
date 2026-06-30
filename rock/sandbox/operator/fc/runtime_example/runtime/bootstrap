@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+PORT=${FC_SERVER_PORT:-9000}
+CODE_DIR="/code"
+DEPS_DIR="$CODE_DIR/deps"
+echo "[Bootstrap] Starting rocklet bootstrap..."
+echo "[Bootstrap] PORT=$PORT CODE_DIR=$CODE_DIR DEPS_DIR=$DEPS_DIR"
+cd "$CODE_DIR"
+export PYTHONPATH="$CODE_DIR:$DEPS_DIR:$PYTHONPATH"
+echo "[Bootstrap] Starting rocklet server on port $PORT..."
+exec python3 -m rock.rocklet --host 0.0.0.0 --port "$PORT"

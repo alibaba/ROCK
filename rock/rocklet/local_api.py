@@ -1,10 +1,12 @@
 import asyncio
+import base64
+import json
 import shutil
 import tempfile
 import zipfile
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 
 from rock.actions import (
     CloseResponse,
@@ -108,6 +110,68 @@ async def upload(
         else:
             shutil.move(file_path, target_path)
     return UploadResponse(success=True, file_name=target_path.name)
+
+
+@local_router.post("/")
+@local_router.post("/invoke")
+async def invoke_dispatch(request: Request):
+    """Dispatch InvokeFunction calls based on payload 'action' field.
+
+    FC SDK's InvokeFunction sends POST to / (root path) on the custom runtime.
+    This handler dispatches based on the 'action' field in the JSON payload.
+    Also accessible at /invoke for explicit invocation.
+    """
+    body = await request.body()
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON payload: {e}")
+
+    action = payload.get("action")
+    if not action:
+        raise HTTPException(status_code=400, detail="Missing 'action' field in payload")
+
+    # Strip 'action' key before constructing request models
+    fields = {k: v for k, v in payload.items() if k != "action"}
+
+    if action == "create_session":
+        req = CreateSessionRequest(**fields)
+        return serialize_model(await rocklet.create_session(req))
+    elif action == "run_in_session":
+        req = Action(**fields)
+        return serialize_model(await rocklet.run_in_session(req))
+    elif action == "close_session":
+        req = CloseSessionRequest(**fields)
+        return serialize_model(await rocklet.close_session(req))
+    elif action == "execute":
+        req = Command(**fields)
+        return serialize_model(await rocklet.execute(command=req))
+    elif action == "read_file":
+        req = ReadFileRequest(**fields)
+        return serialize_model(await rocklet.read_file(req))
+    elif action == "write_file":
+        req = WriteFileRequest(**fields)
+        return serialize_model(await rocklet.write_file(req))
+    elif action == "is_alive":
+        return serialize_model(await rocklet.is_alive())
+    elif action == "upload":
+        upload_path = fields.get("path")
+        upload_content = fields.get("content", "")
+        upload_encoding = fields.get("encoding", "base64")
+        if not upload_path:
+            raise HTTPException(status_code=400, detail="Missing 'path' field for upload")
+        try:
+            target = Path(upload_path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if upload_encoding == "base64":
+                target.write_bytes(base64.b64decode(upload_content))
+            else:
+                target.write_text(upload_content)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
+        return serialize_model(UploadResponse(success=True, file_name=upload_path))
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
 
 
 @local_router.post("/close")

@@ -27,3 +27,10 @@ docs/superpowers/
 *.intern.yaml
 *.intern.md
 .worktrees/
+.venv-fc3-test/
+.qoder/
+CLAUDE.md.bak
+# FC runtime example temp files
+rock/sandbox/operator/fc/runtime_example/runtime/deps/
+rock/sandbox/operator/fc/runtime_example/runtime/deps_unpacked/
+rock/sandbox/operator/fc/runtime_example/runtime/.build_tmp/

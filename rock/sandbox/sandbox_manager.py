@@ -33,6 +33,7 @@ from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
 from rock.sandbox.base_manager import BaseManager
 from rock.sandbox.operator.abstract import AbstractOperator
+from rock.sandbox.operator.fc import FCOperatorConfig
 from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.sandbox_statemachine import SandboxStateMachine
@@ -88,10 +89,13 @@ class SandboxManager(BaseManager):
             raise InternalServerRockError(f"update aes key failed, {str(e)}")
 
     async def _check_sandbox_exists_in_redis(self, config: DeploymentConfig):
+        sandbox_id = None
         if isinstance(config, DockerDeploymentConfig) and config.container_name:
             sandbox_id = config.container_name
-            if await self._meta_store.exists(sandbox_id):
-                raise BadRequestRockError(f"Sandbox {sandbox_id} already exists")
+        elif isinstance(config, FCOperatorConfig) and config.session_id:
+            sandbox_id = config.session_id
+        if sandbox_id and await self._meta_store.exists(sandbox_id):
+            raise BadRequestRockError(f"Sandbox {sandbox_id} already exists")
 
     def _setup_sandbox_actor_metadata(self, sandbox_actor: SandboxActor, user_info: UserInfo) -> None:
         user_id = user_info.get("user_id", "default")
@@ -121,29 +125,44 @@ class SandboxManager(BaseManager):
         self, config: DeploymentConfig, user_info: UserInfo = {}, cluster_info: ClusterInfo = {}
     ) -> SandboxStartResponse:
         await self._check_sandbox_exists_in_redis(config)
-        self.validate_sandbox_spec(self.rock_config.runtime, config)
+        # Skip spec validation for FC (uses FCOperatorConfig)
+        if not isinstance(config, FCOperatorConfig):
+            self.validate_sandbox_spec(self.rock_config.runtime, config)
         with StageTimer("startup_timing", f"[{config.image}] Init config", logger):
-            docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(config)
+            deployment_config = await self.deployment_manager.init_config(config)
 
-        sandbox_id = docker_deployment_config.container_name
-        if self.rock_config.runtime.use_standard_spec_only:
-            logger.info(
-                f"[{sandbox_id}] Using standard spec only: "
-                f"cpus={self.rock_config.runtime.standard_spec.cpus}, "
-                f"memory={self.rock_config.runtime.standard_spec.memory}"
-            )
-            docker_deployment_config.cpus = self.rock_config.runtime.standard_spec.cpus
-            docker_deployment_config.memory = self.rock_config.runtime.standard_spec.memory
+        # Get sandbox_id based on config type
+        if isinstance(deployment_config, FCOperatorConfig):
+            sandbox_id = deployment_config.session_id
+        else:
+            sandbox_id = deployment_config.container_name
+
+        # Apply standard_spec only for Docker/Ray deployments
+        if isinstance(deployment_config, DockerDeploymentConfig):
+            if self.rock_config.runtime.use_standard_spec_only:
+                logger.info(
+                    f"[{sandbox_id}] Using standard spec only: "
+                    f"cpus={self.rock_config.runtime.standard_spec.cpus}, "
+                    f"memory={self.rock_config.runtime.standard_spec.memory}"
+                )
+                deployment_config.cpus = self.rock_config.runtime.standard_spec.cpus
+                deployment_config.memory = self.rock_config.runtime.standard_spec.memory
         with StageTimer("startup_timing", f"[{sandbox_id}] Operator submit", logger):
-            sandbox_info: SandboxInfo = await self._operator.submit(docker_deployment_config, user_info)
+            sandbox_info: SandboxInfo = await self._operator.submit(deployment_config, user_info)
         await self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)
-        timeout_info = SandboxTimeoutHelper.make_timeout_info(docker_deployment_config.auto_clear_time)
+
+        # Create timeout info based on config type
+        if isinstance(deployment_config, FCOperatorConfig):
+            effective_ttl = deployment_config.session_ttl or self.rock_config.fc.default_session_ttl
+            timeout_info = SandboxTimeoutHelper.make_timeout_info(effective_ttl // 60)
+        else:
+            timeout_info = SandboxTimeoutHelper.make_timeout_info(deployment_config.auto_clear_time)
         with StageTimer("startup_timing", f"[{sandbox_id}] Meta store create", logger):
             await self._meta_store.create(
                 sandbox_id,
                 sandbox_info,
                 timeout_info=timeout_info,
-                deployment_config=docker_deployment_config,
+                deployment_config=deployment_config,
             )
         return SandboxStartResponse(
             sandbox_id=sandbox_id,
@@ -436,6 +455,4 @@ class SandboxManager(BaseManager):
                 parse_size_to_bytes(deployment_config.disk_limit_rootfs)
             except ValueError as e:
                 logger.warning(f"Invalid disk_limit_rootfs size: {deployment_config.disk_limit_rootfs}", exc_info=e)
-                raise BadRequestRockError(
-                    f"Invalid disk_limit_rootfs size: {deployment_config.disk_limit_rootfs}"
-                )
+                raise BadRequestRockError(f"Invalid disk_limit_rootfs size: {deployment_config.disk_limit_rootfs}")

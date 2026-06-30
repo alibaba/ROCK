@@ -43,6 +43,7 @@ admin = [
     "websockets>=15.0.1",
     "aiohttp>=3.12.15",
     "alibabacloud_cr20181201==2.0.5",
+    "alibabacloud_fc20230330>=4.7.1",  # FC SDK for dynamic function creation
     "sqlmodel",
     "aiosqlite",
     "asyncpg",
@@ -177,4 +178,6 @@ markers = [
     "need_docker: need docker daemon running",
     "need_admin: need admin start",
     "need_admin_and_network: need install from network",
+    "need_database: need database Docker containers (PostgreSQL, Redis)",
+    "need_fc: need FC (Function Compute) environment"
 ]
