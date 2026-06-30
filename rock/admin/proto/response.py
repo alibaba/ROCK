@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from rock.actions import SandboxResponse
 from rock.actions.sandbox.response import State
@@ -13,7 +13,7 @@ class SandboxStartResponse(SandboxResponse):
     cpus: float | None = None
     memory: str | None = None
     disk: str | None = None
-    disk_limit_rootfs: str | None = None  # deprecated: use disk instead
+    disk_limit_rootfs: str | None = Field(default=None, deprecated="Use 'disk' instead")
 
 
 # TODO: inherit from SandboxStartResponse
@@ -34,7 +34,7 @@ class SandboxStatusResponse(BaseModel):
     cpus: float | None = None
     memory: str | None = None
     disk: str | None = None
-    disk_limit_rootfs: str | None = None  # deprecated: use disk instead
+    disk_limit_rootfs: str | None = Field(default=None, deprecated="Use 'disk' instead")
     start_time: str | None = None
     stop_time: str | None = None
     create_time: str | None = None
