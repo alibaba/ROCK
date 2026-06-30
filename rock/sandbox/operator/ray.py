@@ -6,7 +6,7 @@ from rock import env_vars
 from rock.actions.sandbox.response import IsAliveResponse, State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.core.ray_service import RayService
-from rock.common.constants import GET_STATUS_SWITCH, StopReason
+from rock.common.constants import StopReason
 from rock.config import RuntimeConfig
 from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Port
@@ -89,40 +89,17 @@ class RayOperator(AbstractOperator):
             return sandbox_info
 
     async def get_status(self, sandbox_id: str) -> SandboxInfo | None:
-        if self.use_rocklet():
-            sandbox_info: SandboxInfo = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
-            if sandbox_info is None:
-                return None
-            host_ip = sandbox_info.get("host_ip")
-            remote_status = await self.get_remote_status(sandbox_id, host_ip)
-            is_alive = await self._check_alive_status(sandbox_id, host_ip, remote_status)
-            # TODO: sink update state according to is_alive logic into SandboxInfo
-            if is_alive:
-                sandbox_info["state"] = State.RUNNING
-            sandbox_info.update(remote_status.to_dict())
-            return sandbox_info
-        async with self._ray_service.get_ray_rwlock().read_lock():
-            try:
-                actor: SandboxActor = await self._ray_service.async_ray_get_actor(self._get_actor_name(sandbox_id))
-            except (ValueError, Exception):
-                logger.debug(f"Actor for sandbox {sandbox_id} not found, returning None")
-                return None
-            sandbox_info: SandboxInfo = await self._ray_service.async_ray_get(actor.sandbox_info.remote())
-            remote_status: ServiceStatus = await self._ray_service.async_ray_get(actor.get_status.remote())
-            sandbox_info["phases"] = {name: phase.to_dict() for name, phase in remote_status.phases.items()}
-            sandbox_info["port_mapping"] = remote_status.get_port_mapping()
-            alive = await self._ray_service.async_ray_get(actor.is_alive.remote())
-            # TODO: sink update state according to is_alive logic into SandboxInfo
-            if alive.is_alive:
-                sandbox_info["state"] = State.RUNNING
-            if not self._redis_provider:
-                return sandbox_info
-            redis_info = await self.get_sandbox_info_from_redis(sandbox_id)
-            if redis_info:
-                redis_info.update(sandbox_info)
-                return redis_info
-            else:
-                return sandbox_info
+        sandbox_info: SandboxInfo = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
+        if sandbox_info is None:
+            return None
+        host_ip = sandbox_info.get("host_ip")
+        remote_status = await self.get_remote_status(sandbox_id, host_ip)
+        is_alive = await self._check_alive_status(sandbox_id, host_ip, remote_status)
+        # TODO: sink update state according to is_alive logic into SandboxInfo
+        if is_alive:
+            sandbox_info["state"] = State.RUNNING
+        sandbox_info.update(remote_status.to_dict())
+        return sandbox_info
 
     async def stop(self, sandbox_id: str, reason: StopReason = StopReason.MANUAL) -> bool:
         async with self._ray_service.get_ray_rwlock().read_lock():
@@ -226,10 +203,3 @@ class RayOperator(AbstractOperator):
             return ServiceStatus.from_content(response.get("content"))
         logger.warning(f"{service_status_path} exists, but content is empty")
         return ServiceStatus()
-
-    def use_rocklet(self) -> bool:
-        if not self._nacos_provider:
-            return False
-        if self._nacos_provider.get_switch_status(GET_STATUS_SWITCH):
-            return True
-        return False

@@ -1,5 +1,4 @@
 # rock/admin/scheduler/tasks/file_cleanup_task.py
-import os
 from dataclasses import dataclass, field
 
 from rock.admin.proto.request import SandboxCommand as Command

@@ -336,13 +336,6 @@ class SandboxManager(BaseManager):
             sandbox_info = deployment_info
         return sandbox_info
 
-    async def get_status_v2(self, sandbox_id, include_all_states: bool = False) -> SandboxStatusResponse:
-        """
-        Deprecated: Use get_status(sandbox_id, use_rocklet=True) instead.
-        This method is kept for backward compatibility.
-        """
-        return await self.get_status(sandbox_id, include_all_states=include_all_states)
-
     async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
         return await self._proxy_service.create_session(request)
 

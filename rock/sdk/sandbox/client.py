@@ -4,7 +4,6 @@ import math
 import mimetypes
 import os
 import time
-import uuid
 import warnings
 from enum import Enum
 from pathlib import Path
@@ -67,7 +66,6 @@ class RunMode(str, Enum):
 class Sandbox(AbstractSandbox):
     config: SandboxConfig
     _url: str
-    _route_key: str
     _sandbox_id: str | None = None
     _host_name: str | None = None
     _host_ip: str | None = None
@@ -89,10 +87,6 @@ class Sandbox(AbstractSandbox):
         self.config = config
         endpoint = self.config.base_url
         self._url = f"{endpoint}/apis/envs/sandbox/v1"
-        if not self.config.route_key:
-            self._route_key = uuid.uuid4().hex
-        else:
-            self._route_key = self.config.route_key
 
         self._cluster = self.config.cluster
         self.remote_user = LinuxRemoteUser(self)
@@ -131,7 +125,6 @@ class Sandbox(AbstractSandbox):
     def _build_headers(self) -> dict[str, str]:
         """Build basic request headers."""
         headers = {
-            "ROUTE-KEY": self._route_key,
             "X-Cluster": self._cluster,
         }
 
@@ -968,7 +961,6 @@ class Sandbox(AbstractSandbox):
             f"Sandbox("
             f"config={self.config!r}, "
             f"_url={self._url!r}, "
-            f"_route_key={self._route_key!r}, "
             f"_sandbox_id={self._sandbox_id!r}, "
             f"_host_name={self._host_name!r}, "
             f"_host_ip={self._host_ip!r}, "

@@ -1,6 +1,5 @@
 from enum import Enum
 
-GET_STATUS_SWITCH = "get_status_v2_enabled"
 KATA_RUNTIME_SWITCH = "use_kata_enabled"
 SUPPORT_KATA_SWITCH = "support_kata_enabled"
 CPU_OVERCOMMIT_HEADROOM_KEY = "cpu_overcommit_headroom"
