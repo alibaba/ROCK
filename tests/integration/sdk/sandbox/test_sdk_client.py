@@ -45,6 +45,21 @@ async def test_arun_nohup(sandbox_instance: Sandbox):
 @pytest.mark.need_admin
 @SKIP_IF_NO_DOCKER
 @pytest.mark.asyncio
+async def test_arun_nohup_nonexistent_command_exit_code(sandbox_instance: Sandbox):
+    """Test that nohup mode captures the real exit code of a non-existent command (127)."""
+    result = await sandbox_instance.arun(
+        cmd="nonexistent_command_xyz_12345abc",
+        session="default",
+        mode="nohup",
+        capture_exit_code=True,
+    )
+    assert result.exit_code == 127
+    assert result.output  # bash writes "command not found" error to the output file
+
+
+@pytest.mark.need_admin
+@SKIP_IF_NO_DOCKER
+@pytest.mark.asyncio
 async def test_arun_timeout(sandbox_instance: Sandbox):
     cmd = r"sed -i '292i\
              {!r}' my_file.txt"
