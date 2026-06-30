@@ -1,4 +1,4 @@
-import json
+import subprocess
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -196,51 +196,31 @@ class TestPush:
 
 
 class TestTag:
-    async def test_tags_image(self, facade):
-        with patch("rock.sdk.envhub.docker.asyncio.create_subprocess_exec") as mock_exec:
-            proc = AsyncMock()
-            proc.returncode = 0
-            proc.communicate.return_value = (b"", b"")
-            mock_exec.return_value = proc
-
-            result = await facade.tag("myapp:v1", "reg.example.com/ns/myapp:v1")
-
-        assert result.returncode == 0
-        assert mock_exec.call_args[0] == ("docker", "tag", "myapp:v1", "reg.example.com/ns/myapp:v1")
+    async def test_delegates_to_docker_util(self, facade):
+        with patch("rock.sdk.envhub.docker.DockerUtil.tag_image") as mock_tag:
+            await facade.tag("myapp:v1", "reg.example.com/ns/myapp:v1")
+        mock_tag.assert_called_once_with("myapp:v1", "reg.example.com/ns/myapp:v1")
 
     async def test_tag_failure_raises(self, facade):
-        with patch("rock.sdk.envhub.docker.asyncio.create_subprocess_exec") as mock_exec:
-            proc = AsyncMock()
-            proc.returncode = 1
-            proc.communicate.return_value = (b"", b"No such image\n")
-            mock_exec.return_value = proc
-
-            with pytest.raises(RuntimeError, match="docker tag failed"):
+        with patch(
+            "rock.sdk.envhub.docker.DockerUtil.tag_image",
+            side_effect=subprocess.CalledProcessError(1, "docker tag"),
+        ):
+            with pytest.raises(subprocess.CalledProcessError):
                 await facade.tag("nosuch:v1", "reg.example.com/ns/nosuch:v1")
 
 
 class TestInspect:
     async def test_returns_parsed_json(self, facade):
-        inspect_data = [{"Id": "sha256:abc", "RepoTags": ["myapp:v1"]}]
-        with patch("rock.sdk.envhub.docker.asyncio.create_subprocess_exec") as mock_exec:
-            proc = AsyncMock()
-            proc.returncode = 0
-            proc.communicate.return_value = (json.dumps(inspect_data).encode(), b"")
-            mock_exec.return_value = proc
-
+        inspect_data = {"Id": "sha256:abc", "RepoTags": ["myapp:v1"]}
+        with patch("rock.sdk.envhub.docker.DockerUtil.inspect_image", return_value=inspect_data) as mock_inspect:
             result = await facade.inspect("myapp:v1")
-
         assert result["Id"] == "sha256:abc"
+        mock_inspect.assert_called_once_with("myapp:v1")
 
     async def test_returns_none_when_not_found(self, facade):
-        with patch("rock.sdk.envhub.docker.asyncio.create_subprocess_exec") as mock_exec:
-            proc = AsyncMock()
-            proc.returncode = 1
-            proc.communicate.return_value = (b"", b"No such object\n")
-            mock_exec.return_value = proc
-
+        with patch("rock.sdk.envhub.docker.DockerUtil.inspect_image", return_value=None):
             result = await facade.inspect("nosuch:v1")
-
         assert result is None
 
 
@@ -258,25 +238,18 @@ class TestIsImageAvailable:
 
 
 class TestRemoveImage:
-    async def test_removes_image(self, facade):
-        with patch("rock.sdk.envhub.docker.asyncio.create_subprocess_exec") as mock_exec:
-            proc = AsyncMock()
-            proc.returncode = 0
-            proc.communicate.return_value = (b"Untagged: myapp:v1\n", b"")
-            mock_exec.return_value = proc
-
+    async def test_delegates_to_docker_util(self, facade):
+        with patch("rock.sdk.envhub.docker.DockerUtil.remove_image", return_value=b"Untagged: myapp:v1\n") as mock_rm:
             result = await facade.remove_image("myapp:v1")
-
-        assert result.returncode == 0
+        assert result == b"Untagged: myapp:v1\n"
+        mock_rm.assert_called_once_with("myapp:v1")
 
     async def test_remove_failure_raises(self, facade):
-        with patch("rock.sdk.envhub.docker.asyncio.create_subprocess_exec") as mock_exec:
-            proc = AsyncMock()
-            proc.returncode = 1
-            proc.communicate.return_value = (b"", b"conflict: unable to remove\n")
-            mock_exec.return_value = proc
-
-            with pytest.raises(RuntimeError, match="docker rmi failed"):
+        with patch(
+            "rock.sdk.envhub.docker.DockerUtil.remove_image",
+            side_effect=subprocess.CalledProcessError(1, "docker rmi"),
+        ):
+            with pytest.raises(subprocess.CalledProcessError):
                 await facade.remove_image("myapp:v1")
 
 
@@ -297,9 +270,6 @@ class TestMirror:
 
         async def _tag(self, src, dst):
             calls.append(f"tag:{src}->{dst}")
-            from subprocess import CompletedProcess
-
-            return CompletedProcess(args=[], returncode=0, stdout="", stderr="")
 
         async def _push(self, t):
             calls.append(f"push:{t}")
@@ -342,9 +312,7 @@ class TestMirror:
             return CompletedProcess(args=[], returncode=0, stdout="", stderr="")
 
         async def _noop_tag(self, src, dst):
-            from subprocess import CompletedProcess
-
-            return CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+            pass
 
         async def _noop_push(self, t):
             from subprocess import CompletedProcess

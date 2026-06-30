@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import subprocess
 from pathlib import Path
 
@@ -164,23 +163,9 @@ class DockerFacade:
         """Push an image to its registry."""
         return await asyncio.to_thread(self._docker_cmd.push_image, tag)
 
-    async def tag(self, source: str, target: str) -> subprocess.CompletedProcess:
+    async def tag(self, source: str, target: str) -> None:
         """Tag a local image with a new name."""
-        proc = await asyncio.create_subprocess_exec(
-            self._docker_executable, "tag", source, target,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        result = subprocess.CompletedProcess(
-            args=[self._docker_executable, "tag", source, target],
-            returncode=proc.returncode,
-            stdout=stdout.decode(errors="replace") if stdout else "",
-            stderr=stderr.decode(errors="replace") if stderr else "",
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"docker tag failed (exit {result.returncode}): {result.stderr}")
-        return result
+        await asyncio.to_thread(DockerUtil.tag_image, source, target)
 
     # ------------------------------------------------------------------
     # Inspect & query
@@ -188,16 +173,7 @@ class DockerFacade:
 
     async def inspect(self, image: str) -> dict | None:
         """Return parsed ``docker inspect`` output, or *None* if the image is not found locally."""
-        proc = await asyncio.create_subprocess_exec(
-            self._docker_executable, "inspect", image,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await proc.communicate()
-        if proc.returncode != 0:
-            return None
-        data = json.loads(stdout.decode(errors="replace"))
-        return data[0] if isinstance(data, list) and data else data
+        return await asyncio.to_thread(DockerUtil.inspect_image, image)
 
     async def is_image_available(self, image: str) -> bool:
         """Check whether an image exists in the local Docker cache."""
@@ -207,23 +183,9 @@ class DockerFacade:
     # Remove
     # ------------------------------------------------------------------
 
-    async def remove_image(self, image: str) -> subprocess.CompletedProcess:
+    async def remove_image(self, image: str) -> bytes:
         """Remove a local Docker image."""
-        proc = await asyncio.create_subprocess_exec(
-            self._docker_executable, "rmi", image,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        result = subprocess.CompletedProcess(
-            args=[self._docker_executable, "rmi", image],
-            returncode=proc.returncode,
-            stdout=stdout.decode(errors="replace") if stdout else "",
-            stderr=stderr.decode(errors="replace") if stderr else "",
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"docker rmi failed (exit {result.returncode}): {result.stderr}")
-        return result
+        return await asyncio.to_thread(DockerUtil.remove_image, image)
 
     # ------------------------------------------------------------------
     # Mirror (composite operation)
