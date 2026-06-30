@@ -384,3 +384,37 @@ class TestCustomResolver:
         f = DockerFacade(docker_executable="/usr/local/bin/docker")
         assert f._docker_executable == "/usr/local/bin/docker"
         assert f._docker_cmd.docker_executable == "/usr/local/bin/docker"
+
+
+class TestRegistriesParameter:
+    async def test_registries_param_forwarded_to_resolver(self):
+        f = DockerFacade(registries=["reg.example.com/ns"])
+        assert f._resolver._registries == ["reg.example.com/ns"]
+
+    async def test_registries_param_used_for_resolve(self, monkeypatch):
+        monkeypatch.delenv(ROCK_REGISTRY_ENV, raising=False)
+        f = DockerFacade(registries=["reg.example.com/ns"])
+        with patch.object(
+            RockRegistryResolver,
+            "_http_probe_manifest",
+            new=AsyncMock(return_value=True),
+        ):
+            result = await f.resolve_image("ghcr.io/org/app:v1")
+        assert result == "reg.example.com/org/app:v1"
+
+    async def test_resolver_param_overrides_registries(self):
+        custom = RockRegistryResolver(registries=["custom.example.com/ns"])
+        f = DockerFacade(resolver=custom, registries=["ignored.example.com/ns"])
+        assert f._resolver is custom
+        assert f._resolver._registries == ["custom.example.com/ns"]
+
+    async def test_no_registries_falls_back_to_env(self, monkeypatch):
+        monkeypatch.setenv(ROCK_REGISTRY_ENV, "env-reg.example.com/ns")
+        f = DockerFacade()
+        with patch.object(
+            RockRegistryResolver,
+            "_http_probe_manifest",
+            new=AsyncMock(return_value=True),
+        ):
+            result = await f.resolve_image("ghcr.io/org/app:v1")
+        assert result.startswith("env-reg.example.com/")

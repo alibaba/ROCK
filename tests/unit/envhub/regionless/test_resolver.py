@@ -357,3 +357,49 @@ class TestResolveDockerfile:
         ):
             changed = await resolver.resolve_dockerfile(df)
         assert not changed
+
+
+class TestRegistriesParameter:
+    async def test_param_takes_precedence_over_env(self, monkeypatch):
+        monkeypatch.setenv(ROCK_REGISTRY_ENV, "env-reg.example.com/ns")
+        r = RockRegistryResolver(registries=["param-reg.example.com/ns"])
+        with patch.object(
+            RockRegistryResolver,
+            "_http_probe_manifest",
+            new=AsyncMock(return_value=True),
+        ):
+            result = await r.resolve_image("swebench/foo:latest")
+        assert result.startswith("param-reg.example.com/")
+        r.reset_cache()
+
+    async def test_empty_list_returns_original(self, monkeypatch):
+        monkeypatch.setenv(ROCK_REGISTRY_ENV, "reg.example.com/ns")
+        r = RockRegistryResolver(registries=[])
+        result = await r.resolve_image("swebench/foo:latest")
+        assert result == "swebench/foo:latest"
+        r.reset_cache()
+
+    async def test_none_falls_back_to_env(self, monkeypatch):
+        monkeypatch.setenv(ROCK_REGISTRY_ENV, "reg.example.com/ns")
+        r = RockRegistryResolver(registries=None)
+        with patch.object(
+            RockRegistryResolver,
+            "_http_probe_manifest",
+            new=AsyncMock(return_value=True),
+        ):
+            result = await r.resolve_image("swebench/foo:latest")
+        assert result.startswith("reg.example.com/")
+        r.reset_cache()
+
+    async def test_multi_registries_param(self):
+        r = RockRegistryResolver(registries=["reg-a.example.com/ns", "reg-b.example.com/ns"])
+        calls: list[str] = []
+
+        async def _probe(self, candidate, *, timeout_sec):
+            calls.append(candidate)
+            return "reg-b" in candidate
+
+        with patch.object(RockRegistryResolver, "_http_probe_manifest", new=_probe):
+            result = await r.resolve_image("swebench/foo:latest")
+        assert result.startswith("reg-b.example.com/")
+        r.reset_cache()

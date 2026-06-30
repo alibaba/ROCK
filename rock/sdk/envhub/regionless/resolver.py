@@ -43,9 +43,16 @@ _FROM_RE = re.compile(
 
 
 class RockRegistryResolver:
-    """Resolves container image references to ROCK mirror registries."""
+    """Resolves container image references to ROCK mirror registries.
 
-    def __init__(self) -> None:
+    Args:
+        registries: Explicit list of mirror registries (``host/namespace``).
+            When *None* (default), falls back to reading the
+            ``INSTANCE_ROCK_REGISTRY`` environment variable at resolve time.
+    """
+
+    def __init__(self, registries: list[str] | None = None) -> None:
+        self._registries = registries
         self._resolve_cache: dict[str, str] = {}
         self._cache_lock = asyncio.Lock()
 
@@ -191,7 +198,10 @@ class RockRegistryResolver:
         if "@" in image:
             return image
 
-        registries = self.parse_registries(os.environ.get(ROCK_REGISTRY_ENV, ""))
+        if self._registries is not None:
+            registries = self._registries
+        else:
+            registries = self.parse_registries(os.environ.get(ROCK_REGISTRY_ENV, ""))
         if not registries:
             return image
 

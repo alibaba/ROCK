@@ -28,8 +28,19 @@ class DockerFacade:
         self,
         resolver: RockRegistryResolver | None = None,
         docker_executable: str = "docker",
+        registries: list[str] | None = None,
     ) -> None:
-        self._resolver = resolver or RockRegistryResolver()
+        """
+        Args:
+            resolver: Custom resolver instance. When provided, *registries* is
+                ignored (the resolver's own configuration takes precedence).
+            docker_executable: Path to the docker CLI binary.
+            registries: Explicit list of mirror registries (``host/namespace``).
+                Passed to :class:`RockRegistryResolver` when no custom
+                *resolver* is given.  *None* (default) falls back to the
+                ``INSTANCE_ROCK_REGISTRY`` environment variable.
+        """
+        self._resolver = resolver or RockRegistryResolver(registries=registries)
         self._docker_cmd = DockerCommand(docker_executable=docker_executable)
         self._docker_executable = docker_executable
 
