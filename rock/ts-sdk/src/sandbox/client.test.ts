@@ -1247,3 +1247,170 @@ describe('uploadByPath() with uploadMode', () => {
     expect(result).toBeDefined();
   });
 });
+
+/**
+ * restart() tests
+ *
+ * These tests verify the restart lifecycle method:
+ * - Precondition: sandboxId must be set
+ * - Error code handling (same pattern as start/execute)
+ * - Polling until alive or timeout
+ * - Error status detection during polling
+ */
+describe('restart()', () => {
+  let sandbox: Sandbox;
+  let mockPost: jest.Mock;
+  let mockGet: jest.Mock;
+
+  // Helper: start a sandbox so sandboxId is set
+  async function startSandbox() {
+    mockPost.mockResolvedValueOnce({
+      data: {
+        status: 'Success',
+        result: {
+          sandbox_id: 'test-id',
+          host_name: 'test-host',
+          host_ip: '127.0.0.1',
+        },
+      },
+      headers: {},
+    });
+    mockGet.mockResolvedValueOnce({
+      data: {
+        status: 'Success',
+        result: { is_alive: true },
+      },
+      headers: {},
+    });
+    await sandbox.start();
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPost = jest.fn();
+    mockGet = jest.fn();
+    mockedAxios.create = jest.fn().mockReturnValue({
+      post: mockPost,
+      get: mockGet,
+    });
+
+    sandbox = new Sandbox({
+      image: 'test:latest',
+      startupTimeout: 2,
+    });
+  });
+
+  test('should throw when sandboxId is not set', async () => {
+    await expect(sandbox.restart()).rejects.toThrow('sandbox_id is not set, cannot restart');
+  });
+
+  test('should throw BadRequestRockError when API returns 4xxx code', async () => {
+    await startSandbox();
+
+    mockPost.mockResolvedValueOnce({
+      data: {
+        status: 'Failed',
+        result: { code: Codes.BAD_REQUEST },
+      },
+      headers: {},
+    });
+
+    await expect(sandbox.restart()).rejects.toThrow(BadRequestRockError);
+  });
+
+  test('should throw InternalServerRockError when API returns 5xxx code', async () => {
+    await startSandbox();
+
+    mockPost.mockResolvedValueOnce({
+      data: {
+        status: 'Failed',
+        result: { code: Codes.INTERNAL_SERVER_ERROR },
+      },
+      headers: {},
+    });
+
+    await expect(sandbox.restart()).rejects.toThrow(InternalServerRockError);
+  });
+
+  test('should throw generic Error on non-Success response without error code', async () => {
+    await startSandbox();
+
+    mockPost.mockResolvedValueOnce({
+      data: {
+        status: 'Failed',
+        result: {},
+      },
+      headers: {},
+    });
+
+    await expect(sandbox.restart()).rejects.toThrow('Failed to restart sandbox');
+  });
+
+  test('should throw InternalServerRockError on startup timeout', async () => {
+    await startSandbox();
+
+    // Restart API succeeds
+    mockPost.mockResolvedValueOnce({
+      data: { status: 'Success', result: {} },
+      headers: {},
+    });
+
+    // getStatus always returns not alive
+    mockGet.mockResolvedValue({
+      data: {
+        status: 'Success',
+        result: { is_alive: false },
+      },
+      headers: {},
+    });
+
+    await expect(sandbox.restart()).rejects.toThrow(InternalServerRockError);
+  }, 10000);
+
+  test('should succeed when sandbox becomes alive after restart', async () => {
+    await startSandbox();
+
+    // Restart API succeeds
+    mockPost.mockResolvedValueOnce({
+      data: { status: 'Success', result: {} },
+      headers: {},
+    });
+
+    // getStatus returns alive on first check
+    mockGet.mockResolvedValueOnce({
+      data: {
+        status: 'Success',
+        result: { is_alive: true },
+      },
+      headers: {},
+    });
+
+    await expect(sandbox.restart()).resolves.toBeUndefined();
+  }, 10000);
+
+  test('should throw InternalServerRockError when status has a failed stage', async () => {
+    await startSandbox();
+
+    // Restart API succeeds
+    mockPost.mockResolvedValueOnce({
+      data: { status: 'Success', result: {} },
+      headers: {},
+    });
+
+    // getStatus returns a status with a failed stage
+    mockGet.mockResolvedValue({
+      data: {
+        status: 'Success',
+        result: {
+          is_alive: false,
+          status: {
+            docker_start: { status: 'failed', message: 'container not found' },
+          },
+        },
+      },
+      headers: {},
+    });
+
+    await expect(sandbox.restart()).rejects.toThrow(InternalServerRockError);
+  }, 10000);
+});
