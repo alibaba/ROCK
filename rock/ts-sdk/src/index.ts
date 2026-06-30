@@ -26,6 +26,7 @@ export {
   InternalServerRockError,
   CommandRockError,
   raiseForCode,
+  raiseForEnvelopeOrResult,
   fromRockException,
 } from './common/index.js';
 export { RunMode, RunModeType, PID_PREFIX, PID_SUFFIX } from './common/constants.js';

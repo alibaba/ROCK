@@ -85,6 +85,32 @@ export function raiseForCode(code: Codes | null | undefined, message: string): v
 }
 
 /**
+ * Raise from envelope ``code`` (new contract). Falls back to legacy
+ * ``result.code`` (old admin servers) with a deprecation warning, then
+ * throws a generic Error when neither is present.
+ */
+export function raiseForEnvelopeOrResult(
+  response: { status?: string; code?: number; error?: string; result?: unknown },
+  message: string
+): never {
+  raiseForCode(response.code, `${message}: ${JSON.stringify(response)}`);
+
+  const result = response.result;
+  if (result !== null && result !== undefined && typeof result === 'object') {
+    const legacyCode = (result as Record<string, unknown>).code as number | undefined;
+    if (legacyCode !== undefined && legacyCode !== null) {
+      console.warn(
+        'Reading the error code from `result` is deprecated; upgrade the rock admin so the envelope `code` field is populated.'
+      );
+      raiseForCode(legacyCode, `${message}: ${JSON.stringify(response)}`);
+    }
+  }
+
+  const errorDetail = response.error ? `, error=${response.error}` : '';
+  throw new Error(`${message}: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
+}
+
+/**
  * Convert RockException to SandboxResponse
  */
 export function fromRockException(e: RockException): SandboxResponse {
