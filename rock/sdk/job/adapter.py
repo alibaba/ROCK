@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import abc
 from importlib.metadata import entry_points
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rock.logger import init_logger
+
+if TYPE_CHECKING:
+    from rock.sdk.job.config import JobConfig
 
 logger = init_logger(__name__)
 
@@ -32,14 +35,15 @@ class TrackingAdapter(abc.ABC):
     """
 
     @abc.abstractmethod
-    def init(self, *, namespace: str, experiment_id: str, job_id: str, config: dict[str, Any]) -> None:
+    def init(self, *, namespace: str, experiment_id: str, job_id: str, config: JobConfig) -> None:
         """Initialize a tracking session.
 
         Args:
             namespace:     Tracking namespace (e.g. OTel service name).
             experiment_id: Experiment identifier.
             job_id:        Job / run identifier. Typically ``config.job_name``.
-            config:        Flat dict of job-level metadata (labels, hyperparams, etc.).
+            config:        Full JobConfig instance. Adapter extracts what it needs
+                          (e.g. model_name from agents, labels, environment.env).
         """
 
     @abc.abstractmethod

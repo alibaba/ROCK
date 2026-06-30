@@ -1,8 +1,9 @@
-"""Tests for rock.sdk.job.adapter — TrackingAdapter protocol + discovery."""
+"""Tests for rock.sdk.job.adapter — TrackingAdapter base class + discovery."""
 
 from __future__ import annotations
 
 from rock.sdk.job.adapter import TrackingAdapter, resolve_tracking_adapter
+from rock.sdk.job.config import JobConfig
 
 
 class _ConcreteAdapter(TrackingAdapter):
@@ -10,11 +11,13 @@ class _ConcreteAdapter(TrackingAdapter):
 
     def __init__(self):
         self.init_called = False
+        self.received_config = None
         self.report_calls = []
         self.close_called = False
 
     def init(self, *, namespace, experiment_id, job_id, config):
         self.init_called = True
+        self.received_config = config
 
     def report(self, metrics):
         self.report_calls.append(metrics)
@@ -70,8 +73,10 @@ class TestResolveTrackingAdapter:
 
     def test_adapter_lifecycle(self):
         adapter = _ConcreteAdapter()
-        adapter.init(namespace="ns", experiment_id="exp", job_id="j1", config={"k": "v"})
+        config = JobConfig(namespace="ns", experiment_id="exp", job_name="j1")
+        adapter.init(namespace="ns", experiment_id="exp", job_id="j1", config=config)
         assert adapter.init_called
+        assert adapter.received_config is config
 
         adapter.report({"score": 0.9, "status": "completed"})
         assert len(adapter.report_calls) == 1
