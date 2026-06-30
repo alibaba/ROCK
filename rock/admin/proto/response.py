@@ -13,6 +13,7 @@ class SandboxStartResponse(SandboxResponse):
     cpus: float | None = None
     memory: str | None = None
     disk: str | None = None
+    disk_limit_rootfs: str | None = None  # deprecated: use disk instead
 
 
 # TODO: inherit from SandboxStartResponse
@@ -33,6 +34,7 @@ class SandboxStatusResponse(BaseModel):
     cpus: float | None = None
     memory: str | None = None
     disk: str | None = None
+    disk_limit_rootfs: str | None = None  # deprecated: use disk instead
     start_time: str | None = None
     stop_time: str | None = None
     create_time: str | None = None
@@ -53,6 +55,7 @@ class SandboxStatusResponse(BaseModel):
             cpus=sandbox_info.get("cpus"),
             memory=sandbox_info.get("memory"),
             disk=sandbox_info.get("disk"),
+            disk_limit_rootfs=sandbox_info.get("disk"),
         )
 
 

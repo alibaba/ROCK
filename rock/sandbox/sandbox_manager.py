@@ -316,6 +316,7 @@ class SandboxManager(BaseManager):
             cpus=sandbox_info.get("cpus"),
             memory=sandbox_info.get("memory"),
             disk=sandbox_info.get("disk"),
+            disk_limit_rootfs=sandbox_info.get("disk"),
             start_time=sandbox_info.get("start_time"),
             stop_time=sandbox_info.get("stop_time"),
             create_time=sandbox_info.get("create_time"),
