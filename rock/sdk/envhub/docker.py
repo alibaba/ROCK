@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import subprocess
 from pathlib import Path
 
 from rock.logger import init_logger
+from rock.sdk.builder.provider.docker import DockerCommand
 from rock.sdk.envhub.regionless.compose import compose_pull, resolve_compose
 from rock.sdk.envhub.regionless.resolver import _DEFAULT_PROBE_TIMEOUT_SEC, RockRegistryResolver
+from rock.utils.docker import DockerUtil, ImageUtil
 
 logger = init_logger(__name__)
 
@@ -16,12 +19,19 @@ logger = init_logger(__name__)
 class DockerFacade:
     """Unified SDK entry point for Docker operations with ROCK mirror registry support.
 
-    Aggregates regionless image resolution, Dockerfile rewriting, and compose
-    file handling behind a single facade.
+    Aggregates regionless image resolution, Dockerfile rewriting, compose
+    file handling, and general Docker lifecycle operations (login, build,
+    push, tag, inspect, remove, mirror) behind a single async facade.
     """
 
-    def __init__(self, resolver: RockRegistryResolver | None = None) -> None:
+    def __init__(
+        self,
+        resolver: RockRegistryResolver | None = None,
+        docker_executable: str = "docker",
+    ) -> None:
         self._resolver = resolver or RockRegistryResolver()
+        self._docker_cmd = DockerCommand(docker_executable=docker_executable)
+        self._docker_executable = docker_executable
 
     async def resolve_image(
         self,
@@ -110,3 +120,131 @@ class DockerFacade:
             extra_args=extra_args,
             resolver=self._resolver,
         )
+
+    # ------------------------------------------------------------------
+    # Registry authentication
+    # ------------------------------------------------------------------
+
+    async def login(self, registry: str, username: str, password: str, *, timeout: int = 30) -> str:
+        """Authenticate to a Docker registry."""
+        return await asyncio.to_thread(DockerUtil.login, registry, username, password, timeout)
+
+    async def logout(self, registry: str, *, timeout: int = 30) -> str:
+        """Logout from a Docker registry."""
+        return await asyncio.to_thread(DockerUtil.logout, registry, timeout)
+
+    # ------------------------------------------------------------------
+    # Build & push
+    # ------------------------------------------------------------------
+
+    async def build(
+        self,
+        dockerfile: str,
+        context_path: str,
+        tag: str,
+        *extra_args: str,
+    ) -> subprocess.CompletedProcess:
+        """Run ``docker buildx build``."""
+        return await asyncio.to_thread(
+            self._docker_cmd.buildx_build, dockerfile, context_path, "--tag", tag, *extra_args
+        )
+
+    async def push(self, tag: str) -> subprocess.CompletedProcess:
+        """Push an image to its registry."""
+        return await asyncio.to_thread(self._docker_cmd.push_image, tag)
+
+    async def tag(self, source: str, target: str) -> subprocess.CompletedProcess:
+        """Tag a local image with a new name."""
+        proc = await asyncio.create_subprocess_exec(
+            self._docker_executable, "tag", source, target,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        result = subprocess.CompletedProcess(
+            args=[self._docker_executable, "tag", source, target],
+            returncode=proc.returncode,
+            stdout=stdout.decode(errors="replace") if stdout else "",
+            stderr=stderr.decode(errors="replace") if stderr else "",
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"docker tag failed (exit {result.returncode}): {result.stderr}")
+        return result
+
+    # ------------------------------------------------------------------
+    # Inspect & query
+    # ------------------------------------------------------------------
+
+    async def inspect(self, image: str) -> dict | None:
+        """Return parsed ``docker inspect`` output, or *None* if the image is not found locally."""
+        proc = await asyncio.create_subprocess_exec(
+            self._docker_executable, "inspect", image,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode != 0:
+            return None
+        data = json.loads(stdout.decode(errors="replace"))
+        return data[0] if isinstance(data, list) and data else data
+
+    async def is_image_available(self, image: str) -> bool:
+        """Check whether an image exists in the local Docker cache."""
+        return await asyncio.to_thread(DockerUtil.is_image_available, image)
+
+    # ------------------------------------------------------------------
+    # Remove
+    # ------------------------------------------------------------------
+
+    async def remove_image(self, image: str) -> subprocess.CompletedProcess:
+        """Remove a local Docker image."""
+        proc = await asyncio.create_subprocess_exec(
+            self._docker_executable, "rmi", image,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        result = subprocess.CompletedProcess(
+            args=[self._docker_executable, "rmi", image],
+            returncode=proc.returncode,
+            stdout=stdout.decode(errors="replace") if stdout else "",
+            stderr=stderr.decode(errors="replace") if stderr else "",
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"docker rmi failed (exit {result.returncode}): {result.stderr}")
+        return result
+
+    # ------------------------------------------------------------------
+    # Mirror (composite operation)
+    # ------------------------------------------------------------------
+
+    async def mirror(
+        self,
+        source_image: str,
+        target_registry: str,
+        *,
+        target_username: str,
+        target_password: str,
+        source_registry: str | None = None,
+        source_username: str | None = None,
+        source_password: str | None = None,
+    ) -> str:
+        """Pull an image, re-tag it to a target registry, and push.
+
+        Returns the full target image reference that was pushed.
+        """
+        _, other_part = ImageUtil.parse_registry_and_others(source_image)
+        parsed_ns, parsed_name, parsed_tag = ImageUtil.split_image_name(other_part)
+        target_ref = f"{target_registry}/{parsed_ns}/{parsed_name}:{parsed_tag}"
+
+        await self.login(target_registry, target_username, target_password)
+
+        if source_username and source_password and source_registry:
+            await self.login(source_registry, source_username, source_password)
+
+        await self.pull_image(source_image)
+        await self.tag(source_image, target_ref)
+        await self.push(target_ref)
+
+        logger.info("Mirrored %s -> %s", source_image, target_ref)
+        return target_ref
