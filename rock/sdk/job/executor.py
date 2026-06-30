@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from rock.actions import CreateBashSessionRequest
 from rock.logger import init_logger
+from rock.sdk.job.observability import monitor_job_phase
 from rock.sdk.job.operator import Operator
 from rock.sdk.job.result import TrialResult
 from rock.sdk.sandbox.client import Sandbox
@@ -87,16 +88,27 @@ class JobExecutor:
 
     async def _do_submit(self, trial: AbstractTrial) -> TrialClient:
         """Start sandbox + execute script for a single trial."""
+        sandbox = await self._phase_start(trial)
+        await self._phase_setup(trial, sandbox)
+        return await self._phase_launch(trial, sandbox)
+
+    @monitor_job_phase("start")
+    async def _phase_start(self, trial: AbstractTrial) -> Sandbox:
         config = trial._config
         sandbox = Sandbox(config.environment)
         await sandbox.start()
         logger.info(f"Sandbox started: sandbox_id={sandbox.sandbox_id}, job_name={config.job_name}")
+        return sandbox
 
+    @monitor_job_phase("setup")
+    async def _phase_setup(self, trial: AbstractTrial, sandbox: Sandbox) -> None:
         # G4: let trial backfill config from sandbox state before setup
         await trial.on_sandbox_ready(sandbox)
-
         await trial.setup(sandbox)
 
+    @monitor_job_phase("launch")
+    async def _phase_launch(self, trial: AbstractTrial, sandbox: Sandbox) -> TrialClient:
+        config = trial._config
         session = f"rock-job-{config.job_name or 'default'}"
         env = self._build_session_env(config)
         await sandbox.create_session(CreateBashSessionRequest(session=session, env_enable=True, env=env))
@@ -121,8 +133,11 @@ class JobExecutor:
 
     async def _do_wait(self, client: TrialClient) -> TrialResult | list[TrialResult]:
         """Wait for a single trial to finish, call trial.collect()."""
-        from rock.sdk.job.result import ExceptionInfo
+        obs, success, message = await self._phase_wait(client)
+        return await self._phase_collect(client, obs, success, message)
 
+    @monitor_job_phase("wait")
+    async def _phase_wait(self, client: TrialClient):
         config = client.trial._config
         success, message = await client.sandbox.wait_for_process_completion(
             pid=client.pid,
@@ -138,6 +153,13 @@ class JobExecutor:
             ignore_output=False,
             response_limited_bytes_in_nohup=None,
         )
+        return obs, success, message
+
+    @monitor_job_phase("collect")
+    async def _phase_collect(self, client: TrialClient, obs, success, message) -> TrialResult | list[TrialResult]:
+        from rock.sdk.job.result import ExceptionInfo
+
+        config = client.trial._config
         exit_code = obs.exit_code if obs.exit_code is not None else 1
         if obs.output:
             logger.info(f"Trial output (job={config.job_name}):\n{obs.output}")
@@ -149,6 +171,9 @@ class JobExecutor:
                 r.raw_output = obs.output or ""
             if r.exit_code == 0 and exit_code != 0:
                 r.exit_code = exit_code
+        # Timeout is detected in _phase_wait but annotated here so the soft-fail
+        # is attributed to the "collect" phase (the decorator scans this method's
+        # final return value).
         if not success:
             fail_info = ExceptionInfo(
                 exception_type="ProcessTimeout",

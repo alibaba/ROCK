@@ -1,0 +1,29 @@
+# BashJobConfig for the observability demo.
+#
+# The script below exits non-zero on purpose, so a clean run produces exactly
+# one SOFT-FAIL event: one structured ERROR log (always) + one increment of the
+# counter rock_job.exception.total (only if ROCK_JOB_METRICS_OTLP_ENDPOINT is set).
+#
+# Copy to observability_job_config.yaml and fill in the <placeholders>.
+
+# ── Job Identity ─────────────────────────────────────
+experiment_id: "job_observability_demo"
+labels:
+  demo: "observability"
+timeout: 120
+
+# ── Rock Environment ─────────────────────────────────
+environment:
+  base_url: "<your-rock-base-url>"          # e.g. http://localhost:8080
+  xrl_authorization: "<your-xrl-auth-token>"
+  image: "<your-image:tag>"                 # e.g. python:3.11
+  cluster: "<your-cluster>"                 # optional
+
+# ── Bash Script ──────────────────────────────────────
+# exit 7 -> BashExitCode soft fail, attributed to the 'collect' phase.
+# Swap in `sleep 100000` (with a small timeout above) to see a ProcessTimeout soft fail instead.
+script: |
+  echo "[trial] doing work..."
+  sleep 1
+  echo "[trial] boom"
+  exit 7
