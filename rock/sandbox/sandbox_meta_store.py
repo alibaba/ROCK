@@ -76,12 +76,21 @@ class SandboxMetaStore:
         DB-only fields the caller may carry (e.g. ``spec`` / ``status`` from a
         prior DB-fallback read) cannot leak into the alive key.
         """
+        import time
+
         redis_payload = pick_sandbox_info_fields(sandbox_info)
+        t0 = time.perf_counter()
         await self._redis.json_set(alive_sandbox_key(sandbox_id), "$", redis_payload)
         if timeout_info is not None:
             await self._redis.json_set(timeout_sandbox_key(sandbox_id), "$", timeout_info)
+        logger.info(
+            f"[startup_timing] [{sandbox_id}] Meta store create Redis " f"took {time.perf_counter() - t0:.3f} s"
+        )
+        self._redis.log_pool_detailed_status()
 
+        t0 = time.perf_counter()
         await self._db.create(sandbox_id, sandbox_info, deployment_config)
+        logger.info(f"[startup_timing] [{sandbox_id}] Meta store create DB " f"took {time.perf_counter() - t0:.3f} s")
 
     @monitor_metastore_operation
     async def update(self, sandbox_id: str, sandbox_info: SandboxInfo) -> None:
@@ -140,7 +149,9 @@ class SandboxMetaStore:
 
     async def exists(self, sandbox_id: str) -> bool:
         """Return ``True`` when the Redis alive key exists for ``sandbox_id``."""
-        return await self.get(sandbox_id) is not None
+        # Use EXISTS command instead of JSON.GET for better performance
+        key = alive_sandbox_key(sandbox_id)
+        return await self._redis.exists(key)
 
     @monitor_metastore_operation
     async def get_timeout(self, sandbox_id: str) -> dict[str, str] | None:

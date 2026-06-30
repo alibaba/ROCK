@@ -3,6 +3,7 @@ from contextvars import ContextVar
 from .concurrent_helper import (
     AsyncAtomicInt,
     AsyncSafeDict,
+    EventLoopLagMonitor,
     RayUtil,
     StageTimer,
     Timer,
@@ -70,6 +71,7 @@ __all__ = [
     "RayUtil",
     "AsyncSafeDict",
     "AsyncAtomicInt",
+    "EventLoopLagMonitor",
     "run_until_complete",
     "timeout",
     # Data utilities

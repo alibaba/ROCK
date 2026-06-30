@@ -157,8 +157,18 @@ def monitor_sandbox_operation(
     sandbox_id_position: int = None,
     sandbox_id_param: str = None,
     metric_prefix: str = "request",
+    skip_user_info: bool = False,
 ):
-    """Method decorator: Monitor specific methods"""
+    """Method decorator: Monitor specific methods
+
+    Parameters
+    ----------
+    skip_user_info:
+        If True, skip the Redis lookup for user_id/experiment_id/namespace.
+        Use this for operations like ``start_async`` where the sandbox does
+        not yet exist in Redis — the lookup would always return None and
+        only add latency under load.
+    """
 
     def decorator(f):
         if asyncio.iscoroutinefunction(f):
@@ -179,8 +189,11 @@ def monitor_sandbox_operation(
                     args, kwargs, extract_sandbox_id, sandbox_id_position, sandbox_id_param
                 )
 
-                meta_store = getattr(self, "_meta_store", None)
-                user_id, experiment_id, namespace = await _get_user_info(meta_store, sandbox_id)
+                if skip_user_info:
+                    user_id, experiment_id, namespace = "default", "default", "default"
+                else:
+                    meta_store = getattr(self, "_meta_store", None)
+                    user_id, experiment_id, namespace = await _get_user_info(meta_store, sandbox_id)
 
                 # Build attributes
                 attributes = _build_attributes(op_name, sandbox_id, f, user_id, experiment_id, namespace)
