@@ -4,6 +4,7 @@
 3. batch_get_sandbox_status legacy-states filtering
 """
 
+import contextlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -334,7 +335,8 @@ class TestHttpProxyServiceMethod:
 
         with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
             MockSS.from_dict.return_value = mock_status
-            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+            service._proxy_client = FakeClient()
+            with contextlib.nullcontext():
                 await SandboxProxyService.http_proxy(
                     service,
                     sandbox_id="sb1",
@@ -386,7 +388,8 @@ class TestHttpProxyServiceMethod:
 
         with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
             MockSS.from_dict.return_value = mock_status
-            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+            service._proxy_client = FakeClient()
+            with contextlib.nullcontext():
                 await SandboxProxyService.http_proxy(
                     service,
                     sandbox_id="sb1",
@@ -437,7 +440,8 @@ class TestHttpProxyServiceMethod:
 
         with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
             MockSS.from_dict.return_value = mock_status
-            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+            service._proxy_client = FakeClient()
+            with contextlib.nullcontext():
                 await SandboxProxyService.http_proxy(
                     service,
                     sandbox_id="sb1",
@@ -492,7 +496,8 @@ class TestHttpProxyServiceMethod:
 
         with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
             MockSS.from_dict.return_value = mock_status
-            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+            service._proxy_client = FakeClient()
+            with contextlib.nullcontext():
                 await SandboxProxyService.http_proxy(
                     service,
                     sandbox_id="sb1",
@@ -550,7 +555,8 @@ class TestHttpProxyLocationRewrite:
 
         with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
             MockSS.from_dict.return_value = mock_status
-            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+            service._proxy_client = FakeClient()
+            with contextlib.nullcontext():
                 resp = await SandboxProxyService.http_proxy(
                     service,
                     sandbox_id="sb1",
@@ -573,7 +579,8 @@ class TestHttpProxyLocationRewrite:
 
         with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
             MockSS.from_dict.return_value = mock_status
-            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+            service._proxy_client = FakeClient()
+            with contextlib.nullcontext():
                 resp = await SandboxProxyService.http_proxy(
                     service,
                     sandbox_id="sb1",
@@ -619,7 +626,8 @@ class TestHttpProxyLocationRewrite:
 
         with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
             MockSS.from_dict.return_value = mock_status
-            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+            service._proxy_client = FakeClient()
+            with contextlib.nullcontext():
                 resp = await SandboxProxyService.http_proxy(
                     service,
                     sandbox_id="sb1",
@@ -642,7 +650,8 @@ class TestHttpProxyLocationRewrite:
 
         with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
             MockSS.from_dict.return_value = mock_status
-            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+            service._proxy_client = FakeClient()
+            with contextlib.nullcontext():
                 resp = await SandboxProxyService.http_proxy(
                     service,
                     sandbox_id="sb1",
@@ -704,7 +713,8 @@ class TestHttpProxyContentEncodingStripped:
 
         with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
             MockSS.from_dict.return_value = mock_status
-            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+            service._proxy_client = FakeClient()
+            with contextlib.nullcontext():
                 resp = await SandboxProxyService.http_proxy(
                     service,
                     sandbox_id="sb1",
@@ -759,7 +769,8 @@ class TestHttpProxyQueryStringForwarding:
 
         with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
             MockSS.from_dict.return_value = mock_status
-            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+            service._proxy_client = FakeClient()
+            with contextlib.nullcontext():
                 from starlette.datastructures import Headers
 
                 await SandboxProxyService.http_proxy(
@@ -813,7 +824,8 @@ class TestHttpProxyQueryStringForwarding:
 
         with patch("rock.sandbox.service.sandbox_proxy_service.ServiceStatus") as MockSS:
             MockSS.from_dict.return_value = mock_status
-            with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
+            service._proxy_client = FakeClient()
+            with contextlib.nullcontext():
                 from starlette.datastructures import Headers
 
                 await SandboxProxyService.http_proxy(
