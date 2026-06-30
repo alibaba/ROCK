@@ -1,4 +1,4 @@
-"""Facade for Docker operations with regionless mirror support."""
+"""Facade composing regionless mirror resolution with general Docker operations."""
 
 from __future__ import annotations
 
@@ -7,20 +7,20 @@ import subprocess
 from pathlib import Path
 
 from rock.logger import init_logger
-from rock.sdk.builder.provider.docker import DockerCommand
+from rock.sdk.envhub.docker_ops import DockerOps
 from rock.sdk.envhub.regionless.compose import compose_pull, resolve_compose
 from rock.sdk.envhub.regionless.resolver import _DEFAULT_PROBE_TIMEOUT_SEC, RockRegistryResolver
-from rock.utils.docker import DockerUtil, ImageUtil
 
 logger = init_logger(__name__)
 
 
 class DockerFacade:
-    """Unified SDK entry point for Docker operations with ROCK mirror registry support.
+    """Unified SDK entry point combining regionless image resolution with
+    general Docker lifecycle operations.
 
-    Aggregates regionless image resolution, Dockerfile rewriting, compose
-    file handling, and general Docker lifecycle operations (login, build,
-    push, tag, inspect, remove, mirror) behind a single async facade.
+    Regionless operations (resolve / rewrite) are delegated to
+    :class:`RockRegistryResolver`; plain Docker operations (login, build,
+    push, tag, …) are delegated to :class:`DockerOps`.
     """
 
     def __init__(
@@ -40,8 +40,11 @@ class DockerFacade:
                 ``INSTANCE_ROCK_REGISTRY`` environment variable.
         """
         self._resolver = resolver or RockRegistryResolver(registries=registries)
-        self._docker_cmd = DockerCommand(docker_executable=docker_executable)
-        self._docker_executable = docker_executable
+        self._ops = DockerOps(docker_executable=docker_executable)
+
+    # ------------------------------------------------------------------
+    # Regionless: resolve
+    # ------------------------------------------------------------------
 
     async def resolve_image(
         self,
@@ -51,6 +54,28 @@ class DockerFacade:
     ) -> str:
         """Resolve an image reference to a ROCK mirror if available."""
         return await self._resolver.resolve_image(image, timeout_sec=timeout_sec)
+
+    async def resolve_dockerfile(
+        self,
+        dockerfile: Path | str,
+        *,
+        timeout_sec: float = _DEFAULT_PROBE_TIMEOUT_SEC,
+    ) -> bool:
+        """Rewrite ``FROM`` images in a Dockerfile to ROCK mirrors when available."""
+        return await self._resolver.resolve_dockerfile(Path(dockerfile), timeout_sec=timeout_sec)
+
+    async def resolve_compose(
+        self,
+        compose_path: Path | str,
+        *,
+        timeout_sec: float = _DEFAULT_PROBE_TIMEOUT_SEC,
+    ) -> bool:
+        """Rewrite ``image:`` fields in a compose file to ROCK mirrors when available."""
+        return await resolve_compose(Path(compose_path), timeout_sec=timeout_sec, resolver=self._resolver)
+
+    # ------------------------------------------------------------------
+    # Regionless: resolve + pull
+    # ------------------------------------------------------------------
 
     async def pull_image(
         self,
@@ -92,24 +117,6 @@ class DockerFacade:
 
         return result
 
-    async def resolve_dockerfile(
-        self,
-        dockerfile: Path | str,
-        *,
-        timeout_sec: float = _DEFAULT_PROBE_TIMEOUT_SEC,
-    ) -> bool:
-        """Rewrite ``FROM`` images in a Dockerfile to ROCK mirrors when available."""
-        return await self._resolver.resolve_dockerfile(Path(dockerfile), timeout_sec=timeout_sec)
-
-    async def resolve_compose(
-        self,
-        compose_path: Path | str,
-        *,
-        timeout_sec: float = _DEFAULT_PROBE_TIMEOUT_SEC,
-    ) -> bool:
-        """Rewrite ``image:`` fields in a compose file to ROCK mirrors when available."""
-        return await resolve_compose(Path(compose_path), timeout_sec=timeout_sec, resolver=self._resolver)
-
     async def pull_compose(
         self,
         compose_path: Path | str,
@@ -132,20 +139,14 @@ class DockerFacade:
         )
 
     # ------------------------------------------------------------------
-    # Registry authentication
+    # General Docker operations (delegated to DockerOps)
     # ------------------------------------------------------------------
 
     async def login(self, registry: str, username: str, password: str, *, timeout: int = 30) -> str:
-        """Authenticate to a Docker registry."""
-        return await asyncio.to_thread(DockerUtil.login, registry, username, password, timeout)
+        return await self._ops.login(registry, username, password, timeout=timeout)
 
     async def logout(self, registry: str, *, timeout: int = 30) -> str:
-        """Logout from a Docker registry."""
-        return await asyncio.to_thread(DockerUtil.logout, registry, timeout)
-
-    # ------------------------------------------------------------------
-    # Build & push
-    # ------------------------------------------------------------------
+        return await self._ops.logout(registry, timeout=timeout)
 
     async def build(
         self,
@@ -154,42 +155,22 @@ class DockerFacade:
         tag: str,
         *extra_args: str,
     ) -> subprocess.CompletedProcess:
-        """Run ``docker buildx build``."""
-        return await asyncio.to_thread(
-            self._docker_cmd.buildx_build, dockerfile, context_path, "--tag", tag, *extra_args
-        )
+        return await self._ops.build(dockerfile, context_path, tag, *extra_args)
 
     async def push(self, tag: str) -> subprocess.CompletedProcess:
-        """Push an image to its registry."""
-        return await asyncio.to_thread(self._docker_cmd.push_image, tag)
+        return await self._ops.push(tag)
 
     async def tag(self, source: str, target: str) -> None:
-        """Tag a local image with a new name."""
-        await asyncio.to_thread(DockerUtil.tag_image, source, target)
-
-    # ------------------------------------------------------------------
-    # Inspect & query
-    # ------------------------------------------------------------------
+        await self._ops.tag(source, target)
 
     async def inspect(self, image: str) -> dict | None:
-        """Return parsed ``docker inspect`` output, or *None* if the image is not found locally."""
-        return await asyncio.to_thread(DockerUtil.inspect_image, image)
+        return await self._ops.inspect(image)
 
     async def is_image_available(self, image: str) -> bool:
-        """Check whether an image exists in the local Docker cache."""
-        return await asyncio.to_thread(DockerUtil.is_image_available, image)
-
-    # ------------------------------------------------------------------
-    # Remove
-    # ------------------------------------------------------------------
+        return await self._ops.is_image_available(image)
 
     async def remove_image(self, image: str) -> bytes:
-        """Remove a local Docker image."""
-        return await asyncio.to_thread(DockerUtil.remove_image, image)
-
-    # ------------------------------------------------------------------
-    # Mirror (composite operation)
-    # ------------------------------------------------------------------
+        return await self._ops.remove_image(image)
 
     async def mirror(
         self,
@@ -202,22 +183,12 @@ class DockerFacade:
         source_username: str | None = None,
         source_password: str | None = None,
     ) -> str:
-        """Pull an image, re-tag it to a target registry, and push.
-
-        Returns the full target image reference that was pushed.
-        """
-        _, other_part = ImageUtil.parse_registry_and_others(source_image)
-        parsed_ns, parsed_name, parsed_tag = ImageUtil.split_image_name(other_part)
-        target_ref = f"{target_registry}/{parsed_ns}/{parsed_name}:{parsed_tag}"
-
-        await self.login(target_registry, target_username, target_password)
-
-        if source_username and source_password and source_registry:
-            await self.login(source_registry, source_username, source_password)
-
-        await self.pull_image(source_image)
-        await self.tag(source_image, target_ref)
-        await self.push(target_ref)
-
-        logger.info("Mirrored %s -> %s", source_image, target_ref)
-        return target_ref
+        return await self._ops.mirror(
+            source_image,
+            target_registry,
+            target_username=target_username,
+            target_password=target_password,
+            source_registry=source_registry,
+            source_username=source_username,
+            source_password=source_password,
+        )
