@@ -42,15 +42,15 @@ class TestArchiveNotConfigured:
         manager_no_archive._meta_store.list_by.assert_not_called()
 
 
-class TestArchiveOperatorNotSupported:
+class TestArchiveOperatorNotConfigured:
     async def test_archive_sandbox_raises_error(self, manager_no_archive):
         manager_no_archive._dir_storage = AsyncMock()
         manager_no_archive._image_storage = AsyncMock()
-        manager_no_archive._operator.supports_archive.return_value = False
+        manager_no_archive._operator = None
         with pytest.raises(BadRequestRockError, match="archive not supported"):
             await manager_no_archive.archive_sandbox("sbx-1")
 
     async def test_reconcile_archiving_skips(self, manager_no_archive):
-        manager_no_archive._operator.supports_archive.return_value = False
+        manager_no_archive._operator = None
         await manager_no_archive._reconcile_archiving()
         manager_no_archive._meta_store.list_by.assert_not_called()

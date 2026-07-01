@@ -186,6 +186,7 @@ class RayOperator(AbstractOperator):
     async def _run_archive_and_kill(self, actor, dir_cfg, image_cfg, archive_params=None):
         logger.info("_run_archive_and_kill started")
         try:
+            # ray.get timeout must exceed the actor-internal timeout to avoid premature cancellation
             timeout = (archive_params or {}).get("timeout_seconds", 1800) + 60
             await self._ray_service.async_ray_get(
                 actor.archive.remote(dir_cfg, image_cfg, archive_params), timeout=timeout
