@@ -29,7 +29,7 @@ uv run ruff format .               # Format
 
 | Command   | Module                    | Role                                              |
 |-----------|---------------------------|----------------------------------------------------|
-| `rock`    | `rock.cli.main`           | CLI tool (admin start, sandbox build/push/run)     |
+| `rock`    | `rock.cli.main`           | CLI tool (admin start, sandbox build/push/run, job viewer) |
 | `admin`   | `rock.admin.main`         | FastAPI orchestrator — sandbox lifecycle via API    |
 | `rocklet` | `rock.rocklet.server`     | FastAPI proxy — runs inside containers, executes commands |
 | `envhub`  | `rock.envhub.server`      | Environment repository CRUD server                 |
@@ -42,7 +42,7 @@ rock/
 ├── sandbox/        # SandboxManager, Operators (Ray/K8s), SandboxActor
 ├── deployments/    # AbstractDeployment → Docker/Ray/Local/Remote, configs, validator
 ├── rocklet/        # Lightweight sandbox runtime server
-├── sdk/            # Client SDK: Sandbox client, agent integrations, EnvHub client
+├── sdk/            # Client SDK: Sandbox client, agent integrations, EnvHub client, JobViewer
 ├── envhub/         # Environment hub service with SQLModel database
 ├── actions/        # Request/response models for sandbox and env actions
 ├── config.py       # Dataclass-based config (RayConfig, K8sConfig, RuntimeConfig, ...)

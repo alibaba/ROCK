@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
 from pathlib import Path
@@ -83,35 +84,41 @@ class BashTrial(AbstractTrial):
                 raise ValueError(f"oss_mirror.enabled=True but {env_key} is not resolvable")
 
         env["ROCK_ARTIFACT_DIR"] = env_vars.ROCK_BASH_JOB_ARTIFACT_DIR
-        env[
-            "ROCK_OSS_PREFIX"
-        ] = f"artifacts/{self._config.namespace}/{self._config.experiment_id}/{self._config.job_name}"
+        env["ROCK_OSS_PREFIX"] = (
+            f"artifacts/{self._config.namespace}/{self._config.experiment_id}/{self._config.job_name}"
+        )
 
-    @staticmethod
-    def _render_wrapper(user_script: str, token: str | None = None) -> str:
+    def _render_wrapper(self, user_script: str, token: str | None = None) -> str:
         """Render the BashJob wrapper script.
 
-        Structure: prologue (mkdir + touch + initial upload) → user script
-        (isolated in a single-quoted heredoc) → epilogue (final upload) → exit
+        Structure: prologue (mkdir + meta running + initial upload) → user script
+        (isolated in a single-quoted heredoc) → epilogue (meta final + upload) → exit
         with user's exit code.
-
-        When ``token`` is ``None`` a random 8-char hex is generated. Collision
-        probability is ~2^-32 and collisions also require the user script to
-        contain the terminator on its own line, which is not actively guarded
-        against — the risk is acceptable.
         """
         if token is None:
             token = secrets.token_hex(4)  # 8-char hex
         eof = f"__ROCK_USER_SCRIPT_EOF_{token}__"
+
+        from rock.sdk.job.meta import render_meta_json
+
+        meta_running = render_meta_json(self._config, job_type="bash", status="running")
+
         return (
             "#!/bin/bash\n"
             "# rock bash-job wrapper (generated, do not edit)\n"
             "# OSS credentials and paths come from session env; no secrets in this file.\n"
             "set +e\n"
             "\n"
-            "# -- prologue: prepare artifact dir and do an initial placeholder upload --\n"
+            "# -- prologue: prepare artifact dir, write meta, initial upload --\n"
+            "_rock_started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)\n"
             'mkdir -p "$ROCK_ARTIFACT_DIR"\n'
             'touch "$ROCK_ARTIFACT_DIR/.placeholder"\n'
+            "\n"
+            f"cat > \"$ROCK_ARTIFACT_DIR/rock_meta.json\" << '__ROCK_META_EOF__'\n"
+            f"{meta_running}\n"
+            "__ROCK_META_EOF__\n"
+            'sed -i "s/null/$_rock_started_at/; 0,/null/s//null/" "$ROCK_ARTIFACT_DIR/rock_meta.json" 2>/dev/null || true\n'
+            "\n"
             'ossutil cp "$ROCK_ARTIFACT_DIR/" "oss://$OSS_BUCKET/$ROCK_OSS_PREFIX/" \\\n'
             "    --recursive -f >/dev/null 2>&1 || true\n"
             "\n"
@@ -121,7 +128,27 @@ class BashTrial(AbstractTrial):
             f"{eof}\n"
             "_rock_user_rc=$?\n"
             "\n"
-            "# -- epilogue: final upload (failure is logged but does not change exit code) --\n"
+            "# -- epilogue: update meta to final status, then upload --\n"
+            "_rock_finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)\n"
+            '_rock_status=$( [ $_rock_user_rc -eq 0 ] && echo "completed" || echo "failed" )\n'
+            "\n"
+            f'cat > "$ROCK_ARTIFACT_DIR/rock_meta.json" << __ROCK_META_EOF__\n'
+            "{\n"
+            '  "schema_version": "1",\n'
+            f'  "job_name": "{self._config.job_name or ""}",\n'
+            '  "job_type": "bash",\n'
+            '  "status": "$_rock_status",\n'
+            f'  "namespace": {json.dumps(self._config.namespace)},\n'
+            f'  "experiment_id": {json.dumps(self._config.experiment_id)},\n'
+            f'  "user_id": {json.dumps(getattr(self._config.environment, "user_id", None) or os.environ.get("ROCK_USER_ID"))},\n'
+            f'  "image": {json.dumps(getattr(self._config.environment, "image", None))},\n'
+            f'  "labels": {json.dumps(self._config.labels)},\n'
+            '  "started_at": "$_rock_started_at",\n'
+            '  "finished_at": "$_rock_finished_at",\n'
+            '  "exit_code": $_rock_user_rc\n'
+            "}\n"
+            "__ROCK_META_EOF__\n"
+            "\n"
             'ossutil cp "$ROCK_ARTIFACT_DIR/" "oss://$OSS_BUCKET/$ROCK_OSS_PREFIX/" \\\n'
             "    --recursive -f \\\n"
             '    || echo "[rock] oss upload failed (rc=$?), ignored" >&2\n'
