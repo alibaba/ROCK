@@ -166,6 +166,8 @@ importlib-metadata==8.7.0
     # via
     #   build
     #   opentelemetry-api
+jinja2==3.1.6
+    # via rl-rock
 jmespath==0.10.0
     # via aliyun-python-sdk-core
 joblib==1.5.2
@@ -178,6 +180,8 @@ magiccube==0.3.0
     # via reasoning-gym
 markdown-it-py==4.0.0
     # via rich
+markupsafe==3.0.3
+    # via jinja2
 math-verify==0.8.0
     # via gem-llm
 matplotlib==3.10.7
@@ -196,14 +200,7 @@ nacos-sdk-python==2.0.9
     # via rl-rock
 nltk==3.9.1
     # via gem-llm
-numpy==2.2.6 ; python_full_version < '3.11'
-    # via
-    #   arckit
-    #   cellpylib
-    #   contourpy
-    #   magiccube
-    #   matplotlib
-numpy==2.3.4 ; python_full_version >= '3.11'
+numpy==2.2.6
     # via
     #   arckit
     #   cellpylib
@@ -291,6 +288,8 @@ python-dateutil==2.9.0.post0
     # via matplotlib
 python-multipart==0.0.20
     # via rl-rock
+python-statemachine==3.1.2
+    # via rl-rock
 pytz==2025.2
     # via reasoning-gym
 pyyaml==6.0.3
@@ -299,7 +298,7 @@ pyyaml==6.0.3
     #   rl-rock
 reasoning-gym==0.1.23
     # via gem-llm
-redis==7.0.1
+redis==7.2.0
     # via rl-rock
 regex==2025.11.3
     # via nltk
@@ -361,8 +360,6 @@ tzlocal==5.3.1
     # via apscheduler
 urllib3==2.5.0
     # via requests
-uuid==1.30
-    # via rl-rock
 yarl==1.22.0
     # via aiohttp
 zipp==3.23.0

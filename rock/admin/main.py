@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import time
 import traceback
 import uuid
@@ -306,6 +307,12 @@ def create_app() -> FastAPI:
 
 
 def main():
+    # Set uvloop as global event loop policy (covers Redis, SchedulerThread, etc.)
+    if sys.platform != "win32":
+        import uvloop
+
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
     args = _parse_args()
     os.environ["ROCK_ADMIN_ENV"] = args.env
     os.environ["ROCK_ADMIN_ROLE"] = args.role
@@ -331,6 +338,8 @@ def main():
         host="0.0.0.0",
         port=args.port,
         workers=workers,
+        loop="uvloop",
+        http="httptools",
         ws_ping_interval=None,
         ws_ping_timeout=None,
         timeout_keep_alive=30,

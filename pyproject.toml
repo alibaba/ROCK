@@ -13,7 +13,6 @@ readme = "README.md"
 dependencies = [
     # Core dependencies needed by all modules
     "httpx",
-    "uuid",
     "anyio",
     "build",
     "opentelemetry-api",
@@ -38,7 +37,7 @@ admin = [
     # Admin specific dependencies
     "ray[default]==2.43.0",
     "nacos-sdk-python>=0.1.14",
-    "redis",
+    "redis==7.2.0",
     "apscheduler",
     "websockets>=15.0.1",
     "aiohttp>=3.12.15",
@@ -53,6 +52,8 @@ admin = [
     "fakeredis[json]",
     "kubernetes>=35.0.0",  # For K8S operator support
     "aiolimiter>=1.2.1",  # For rate limiting
+    "httptools",
+    "uvloop",
 ]
 
 rocklet = [
