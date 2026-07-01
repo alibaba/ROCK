@@ -113,7 +113,10 @@ class TestBlueGreenEquivalence:
         with patch("rock.sdk.job.executor.Sandbox", return_value=mock_green):
             green_result = await GreenJob(_make_config()).run()
 
-        assert blue_result.labels == green_result.labels == {"team": "rl", "step": "1"}
+        user_labels = {"team": "rl", "step": "1"}
+        assert user_labels.items() <= blue_result.labels.items()
+        assert user_labels.items() <= green_result.labels.items()
+        assert green_result.labels == {**user_labels, "rock_sandbox_id": "sb-bg", "rock_sandbox_image": "python:3.11"}
 
     async def test_raw_output_and_exit_code_populated_on_both(self):
         from rock.sdk.bench import Job as BlueJob

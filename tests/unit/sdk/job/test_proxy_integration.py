@@ -258,6 +258,7 @@ class TestHarborTrialSetupCallsProxy:
         trial = HarborTrial(cfg)
 
         sandbox = AsyncMock()
+        sandbox.sandbox_id = "sb-test"
         sandbox.write_file_by_path = AsyncMock()
 
         order: list[str] = []
