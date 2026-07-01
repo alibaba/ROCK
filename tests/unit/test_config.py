@@ -130,6 +130,64 @@ def test_oss_config_primary_dict_coerced():
     assert cfg.bucket == ""
 
 
+def test_oss_primary_server_endpoint_default_empty():
+    """`server_endpoint` defaults to empty string; server-side callers must
+    then fall back to `endpoint` themselves."""
+    from rock.config import OssAccountConfig
+
+    acc = OssAccountConfig()
+    assert acc.server_endpoint == ""
+
+
+def test_oss_primary_server_endpoint_from_dict():
+    """YAML-supplied `server_endpoint` is preserved on the dataclass after
+    dict coercion in `OssConfig.__post_init__`."""
+    from rock.config import OssConfig
+
+    cfg = OssConfig(
+        primary={
+            "endpoint": "oss-cn-shanghai.aliyuncs.com",
+            "server_endpoint": "cn-shanghai.oss.aliyuncs.com",
+            "bucket": "chatos-rock",
+        }
+    )
+    assert cfg.primary.endpoint == "oss-cn-shanghai.aliyuncs.com"
+    assert cfg.primary.server_endpoint == "cn-shanghai.oss.aliyuncs.com"
+
+
+def test_oss_primary_endpoint_and_server_endpoint_are_independent():
+    """Setting `server_endpoint` alone must not clobber `endpoint`, and vice
+    versa — they occupy separate slots on the dataclass."""
+    from rock.config import OssAccountConfig
+
+    only_server = OssAccountConfig(server_endpoint="cn-shanghai.oss.aliyuncs.com")
+    assert only_server.endpoint == ""
+    assert only_server.server_endpoint == "cn-shanghai.oss.aliyuncs.com"
+
+    only_public = OssAccountConfig(endpoint="oss-cn-shanghai.aliyuncs.com")
+    assert only_public.endpoint == "oss-cn-shanghai.aliyuncs.com"
+    assert only_public.server_endpoint == ""
+
+
+def test_oss_primary_legacy_dict_without_server_endpoint():
+    """YAML written before `server_endpoint` was added still coerces cleanly:
+    the new field defaults to empty string, no KeyError, no TypeError."""
+    from rock.config import OssConfig
+
+    cfg = OssConfig(
+        primary={
+            "endpoint": "oss-cn-shanghai.aliyuncs.com",
+            "bucket": "chatos-rock",
+            "access_key_id": "a",
+            "access_key_secret": "s",
+            "role_arn": "r",
+            "region": "cn-shanghai",
+        }
+    )
+    assert cfg.primary.endpoint == "oss-cn-shanghai.aliyuncs.com"
+    assert cfg.primary.server_endpoint == ""
+
+
 def test_sandbox_log_config_defaults():
     from rock.config import SandboxLogConfig
 
