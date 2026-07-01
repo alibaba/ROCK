@@ -18,7 +18,6 @@ def manager():
     m.rock_config.lifecycle = SandboxLifecycleConfig()
     m._meta_store = AsyncMock()
     m._operator = MagicMock()
-    m._operator.supports_archive.return_value = True
     m._dir_storage = AsyncMock()
     m._dir_storage.client_config = {
         "endpoint": "http://localhost:9000",

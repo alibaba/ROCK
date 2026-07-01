@@ -181,7 +181,17 @@ class SandboxManager(BaseManager):
 
         state = sm.current_state.value
         if state == State.ARCHIVED:
-            await self.restart_from_archived(sandbox_id)
+            if not self._dir_storage or not self._image_storage:
+                raise BadRequestRockError("archive not configured: missing storage credentials")
+            await sm.send(
+                "restore",
+                sandbox_id=sandbox_id,
+                meta_store=self._meta_store,
+                operator=self._operator,
+                dir_storage=self._dir_storage,
+                image_storage=self._image_storage,
+                restore_timeout_seconds=self.rock_config.lifecycle.restore_timeout_seconds,
+            )
         elif state == State.STOPPED:
             await sm.send(
                 "restart",
@@ -510,40 +520,6 @@ class SandboxManager(BaseManager):
             dir_storage=self._dir_storage,
             image_storage=self._image_storage,
             archive_params=archive_params,
-        )
-
-    async def restart_from_archived(self, sandbox_id: str) -> None:
-        """Async restart from ARCHIVED: transition to PENDING, fire-and-forget actor.
-
-        The actor handles pull + download + docker start. get_status alive detection
-        drives the PENDING → RUNNING transition.
-        """
-        if not self._dir_storage or not self._image_storage:
-            raise BadRequestRockError("archive not configured: missing storage credentials")
-
-        sm = await self._get_current_statemachine(sandbox_id)
-        if sm is None:
-            raise BadRequestRockError(f"sandbox {sandbox_id} not found")
-
-        if sm.current_state.value != State.ARCHIVED:
-            return
-
-        info = sm.sandbox_info or {}
-        spec = info.get("spec") or {}
-        if not spec:
-            raise BadRequestRockError(f"sandbox {sandbox_id} has no spec snapshot; cannot restore")
-
-        timeout_info = SandboxTimeoutHelper.make_timeout_info(DockerDeploymentConfig(**spec).auto_clear_time)
-
-        await sm.send(
-            "restore",
-            sandbox_id=sandbox_id,
-            meta_store=self._meta_store,
-            timeout_info=timeout_info,
-            operator=self._operator,
-            dir_storage=self._dir_storage,
-            image_storage=self._image_storage,
-            restore_timeout_seconds=self.rock_config.lifecycle.restore_timeout_seconds,
         )
 
     async def _reconcile_archiving(self) -> None:

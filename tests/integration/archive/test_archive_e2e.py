@@ -187,24 +187,25 @@ class TestArchiveRestoreDeleteE2E:
 
 
 class TestIdempotentRestore:
-    """Verify that restoring when already restored is a no-op at the manager level."""
+    """Verify that restart_async with non-archived state does not trigger restore."""
 
-    async def test_restart_from_archived_skips_if_not_archived(self):
-        """State machine guard: if state != ARCHIVED, skip entirely."""
+    async def test_restart_async_rejects_running_state(self):
+        """State machine guard: if state is RUNNING, raise error."""
         from rock.sandbox.sandbox_manager import SandboxManager
 
         m = MagicMock(spec=SandboxManager)
         m._operator = MagicMock()
-        m._operator.restore_archive = AsyncMock()
         m._dir_storage = MagicMock()
         m._image_storage = MagicMock()
 
         sm = AsyncMock()
-        sm.current_state.value = State.STOPPED
+        sm.current_state.value = State.RUNNING
         sm.sandbox_info = {"sandbox_id": "sbx-x"}
         m._get_current_statemachine = AsyncMock(return_value=sm)
 
-        m.restart_from_archived = SandboxManager.restart_from_archived.__get__(m, SandboxManager)
-        await m.restart_from_archived("sbx-x")
+        m.restart_async = SandboxManager.restart_async.__get__(m, SandboxManager)
 
-        m._operator.restore_archive.assert_not_called()
+        from rock.sdk.common.exceptions import BadRequestRockError
+
+        with pytest.raises(BadRequestRockError, match="cannot be restarted"):
+            await m.restart_async("sbx-x")

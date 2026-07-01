@@ -277,7 +277,6 @@ class SandboxStateMachine(StateChart):
         self,
         sandbox_id: str,
         meta_store,
-        timeout_info: dict | None = None,
         operator=None,
         dir_storage=None,
         image_storage=None,
@@ -293,12 +292,16 @@ class SandboxStateMachine(StateChart):
         sandbox_info["state"] = RockState.PENDING
         sandbox_info.pop("stop_time", None)
         await meta_store.update(sandbox_id, sandbox_info)
-        if timeout_info:
-            await meta_store.update_timeout(sandbox_id, timeout_info)
+
+        spec = sandbox_info.get("spec") or {}
+        if spec:
+            config = DockerDeploymentConfig(**spec)
+            timeout_info = SandboxTimeoutHelper.make_timeout_info(config.auto_clear_time)
+            if timeout_info:
+                await meta_store.update_timeout(sandbox_id, timeout_info)
         self.sandbox_info = sandbox_info
 
         if operator:
-            spec = sandbox_info.get("spec") or {}
             archive_params = {
                 "archive_prefix": sandbox_info.get("archive_prefix", "rock-archives/"),
                 "acr_namespace": sandbox_info.get("acr_namespace", "sandbox_archive"),
