@@ -128,6 +128,20 @@ class OssAccountConfig:
     """Region used to construct the STS AcsClient for this account. Falls back
     to env_vars.ROCK_OSS_BUCKET_REGION when empty, to preserve legacy behavior."""
 
+    sandbox_endpoint: str = ""
+    """In-VPC OSS endpoint for code that runs INSIDE a sandbox or ON a worker
+    (e.g. ossutil download inside a sandbox container, archive upload from a
+    worker host). When non-empty, callers in those execution contexts SHOULD
+    use this endpoint instead of `endpoint`, because workers and sandboxes
+    typically sit inside the VPC and benefit from the internal endpoint (no
+    public bandwidth charge, lower latency).
+
+    `endpoint` remains the user/SDK-facing endpoint (used by the host-side
+    Python SDK / oss2 client on the developer's machine, and returned to the
+    SDK via `/get_token`). When `sandbox_endpoint` is empty, callers MUST
+    fall back to `endpoint` so legacy YAMLs that only set `endpoint` continue
+    to work."""
+
 
 @dataclass
 class OssConfig:

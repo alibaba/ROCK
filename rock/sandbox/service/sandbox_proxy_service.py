@@ -708,6 +708,10 @@ class SandboxProxyService:
             role_arn = primary.role_arn
             session_name = "rock-sandbox-primary"
             endpoint = primary.endpoint or None
+            # In-VPC endpoint used INSIDE the sandbox (e.g. by `ossutil cp`
+            # in OssClient.download_via_oss). When empty, the SDK falls back
+            # to `endpoint` — preserves BC for YAMLs that didn't set this.
+            sandbox_endpoint = primary.sandbox_endpoint or None
             bucket = primary.bucket or None
             region = primary.region or env_vars.ROCK_OSS_BUCKET_REGION or None
             prefix = self._rock_config.sandbox_config.file_transfer.prefix or None
@@ -715,6 +719,8 @@ class SandboxProxyService:
             role_arn = self.oss_config.role_arn
             session_name = "rock-sandbox-legacy"
             endpoint = env_vars.ROCK_OSS_BUCKET_ENDPOINT or self.oss_config.endpoint or None
+            # Legacy path has no separate in-VPC endpoint concept.
+            sandbox_endpoint = None
             bucket = env_vars.ROCK_OSS_BUCKET_NAME or self.oss_config.bucket or None
             region = env_vars.ROCK_OSS_BUCKET_REGION or None
             prefix = env_vars.ROCK_OSS_TRANSFER_PREFIX or None
@@ -741,6 +747,9 @@ class SandboxProxyService:
         return {
             **credentials,
             "Endpoint": endpoint,
+            # Optional separate in-VPC endpoint for code that runs inside the
+            # sandbox container. SDK fallback: when missing/empty, use Endpoint.
+            "SandboxEndpoint": sandbox_endpoint,
             "Bucket": bucket,
             "Region": region,
             "Prefix": prefix,  # transfer-object key prefix, scoped per account

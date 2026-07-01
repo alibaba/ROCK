@@ -37,6 +37,12 @@ class OssClientConfig:
     region: str
     enabled_via_env: bool  # True = Layer 1 (gated by ROCK_OSS_ENABLE); False = Layer 2
     prefix: str = ""  # Transfer-object key prefix (Layer 1 from env; Layer 2 from server response)
+    sandbox_endpoint: str = ""
+    """In-VPC OSS endpoint used by code that runs INSIDE the sandbox (e.g.
+    `ossutil cp --endpoint` in `download_via_oss`). Distinct from `endpoint`,
+    which is the user/SDK-facing endpoint (used by host-side oss2.Bucket on
+    the developer's machine). Empty = no separate sandbox endpoint
+    configured; callers MUST fall back to `endpoint`."""
 
 
 class OssClient:
@@ -81,6 +87,9 @@ class OssClient:
                 region=env_region,
                 enabled_via_env=True,
                 prefix=env_vars.ROCK_OSS_TRANSFER_PREFIX or "",  # NEW: env can carry prefix too
+                # Optional override for in-sandbox ossutil endpoint; empty by
+                # default — callers fall back to `endpoint`.
+                sandbox_endpoint=getattr(env_vars, "ROCK_OSS_SANDBOX_ENDPOINT", "") or "",
             )
 
         # Layer 2: server response (fallback default)
@@ -94,6 +103,9 @@ class OssClient:
                 region=resp_region,
                 enabled_via_env=False,
                 prefix=sts_response.get("Prefix") or "",  # NEW: pull prefix from server
+                # `SandboxEndpoint` is the in-VPC endpoint used INSIDE the
+                # sandbox (ossutil cp). Optional; empty = use `endpoint`.
+                sandbox_endpoint=sts_response.get("SandboxEndpoint") or "",
             )
 
         # Layer 3: OSS unavailable
@@ -287,12 +299,17 @@ class OssClient:
         )
         oss_url = f"oss://{self._client_config.bucket}/{oss_object_name}"
 
+        # ossutil runs INSIDE the sandbox container (in the VPC). Prefer the
+        # in-VPC `sandbox_endpoint` when configured, to avoid public bandwidth
+        # cost and reduce latency. Fall back to `endpoint` for legacy / single-
+        # endpoint deployments.
+        in_sandbox_endpoint = self._client_config.sandbox_endpoint or self._client_config.endpoint
         ossutil_inner = (
             f"ossutil cp {shlex.quote(remote_path)} {shlex.quote(oss_url)}"
             f" --access-key-id {shlex.quote(access_key_id)}"
             f" --access-key-secret {shlex.quote(access_key_secret)}"
             f" --sts-token {shlex.quote(security_token)}"
-            f" --endpoint {shlex.quote(self._client_config.endpoint)}"
+            f" --endpoint {shlex.quote(in_sandbox_endpoint)}"
             f" --region {shlex.quote(self._client_config.region)}"
         )
         upload_cmd = f"bash -c {shlex.quote(ossutil_inner)}"
