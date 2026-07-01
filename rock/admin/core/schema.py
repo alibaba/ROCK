@@ -40,6 +40,8 @@ class SandboxRecord(Base):
     create_time = Column(String(64), nullable=False, default="")
     start_time = Column(String(64), nullable=True)
     stop_time = Column(String(64), nullable=True)
+    archive_time = Column(String(64), nullable=True)
+    delete_time = Column(String(64), nullable=True)
     host_name = Column(String(255), nullable=True)
     auth_token = Column(String(512), nullable=True)
     rock_authorization_encrypted = Column(String(1024), nullable=True)

@@ -293,3 +293,126 @@ async def local_registry():
     subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
     htpasswd_file.unlink(missing_ok=True)
     auth_dir.rmdir()
+
+
+@pytest.fixture(scope="session")
+def local_minio():
+    """Start a local MinIO server for archive storage tests."""
+    container_name = "test-minio-archive"
+    subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
+    port = run_until_complete(find_free_port())
+    console_port = run_until_complete(find_free_port())
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            container_name,
+            "-p",
+            f"{port}:9000",
+            "-p",
+            f"{console_port}:9001",
+            "-e",
+            "MINIO_ROOT_USER=rockadmin",
+            "-e",
+            "MINIO_ROOT_PASSWORD=rockadmin123",
+            "minio/minio:RELEASE.2024-12-18T13-15-44Z",
+            "server",
+            "/data",
+            "--console-address",
+            ":9001",
+        ],
+        check=True,
+    )
+
+    endpoint = f"http://localhost:{port}"
+    for _ in range(30):
+        try:
+            urllib.request.urlopen(f"{endpoint}/minio/health/live", timeout=1)
+            break
+        except (urllib.error.URLError, ConnectionError, OSError):
+            time.sleep(0.5)
+    else:
+        raise RuntimeError(f"MinIO at {endpoint} did not become ready")
+
+    import boto3
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id="rockadmin",
+        aws_secret_access_key="rockadmin123",
+        region_name="us-east-1",
+    )
+    s3.create_bucket(Bucket="rock-archive-test")
+
+    yield endpoint, "rockadmin", "rockadmin123", "rock-archive-test"
+
+    subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
+
+
+@pytest.fixture(scope="session")
+def local_snapshot_registry():
+    """Start a local Docker registry with basic auth and delete support."""
+    container_name = "test-snapshot-registry"
+    username, password = "testuser", "testpass"
+    subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
+    port = run_until_complete(find_free_port())
+
+    auth_dir = tempfile.mkdtemp()
+    htpasswd_file = os.path.join(auth_dir, "htpasswd")
+    result = subprocess.run(
+        ["docker", "run", "--rm", "httpd:2", "htpasswd", "-Bbn", username, password],
+        capture_output=True,
+        text=True,
+    )
+    with open(htpasswd_file, "w") as f:
+        f.write(result.stdout)
+
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            container_name,
+            "-p",
+            f"{port}:5000",
+            "-v",
+            f"{htpasswd_file}:/auth/htpasswd",
+            "-e",
+            "REGISTRY_AUTH=htpasswd",
+            "-e",
+            "REGISTRY_AUTH_HTPASSWD_REALM=Registry Realm",
+            "-e",
+            "REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd",
+            "-e",
+            "REGISTRY_STORAGE_DELETE_ENABLED=true",
+            "registry:2",
+        ],
+        check=True,
+    )
+
+    registry_url = f"localhost:{port}"
+    for _ in range(30):
+        try:
+            req = urllib.request.Request(f"http://{registry_url}/v2/")
+            import base64
+
+            credentials = base64.b64encode(f"{username}:{password}".encode()).decode()
+            req.add_header("Authorization", f"Basic {credentials}")
+            r = urllib.request.urlopen(req, timeout=1)
+            if r.status == 200:
+                break
+        except (urllib.error.URLError, ConnectionError, OSError):
+            time.sleep(0.5)
+    else:
+        raise RuntimeError(f"Registry at {registry_url} did not become ready")
+
+    yield registry_url, username, password
+
+    subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
+    import shutil
+
+    shutil.rmtree(auth_dir, ignore_errors=True)

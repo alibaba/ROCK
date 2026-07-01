@@ -1,5 +1,6 @@
 import asyncio
 import time
+from abc import ABC, abstractmethod
 
 import ray
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -13,11 +14,12 @@ from rock.deployments.manager import DeploymentManager
 from rock.logger import init_logger
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.utils import get_executor
+from rock.utils.system import is_primary_pod
 
 logger = init_logger(__name__)
 
 
-class BaseManager:
+class BaseManager(ABC):
     _check_job_bg_task: object = None
     rock_config: RockConfig = None
 
@@ -37,6 +39,7 @@ class BaseManager:
         )
         self._report_interval = 10
         self._check_job_interval = 180
+        self._reconcile_interval = rock_config.lifecycle.reconcile_interval_seconds
         self._setup_scheduler()
         self.deployment_manager = DeploymentManager(rock_config, enable_runtime_auto_clear)
 
@@ -62,7 +65,6 @@ class BaseManager:
         logger.info("APScheduler started for metrics collection")
 
     def _setup_job_check_scheduler(self):
-        """Set up scheduler"""
         self.scheduler = AsyncIOScheduler(
             timezone="UTC", job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 30}
         )
@@ -72,6 +74,16 @@ class BaseManager:
             id="job_check",
             name="Sandbox Job Check",
         )
+        if is_primary_pod():
+            self.scheduler.add_job(
+                func=self._reconcile,
+                trigger=IntervalTrigger(seconds=self._reconcile_interval),
+                id="reconcile",
+                name="Sandbox Reconcile",
+            )
+            logger.info("Reconcile job registered (primary pod)")
+        else:
+            logger.info("Reconcile job skipped (non-primary pod)")
         self.scheduler.start()
         logger.info("APScheduler started for job check")
 
@@ -149,6 +161,14 @@ class BaseManager:
             image = sandbox_info.get("image", "default")
             meta[sandbox_info.get("sandbox_id")] = {"image": image}
         return cnt, meta
+
+    @abstractmethod
+    async def _check_job_background(self):
+        ...
+
+    @abstractmethod
+    async def _reconcile(self):
+        ...
 
     def stop_monitoring(self):
         if self.scheduler and self.scheduler.running:

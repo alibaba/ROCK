@@ -120,7 +120,9 @@ class DockerDeploymentConfig(DeploymentConfig):
     """Custom name for the container. If None, a random name will be generated."""
 
     auto_delete_seconds: int | None = None
-    """If set, the container will be automatically deleted after container stopped."""
+    """Per-sandbox auto-delete policy. 0 = --rm (immediate delete on stop);
+    >0 = delete after this many seconds idle; None = fall back to global
+    lifecycle.auto_delete_seconds."""
 
     type: Literal["docker"] = "docker"
     """Deployment type discriminator for serialization/deserialization and CLI parsing. Should not be modified."""
