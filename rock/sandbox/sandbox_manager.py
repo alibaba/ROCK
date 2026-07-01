@@ -345,6 +345,11 @@ class SandboxManager(BaseManager):
             if operator_sandbox_info.get("state") in (State.PENDING, State.RUNNING):
                 await self._refresh_timeout(sandbox_id)
 
+        if state == State.ARCHIVING:
+            sm = await self._get_current_statemachine(sandbox_id)
+            if sm:
+                await self._try_advance_archiving(sandbox_id, sm)
+
         # compat with legacy get_status behavior by default (include_all_states == False),
         # raise 'not found' if not on pending or running status.
         if not include_all_states and sandbox_info.get("state") not in (State.PENDING, State.RUNNING):
@@ -527,6 +532,30 @@ class SandboxManager(BaseManager):
             archive_params=archive_params,
         )
 
+    async def _try_advance_archiving(self, sandbox_id: str, sm: SandboxStateMachine) -> None:
+        """If sandbox is ARCHIVING and image exists in registry, transition to ARCHIVED."""
+        if not self._dir_storage or not self._image_storage:
+            return
+        if sm.current_state.value != State.ARCHIVING:
+            return
+
+        info = sm.sandbox_info
+        acr_ns = info.get("acr_namespace", self.rock_config.lifecycle.archive.acr.namespace)
+        ref = ArchiveKeys.image_ref(sandbox_id, self._image_storage.registry_url, acr_ns)
+
+        try:
+            img_ok = await self._image_storage.exists(ref)
+        except Exception as e:
+            logger.warning(f"exists check failed for {sandbox_id}: {e}")
+            return
+
+        if img_ok:
+            try:
+                await sm.send("archive_done", sandbox_id=sandbox_id, meta_store=self._meta_store)
+                logger.info(f"archive_done: {sandbox_id}")
+            except Exception as e:
+                logger.error(f"archive_done transition failed for {sandbox_id}: {e}", exc_info=True)
+
     async def _reconcile_archiving(self) -> None:
         """Reconcile ARCHIVING sandboxes: verify completion or roll back to STOPPED on timeout."""
         if not self._dir_storage or not self._image_storage:
@@ -543,23 +572,12 @@ class SandboxManager(BaseManager):
             if not sandbox_id:
                 continue
 
-            acr_ns = info.get("acr_namespace", self.rock_config.lifecycle.archive.acr.namespace)
-            ref = ArchiveKeys.image_ref(sandbox_id, self._image_storage.registry_url, acr_ns)
-
-            try:
-                img_ok = await self._image_storage.exists(ref)
-            except Exception as e:
-                logger.warning(f"exists check failed for {sandbox_id}: {e}")
+            sm = await self._get_current_statemachine(sandbox_id)
+            if not sm or sm.current_state.value != State.ARCHIVING:
                 continue
 
-            if img_ok:
-                try:
-                    sm = await self._get_current_statemachine(sandbox_id)
-                    if sm and sm.current_state.value == State.ARCHIVING:
-                        await sm.send("archive_done", sandbox_id=sandbox_id, meta_store=self._meta_store)
-                        logger.info(f"archive_done: {sandbox_id}")
-                except Exception as e:
-                    logger.error(f"archive_done transition failed for {sandbox_id}: {e}", exc_info=True)
+            await self._try_advance_archiving(sandbox_id, sm)
+            if sm.current_state.value != State.ARCHIVING:
                 continue
 
             started_at = get_current_state_started_at(info.get("state_history", []), "archiving")
@@ -575,15 +593,13 @@ class SandboxManager(BaseManager):
                 continue
 
             try:
-                sm = await self._get_current_statemachine(sandbox_id)
-                if sm and sm.current_state.value == State.ARCHIVING:
-                    await sm.send(
-                        "archive_failed",
-                        sandbox_id=sandbox_id,
-                        meta_store=self._meta_store,
-                        reason=f"timeout after {int(elapsed)}s",
-                    )
-                    logger.warning(f"archive_failed: {sandbox_id} ({int(elapsed)}s)")
+                await sm.send(
+                    "archive_failed",
+                    sandbox_id=sandbox_id,
+                    meta_store=self._meta_store,
+                    reason=f"timeout after {int(elapsed)}s",
+                )
+                logger.warning(f"archive_failed: {sandbox_id} ({int(elapsed)}s)")
             except Exception as e:
                 logger.error(f"archive_failed transition failed for {sandbox_id}: {e}", exc_info=True)
 

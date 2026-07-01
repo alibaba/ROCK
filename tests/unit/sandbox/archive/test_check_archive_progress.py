@@ -30,6 +30,7 @@ def manager():
     m._image_storage.registry_url = "localhost:5000"
     m._image_storage.client_config = {"registry_url": "localhost:5000"}
     m._get_current_statemachine = AsyncMock()
+    m._try_advance_archiving = SandboxManager._try_advance_archiving.__get__(m, SandboxManager)
     m._reconcile_archiving = SandboxManager._reconcile_archiving.__get__(m, SandboxManager)
     return m
 
@@ -59,6 +60,12 @@ class TestCheckArchiveProgress:
 
         sm_mock = AsyncMock()
         sm_mock.current_state.value = State.ARCHIVING
+        sm_mock.sandbox_info = info
+
+        async def _send_side_effect(*args, **kwargs):
+            sm_mock.current_state.value = State.ARCHIVED
+
+        sm_mock.send.side_effect = _send_side_effect
         manager._get_current_statemachine = AsyncMock(return_value=sm_mock)
 
         await manager._reconcile_archiving()
@@ -78,9 +85,14 @@ class TestCheckArchiveProgress:
         manager._meta_store.list_by = AsyncMock(return_value=[info])
         manager._image_storage.exists = AsyncMock(return_value=False)
 
+        sm_mock = AsyncMock()
+        sm_mock.current_state.value = State.ARCHIVING
+        sm_mock.sandbox_info = info
+        manager._get_current_statemachine = AsyncMock(return_value=sm_mock)
+
         await manager._reconcile_archiving()
 
-        manager._get_current_statemachine.assert_not_called()
+        sm_mock.send.assert_not_called()
 
     async def test_timeout_triggers_archive_failed(self, manager):
         old_time = "2020-01-01T00:00:00+00:00"
@@ -97,6 +109,7 @@ class TestCheckArchiveProgress:
 
         sm_mock = AsyncMock()
         sm_mock.current_state.value = State.ARCHIVING
+        sm_mock.sandbox_info = info
         manager._get_current_statemachine = AsyncMock(return_value=sm_mock)
 
         await manager._reconcile_archiving()
