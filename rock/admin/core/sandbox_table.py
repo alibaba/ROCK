@@ -132,12 +132,18 @@ class SandboxTable:
     @_retry_on_disconnect
     @monitor_metastore_operation
     async def get(self, sandbox_id: str) -> dict | None:
-        """Return a sandbox row as a plain dict, or ``None`` if not found."""
+        """Return a sandbox row as a plain dict, or ``None`` if not found.
+
+        The ``status`` JSONB column holds the full SandboxInfo snapshot at
+        write time.  We merge it into the returned dict so callers see all
+        SandboxInfo fields (e.g. ``state_history``, ``port_mapping``) at the
+        top level — scalar columns take priority over the blob.
+        """
         async with AsyncSession(self._db.engine) as session:
             record = await session.get(SandboxRecord, sandbox_id)
             if record is None:
                 return None
-            return record.to_dict()
+            return _merge_status_blob(record.to_dict())
 
     @_retry_on_disconnect
     @monitor_metastore_operation
@@ -175,7 +181,7 @@ class SandboxTable:
         stmt = select(SandboxRecord).where(col_attr == value)
         async with AsyncSession(self._db.engine) as session:
             result = await session.execute(stmt)
-            return [r.to_dict() for r in result.scalars().all()]
+            return [_merge_status_blob(r.to_dict()) for r in result.scalars().all()]
 
     @_retry_on_disconnect
     @monitor_metastore_operation
@@ -189,10 +195,21 @@ class SandboxTable:
         stmt = select(SandboxRecord).where(col_attr.in_(values))
         async with AsyncSession(self._db.engine) as session:
             result = await session.execute(stmt)
-            return [r.to_dict() for r in result.scalars().all()]
+            return [_merge_status_blob(r.to_dict()) for r in result.scalars().all()]
 
 
 def _pick_columns(data: dict[str, Any]) -> dict[str, Any]:
     """Return only keys matching a scalar SandboxRecord column, excluding sandbox_id/spec/status."""
     columns = SandboxRecord.column_names() - {"sandbox_id", "spec", "status"}
     return {k: v for k, v in data.items() if k in columns}
+
+
+def _merge_status_blob(raw: dict[str, Any]) -> dict[str, Any]:
+    """Merge the ``status`` JSONB blob into the top-level dict.
+
+    The ``status`` column stores the full SandboxInfo snapshot.  Fields that
+    only exist in the blob (e.g. ``state_history``) become top-level keys.
+    Scalar columns take priority over blob values.
+    """
+    status_blob = raw.pop("status", None) or {}
+    return {**status_blob, **raw}
