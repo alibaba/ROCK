@@ -155,7 +155,12 @@ class DockerRegistryV2ImageStorage(AbstractImageStorage):
             stdin=asyncio.subprocess.PIPE if stdin_data else None,
             env=env,
         )
-        stdout, stderr = await proc.communicate(input=stdin_data)
+        try:
+            stdout, stderr = await proc.communicate(input=stdin_data)
+        except asyncio.CancelledError:
+            proc.kill()
+            await proc.wait()
+            raise
         if check and proc.returncode != 0:
             raise RuntimeError(f"{' '.join(args)} failed (rc={proc.returncode}): {stderr.decode()}")
 
