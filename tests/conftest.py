@@ -1,11 +1,16 @@
 import logging
 import os
+import socket
+import subprocess
+import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
 from rock import env_vars
+from rock.utils import find_free_port, run_until_complete
 from rock.utils.docker import DockerUtil
 
 # Set test data directories at import time (before test collection triggers
@@ -66,3 +71,40 @@ def pytest_collection_modifyitems(config, items):
         for item in items:
             if "need_docker" in item.keywords:
                 item.add_marker(skip_docker)
+
+
+@contextmanager
+def start_rocklet_process():
+    """Start a local ``rocklet`` process on a free port for tests.
+
+    Exports ``ROCK_WORKER_ROCKLET_PORT`` (read at call time by
+    ``env_vars.ROCK_WORKER_ROCKLET_PORT``) so sandbox status probing
+    (``get_remote_status``) reaches a live rocklet instead of failing with
+    ConnectError. Yields the port; terminates the process and restores the
+    original env var on exit.
+    """
+    port = run_until_complete(find_free_port())
+    original_port = os.environ.get("ROCK_WORKER_ROCKLET_PORT")
+    os.environ["ROCK_WORKER_ROCKLET_PORT"] = str(port)
+    process = subprocess.Popen(["rocklet", "--port", str(port)], stdout=None, stderr=None)
+    try:
+        for _ in range(10):
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=1):
+                    break
+            except (TimeoutError, ConnectionRefusedError):
+                time.sleep(3)
+        else:
+            process.kill()
+            pytest.fail("Rocklet did not start within the expected time")
+        yield port
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+        if original_port is None:
+            os.environ.pop("ROCK_WORKER_ROCKLET_PORT", None)
+        else:
+            os.environ["ROCK_WORKER_ROCKLET_PORT"] = original_port

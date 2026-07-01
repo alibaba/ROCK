@@ -24,8 +24,16 @@ from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.utils.providers.redis_provider import RedisProvider
+from tests.conftest import start_rocklet_process
 
 logger = init_logger(__name__)
+
+
+@pytest.fixture(scope="session")
+def local_rocklet():
+    """Session-scoped local rocklet process for get_status/proxy probing."""
+    with start_rocklet_process() as port:
+        yield port
 
 
 class MockDeploymentConfig(DeploymentConfig):
@@ -75,9 +83,10 @@ def runtime_config(rock_config: RockConfig):
 
 
 @pytest.fixture
-def ray_operator(ray_service, runtime_config):
+def ray_operator(ray_service, runtime_config, redis_provider: RedisProvider):
     ray_operator = RayOperator(ray_service, runtime_config)
     ray_operator.set_nacos_provider(None)
+    ray_operator.set_redis_provider(redis_provider)
     return ray_operator
 
 
@@ -103,6 +112,7 @@ async def sandbox_manager(
     ray_service,
     ray_operator,
     _memory_sandbox_table: SandboxTable,
+    local_rocklet,
 ):
     meta_store = SandboxMetaStore(
         redis_provider=redis_provider, sandbox_table=_memory_sandbox_table, rock_config=rock_config

@@ -33,11 +33,9 @@ class TestSandboxConfigAutoDeleteSeconds:
 
 class TestSandboxCluster:
     def test_sandbox_cluster(self):
-        fake_route_key = "fake_route_key"
         fake_auth_token = "fake_auth_token"
         config = SandboxConfig(
             image="python:3.11",
-            route_key=fake_route_key,
             xrl_authorization=fake_auth_token,
             cluster="sg",
         )
@@ -45,13 +43,11 @@ class TestSandboxCluster:
         assert sandbox.cluster == "sg"
         common_headers = sandbox._build_headers()
         assert common_headers["X-Cluster"] == "sg"
-        assert common_headers["ROUTE-KEY"] == fake_route_key
         assert common_headers["XRL-Authorization"] == f"Bearer {fake_auth_token}"
 
         # default cluster is vpc-nt-a
         config = SandboxConfig(
             image="python:3.11",
-            route_key=fake_route_key,
             xrl_authorization=fake_auth_token,
         )
 

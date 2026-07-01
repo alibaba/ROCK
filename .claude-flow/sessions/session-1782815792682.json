@@ -1,0 +1,14 @@
+{
+  "id": "session-1782815792682",
+  "startedAt": "2026-06-30T10:36:32.682Z",
+  "cwd": "/workspace/ROCK/OpenSource",
+  "context": {},
+  "metrics": {
+    "edits": 0,
+    "commands": 0,
+    "tasks": 0,
+    "errors": 0
+  },
+  "endedAt": "2026-06-30T11:17:57.570Z",
+  "duration": 2484888
+}

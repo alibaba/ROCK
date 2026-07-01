@@ -44,7 +44,6 @@ from .system import (
 ENV_POOL = {}
 SANDBOX_ID = "sandbox_id"
 TRACE_ID = "trace_id"
-ROUTE_KEY = "ROUTE-KEY"
 COMMAND_LOG = "command.log"
 EAGLE_EYE_TRACE_ID = "eagleeye-traceid"
 REQUEST_TIMEOUT_SECONDS = 85
@@ -92,7 +91,6 @@ __all__ = [
     "trace_id_ctx_var",
     "EAGLE_EYE_TRACE_ID",
     "SANDBOX_ID",
-    "ROUTE_KEY",
     "COMMAND_LOG",
     "REQUEST_TIMEOUT_SECONDS",
 ]
