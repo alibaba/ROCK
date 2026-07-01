@@ -81,6 +81,7 @@ class SandboxManager(BaseManager):
     def _init_archive_storage(self, rock_config: RockConfig) -> None:
         archive_cfg = rock_config.lifecycle.archive
         if not archive_cfg.enabled:
+            logger.info("archive disabled, skipping storage init")
             return
         image_registry_cfg = archive_cfg.acr
         dir_storage_cfg = archive_cfg.dir_storage
@@ -92,6 +93,10 @@ class SandboxManager(BaseManager):
             raise RuntimeError("archive.enabled=true but image registry or dir_storage credentials are missing")
         self._dir_storage = AbstractDirStorage.from_config(dir_storage_cfg)
         self._image_storage = AbstractImageStorage.from_config(image_registry_cfg)
+        logger.info(
+            f"archive storage initialized: dir_storage={dir_storage_cfg.type}://{dir_storage_cfg.bucket}, "
+            f"image_storage={image_registry_cfg.registry_url}/{image_registry_cfg.namespace}"
+        )
 
     async def _get_current_statemachine(self, sandbox_id: str) -> SandboxStateMachine | None:
         """Fetch current state from meta store and return a restored SandboxStateMachine, or None if not found."""
