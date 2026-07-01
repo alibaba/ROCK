@@ -281,6 +281,7 @@ class SandboxStateMachine(StateChart):
         operator=None,
         dir_storage=None,
         image_storage=None,
+        restore_timeout_seconds: int | None = None,
     ) -> None:
         """ARCHIVED → PENDING: fire-and-forget actor does pull+download+docker start.
 
@@ -302,6 +303,8 @@ class SandboxStateMachine(StateChart):
                 "archive_prefix": sandbox_info.get("archive_prefix", "rock-archives/"),
                 "acr_namespace": sandbox_info.get("acr_namespace", "sandbox_archive"),
             }
+            if restore_timeout_seconds:
+                archive_params["timeout_seconds"] = restore_timeout_seconds
             config = DockerDeploymentConfig(**spec)
             await operator.start_restore(
                 config=config,

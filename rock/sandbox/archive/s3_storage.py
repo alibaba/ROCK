@@ -68,7 +68,12 @@ class S3DirStorage(AbstractDirStorage):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            _, stderr = await proc.communicate()
+            try:
+                _, stderr = await proc.communicate()
+            except asyncio.CancelledError:
+                proc.kill()
+                await proc.wait()
+                raise
             if proc.returncode != 0:
                 raise RuntimeError(f"tar failed: {stderr.decode()}")
 
@@ -108,7 +113,12 @@ class S3DirStorage(AbstractDirStorage):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            _, stderr = await proc.communicate()
+            try:
+                _, stderr = await proc.communicate()
+            except asyncio.CancelledError:
+                proc.kill()
+                await proc.wait()
+                raise
             if proc.returncode != 0:
                 raise RuntimeError(f"tar extract failed: {stderr.decode()}")
 

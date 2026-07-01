@@ -492,6 +492,7 @@ class SandboxManager(BaseManager):
             "acr_namespace": archive_cfg.acr.namespace,
             "max_image_push_size": archive_cfg.max_image_push_size,
             "max_dir_upload_size": archive_cfg.max_dir_upload_size,
+            "timeout_seconds": self.rock_config.lifecycle.archive_timeout_seconds,
         }
         await sm.send(
             "archive",
@@ -534,6 +535,7 @@ class SandboxManager(BaseManager):
             operator=self._operator,
             dir_storage=self._dir_storage,
             image_storage=self._image_storage,
+            restore_timeout_seconds=self.rock_config.lifecycle.restore_timeout_seconds,
         )
 
     async def _reconcile_archiving(self) -> None:

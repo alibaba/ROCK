@@ -133,6 +133,11 @@ class SandboxActor(GemActor):
                 process.kill()
                 await process.wait()
             raise subprocess.TimeoutExpired(args, timeout)
+        except asyncio.CancelledError:
+            if process and process.returncode is None:
+                process.kill()
+                await process.wait()
+            raise
 
     async def _get_image_size(self, image_tag: str) -> int:
         result = await self._run_shell_command("docker", "image", "inspect", "--format={{.Size}}", image_tag)
@@ -339,10 +344,25 @@ class SandboxActor(GemActor):
         archive_params: dict | None = None,
     ) -> None:
         """Async archive: commit+push image, then tar+upload log dir."""
+        archive_params = archive_params or {}
+        timeout = archive_params.get("timeout_seconds")
+        if timeout:
+            await asyncio.wait_for(
+                self._do_archive(dir_storage_config, image_storage_config, archive_params),
+                timeout=timeout,
+            )
+        else:
+            await self._do_archive(dir_storage_config, image_storage_config, archive_params)
+
+    async def _do_archive(
+        self,
+        dir_storage_config: dict,
+        image_storage_config: dict,
+        archive_params: dict,
+    ) -> None:
         sandbox_id = self._config.container_name
         dir_storage = AbstractDirStorage.from_config(ArchiveDirStorageConfig(**dir_storage_config))
         image_storage = DockerRegistryV2ImageStorage(**image_storage_config)
-        archive_params = archive_params or {}
         prefix = archive_params.get("archive_prefix", "rock-archives/")
         acr_ns = archive_params.get("acr_namespace", "sandbox_archive")
 
@@ -402,10 +422,25 @@ class SandboxActor(GemActor):
         archive_params: dict | None = None,
     ) -> None:
         """Full restore: pull image + download logs + docker start + arm watchdog."""
+        archive_params = archive_params or {}
+        timeout = archive_params.get("timeout_seconds")
+        if timeout:
+            await asyncio.wait_for(
+                self._do_restore_and_start(dir_storage_config, image_storage_config, archive_params),
+                timeout=timeout,
+            )
+        else:
+            await self._do_restore_and_start(dir_storage_config, image_storage_config, archive_params)
+
+    async def _do_restore_and_start(
+        self,
+        dir_storage_config: dict,
+        image_storage_config: dict,
+        archive_params: dict,
+    ) -> None:
         sandbox_id = self._config.container_name
         dir_storage = AbstractDirStorage.from_config(ArchiveDirStorageConfig(**dir_storage_config))
         image_storage = DockerRegistryV2ImageStorage(**image_storage_config)
-        archive_params = archive_params or {}
         prefix = archive_params.get("archive_prefix", "rock-archives/")
         acr_ns = archive_params.get("acr_namespace", "sandbox_archive")
 
