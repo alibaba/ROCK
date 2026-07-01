@@ -140,6 +140,9 @@ class SandboxLogArchiveTask(BaseTask):
         primary = rock_config.oss.primary
         bucket = primary.bucket
         endpoint = primary.endpoint
+        # In-VPC endpoint tried first to keep archive traffic on the internal
+        # network. Optional: legacy YAMLs may only configure `endpoint`.
+        server_endpoint = primary.server_endpoint
         access_key_id = primary.access_key_id
         access_key_secret = primary.access_key_secret
         if not (bucket and endpoint and access_key_id and access_key_secret):
@@ -201,6 +204,7 @@ class SandboxLogArchiveTask(BaseTask):
                     archive_prefix,
                     bucket,
                     endpoint,
+                    server_endpoint,
                     access_key_id,
                     access_key_secret,
                 )
@@ -272,6 +276,7 @@ class SandboxLogArchiveTask(BaseTask):
         archive_prefix: str,
         bucket: str,
         endpoint: str,
+        server_endpoint: str,
         access_key_id: str,
         access_key_secret: str,
     ) -> None:
@@ -281,21 +286,53 @@ class SandboxLogArchiveTask(BaseTask):
         ``ps`` output. The command itself is built by the pure-function
         ``build_archive_command`` (PR #957) — single source of truth for
         archive key naming.
+
+        Endpoint strategy: try ``server_endpoint`` first (in-VPC, saves
+        public-egress bandwidth); on failure, fall back to ``endpoint``
+        (public). When ``server_endpoint`` is empty or equals ``endpoint``,
+        the loop degenerates to a single attempt.
         """
         log_dir = f"{self.log_root}/{sandbox_id}"
         oss_key = ArchiveCommand.build_key(sandbox_id, archive_prefix)
-        cmd = ArchiveCommand.build_command(log_dir, oss_key, bucket, endpoint)
-        await runtime.execute(
-            Command(
-                command=cmd,
-                shell=True,
-                check=True,
-                timeout=3600,
-                env={
-                    "OSS_ACCESS_KEY_ID": access_key_id,
-                    "OSS_ACCESS_KEY_SECRET": access_key_secret,
-                },
-                sandbox_id=sandbox_id,
-            )
+
+        # Dedupe + drop empties, preserving order: internal-first, public-fallback.
+        candidates = [ep for ep in (server_endpoint, endpoint) if ep]
+        candidates = list(dict.fromkeys(candidates))
+        last_error: Exception | None = None
+        for i, ep in enumerate(candidates):
+            cmd = ArchiveCommand.build_command(log_dir, oss_key, bucket, ep)
+            try:
+                await runtime.execute(
+                    Command(
+                        command=cmd,
+                        shell=True,
+                        check=True,
+                        timeout=3600,
+                        env={
+                            "OSS_ACCESS_KEY_ID": access_key_id,
+                            "OSS_ACCESS_KEY_SECRET": access_key_secret,
+                        },
+                        sandbox_id=sandbox_id,
+                    )
+                )
+                logger.info(
+                    f"[{self.type}] archived {sandbox_id} -> oss://{bucket}/{oss_key} (endpoint={ep})"
+                )
+                return
+            except Exception as e:
+                last_error = e
+                is_last = i == len(candidates) - 1
+                if is_last:
+                    raise
+                logger.warning(
+                    f"[{self.type}] archive {sandbox_id} via endpoint={ep} failed: {e}; "
+                    f"retrying with next endpoint"
+                )
+        # Unreachable: last iteration either returns or raises. Guard against
+        # an empty `candidates` list (should be impossible since caller gates
+        # on non-empty `endpoint`).
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError(
+            f"[{self.type}] archive {sandbox_id}: no endpoints configured"
         )
-        logger.info(f"[{self.type}] archived {sandbox_id} -> oss://{bucket}/{oss_key}")

@@ -120,6 +120,21 @@ class SandboxConfig:
 @dataclass
 class OssAccountConfig:
     endpoint: str = ""
+    server_endpoint: str = ""
+    """In-VPC OSS endpoint used by ROCK server-side code paths ONLY —
+    currently `SandboxLogArchiveTask` running on workers. When set,
+    that task uses this endpoint to keep archive uploads on the VPC
+    network (avoids public-egress bandwidth cost and reduces latency).
+
+    Deliberately NOT exposed to the SDK: the STS response returned by
+    `/get_token` only ever carries the public `endpoint`, so SDK code
+    (running on the developer's machine) never sees this value. If a
+    server-side caller needs a fallback, it may fall back to `endpoint`
+    on its own — the choice is a server-side decision.
+
+    Empty string = no separate in-VPC endpoint configured. Server-side
+    callers that want to be robust should treat empty as "no override"
+    and fall back to `endpoint`."""
     bucket: str = ""
     access_key_id: str = ""
     access_key_secret: str = ""
