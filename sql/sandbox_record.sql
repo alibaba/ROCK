@@ -17,6 +17,7 @@ CREATE TABLE sandbox_record (
 	rock_authorization_encrypted VARCHAR(1024), 
 	cpus FLOAT, 
 	memory VARCHAR(64), 
+	disk VARCHAR(64), 
 	create_user_gray_flag BOOLEAN, 
 	phases JSONB, 
 	port_mapping JSONB, 

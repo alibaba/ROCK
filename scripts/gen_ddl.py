@@ -51,12 +51,29 @@ def gen_ddl(dialect, table_filter: str | None = None) -> str:
     return "\n\n".join(lines)
 
 
-def _parse_columns_from_sql(sql: str) -> dict[str, str]:
-    """Parse column definitions from a CREATE TABLE statement. Returns {column_name: full_definition}."""
-    match = re.search(r"CREATE TABLE (\w+)\s*\((.*)\)", sql, re.DOTALL)
-    if not match:
-        return {}
-    body = match.group(2)
+def _extract_create_table_blocks(sql: str) -> list[tuple[str, str]]:
+    """Extract (table_name, body) pairs from all CREATE TABLE statements in SQL text.
+
+    Handles nested parentheses (e.g. column type definitions containing parens).
+    """
+    results: list[tuple[str, str]] = []
+    for header in re.finditer(r"CREATE TABLE (\w+)\s*\(", sql, re.IGNORECASE):
+        table_name = header.group(1)
+        start = header.end()
+        depth = 1
+        i = start
+        while i < len(sql) and depth > 0:
+            if sql[i] == "(":
+                depth += 1
+            elif sql[i] == ")":
+                depth -= 1
+            i += 1
+        results.append((table_name.lower(), sql[start : i - 1]))
+    return results
+
+
+def _parse_columns_from_body(body: str) -> dict[str, str]:
+    """Parse column definitions from a CREATE TABLE body. Returns {column_name: full_definition}."""
     columns: dict[str, str] = {}
     for line in body.split("\n"):
         line = line.strip().rstrip(",")
@@ -66,6 +83,24 @@ def _parse_columns_from_sql(sql: str) -> dict[str, str]:
         if parts:
             columns[parts[0].lower()] = line
     return columns
+
+
+def _parse_columns_from_sql(sql: str, table_name: str | None = None) -> dict[str, str]:
+    """Parse column definitions from a CREATE TABLE statement. Returns {column_name: full_definition}."""
+    blocks = _extract_create_table_blocks(sql)
+    if not blocks:
+        return {}
+    if table_name:
+        for name, body in blocks:
+            if name == table_name.lower():
+                return _parse_columns_from_body(body)
+        return {}
+    return _parse_columns_from_body(blocks[0][1])
+
+
+def _parse_all_tables_from_sql(sql: str) -> dict[str, dict[str, str]]:
+    """Parse all CREATE TABLE statements. Returns {table_name: {column_name: full_definition}}."""
+    return {name: _parse_columns_from_body(body) for name, body in _extract_create_table_blocks(sql)}
 
 
 def _parse_indexes_from_sql(sql: str) -> dict[str, str]:
@@ -80,23 +115,43 @@ def _read_old_sql(source: str) -> str:
     """Read old DDL from a file path or git ref (commit/tag).
 
     If source looks like a file path (contains '/' or '.sql'), read it directly.
-    Otherwise treat it as a git ref and read sql/sandbox_record.sql from that ref.
+    Otherwise treat it as a git ref and concatenate all sql/*.sql files from that ref.
     """
-    if "/" in source or source.endswith(".sql"):
+    import os
+
+    if os.path.isfile(source):
         with open(source) as f:
             return f.read()
     import subprocess
 
-    # Try each known SQL path under the git ref
-    for sql_path in ["sql/sandbox_record.sql"]:
+    # List all .sql files under sql/ in the given git ref
+    try:
+        tree_output = subprocess.check_output(
+            ["git", "ls-tree", "--name-only", f"{source}:sql"], stderr=subprocess.DEVNULL, text=True
+        )
+    except subprocess.CalledProcessError:
+        print(f"Cannot find sql/ directory in git ref '{source}'", file=sys.stderr)
+        sys.exit(1)
+
+    sql_files = [f for f in tree_output.strip().split("\n") if f.endswith(".sql")]
+    if not sql_files:
+        print(f"No .sql files found in git ref '{source}:sql/'", file=sys.stderr)
+        sys.exit(1)
+
+    parts: list[str] = []
+    for sql_file in sorted(sql_files):
         try:
-            return subprocess.check_output(
-                ["git", "show", f"{source}:{sql_path}"], stderr=subprocess.DEVNULL, text=True
+            content = subprocess.check_output(
+                ["git", "show", f"{source}:sql/{sql_file}"], stderr=subprocess.DEVNULL, text=True
             )
+            parts.append(content)
         except subprocess.CalledProcessError:
             continue
-    print(f"Cannot find DDL file in git ref '{source}'", file=sys.stderr)
-    sys.exit(1)
+
+    if not parts:
+        print(f"Cannot read any SQL files from git ref '{source}'", file=sys.stderr)
+        sys.exit(1)
+    return "\n\n".join(parts)
 
 
 def gen_alter(dialect, source: str, table_filter: str | None = None) -> str:
@@ -105,7 +160,7 @@ def gen_alter(dialect, source: str, table_filter: str | None = None) -> str:
 
     old_sql = _read_old_sql(source)
 
-    old_columns = _parse_columns_from_sql(old_sql)
+    old_tables = _parse_all_tables_from_sql(old_sql)
     old_indexes = _parse_indexes_from_sql(old_sql)
 
     tables = Base.metadata.sorted_tables
@@ -113,10 +168,8 @@ def gen_alter(dialect, source: str, table_filter: str | None = None) -> str:
         names = {n.strip() for n in table_filter.split(",")}
         tables = [t for t in tables if t.name in names]
     else:
-        table_match = re.search(r"CREATE TABLE (\w+)", old_sql)
-        if table_match:
-            target = table_match.group(1).lower()
-            tables = [t for t in tables if t.name == target]
+        # Compare all tables that exist in old SQL
+        tables = [t for t in tables if t.name.lower() in old_tables]
 
     if not tables:
         print("No matching table found", file=sys.stderr)
@@ -124,8 +177,9 @@ def gen_alter(dialect, source: str, table_filter: str | None = None) -> str:
 
     lines: list[str] = []
     for table in tables:
+        old_columns = old_tables.get(table.name.lower(), {})
         new_ddl = str(CreateTable(table).compile(dialect=dialect)).strip()
-        new_columns = _parse_columns_from_sql(new_ddl)
+        new_columns = _parse_columns_from_sql(new_ddl, table.name)
 
         for col_name, col_def in new_columns.items():
             if col_name not in old_columns:
