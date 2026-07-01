@@ -52,10 +52,18 @@ class HarborTrial(AbstractTrial):
 
     async def setup(self, sandbox) -> None:
         await super().setup(sandbox)
+        self._inject_runtime_labels(sandbox)
         # Write Harbor YAML config to sandbox
         yaml_content = self._config.to_harbor_yaml()
         config_path = f"{USER_DEFINED_LOGS}/rock_job_{self._config.job_name}.yaml"
         await sandbox.write_file_by_path(yaml_content, config_path)
+
+    def _inject_runtime_labels(self, sandbox) -> None:
+        labels = self._config.labels
+        if self._config.environment.image:
+            labels.setdefault("rock_sandbox_image", self._config.environment.image)
+        if sandbox.sandbox_id:
+            labels.setdefault("rock_sandbox_id", sandbox.sandbox_id)
 
     def build(self) -> str:
         config_path = f"{USER_DEFINED_LOGS}/rock_job_{self._config.job_name}.yaml"

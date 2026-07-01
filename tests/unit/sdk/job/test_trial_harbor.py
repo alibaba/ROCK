@@ -52,6 +52,7 @@ class TestHarborTrialSetup:
         cfg = HarborJobConfig(job_name="test", experiment_id="exp-1")
         trial = HarborTrial(cfg)
         mock_sandbox = AsyncMock()
+        mock_sandbox.sandbox_id = "sb-test"
         mock_sandbox.fs.upload_dir = AsyncMock(return_value=_success_obs())
         mock_sandbox.write_file_by_path = AsyncMock()
 
