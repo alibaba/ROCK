@@ -4501,6 +4501,7 @@ rocklet = [
 ]
 sandbox-actor = [
     { name = "apscheduler" },
+    { name = "boto3" },
     { name = "gem-llm" },
     { name = "nacos-sdk-python" },
     { name = "redis" },
@@ -4537,6 +4538,7 @@ requires-dist = [
     { name = "asyncpg", marker = "extra == 'admin'" },
     { name = "bashlex", marker = "sys_platform != 'win32' and extra == 'rocklet'" },
     { name = "boto3", marker = "extra == 'admin'" },
+    { name = "boto3", marker = "extra == 'sandbox-actor'" },
     { name = "build" },
     { name = "cryptography", marker = "extra == 'admin'", specifier = "==39.0.1" },
     { name = "docker", marker = "extra == 'builder'" },

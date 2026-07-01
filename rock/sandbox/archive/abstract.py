@@ -3,6 +3,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
+from rock.sandbox.archive.oss_storage import OssDirStorage
+from rock.sandbox.archive.s3_storage import S3DirStorage
+
 if TYPE_CHECKING:
     from rock.config import ArchiveAcrConfig, ArchiveDirStorageConfig
 
@@ -24,11 +27,7 @@ class AbstractDirStorage(ABC):
             region=cfg.region,
         )
         if cfg.type == "s3":
-            from rock.sandbox.archive.s3_storage import S3DirStorage
-
             return S3DirStorage(**kwargs)
-        from rock.sandbox.archive.oss_storage import OssDirStorage
-
         return OssDirStorage(**kwargs)
 
     @abstractmethod

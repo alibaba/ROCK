@@ -75,6 +75,7 @@ sandbox-actor = [
     "sqlmodel",
     "nacos-sdk-python>=0.1.14",
     "redis",
+    "boto3",
 ]
 
 # Legacy optional dependencies for backward compatibility
