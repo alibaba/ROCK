@@ -192,7 +192,6 @@ class ArchiveConfig:
     allowed_keys: list[str] | None = None
     dir_storage: ArchiveDirStorageConfig = field(default_factory=ArchiveDirStorageConfig)
     acr: ArchiveAcrConfig = field(default_factory=ArchiveAcrConfig)
-    max_retries: int = 3
     prefix: str = "rock-archives/"
     max_image_push_size: str = "16g"
     max_dir_upload_size: str = "16g"

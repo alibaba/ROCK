@@ -210,7 +210,7 @@ class TestArchiveSizeLimits:
             with pytest.raises(RuntimeError, match="exceeds limit"):
                 await actor.archive(dir_storage_config, image_storage_config, limits)
 
-        mock_push.assert_called_once()
+        mock_push.assert_not_called()
         mock_upload.assert_not_called()
 
     @patch("rock.sandbox.archive.oss_storage.OssDirStorage.upload_dir", new_callable=AsyncMock)

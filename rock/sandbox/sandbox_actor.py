@@ -369,6 +369,11 @@ class SandboxActor(GemActor):
         local_tag = f"archive-staging-{sandbox_id}:latest"
         await self._run_shell_command("docker", "commit", sandbox_id, local_tag)
 
+        log_root = env_vars.ROCK_LOGGING_PATH
+        log_dir = f"{log_root}/{sandbox_id}" if log_root else ""
+        has_log_dir = bool(log_dir) and os.path.isdir(log_dir)
+
+        # Pre-flight size checks: verify both are within limits before uploading either
         max_image = archive_params.get("max_image_push_size", "")
         if max_image:
             image_size = await self._get_image_size(local_tag)
@@ -379,6 +384,17 @@ class SandboxActor(GemActor):
                     f"[{sandbox_id}] image size {image_size} bytes exceeds limit {max_image} ({max_bytes} bytes)"
                 )
 
+        max_dir = archive_params.get("max_dir_upload_size", "")
+        if max_dir and has_log_dir:
+            dir_size = await self._get_dir_size(log_dir)
+            max_bytes = parse_size_to_bytes(max_dir)
+            if dir_size > max_bytes:
+                await self._run_shell_command("docker", "rmi", local_tag, check=False)
+                raise RuntimeError(
+                    f"[{sandbox_id}] log dir size {dir_size} bytes exceeds limit {max_dir} ({max_bytes} bytes)"
+                )
+
+        # Both checks passed — proceed with uploads
         ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, acr_ns)
         try:
             await image_storage.push_from_local(local_tag, ref)
@@ -387,28 +403,16 @@ class SandboxActor(GemActor):
             raise
         await self._run_shell_command("docker", "rmi", local_tag, check=False)
 
-        log_root = env_vars.ROCK_LOGGING_PATH
-        if log_root:
-            log_dir = f"{log_root}/{sandbox_id}"
+        if has_log_dir:
             key = ArchiveKeys.dir_key(sandbox_id, prefix)
-
-            if os.path.isdir(log_dir):
-                max_dir = archive_params.get("max_dir_upload_size", "")
-                if max_dir:
-                    dir_size = await self._get_dir_size(log_dir)
-                    max_bytes = parse_size_to_bytes(max_dir)
-                    if dir_size > max_bytes:
-                        raise RuntimeError(
-                            f"[{sandbox_id}] log dir size {dir_size} bytes exceeds limit {max_dir} ({max_bytes} bytes)"
-                        )
-                try:
-                    await dir_storage.upload_dir(log_dir, key)
-                except Exception:
-                    await image_storage.delete(ref)
-                    raise
-                shutil.rmtree(log_dir, ignore_errors=True)
-            else:
-                logger.info(f"[{sandbox_id}] log dir {log_dir} not found, skipping log archive")
+            try:
+                await dir_storage.upload_dir(log_dir, key)
+            except Exception:
+                await image_storage.delete(ref)
+                raise
+            shutil.rmtree(log_dir, ignore_errors=True)
+        elif log_root:
+            logger.info(f"[{sandbox_id}] log dir {log_dir} not found, skipping log archive")
         else:
             logger.info(f"[{sandbox_id}] ROCK_LOGGING_PATH not set, skipping log dir archive")
 
