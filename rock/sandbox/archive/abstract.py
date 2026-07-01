@@ -16,9 +16,6 @@ class AbstractDirStorage(ABC):
 
     @classmethod
     def from_config(cls, cfg: ArchiveDirStorageConfig) -> AbstractDirStorage:
-        from rock.sandbox.archive.oss_storage import OssDirStorage
-        from rock.sandbox.archive.s3_storage import S3DirStorage
-
         kwargs = dict(
             endpoint=cfg.endpoint,
             bucket=cfg.bucket,
@@ -27,7 +24,11 @@ class AbstractDirStorage(ABC):
             region=cfg.region,
         )
         if cfg.type == "s3":
+            from rock.sandbox.archive.s3_storage import S3DirStorage
+
             return S3DirStorage(**kwargs)
+        from rock.sandbox.archive.oss_storage import OssDirStorage
+
         return OssDirStorage(**kwargs)
 
     @abstractmethod
