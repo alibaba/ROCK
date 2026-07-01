@@ -712,7 +712,7 @@ async def test_nacos_lifecycle_nested_dict_coerced_via_post_init():
             "lifecycle": {
                 "reconcile_interval_seconds": 99,
                 "archive_timeout_seconds": 500,
-                "archive": {"max_retries": 5},
+                "archive": {"max_image_push_size": "8g"},
             }
         }
     )
@@ -722,7 +722,7 @@ async def test_nacos_lifecycle_nested_dict_coerced_via_post_init():
     assert isinstance(rock_config.lifecycle.archive, ArchiveConfig)
     assert rock_config.lifecycle.reconcile_interval_seconds == 99
     assert rock_config.lifecycle.archive_timeout_seconds == 500
-    assert rock_config.lifecycle.archive.max_retries == 5
+    assert rock_config.lifecycle.archive.max_image_push_size == "8g"
 
 
 @pytest.mark.asyncio
