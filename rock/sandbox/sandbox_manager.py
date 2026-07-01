@@ -506,7 +506,7 @@ class SandboxManager(BaseManager):
 
         archive_cfg = self.rock_config.lifecycle.archive
         archive_params = {
-            "archive_prefix": archive_cfg.prefix,
+            "archive_prefix": archive_cfg.dir_storage.prefix,
             "acr_namespace": archive_cfg.acr.namespace,
             "max_image_push_size": archive_cfg.max_image_push_size,
             "max_dir_upload_size": archive_cfg.max_dir_upload_size,

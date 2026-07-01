@@ -176,6 +176,7 @@ class ArchiveDirStorageConfig:
     access_key_id: str = ""
     access_key_secret: str = ""
     region: str = ""
+    prefix: str = "archive-logs/"
 
 
 @dataclass
@@ -192,7 +193,6 @@ class ArchiveConfig:
     allowed_keys: list[str] | None = None
     dir_storage: ArchiveDirStorageConfig = field(default_factory=ArchiveDirStorageConfig)
     acr: ArchiveAcrConfig = field(default_factory=ArchiveAcrConfig)
-    prefix: str = "rock-archives/"
     max_image_push_size: str = "16g"
     max_dir_upload_size: str = "16g"
 
