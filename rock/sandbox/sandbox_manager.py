@@ -39,7 +39,7 @@ from rock.sandbox.base_manager import BaseManager
 from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
-from rock.sandbox.sandbox_statemachine import SandboxStateMachine
+from rock.sandbox.sandbox_statemachine import SandboxStateMachine, get_current_state_started_at
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
@@ -571,7 +571,7 @@ class SandboxManager(BaseManager):
                     logger.error(f"archive_done transition failed for {sandbox_id}: {e}", exc_info=True)
                 continue
 
-            started_at = info.get("intermediate_state_started_at", "")
+            started_at = get_current_state_started_at(info.get("state_history", []), "archiving")
             if not started_at:
                 continue
             try:
@@ -610,7 +610,7 @@ class SandboxManager(BaseManager):
                 continue
             try:
                 # 1. Restore timeout (archive_time present = restoring from ARCHIVED)
-                started_at = info.get("intermediate_state_started_at", "")
+                started_at = get_current_state_started_at(info.get("state_history", []), "pending")
                 if info.get("archive_time") and started_at:
                     try:
                         started = datetime.datetime.fromisoformat(started_at.replace("Z", "+00:00"))

@@ -12,7 +12,6 @@ CREATE TABLE sandbox_record (
 	stop_time VARCHAR(64), 
 	archive_time VARCHAR(64), 
 	delete_time VARCHAR(64), 
-	intermediate_state_started_at VARCHAR(64), 
 	host_name VARCHAR(255), 
 	auth_token VARCHAR(512), 
 	rock_authorization_encrypted VARCHAR(1024), 
