@@ -27,3 +27,4 @@ docs/superpowers/
 *.intern.yaml
 *.intern.md
 .worktrees/
+.claude-flow/

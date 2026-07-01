@@ -24,6 +24,7 @@ from rock.utils import find_free_port, run_until_complete
 from rock.utils.concurrent_helper import run_until_complete
 from rock.utils.docker import DockerUtil
 from rock.utils.system import find_free_port
+from tests.conftest import start_rocklet_process
 
 logger = init_logger(__name__)
 
@@ -93,18 +94,25 @@ def rocklet_remote_server() -> RemoteServer:
 
 @pytest.fixture(name="admin_client", scope="session")
 def admin_client_fixture():
-    """Create test client using TestClient"""
+    """Create test client using TestClient.
+
+    The admin runs in-process via TestClient, but sandbox status probing
+    (get_remote_status) posts to ``host_ip:ROCK_WORKER_ROCKLET_PORT``. Start a
+    local rocklet process (like admin_remote_server) so those calls reach a live
+    rocklet instead of failing with ConnectError.
+    """
     # Save original sys.argv
     original_argv = sys.argv.copy()
     # Modify sys.argv
     sys.argv = ["main.py", "--env", "local", "--role", "admin"]
     try:
-        from rock.admin.main import app, gem_router
+        with start_rocklet_process():
+            from rock.admin.main import app, gem_router
 
-        # Register env router
-        app.include_router(gem_router, prefix="/apis/v1/envs/gem", tags=["gem"])
-        with TestClient(app) as client:
-            yield client
+            # Register env router
+            app.include_router(gem_router, prefix="/apis/v1/envs/gem", tags=["gem"])
+            with TestClient(app) as client:
+                yield client
     finally:
         # Restore original sys.argv
         sys.argv = original_argv
@@ -126,64 +134,49 @@ def admin_remote_server():
         return
 
     port = run_until_complete(find_free_port())
-    proxy_port = run_until_complete(find_free_port())
 
-    env = os.environ.copy()
-    env["ROCK_WORKER_ROCKLET_PORT"] = str(proxy_port)
-    # Do not redirect stdout and stderr to pipes without reading from them, as this will cause the program to hang.
-    process = subprocess.Popen(
-        [
-            "admin",
-            "--env",
-            "test",
-            "--role",
-            "admin",
-            "--port",
-            str(port),
-        ],
-        stdout=None,
-        stderr=None,
-        env=env,
-    )
+    # start_rocklet_process exports ROCK_WORKER_ROCKLET_PORT, which the admin
+    # subprocess inherits via os.environ.copy() below.
+    with start_rocklet_process():
+        env = os.environ.copy()
+        # Do not redirect stdout and stderr to pipes without reading from them, as this will cause the program to hang.
+        process = subprocess.Popen(
+            [
+                "admin",
+                "--env",
+                "test",
+                "--role",
+                "admin",
+                "--port",
+                str(port),
+            ],
+            stdout=None,
+            stderr=None,
+            env=env,
+        )
 
-    rocklet_process = subprocess.Popen(
-        [
-            "rocklet",
-            "--port",
-            str(proxy_port),
-        ],
-        stdout=None,
-        stderr=None,
-    )
-
-    # Wait for the server to start
-    max_retries = 10
-    retry_delay = 3
-    for _ in range(max_retries):
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=1):
-                with socket.create_connection(("127.0.0.1", proxy_port), timeout=1):
+        # Wait for the admin server to start (rocklet is already up).
+        max_retries = 10
+        retry_delay = 3
+        for _ in range(max_retries):
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=1):
                     break
-        except (TimeoutError, ConnectionRefusedError):
-            time.sleep(retry_delay)
-    else:
-        process.kill()
-        rocklet_process.kill()
-        pytest.fail("Server did not start within the expected time")
+            except (TimeoutError, ConnectionRefusedError):
+                time.sleep(retry_delay)
+        else:
+            process.kill()
+            pytest.fail("Server did not start within the expected time")
 
-    logger.info(f"Admin server started on port {port}")
-    yield RemoteServer(port)
-
-    process.terminate()
-    rocklet_process.terminate()
-    try:
-        process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        process.kill()
-    try:
-        rocklet_process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        rocklet_process.kill()
+        logger.info(f"Admin server started on port {port}")
+        try:
+            yield RemoteServer(port)
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
 
 
 @pytest.fixture

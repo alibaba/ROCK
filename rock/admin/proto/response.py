@@ -19,9 +19,9 @@ class SandboxStartResponse(SandboxResponse):
 # TODO: inherit from SandboxStartResponse
 class SandboxStatusResponse(BaseModel):
     sandbox_id: str = None
-    status: dict = None
+    status: dict | None = None
     state: State | None = None
-    port_mapping: dict = None
+    port_mapping: dict | None = None
     host_name: str | None = None
     host_ip: str | None = None
     is_alive: bool = True

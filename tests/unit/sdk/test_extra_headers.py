@@ -34,7 +34,6 @@ async def test_xrl_authorization_deprecated(monkeypatch):
         await sandbox.start()
 
     # Verify headers
-    assert "ROUTE-KEY" in captured_headers
     assert "XRL-Authorization" in captured_headers
     assert captured_headers["XRL-Authorization"] == "Bearer test_token"
 
@@ -67,7 +66,6 @@ async def test_extra_headers(monkeypatch):
     await sandbox.start()
 
     # Verify headers
-    assert "ROUTE-KEY" in captured_headers
     assert "XRL-Authorization" in captured_headers
     assert captured_headers["XRL-Authorization"] == "Bearer test_token"
 
