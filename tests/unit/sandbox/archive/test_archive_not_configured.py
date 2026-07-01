@@ -17,14 +17,14 @@ def manager_no_archive():
     m.rock_config.lifecycle = SandboxLifecycleConfig()
     m._meta_store = AsyncMock()
     m._operator = MagicMock()
-    m._operator.supports_archive.return_value = True
 
     m._dir_storage = None
     m._image_storage = None
 
     m.archive_sandbox = SandboxManager.archive_sandbox.__get__(m, SandboxManager)
-    m.restart_from_archived = SandboxManager.restart_from_archived.__get__(m, SandboxManager)
+    m.restart_async = SandboxManager.restart_async.__get__(m, SandboxManager)
     m._reconcile_archiving = SandboxManager._reconcile_archiving.__get__(m, SandboxManager)
+    m._get_current_statemachine = AsyncMock()
     return m
 
 
@@ -33,9 +33,14 @@ class TestArchiveNotConfigured:
         with pytest.raises(BadRequestRockError, match="archive not configured"):
             await manager_no_archive.archive_sandbox("sbx-1")
 
-    async def test_restart_from_archived_raises_error(self, manager_no_archive):
+    async def test_restart_async_archived_raises_error(self, manager_no_archive):
+        from rock.actions.sandbox.response import State
+
+        sm = AsyncMock()
+        sm.current_state.value = State.ARCHIVED
+        manager_no_archive._get_current_statemachine.return_value = sm
         with pytest.raises(BadRequestRockError, match="archive not configured"):
-            await manager_no_archive.restart_from_archived("sbx-1")
+            await manager_no_archive.restart_async("sbx-1")
 
     async def test_reconcile_archiving_skips(self, manager_no_archive):
         await manager_no_archive._reconcile_archiving()
