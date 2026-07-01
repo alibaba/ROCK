@@ -236,40 +236,22 @@ class TestHarborTrialMetaIntegration:
             ),
         )
 
-    def test_script_contains_meta_prologue(self):
+    def test_script_does_not_contain_meta(self):
+        """Harbor's rock_meta.json is written by Harbor itself, not by the wrapper script."""
         from rock.sdk.job.trial.harbor import HarborTrial
 
         config = self._build_harbor_config()
-        trial = HarborTrial(config)
-        script = trial.build()
-        assert "rock_meta.json" in script
-        assert '"status": "running"' in script
-
-    def test_script_contains_meta_epilogue(self):
-        from rock.sdk.job.trial.harbor import HarborTrial
-
-        config = self._build_harbor_config()
-        trial = HarborTrial(config)
-        script = trial.build()
-        assert "_rock_status" in script
-
-    def test_meta_contains_job_type_harbor(self):
-        from rock.sdk.job.trial.harbor import HarborTrial
-
-        config = self._build_harbor_config()
-        trial = HarborTrial(config)
-        script = trial.build()
-        assert '"job_type": "harbor"' in script
-
-    def test_no_meta_when_mirror_disabled(self):
-        from rock.sdk.bench.models.job.config import HarborJobConfig
-
-        config = HarborJobConfig(job_name="j", namespace="ns", experiment_id="exp")
-        from rock.sdk.job.trial.harbor import HarborTrial
-
         trial = HarborTrial(config)
         script = trial.build()
         assert "rock_meta.json" not in script
+
+    def test_script_contains_harbor_start(self):
+        from rock.sdk.job.trial.harbor import HarborTrial
+
+        config = self._build_harbor_config()
+        trial = HarborTrial(config)
+        script = trial.build()
+        assert "harbor jobs start" in script
 
 
 # ---------------------------------------------------------------------------
