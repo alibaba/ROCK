@@ -48,6 +48,7 @@ def _iso_days_ago(days, tz=timezone.utc) -> str:
 def _fake_rock_config(
     bucket="b",
     endpoint="oss-cn-hangzhou.aliyuncs.com",
+    server_endpoint="",
     access_key_id="AKID",
     access_key_secret="AKSEC",
     keep_days=3,
@@ -58,6 +59,7 @@ def _fake_rock_config(
             primary=SimpleNamespace(
                 bucket=bucket,
                 endpoint=endpoint,
+                server_endpoint=server_endpoint,
                 access_key_id=access_key_id,
                 access_key_secret=access_key_secret,
             )
@@ -426,3 +428,179 @@ class TestArchiveCommand:
 
         assert result["archived"] == 1
         assert result["failed"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Endpoint fallback (server_endpoint → endpoint)
+# ---------------------------------------------------------------------------
+
+
+class TestEndpointFallback:
+    @pytest.mark.asyncio
+    async def test_only_public_endpoint_single_attempt(self, fake_table):
+        """When server_endpoint is empty, only the public endpoint is tried."""
+        set_sandbox_table_provider(lambda: fake_table)
+        set_rock_config_provider(
+            lambda: _fake_rock_config(
+                endpoint="oss-cn-shanghai.aliyuncs.com",
+                server_endpoint="",
+                keep_days=3,
+            )
+        )
+        fake_table.list_by_in = AsyncMock(
+            return_value=[_row("sb-1", state="stopped", stop_time=_iso_days_ago(5))]
+        )
+
+        task = SandboxLogArchiveTask(log_root="/data/logs")
+        runtime = _runtime(
+            [
+                _FakeExecResult(),  # cleanup stale archives
+                _FakeExecResult(stdout="sb-1"),  # discover
+                _FakeExecResult(),  # archive (public)
+            ]
+        )
+
+        result = await task.run_action(runtime)
+
+        assert result["archived"] == 1
+        assert result["failed"] == 0
+        assert runtime.execute.await_count == 3
+        archive_cmd = runtime.execute.await_args_list[2].args[0].command
+        assert "oss-cn-shanghai.aliyuncs.com" in archive_cmd
+
+    @pytest.mark.asyncio
+    async def test_server_endpoint_first_success(self, fake_table):
+        """When server_endpoint succeeds, public endpoint is not tried."""
+        set_sandbox_table_provider(lambda: fake_table)
+        set_rock_config_provider(
+            lambda: _fake_rock_config(
+                endpoint="oss-cn-shanghai.aliyuncs.com",
+                server_endpoint="cn-shanghai.oss.aliyuncs.com",
+                keep_days=3,
+            )
+        )
+        fake_table.list_by_in = AsyncMock(
+            return_value=[_row("sb-1", state="stopped", stop_time=_iso_days_ago(5))]
+        )
+
+        task = SandboxLogArchiveTask(log_root="/data/logs")
+        runtime = _runtime(
+            [
+                _FakeExecResult(),  # cleanup stale archives
+                _FakeExecResult(stdout="sb-1"),  # discover
+                _FakeExecResult(),  # archive (server_endpoint) → success
+            ]
+        )
+
+        result = await task.run_action(runtime)
+
+        assert result["archived"] == 1
+        assert result["failed"] == 0
+        assert runtime.execute.await_count == 3
+        archive_cmd = runtime.execute.await_args_list[2].args[0].command
+        assert "cn-shanghai.oss.aliyuncs.com" in archive_cmd
+        # Public endpoint must NOT be used
+        assert "oss-cn-shanghai.aliyuncs.com" not in archive_cmd
+
+    @pytest.mark.asyncio
+    async def test_server_endpoint_fail_public_fallback_success(self, fake_table):
+        """server_endpoint failure → falls back to public endpoint and succeeds."""
+        set_sandbox_table_provider(lambda: fake_table)
+        set_rock_config_provider(
+            lambda: _fake_rock_config(
+                endpoint="oss-cn-shanghai.aliyuncs.com",
+                server_endpoint="cn-shanghai.oss.aliyuncs.com",
+                keep_days=3,
+            )
+        )
+        fake_table.list_by_in = AsyncMock(
+            return_value=[_row("sb-1", state="stopped", stop_time=_iso_days_ago(5))]
+        )
+
+        task = SandboxLogArchiveTask(log_root="/data/logs")
+        runtime = _runtime(
+            [
+                _FakeExecResult(),  # cleanup stale archives
+                _FakeExecResult(stdout="sb-1"),  # discover
+                RuntimeError("in-vpc endpoint blackholed"),  # archive attempt 1
+                _FakeExecResult(),  # archive attempt 2 (public) succeeds
+            ]
+        )
+
+        result = await task.run_action(runtime)
+
+        assert result["archived"] == 1
+        assert result["failed"] == 0
+        assert runtime.execute.await_count == 4
+        # 1st archive attempt: server_endpoint
+        assert (
+            "cn-shanghai.oss.aliyuncs.com"
+            in runtime.execute.await_args_list[2].args[0].command
+        )
+        # 2nd archive attempt: public endpoint
+        assert (
+            "oss-cn-shanghai.aliyuncs.com"
+            in runtime.execute.await_args_list[3].args[0].command
+        )
+
+    @pytest.mark.asyncio
+    async def test_both_endpoints_fail_records_failure(self, fake_table):
+        """When both endpoints fail, the sandbox is counted as failed."""
+        set_sandbox_table_provider(lambda: fake_table)
+        set_rock_config_provider(
+            lambda: _fake_rock_config(
+                endpoint="oss-cn-shanghai.aliyuncs.com",
+                server_endpoint="cn-shanghai.oss.aliyuncs.com",
+                keep_days=3,
+            )
+        )
+        fake_table.list_by_in = AsyncMock(
+            return_value=[_row("sb-1", state="stopped", stop_time=_iso_days_ago(5))]
+        )
+
+        task = SandboxLogArchiveTask(log_root="/data/logs")
+        runtime = _runtime(
+            [
+                _FakeExecResult(),  # cleanup stale archives
+                _FakeExecResult(stdout="sb-1"),  # discover
+                RuntimeError("in-vpc endpoint blackholed"),  # attempt 1
+                RuntimeError("public endpoint also down"),  # attempt 2
+            ]
+        )
+
+        result = await task.run_action(runtime)
+
+        assert result["archived"] == 0
+        assert result["failed"] == 1
+        assert runtime.execute.await_count == 4
+
+    @pytest.mark.asyncio
+    async def test_duplicate_endpoints_deduped(self, fake_table):
+        """If server_endpoint == endpoint, we only attempt once (dedupe)."""
+        set_sandbox_table_provider(lambda: fake_table)
+        set_rock_config_provider(
+            lambda: _fake_rock_config(
+                endpoint="oss-cn-shanghai.aliyuncs.com",
+                server_endpoint="oss-cn-shanghai.aliyuncs.com",
+                keep_days=3,
+            )
+        )
+        fake_table.list_by_in = AsyncMock(
+            return_value=[_row("sb-1", state="stopped", stop_time=_iso_days_ago(5))]
+        )
+
+        task = SandboxLogArchiveTask(log_root="/data/logs")
+        runtime = _runtime(
+            [
+                _FakeExecResult(),  # cleanup stale archives
+                _FakeExecResult(stdout="sb-1"),  # discover
+                RuntimeError("primary endpoint down"),  # attempt 1 — no fallback
+            ]
+        )
+
+        result = await task.run_action(runtime)
+
+        assert result["archived"] == 0
+        assert result["failed"] == 1
+        # Only one archive attempt after cleanup + discover
+        assert runtime.execute.await_count == 3
