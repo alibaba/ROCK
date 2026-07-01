@@ -101,12 +101,18 @@ class DockerRegistryV2ImageStorage(AbstractImageStorage):
         return {"Authorization": f"Bearer {token}"}
 
     async def exists(self, image_ref: str) -> bool:
-        async with self._docker_auth() as env:
-            try:
-                await self._docker_cmd("docker", "manifest", "inspect", "--insecure", image_ref, env=env)
-                return True
-            except RuntimeError:
+        registry, name, tag = self._parse_ref(image_ref)
+        base_url = await self._registry_base_url(registry)
+        accept = "application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json"
+        async with httpx.AsyncClient() as client:
+            auth_headers = await self._resolve_auth_headers(client, base_url, name)
+            if not auth_headers:
                 return False
+            resp = await client.head(
+                f"{base_url}/v2/{name}/manifests/{tag}",
+                headers={**auth_headers, "Accept": accept},
+            )
+            return resp.status_code == 200
 
     def _docker_auth(self):
         return _DockerAuthContext(self) if self._has_auth else _NoAuthContext()
