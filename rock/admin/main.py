@@ -146,6 +146,7 @@ async def lifespan(app: FastAPI):
     scheduler_thread = None
 
     # init sandbox service
+    proxy_service_ref = None
     if env_vars.ROCK_ADMIN_ROLE == "admin":
         # init ray service
         ray_service = RayService(rock_config.ray)
@@ -201,6 +202,7 @@ async def lifespan(app: FastAPI):
     else:
         sandbox_manager = SandboxProxyService(rock_config=rock_config, meta_store=meta_store)
         set_sandbox_proxy_service(sandbox_manager)
+        proxy_service_ref = sandbox_manager
 
     logger.info("rock-admin start")
 
@@ -210,6 +212,10 @@ async def lifespan(app: FastAPI):
     if scheduler_thread:
         scheduler_thread.stop()
         logger.info("Scheduler thread stopped")
+
+    if proxy_service_ref is not None:
+        await proxy_service_ref.aclose()
+        logger.info("proxy httpx clients closed")
 
     if db_provider:
         await db_provider.close()
