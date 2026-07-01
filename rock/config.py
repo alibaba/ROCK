@@ -176,7 +176,6 @@ class ArchiveConfig:
     allowed_keys: list[str] | None = None
     dir_storage: ArchiveDirStorageConfig = field(default_factory=ArchiveDirStorageConfig)
     acr: ArchiveAcrConfig = field(default_factory=ArchiveAcrConfig)
-    max_retries: int = 3
     prefix: str = "rock-archives/"
     max_image_push_size: str = "16g"
     max_dir_upload_size: str = "16g"
@@ -606,7 +605,6 @@ class RockConfig:
             runtime_overrides = nacos_result["runtime"]
             if "instance_registry_mirrors" in runtime_overrides:
                 self.runtime.instance_registry_mirrors = list(runtime_overrides["instance_registry_mirrors"] or [])
-
 
         logger.info(
             f"Updated config from Nacos: sandbox_config={self.sandbox_config}, proxy_service={self.proxy_service}"
