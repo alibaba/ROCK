@@ -17,7 +17,7 @@ describe('SandboxConfigSchema', () => {
     expect(config.autoClearSeconds).toBe(300);
     expect(config.memory).toBe('8g');
     expect(config.cpus).toBe(2);
-    expect(config.cluster).toBe('zb');
+    expect(config.cluster).toBe(envVars.ROCK_DEFAULT_CLUSTER);
   });
 
   test('should allow custom values', () => {
@@ -63,13 +63,13 @@ describe('createSandboxConfig', () => {
   test('should create config with defaults', () => {
     const config = createSandboxConfig();
     expect(config.image).toBe('python:3.11');
-    expect(config.cluster).toBe('zb');
+    expect(config.cluster).toBe(envVars.ROCK_DEFAULT_CLUSTER);
   });
 
   test('should merge partial config', () => {
     const config = createSandboxConfig({ image: 'custom:latest' });
     expect(config.image).toBe('custom:latest');
-    expect(config.cluster).toBe('zb');
+    expect(config.cluster).toBe(envVars.ROCK_DEFAULT_CLUSTER);
   });
 });
 

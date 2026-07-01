@@ -39,7 +39,7 @@ describe('PythonRuntimeEnvConfig', () => {
         expect(result.data.type).toBe('python');
         expect(result.data.version).toBe('default');
         expect(result.data.pip).toBeNull();
-        expect(result.data.pipIndexUrl).toBeNull();
+        expect(result.data.pipIndexUrl).toBe('https://mirrors.aliyun.com/pypi/simple/');
         expect(result.data.extraSymlinkExecutables).toEqual(['python', 'python3', 'pip', 'pip3']);
       }
     });
@@ -131,7 +131,7 @@ describe('PythonRuntimeEnvConfig', () => {
         extraSymlinkDir: null,
         extraSymlinkExecutables: ['python', 'python3', 'pip', 'pip3'],
         pip: null,
-        pipIndexUrl: null,
+        pipIndexUrl: 'https://mirrors.aliyun.com/pypi/simple/',
       };
       expect(config.type).toBe('python');
     });

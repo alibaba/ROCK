@@ -2,6 +2,7 @@
  * Python runtime environment configuration and implementation
  */
 
+import { existsSync } from 'fs';
 import { z } from 'zod';
 import { RuntimeEnvConfigSchema } from './config.js';
 import { RuntimeEnv, type RuntimeEnvId, type SandboxLike } from './base.js';
@@ -27,7 +28,7 @@ export const PythonRuntimeEnvConfigSchema = RuntimeEnvConfigSchema.extend({
   pip: z.union([z.array(z.string()), z.string()]).nullable().default(null),
 
   /** Pip index URL for package installation. If set, will use this mirror. */
-  pipIndexUrl: z.string().nullable().default(null),
+  pipIndexUrl: z.string().nullable().default(() => envVars.ROCK_PIP_INDEX_URL),
 
   /** List of Python executables to symlink. */
   extraSymlinkExecutables: z.array(z.string()).default(['python', 'python3', 'pip', 'pip3']),
@@ -124,11 +125,21 @@ export class PythonRuntimeEnv extends RuntimeEnv {
     }
 
     if (typeof this._pip === 'string') {
-      // Treat as requirements.txt path - note: for remote sandbox, local file upload
-      // would need to be handled differently. For now, we assume the file is already
-      // in the sandbox or use the array form.
-      // This is a simplified implementation - the Python SDK handles local file upload.
-      await this.run(`pip install -r '${this._pip.replace(/'/g, "'\\''")}'`);
+      // Treat as requirements.txt path
+      // If it's a local file, upload it to the sandbox first
+      let remotePath: string;
+      if (existsSync(this._pip)) {
+        if (!this._sandbox.uploadByPath) {
+          throw new Error('Sandbox does not support uploadByPath, cannot upload local requirements file');
+        }
+        const originalFilename = this._pip.split('/').pop() || 'requirements.txt';
+        remotePath = `${this._workdir}/${originalFilename}`;
+        await this._sandbox.uploadByPath(this._pip, remotePath);
+      } else {
+        // Assume the file is already in the sandbox at the specified path
+        remotePath = this._pip;
+      }
+      await this.run(`pip install -r '${remotePath.replace(/'/g, "'\\''")}'`);
     } else {
       // Treat as list of packages
       const packages = this._pip.map((pkg) => `'${pkg.replace(/'/g, "'\\''")}'`).join(' ');

@@ -3,7 +3,9 @@
  */
 
 import { z } from 'zod';
+import { readFileSync, existsSync } from 'fs';
 import { randomUUID } from 'crypto';
+import YAML from 'yaml';
 import { envVars } from '../../env_vars.js';
 import type { ModelServiceConfig } from '../model_service/base.js';
 
@@ -56,7 +58,10 @@ export const DefaultAgentConfigSchema = z.object({
 export type DefaultAgentConfig = z.infer<typeof DefaultAgentConfigSchema>;
 
 /**
- * RockAgent configuration schema with validation
+ * RockAgent configuration schema with validation.
+ *
+ * runtimeEnvConfig defaults to a Python runtime environment config, matching
+ * Python's Field(default_factory=PythonRuntimeEnvConfig).
  */
 export const RockAgentConfigSchema = z
   .object({
@@ -90,7 +95,14 @@ export const RockAgentConfigSchema = z
     runCmd: z.string().nullable().default(null),
     skipWrapRunCmd: z.boolean().default(false),
 
-    runtimeEnvConfig: z.any().nullable().default(null),
+    /**
+     * Runtime environment configuration for the agent.
+     * Defaults to a Python runtime env config, matching Python's
+     * Field(default_factory=PythonRuntimeEnvConfig).
+     *
+     * Must be an object with at least a `type` field.
+     */
+    runtimeEnvConfig: z.record(z.unknown()).nullable().default(null),
     modelServiceConfig: z.custom<ModelServiceConfig>().nullable().default(null),
   })
   .refine((data) => data.agentRunCheckInterval < data.agentRunTimeout, {
@@ -98,3 +110,27 @@ export const RockAgentConfigSchema = z
   });
 
 export type RockAgentConfig = z.infer<typeof RockAgentConfigSchema>;
+
+/**
+ * Load RockAgentConfig from a YAML file path.
+ *
+ * Supports .yaml and .yml files. Throws on missing file, invalid format,
+ * or schema validation failure.
+ *
+ * @param filePath - Path to the YAML config file
+ * @returns Parsed and validated RockAgentConfig
+ */
+export function loadRockAgentConfigFromYaml(filePath: string): RockAgentConfig {
+  if (!existsSync(filePath)) {
+    throw new Error(`Agent config file not found: ${filePath}`);
+  }
+
+  const ext = filePath.split('.').pop()?.toLowerCase();
+  if (ext !== 'yaml' && ext !== 'yml') {
+    throw new Error(`Unsupported config file format: .${ext}. Only .yaml/.yml is supported.`);
+  }
+
+  const raw = readFileSync(filePath, 'utf-8');
+  const configDict = YAML.parse(raw);
+  return RockAgentConfigSchema.parse(configDict);
+}
