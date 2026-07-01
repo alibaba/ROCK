@@ -19,6 +19,13 @@ class State(str, Enum):
     DELETED = "deleted"
 
 
+class StateTransitionRecord(BaseModel):
+    from_state: str
+    to_state: str
+    event: str
+    timestamp: str
+
+
 class IsAliveResponse(BaseModel):
     """Response to the is_alive request.
 
@@ -55,7 +62,7 @@ class SandboxStatusResponse(BaseModel):
     start_time: str | None = None
     stop_time: str | None = None
     create_time: str | None = None
-    state_history: list[dict[str, str]] = []
+    state_history: list[StateTransitionRecord] = []
 
 
 class CommandResponse(BaseModel):

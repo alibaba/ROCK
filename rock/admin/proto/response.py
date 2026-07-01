@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 
 from rock.actions import SandboxResponse
-from rock.actions.sandbox.response import State
+from rock.actions.sandbox.response import State, StateTransitionRecord
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.proto.request import TaskSetSpec
 
@@ -14,13 +14,6 @@ class SandboxStartResponse(SandboxResponse):
     memory: str | None = None
     disk: str | None = None
     disk_limit_rootfs: str | None = Field(default=None, deprecated="Use 'disk' instead")
-
-
-class StateTransitionRecord(BaseModel):
-    from_state: str
-    to_state: str
-    event: str
-    timestamp: str
 
 
 # TODO: inherit from SandboxStartResponse

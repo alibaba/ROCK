@@ -1,6 +1,6 @@
 from typing import Any, TypedDict
 
-from rock.actions.sandbox.response import State
+from rock.actions.sandbox.response import State, StateTransitionRecord
 from rock.deployments.status import PhaseStatus
 
 
@@ -27,7 +27,7 @@ class SandboxInfo(TypedDict, total=False):
     stop_time: str
     delete_time: str
     extended_params: dict[str, str]
-    state_history: list[dict[str, str]]
+    state_history: list[StateTransitionRecord]
 
 
 _SANDBOX_INFO_KEYS = frozenset(SandboxInfo.__annotations__.keys())
