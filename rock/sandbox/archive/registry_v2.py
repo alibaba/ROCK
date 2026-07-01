@@ -63,6 +63,9 @@ class DockerRegistryV2ImageStorage(AbstractImageStorage):
                 f"{base_url}/v2/{name}/manifests/{tag}",
                 headers={**auth_headers, "Accept": accept},
             )
+            if resp.status_code == 401:
+                logger.warning(f"delete: unauthorized fetching manifest for {image_ref} (status=401)")
+                return False
             if resp.status_code != 200:
                 return False
             digest = resp.headers.get("Docker-Content-Digest")
@@ -78,6 +81,7 @@ class DockerRegistryV2ImageStorage(AbstractImageStorage):
         www_auth = challenge.headers.get("Www-Authenticate", "")
 
         if www_auth.lower().startswith("basic"):
+            logger.debug(f"auth: using Basic auth for {base_url}")
             creds = base64.b64encode(f"{self._username}:{self._password}".encode()).decode()
             return {"Authorization": f"Basic {creds}"}
 
@@ -86,18 +90,25 @@ class DockerRegistryV2ImageStorage(AbstractImageStorage):
         m = re.search(r'service="([^"]+)"', www_auth)
         service = m.group(1) if m else None
         if not realm or not service:
+            logger.warning(f"auth: unable to parse Www-Authenticate header: {www_auth}")
             return None
 
+        scope = f"repository:{repo_name}:pull,push,delete"
         token_resp = await client.get(
             realm,
-            params={"service": service, "scope": f"repository:{repo_name}:pull,push,delete"},
+            params={"service": service, "scope": scope},
             auth=(self._username, self._password),
         )
         if token_resp.status_code != 200:
+            logger.warning(
+                f"auth: token request failed (status={token_resp.status_code}, realm={realm}, scope={scope})"
+            )
             return None
         token = token_resp.json().get("token")
         if not token:
+            logger.warning(f"auth: token response missing 'token' field (realm={realm})")
             return None
+        logger.debug(f"auth: obtained Bearer token for {repo_name} (realm={realm})")
         return {"Authorization": f"Bearer {token}"}
 
     async def exists(self, image_ref: str) -> bool:
