@@ -80,8 +80,8 @@ class TestArchiveSandbox:
         assert kwargs["image_storage"] is manager._image_storage
         assert "archive_params" in kwargs
 
-    async def test_unsupported_operator_raises(self, manager, sm_stopped):
-        manager._operator.supports_archive.return_value = False
+    async def test_no_operator_raises(self, manager, sm_stopped):
+        manager._operator = None
         with pytest.raises(BadRequestRockError):
             await manager.archive_sandbox("sbx-1")
 

@@ -105,8 +105,8 @@ class TestCheckArchiveProgress:
         sm_mock.send.assert_called_once()
         assert sm_mock.send.call_args[0][0] == "archive_failed"
 
-    async def test_operator_not_supporting_archive_returns_early(self, manager):
-        manager._operator.supports_archive.return_value = False
+    async def test_storage_not_configured_returns_early(self, manager):
+        manager._dir_storage = None
         manager._meta_store.list_by = AsyncMock()
         await manager._reconcile_archiving()
         manager._meta_store.list_by.assert_not_called()
