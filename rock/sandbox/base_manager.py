@@ -14,6 +14,7 @@ from rock.deployments.manager import DeploymentManager
 from rock.logger import init_logger
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.utils import get_executor
+from rock.utils.system import is_primary_pod
 
 logger = init_logger(__name__)
 
@@ -73,14 +74,18 @@ class BaseManager(ABC):
             id="job_check",
             name="Sandbox Job Check",
         )
-        self.scheduler.add_job(
-            func=self._reconcile,
-            trigger=IntervalTrigger(seconds=self._reconcile_interval),
-            id="reconcile",
-            name="Sandbox Reconcile",
-        )
+        if is_primary_pod():
+            self.scheduler.add_job(
+                func=self._reconcile,
+                trigger=IntervalTrigger(seconds=self._reconcile_interval),
+                id="reconcile",
+                name="Sandbox Reconcile",
+            )
+            logger.info("Reconcile job registered (primary pod)")
+        else:
+            logger.info("Reconcile job skipped (non-primary pod)")
         self.scheduler.start()
-        logger.info("APScheduler started for job check and reconcile")
+        logger.info("APScheduler started for job check")
 
     async def _collect_and_report_metrics(self):
         start_time = time.time()
