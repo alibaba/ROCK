@@ -538,3 +538,144 @@ def test_compute_object_name_empty_string_prefix_is_treated_as_empty():
         prefix="",
     )
     assert "/" not in name
+
+
+# ---------------------------------------------------------------------------
+# server_endpoint propagation
+# ---------------------------------------------------------------------------
+
+
+class TestServerEndpoint:
+    """Verify the new server_endpoint field is properly resolved and used."""
+
+    def test_resolve_config_picks_server_endpoint_from_response(self):
+        """When server response includes ServerEndpoint, it lands in config."""
+        cfg = OssClient._resolve_config(
+            {
+                "Endpoint": "oss-cn-shanghai.aliyuncs.com",
+                "ServerEndpoint": "cn-shanghai.oss.aliyuncs.com",
+                "Bucket": "my-bucket",
+                "Region": "cn-shanghai",
+            }
+        )
+        assert cfg.endpoint == "oss-cn-shanghai.aliyuncs.com"
+        assert cfg.server_endpoint == "cn-shanghai.oss.aliyuncs.com"
+
+    def test_resolve_config_server_endpoint_empty_when_absent(self):
+        """When server response lacks ServerEndpoint, field defaults to empty."""
+        cfg = OssClient._resolve_config(
+            {
+                "Endpoint": "oss-cn-shanghai.aliyuncs.com",
+                "Bucket": "my-bucket",
+                "Region": "cn-shanghai",
+            }
+        )
+        assert cfg.server_endpoint == ""
+
+    def test_resolve_config_server_endpoint_none_treated_as_empty(self):
+        """Explicit None for ServerEndpoint is normalized to empty string."""
+        cfg = OssClient._resolve_config(
+            {
+                "Endpoint": "pub.oss",
+                "ServerEndpoint": None,
+                "Bucket": "b",
+                "Region": "r",
+            }
+        )
+        assert cfg.server_endpoint == ""
+
+    async def test_download_via_oss_uses_server_endpoint_when_set(self, tmp_path):
+        """ossutil cp inside sandbox MUST use server_endpoint when configured."""
+        sandbox = _make_sandbox()
+        sandbox.sandbox_id = "sb-dl"
+        sandbox.execute = AsyncMock(return_value=MagicMock(exit_code=0))
+        sandbox.arun = AsyncMock(return_value=MagicMock(exit_code=0, output=""))
+
+        client = OssClient(sandbox)
+        client._bucket = MagicMock()
+        client._client_config = OssClientConfig(
+            endpoint="oss-cn-shanghai.aliyuncs.com",
+            bucket="my-bucket",
+            region="cn-shanghai",
+            server_endpoint="cn-shanghai.oss.aliyuncs.com",
+        )
+        # Force token not expired so it still calls _get_sts_credentials
+        client._token_expire_time = "2000-01-01T00:00:00Z"
+
+        with (
+            patch("rock.sdk.sandbox.oss_client.HttpUtils") as mock_http,
+            patch("rock.sdk.sandbox.oss_client.oss2") as mock_oss2,
+        ):
+            mock_http.get = AsyncMock(
+                return_value={
+                    "status": "Success",
+                    "result": {
+                        "AccessKeyId": "ak",
+                        "AccessKeySecret": "sk",
+                        "SecurityToken": "tok",
+                        "Expiration": "2099-01-01T00:00:00Z",
+                    },
+                }
+            )
+            mock_oss2.StsAuth = MagicMock()
+            mock_bucket = MagicMock()
+            mock_oss2.Bucket = MagicMock(return_value=mock_bucket)
+            # Make the local file exist after get_object_to_file
+            local_file = tmp_path / "out.txt"
+            mock_bucket.get_object_to_file = MagicMock(side_effect=lambda k, p: local_file.write_text("ok"))
+
+            response = await client.download_via_oss("/sandbox/file.txt", local_file)
+
+        assert response.success is True
+        # Verify the ossutil command used the INTERNAL server_endpoint
+        arun_cmd = sandbox.arun.await_args.kwargs.get("cmd") or sandbox.arun.await_args.args[0]
+        assert "cn-shanghai.oss.aliyuncs.com" in arun_cmd
+        assert "oss-cn-shanghai.aliyuncs.com" not in arun_cmd
+        # But the host-side oss2.Bucket uses the PUBLIC endpoint
+        oss2_bucket_call = mock_oss2.Bucket.call_args
+        assert oss2_bucket_call.args[1] == "oss-cn-shanghai.aliyuncs.com"
+
+    async def test_download_via_oss_falls_back_to_endpoint_when_server_endpoint_empty(self, tmp_path):
+        """When server_endpoint is empty, ossutil should fall back to endpoint."""
+        sandbox = _make_sandbox()
+        sandbox.sandbox_id = "sb-dl2"
+        sandbox.execute = AsyncMock(return_value=MagicMock(exit_code=0))
+        sandbox.arun = AsyncMock(return_value=MagicMock(exit_code=0, output=""))
+
+        client = OssClient(sandbox)
+        client._bucket = MagicMock()
+        client._client_config = OssClientConfig(
+            endpoint="oss-cn-shanghai.aliyuncs.com",
+            bucket="my-bucket",
+            region="cn-shanghai",
+            server_endpoint="",  # empty → fall back
+        )
+        client._token_expire_time = "2000-01-01T00:00:00Z"
+
+        with (
+            patch("rock.sdk.sandbox.oss_client.HttpUtils") as mock_http,
+            patch("rock.sdk.sandbox.oss_client.oss2") as mock_oss2,
+        ):
+            mock_http.get = AsyncMock(
+                return_value={
+                    "status": "Success",
+                    "result": {
+                        "AccessKeyId": "ak",
+                        "AccessKeySecret": "sk",
+                        "SecurityToken": "tok",
+                        "Expiration": "2099-01-01T00:00:00Z",
+                    },
+                }
+            )
+            mock_oss2.StsAuth = MagicMock()
+            mock_bucket = MagicMock()
+            mock_oss2.Bucket = MagicMock(return_value=mock_bucket)
+            local_file = tmp_path / "out2.txt"
+            mock_bucket.get_object_to_file = MagicMock(side_effect=lambda k, p: local_file.write_text("ok"))
+
+            response = await client.download_via_oss("/sandbox/file.txt", local_file)
+
+        assert response.success is True
+        arun_cmd = sandbox.arun.await_args.kwargs.get("cmd") or sandbox.arun.await_args.args[0]
+        # Falls back to the public endpoint
+        assert "oss-cn-shanghai.aliyuncs.com" in arun_cmd

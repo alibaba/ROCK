@@ -130,6 +130,80 @@ def test_oss_config_primary_dict_coerced():
     assert cfg.bucket == ""
 
 
+def test_oss_account_config_server_endpoint_default_empty():
+    from rock.config import OssAccountConfig
+
+    cfg = OssAccountConfig()
+    assert cfg.server_endpoint == ""
+
+
+def test_oss_account_config_server_endpoint_from_dict():
+    from rock.config import OssConfig
+
+    cfg = OssConfig(
+        primary={
+            "endpoint": "oss-cn-shanghai.aliyuncs.com",
+            "server_endpoint": "cn-shanghai.oss.aliyuncs.com",
+            "bucket": "my-bucket",
+            "access_key_id": "a",
+            "access_key_secret": "s",
+            "role_arn": "r",
+            "region": "cn-shanghai",
+        }
+    )
+    assert cfg.primary.endpoint == "oss-cn-shanghai.aliyuncs.com"
+    assert cfg.primary.server_endpoint == "cn-shanghai.oss.aliyuncs.com"
+
+
+def test_oss_config_deep_merge_server_endpoint_inherited(tmp_path):
+    """_deep_merge correctly inherits server_endpoint from base to child."""
+    base = {
+        "oss": {
+            "primary": {
+                "endpoint": "oss-cn-shanghai.aliyuncs.com",
+                "server_endpoint": "cn-shanghai.oss.aliyuncs.com",
+                "bucket": "b",
+                "access_key_id": "a",
+                "access_key_secret": "s",
+                "role_arn": "r",
+                "region": "cn-shanghai",
+            }
+        }
+    }
+    # Child overrides only endpoint (non-VPC scenario) — server_endpoint inherited
+    override = {
+        "oss": {
+            "primary": {
+                "endpoint": "oss-cn-hangzhou.aliyuncs.com",
+            }
+        }
+    }
+    merged = RockConfig._deep_merge(base, override)
+    assert merged["oss"]["primary"]["server_endpoint"] == "cn-shanghai.oss.aliyuncs.com"
+
+
+def test_oss_config_deep_merge_server_endpoint_override_empty(tmp_path):
+    """Child can explicitly override server_endpoint to empty to disable it."""
+    base = {
+        "oss": {
+            "primary": {
+                "endpoint": "oss-cn-shanghai.aliyuncs.com",
+                "server_endpoint": "cn-shanghai.oss.aliyuncs.com",
+                "bucket": "b",
+            }
+        }
+    }
+    override = {
+        "oss": {
+            "primary": {
+                "server_endpoint": "",  # explicit clear
+            }
+        }
+    }
+    merged = RockConfig._deep_merge(base, override)
+    assert merged["oss"]["primary"]["server_endpoint"] == ""
+
+
 def test_sandbox_log_config_defaults():
     from rock.config import SandboxLogConfig
 

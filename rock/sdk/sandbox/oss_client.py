@@ -36,6 +36,13 @@ class OssClientConfig:
     bucket: str
     region: str
     prefix: str = ""  # Transfer-object key prefix from server response (e.g. "rock-transfer/")
+    server_endpoint: str = ""
+    """In-VPC OSS endpoint used by code that runs on the ROCK server side —
+    e.g. `ossutil cp --endpoint` invoked INSIDE the sandbox container by
+    `download_via_oss`. Distinct from `endpoint`, which is the user/SDK-facing
+    endpoint (used by host-side oss2.Bucket on the developer's machine).
+    Empty = no separate server endpoint configured; callers MUST fall back
+    to `endpoint`."""
 
 
 class OssClient:
@@ -84,6 +91,10 @@ class OssClient:
                 bucket=resp_bucket,
                 region=resp_region,
                 prefix=sts_response.get("Prefix") or "",
+                # `ServerEndpoint` is the in-VPC endpoint used by ROCK server-side
+                # components (ossutil cp inside the sandbox container). Optional;
+                # empty = use `endpoint`.
+                server_endpoint=sts_response.get("ServerEndpoint") or "",
             )
 
         # OSS unavailable: server did not supply a complete config.
@@ -273,12 +284,17 @@ class OssClient:
         )
         oss_url = f"oss://{self._client_config.bucket}/{oss_object_name}"
 
+        # ossutil runs INSIDE the sandbox container (in the VPC). Prefer the
+        # in-VPC `server_endpoint` when configured, to avoid public bandwidth
+        # cost and reduce latency. Fall back to `endpoint` for legacy / single-
+        # endpoint deployments.
+        resolved_server_endpoint = self._client_config.server_endpoint or self._client_config.endpoint
         ossutil_inner = (
             f"ossutil cp {shlex.quote(remote_path)} {shlex.quote(oss_url)}"
             f" --access-key-id {shlex.quote(access_key_id)}"
             f" --access-key-secret {shlex.quote(access_key_secret)}"
             f" --sts-token {shlex.quote(security_token)}"
-            f" --endpoint {shlex.quote(self._client_config.endpoint)}"
+            f" --endpoint {shlex.quote(resolved_server_endpoint)}"
             f" --region {shlex.quote(self._client_config.region)}"
         )
         upload_cmd = f"bash -c {shlex.quote(ossutil_inner)}"

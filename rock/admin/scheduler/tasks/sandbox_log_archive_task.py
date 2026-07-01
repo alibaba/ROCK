@@ -139,7 +139,10 @@ class SandboxLogArchiveTask(BaseTask):
 
         primary = rock_config.oss.primary
         bucket = primary.bucket
-        endpoint = primary.endpoint
+        # Workers sit inside the VPC, so prefer the in-VPC endpoint when set.
+        # Falls back to the public `endpoint` for legacy YAMLs that only have
+        # one endpoint configured.
+        endpoint = primary.server_endpoint or primary.endpoint
         access_key_id = primary.access_key_id
         access_key_secret = primary.access_key_secret
         if not (bucket and endpoint and access_key_id and access_key_secret):

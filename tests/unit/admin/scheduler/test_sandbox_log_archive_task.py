@@ -58,6 +58,7 @@ def _fake_rock_config(
             primary=SimpleNamespace(
                 bucket=bucket,
                 endpoint=endpoint,
+                server_endpoint="",
                 access_key_id=access_key_id,
                 access_key_secret=access_key_secret,
             )
@@ -426,3 +427,105 @@ class TestArchiveCommand:
 
         assert result["archived"] == 1
         assert result["failed"] == 1
+
+
+# ---------------------------------------------------------------------------
+# server_endpoint: VPC internal endpoint selection
+# ---------------------------------------------------------------------------
+
+
+def _fake_rock_config_with_server_endpoint(
+    bucket="b",
+    endpoint="oss-cn-shanghai.aliyuncs.com",
+    server_endpoint="cn-shanghai.oss.aliyuncs.com",
+    access_key_id="AKID",
+    access_key_secret="AKSEC",
+    keep_days=3,
+    archive_prefix="rock-archives/",
+):
+    return SimpleNamespace(
+        oss=SimpleNamespace(
+            primary=SimpleNamespace(
+                bucket=bucket,
+                endpoint=endpoint,
+                server_endpoint=server_endpoint,
+                access_key_id=access_key_id,
+                access_key_secret=access_key_secret,
+            )
+        ),
+        sandbox_config=SimpleNamespace(
+            log=SimpleNamespace(
+                keep_days_before_archive=keep_days,
+                archive_prefix=archive_prefix,
+            )
+        ),
+    )
+
+
+class TestServerEndpoint:
+    """Verify SandboxLogArchiveTask uses server_endpoint when present."""
+
+    @pytest.mark.asyncio
+    async def test_uses_server_endpoint_for_archive_command(self, fake_table):
+        """When server_endpoint is configured, the archive shell command
+        should reference the internal endpoint, not the public one."""
+        set_sandbox_table_provider(lambda: fake_table)
+        set_rock_config_provider(
+            lambda: _fake_rock_config_with_server_endpoint(
+                endpoint="oss-cn-shanghai.aliyuncs.com",
+                server_endpoint="cn-shanghai.oss.aliyuncs.com",
+            )
+        )
+        fake_table.list_by_in = AsyncMock(
+            return_value=[_row("sb-vpc", state="stopped", stop_time=_iso_days_ago(5))]
+        )
+
+        task = SandboxLogArchiveTask(log_root="/data/logs")
+        runtime = _runtime([_FakeExecResult(), _FakeExecResult(stdout="sb-vpc"), _FakeExecResult()])
+
+        await task.run_action(runtime)
+
+        archive_cmd = runtime.execute.await_args_list[2].args[0].command
+        assert "cn-shanghai.oss.aliyuncs.com" in archive_cmd
+        # Public endpoint should NOT appear in the command
+        assert "oss-cn-shanghai.aliyuncs.com" not in archive_cmd
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_endpoint_when_server_endpoint_empty(self, fake_table):
+        """When server_endpoint is empty, the task falls back to endpoint."""
+        set_sandbox_table_provider(lambda: fake_table)
+        set_rock_config_provider(
+            lambda: _fake_rock_config_with_server_endpoint(
+                endpoint="oss-cn-shanghai.aliyuncs.com",
+                server_endpoint="",  # empty → fallback
+            )
+        )
+        fake_table.list_by_in = AsyncMock(
+            return_value=[_row("sb-pub", state="stopped", stop_time=_iso_days_ago(5))]
+        )
+
+        task = SandboxLogArchiveTask(log_root="/data/logs")
+        runtime = _runtime([_FakeExecResult(), _FakeExecResult(stdout="sb-pub"), _FakeExecResult()])
+
+        await task.run_action(runtime)
+
+        archive_cmd = runtime.execute.await_args_list[2].args[0].command
+        assert "oss-cn-shanghai.aliyuncs.com" in archive_cmd
+
+    @pytest.mark.asyncio
+    async def test_skip_when_server_endpoint_set_but_bucket_empty(self, fake_table):
+        """Even with server_endpoint configured, skip if bucket is empty."""
+        set_sandbox_table_provider(lambda: fake_table)
+        set_rock_config_provider(
+            lambda: _fake_rock_config_with_server_endpoint(
+                bucket="",
+                server_endpoint="cn-shanghai.oss.aliyuncs.com",
+            )
+        )
+
+        task = SandboxLogArchiveTask(log_root="/data/logs")
+        runtime = _runtime([])
+        result = await task.run_action(runtime)
+
+        assert result["status"] == TaskStatusEnum.SUCCESS
+        assert "oss primary account not configured" in result["message"]
