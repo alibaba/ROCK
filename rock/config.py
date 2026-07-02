@@ -1,3 +1,4 @@
+import dataclasses
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -442,6 +443,24 @@ def _resolve_k8s_template_includes(k8s_dict: dict, base_dir: Path) -> None:
     k8s_dict["templates"] = merged
 
 
+def _merge_dataclass(target, overrides: dict):
+    """Recursively merge *overrides* into a dataclass instance.
+
+    For nested dataclass fields, only the keys present in *overrides* are
+    updated (deep merge) instead of replacing the entire sub-object.
+    """
+    for key, value in overrides.items():
+        if not hasattr(target, key):
+            continue
+        current = getattr(target, key)
+        if dataclasses.is_dataclass(current) and isinstance(value, dict):
+            _merge_dataclass(current, value)
+        else:
+            setattr(target, key, value)
+    if hasattr(target, "__post_init__"):
+        target.__post_init__()
+
+
 @dataclass
 class RockConfig:
     ray: RayConfig = field(default_factory=RayConfig)
@@ -628,16 +647,9 @@ class RockConfig:
             "lifecycle": (SandboxLifecycleConfig, "lifecycle"),
         }
 
-        # Update configs that are present in nacos_result (field-level merge,
-        # then re-run __post_init__ to coerce nested dicts → dataclasses)
-        for key, (_, attr_name) in config_map.items():
+        for key, (config_class, attr_name) in config_map.items():
             if key in nacos_result:
-                existing = getattr(self, attr_name)
-                for field_name, value in nacos_result[key].items():
-                    if hasattr(existing, field_name):
-                        setattr(existing, field_name, value)
-                if hasattr(existing, "__post_init__"):
-                    existing.__post_init__()
+                _merge_dataclass(getattr(self, attr_name), nacos_result[key])
 
         if "image_registry_mirrors" in nacos_result:
             raw_mirrors = nacos_result["image_registry_mirrors"] or []
