@@ -95,10 +95,17 @@ model-service = [
 ]
 
 
+opensandbox = [
+    # OpenSandbox Python SDK, used by the opensandbox operator backend
+    # (runtime.operator_type=opensandbox). See docs/plans/opensandbox-*.md.
+    "opensandbox>=0.1.13",
+]
+
 all = [
     "rl-rock[admin]",
     "rl-rock[rocklet]",
     "rl-rock[builder]",
+    "rl-rock[opensandbox]",
 ]
 
 [project.scripts]

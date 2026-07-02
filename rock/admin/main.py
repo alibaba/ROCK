@@ -161,6 +161,7 @@ async def lifespan(app: FastAPI):
             redis_provider=redis_provider,
             nacos_provider=rock_config.nacos_provider,
             k8s_config=rock_config.k8s,
+            opensandbox_config=rock_config.opensandbox,
         )
         operator = OperatorFactory.create_operator(operator_context)
 
