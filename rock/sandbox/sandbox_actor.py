@@ -394,27 +394,34 @@ class SandboxActor(GemActor):
                     f"[{sandbox_id}] log dir size {dir_size} bytes exceeds limit {max_dir} ({max_bytes} bytes)"
                 )
 
-        # Both checks passed — proceed with uploads
-        ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, acr_ns)
-        try:
-            await image_storage.push_from_local(local_tag, ref)
-        except Exception:
-            await self._run_shell_command("docker", "rmi", local_tag, check=False)
-            raise
-        await self._run_shell_command("docker", "rmi", local_tag, check=False)
-
+        # Both checks passed — proceed with uploads (dir first, then image)
+        dir_uploaded = False
         if has_log_dir:
             key = ArchiveKeys.dir_key(sandbox_id, prefix)
             try:
                 await dir_storage.upload_dir(log_dir, key)
+                dir_uploaded = True
             except Exception:
-                await image_storage.delete(ref)
+                await self._run_shell_command("docker", "rmi", local_tag, check=False)
                 raise
             shutil.rmtree(log_dir, ignore_errors=True)
         elif log_root:
             logger.info(f"[{sandbox_id}] log dir {log_dir} not found, skipping log archive")
         else:
             logger.info(f"[{sandbox_id}] ROCK_LOGGING_PATH not set, skipping log dir archive")
+
+        ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, acr_ns)
+        try:
+            await image_storage.push_from_local(local_tag, ref)
+        except Exception:
+            await self._run_shell_command("docker", "rmi", local_tag, check=False)
+            if dir_uploaded:
+                try:
+                    await dir_storage.delete(key)
+                except Exception:
+                    logger.warning(f"[{sandbox_id}] failed to cleanup dir {key} after image push failure")
+            raise
+        await self._run_shell_command("docker", "rmi", local_tag, check=False)
 
         await self._run_shell_command("docker", "rm", sandbox_id, check=False)
         logger.info(f"[{sandbox_id}] container removed after archive")

@@ -41,7 +41,7 @@ class TestCheckArchiveProgress:
         await manager._reconcile_archiving()
         manager._image_storage.exists.assert_not_called()
 
-    async def test_image_exists_triggers_archive_done(self, manager):
+    async def test_both_exist_triggers_archive_done(self, manager):
         info = {
             "sandbox_id": "sbx-1",
             "archive_time": "2026-01-01T000000Z",
@@ -57,6 +57,7 @@ class TestCheckArchiveProgress:
         }
         manager._meta_store.list_by = AsyncMock(return_value=[info])
         manager._image_storage.exists = AsyncMock(return_value=True)
+        manager._dir_storage.exists = AsyncMock(return_value=True)
 
         sm_mock = AsyncMock()
         sm_mock.current_state.value = State.ARCHIVING
@@ -73,6 +74,34 @@ class TestCheckArchiveProgress:
         sm_mock.send.assert_called_once()
         call_kwargs = sm_mock.send.call_args
         assert call_kwargs[0][0] == "archive_done"
+
+    async def test_image_exists_but_dir_missing_does_not_advance(self, manager):
+        now = datetime.now(timezone.utc).isoformat()
+        info = {
+            "sandbox_id": "sbx-1",
+            "archive_time": now,
+            "state_history": [
+                {
+                    "from_state": "stopped",
+                    "to_state": "archiving",
+                    "event": "archive",
+                    "timestamp": now,
+                }
+            ],
+            "state": State.ARCHIVING,
+        }
+        manager._meta_store.list_by = AsyncMock(return_value=[info])
+        manager._image_storage.exists = AsyncMock(return_value=True)
+        manager._dir_storage.exists = AsyncMock(return_value=False)
+
+        sm_mock = AsyncMock()
+        sm_mock.current_state.value = State.ARCHIVING
+        sm_mock.sandbox_info = info
+        manager._get_current_statemachine = AsyncMock(return_value=sm_mock)
+
+        await manager._reconcile_archiving()
+
+        sm_mock.send.assert_not_called()
 
     async def test_image_not_exist_within_timeout_skips(self, manager):
         now = datetime.now(timezone.utc).isoformat()
