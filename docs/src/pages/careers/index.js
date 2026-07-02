@@ -120,6 +120,10 @@ const papers = [
     title: 'ICML 2026 Factored Causal Representation Learning for Robust Reward Modeling in RLHF',
     href: 'https://arxiv.org/abs/2601.21350',
   },
+  {
+    title: 'ShopSimulator: Evaluating and Exploring RL-Driven LLM Agent for Shopping Assistants',
+    href: 'https://arxiv.org/abs/2601.18225',
+  },
 ];
 
 const projects = [
