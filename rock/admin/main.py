@@ -43,7 +43,7 @@ from rock.common.exception import request_validation_exception_handler
 from rock.config import DatabaseConfig, RockConfig, SchedulerConfig
 from rock.logger import init_logger, reset_log_file
 from rock.sandbox.gem_manager import GemManager
-from rock.sandbox.operator.factory import OperatorContext, OperatorFactory
+from rock.sandbox.operator.factory import OperatorContext, OperatorFactory, operator_requires_ray
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sandbox.service.warmup_service import WarmupService
@@ -150,9 +150,18 @@ async def lifespan(app: FastAPI):
     # init sandbox service
     proxy_service_ref = None
     if env_vars.ROCK_ADMIN_ROLE == "admin":
-        # init ray service
-        ray_service = RayService(rock_config.ray, executor=get_ray_executor())
-        ray_service.init()
+        # init ray service only for operators that need a local Ray cluster.
+        # opensandbox delegates the full lifecycle to an external service, so it
+        # boots without Ray.
+        ray_service = None
+        if operator_requires_ray(rock_config.runtime.operator_type):
+            ray_service = RayService(rock_config.ray, executor=get_ray_executor())
+            ray_service.init()
+        else:
+            logger.info(
+                "Skipping Ray init for operator_type=%s (ray-free backend)",
+                rock_config.runtime.operator_type,
+            )
 
         # create operator using factory with context pattern
         operator_context = OperatorContext(
