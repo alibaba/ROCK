@@ -1,11 +1,14 @@
 """K8s provider implementations for managing sandbox resources."""
 
+import base64
 import json
+import os
 import re
 from abc import ABC, abstractmethod
 from typing import Any, Protocol
 
 import yaml
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from kubernetes import client
 from kubernetes import config as k8s_config
 
@@ -195,6 +198,7 @@ class BatchSandboxProvider(K8sProvider):
         self._k8s_api: K8sApiClient | None = None
         self._initialized = False
         self._nacos_provider = None
+        self._image_auth_key = self._load_image_auth_key(k8s_config)
 
         # Initialize template loader with config templates
         self._template_loader = K8sTemplateLoader(
@@ -202,6 +206,27 @@ class BatchSandboxProvider(K8sProvider):
             default_namespace=k8s_config.namespace,
         )
         logger.info(f"Available K8S templates: {', '.join(self._template_loader.available_templates)}")
+
+    def _load_image_auth_key(self, k8s_config: K8sConfig) -> bytes | None:
+        """Load image auth encryption key from config or environment.
+
+        Args:
+            k8s_config: K8s configuration.
+
+        Returns:
+            32-byte key or None if not configured.
+        """
+        key_str = k8s_config.image_auth_key or os.environ.get("ROCK_IMAGE_AUTH_KEY", "")
+        if not key_str:
+            return None
+        key = key_str.encode("utf-8")
+        if len(key) != 32:
+            logger.warning(
+                f"ROCK_IMAGE_AUTH_KEY / K8sConfig.image_auth_key must be 32 bytes, got {len(key)}; "
+                "image auth encryption disabled"
+            )
+            return None
+        return key
 
     def set_nacos_provider(self, nacos_provider):
         """Set Nacos config provider for dynamic pool configuration.
@@ -572,7 +597,8 @@ class BatchSandboxProvider(K8sProvider):
         # Template mode: build from template
         template_name = self._get_template_name(config)
 
-        # Build manifest using template loader
+        # Build manifest using template loader. Auth info is passed to the
+        # template so the template itself decides where to render it.
         manifest = self._template_loader.build_manifest(
             template_name=template_name,
             sandbox_id=sandbox_id,
@@ -583,6 +609,7 @@ class BatchSandboxProvider(K8sProvider):
             num_gpus=config.num_gpus,
             accelerator_type=config.accelerator_type,
             limit_cpus=config.limit_cpus,
+            encrypted_image_auth=self._encrypt_image_auth(config),
         )
 
         logger.info(
@@ -590,6 +617,31 @@ class BatchSandboxProvider(K8sProvider):
             f"using template '{template_name}':\n{yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True)}"
         )
         return manifest
+
+    def _encrypt_image_auth(self, config: DockerDeploymentConfig) -> str | None:
+        """Encrypt registry credentials into the pouch auth format.
+
+        Returns:
+            Encrypted auth string, or None if no key/credentials are available.
+            The template can use ``{{ encrypted_image_auth | default('public', true) }}``
+            to render 'public' when this returns None.
+        """
+        if not self._image_auth_key:
+            return None
+        if not config.registry_username and not config.registry_password:
+            return None
+
+        try:
+            auth_plaintext = base64.b64encode(
+                json.dumps({"username": config.registry_username, "password": config.registry_password}).encode()
+            ).decode("ascii")
+            aesgcm = AESGCM(self._image_auth_key)
+            nonce = os.urandom(12)
+            ciphertext = aesgcm.encrypt(nonce, auth_plaintext.encode(), None)
+            return base64.b64encode(nonce + ciphertext).decode("ascii")
+        except Exception as e:
+            logger.warning(f"Failed to encrypt image auth for {config.container_name}: {e}")
+            return None
 
     async def _create(self, config: DockerDeploymentConfig) -> tuple[str, str]:
         """Create a BatchSandbox resource without waiting for IP allocation.
