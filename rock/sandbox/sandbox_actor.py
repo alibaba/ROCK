@@ -411,6 +411,11 @@ class SandboxActor(GemActor):
             logger.info(f"[{sandbox_id}] ROCK_LOGGING_PATH not set, skipping log dir archive")
 
         ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, acr_ns)
+        # Delete existing tag before push — some registries (ACR) reject overwrites.
+        try:
+            await image_storage.delete(ref)
+        except Exception:
+            pass
         try:
             await image_storage.push_from_local(local_tag, ref)
         except Exception:

@@ -108,10 +108,10 @@ class TestSandboxActorArchive:
             with pytest.raises(RuntimeError, match="upload failed"):
                 await actor.archive(dir_storage_config, image_storage_config)
 
-        mock_push.assert_called_once()
-        mock_delete_img.assert_called_once()
-        ref_arg = mock_delete_img.call_args[0][0]
-        assert "sbx-test-123" in ref_arg
+        # Dir upload happens before image push; failure aborts before push.
+        mock_push.assert_not_called()
+        # Local tag still cleaned up
+        actor._run_shell_command.assert_any_call("docker", "rmi", "archive-staging-sbx-test-123:latest", check=False)
 
     @patch("rock.sandbox.archive.registry_v2.DockerRegistryV2ImageStorage.push_from_local", new_callable=AsyncMock)
     async def test_no_logging_path_skips_log_archive(
