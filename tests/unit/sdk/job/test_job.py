@@ -299,3 +299,106 @@ class TestJobResultRawOutputAndExitCode:
 
         assert result.exit_code == 7
         assert result.raw_output == "err"
+
+
+# ---------------------------------------------------------------------------
+# Tracking adapter fan-out
+# ---------------------------------------------------------------------------
+
+
+class TestJobTrackingFanOut:
+    """Test that _report_tracking calls all registered adapters."""
+
+    async def test_run_calls_all_registered_tracking_adapters(self):
+        """When multiple adapters are registered, all should be called."""
+        from rock.sdk.job.adapter import TrackingAdapter
+
+        class MockAdapter1(TrackingAdapter):
+            def __init__(self):
+                self.init_called = False
+                self.report_calls = []
+
+            def init(self, *, namespace, experiment_id, job_id, config):
+                self.init_called = True
+
+            def report(self, metrics):
+                self.report_calls.append(metrics)
+
+        class MockAdapter2(TrackingAdapter):
+            def __init__(self):
+                self.init_called = False
+                self.report_calls = []
+
+            def init(self, *, namespace, experiment_id, job_id, config):
+                self.init_called = True
+
+            def report(self, metrics):
+                self.report_calls.append(metrics)
+
+        adapter1 = MockAdapter1()
+        adapter2 = MockAdapter2()
+
+        mock_sandbox = _make_mock_sandbox()
+        with (
+            patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox),
+            patch("rock.sdk.job.adapter.resolve_tracking_adapters", return_value=[adapter1, adapter2]),
+        ):
+            result = await Job(BashJobConfig(script="echo hi", job_name="test")).run()
+
+        # Job should complete successfully
+        assert result.status == JobStatus.COMPLETED
+        # Both adapters should be initialized and called
+        assert adapter1.init_called
+        assert adapter2.init_called
+        assert len(adapter1.report_calls) > 0  # At least one trial + one summary
+        assert len(adapter2.report_calls) > 0
+
+    async def test_run_continues_if_one_adapter_fails(self):
+        """If one adapter raises an exception, others should still be called."""
+        from rock.sdk.job.adapter import TrackingAdapter
+
+        class FailingAdapter(TrackingAdapter):
+            def init(self, *, namespace, experiment_id, job_id, config):
+                raise RuntimeError("init failed")
+
+            def report(self, metrics):
+                pass
+
+        class WorkingAdapter(TrackingAdapter):
+            def __init__(self):
+                self.init_called = False
+                self.report_calls = []
+
+            def init(self, *, namespace, experiment_id, job_id, config):
+                self.init_called = True
+
+            def report(self, metrics):
+                self.report_calls.append(metrics)
+
+        failing = FailingAdapter()
+        working = WorkingAdapter()
+
+        mock_sandbox = _make_mock_sandbox()
+        with (
+            patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox),
+            patch("rock.sdk.job.adapter.resolve_tracking_adapters", return_value=[failing, working]),
+        ):
+            result = await Job(BashJobConfig(script="echo hi", job_name="test")).run()
+
+        # Job should complete successfully
+        assert result.status == JobStatus.COMPLETED
+        # Working adapter should still be called despite failing adapter
+        assert working.init_called
+        assert len(working.report_calls) > 0
+
+    async def test_run_with_no_tracking_adapters(self):
+        """When no adapters are registered, run should still succeed."""
+        mock_sandbox = _make_mock_sandbox()
+        with (
+            patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox),
+            patch("rock.sdk.job.adapter.resolve_tracking_adapters", return_value=[]),
+        ):
+            result = await Job(BashJobConfig(script="echo hi", job_name="test")).run()
+
+        # Should complete successfully with no tracking
+        assert result.status == JobStatus.COMPLETED
