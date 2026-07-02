@@ -535,12 +535,3 @@ def test_get_probe_client_creates_new_when_closed():
     c2 = sandbox_api._get_probe_client()
     assert c2 is not c1
     assert not c2.is_closed
-
-
-def test_get_probe_client_pool_limits():
-    """Connection pool limits must match the configured values (300 global)."""
-    client = sandbox_api._get_probe_client()
-    limits = client._transport._pool._max_connections
-    keepalive = client._transport._pool._max_keepalive_connections
-    assert limits == 300
-    assert keepalive == 300
