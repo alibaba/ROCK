@@ -343,6 +343,41 @@ class K8sConfig:
 
 
 @dataclass
+class OpenSandboxConfig:
+    """Configuration for the OpenSandbox operator backend.
+
+    Used when ``runtime.operator_type == "opensandbox"``. Rock delegates both
+    sandbox lifecycle and command/file execution to an OpenSandbox deployment
+    via its official Python SDK. See docs/plans/opensandbox-sdk-contract.md.
+    """
+
+    endpoint: str = ""
+    """OpenSandbox server domain/host (maps to SDK ConnectionConfig.domain)."""
+
+    api_key: str | None = None
+    """API key sent as the ``OPEN-SANDBOX-API-KEY`` header. None falls back to
+    the ``OPEN_SANDBOX_API_KEY`` env var resolved by the SDK."""
+
+    protocol: str = "https"
+    """Connection protocol: "http" or "https"."""
+
+    runtime: str = "docker"
+    """OpenSandbox runtime backend: "docker" or "k8s". Informational on the Rock
+    side; the actual runtime is decided by the OpenSandbox server config."""
+
+    namespace: str = "rock"
+    """Namespace/label scope for sandboxes created by this Rock instance."""
+
+    use_server_proxy: bool = True
+    """When True, execd (command/file) requests are proxied through the
+    OpenSandbox server, so Rock admin needs a single egress. Maps to SDK
+    ConnectionConfig.use_server_proxy."""
+
+    default_timeout: int = 600
+    """Default request timeout (seconds) for SDK calls."""
+
+
+@dataclass
 class RuntimeConfig:
     enable_auto_clear: bool = False
     project_root: str = field(default_factory=lambda: env_vars.ROCK_PROJECT_ROOT)
@@ -441,6 +476,7 @@ class RockConfig:
     oss: OssConfig = field(default_factory=OssConfig)
     lifecycle: SandboxLifecycleConfig = field(default_factory=SandboxLifecycleConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    opensandbox: OpenSandboxConfig = field(default_factory=OpenSandboxConfig)
     proxy_service: ProxyServiceConfig = field(default_factory=ProxyServiceConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
@@ -505,6 +541,8 @@ class RockConfig:
             kwargs["lifecycle"] = SandboxLifecycleConfig(**config["lifecycle"])
         if "runtime" in config:
             kwargs["runtime"] = RuntimeConfig(**config["runtime"])
+        if "opensandbox" in config:
+            kwargs["opensandbox"] = OpenSandboxConfig(**config["opensandbox"])
         if "proxy_service" in config:
             kwargs["proxy_service"] = ProxyServiceConfig(**config["proxy_service"])
         if "scheduler" in config:
