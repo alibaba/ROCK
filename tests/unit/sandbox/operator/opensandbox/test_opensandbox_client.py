@@ -29,9 +29,12 @@ class FakeSandbox:
         cls.created_kwargs = {"image": image, **kwargs}
         return cls("osb-new")
 
+    connect_kwargs = None
+
     @classmethod
     async def connect(cls, sandbox_id, **kwargs):
         cls.connected_id = sandbox_id
+        cls.connect_kwargs = kwargs
         return cls(sandbox_id)
 
     @classmethod
@@ -92,6 +95,14 @@ async def test_get_state_connects_and_reads(client):
     state = await client.get_state("osb-1")
     assert state == "Running"
     assert FakeSandbox.connected_id == "osb-1"
+
+
+@pytest.mark.asyncio
+async def test_connect_skips_health_check(client):
+    # A paused sandbox fails the SDK health check; get_state/pause/kill must not
+    # block on it, so connect() is called with skip_health_check=True.
+    await client.get_state("osb-1")
+    assert FakeSandbox.connect_kwargs.get("skip_health_check") is True
 
 
 @pytest.mark.asyncio

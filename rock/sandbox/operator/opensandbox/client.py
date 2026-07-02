@@ -74,8 +74,13 @@ class OpenSandboxClient:
         return sandbox.id
 
     async def _connect(self, opensandbox_id: str):
+        # skip_health_check: we only need a handle to read info / pause / kill.
+        # A paused (or otherwise not-ready) sandbox fails the health check, which
+        # would otherwise block for ready_timeout and make get_state read as gone.
         self._load_sdk()
-        return await self._sandbox_cls.connect(opensandbox_id, connection_config=self._connection_config())
+        return await self._sandbox_cls.connect(
+            opensandbox_id, connection_config=self._connection_config(), skip_health_check=True
+        )
 
     async def get_state(self, opensandbox_id: str) -> str | None:
         """Return the OpenSandbox lifecycle state string, or None if not found."""
