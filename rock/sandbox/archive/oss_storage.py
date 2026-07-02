@@ -5,7 +5,10 @@ import tempfile
 
 import oss2
 
+from rock.logger import init_logger
 from rock.sandbox.archive.abstract import AbstractDirStorage
+
+logger = init_logger(__name__)
 
 
 class OssDirStorage(AbstractDirStorage):
@@ -129,10 +132,14 @@ class OssDirStorage(AbstractDirStorage):
     async def delete(self, key: str) -> bool:
         bucket = self._make_bucket()
         if not await asyncio.to_thread(bucket.object_exists, key):
+            logger.info(f"delete: key {key} not found in {self._bucket}, skipping")
             return False
         await asyncio.to_thread(bucket.delete_object, key)
+        logger.info(f"delete: removed key {key} from {self._bucket}")
         return True
 
     async def exists(self, key: str) -> bool:
         bucket = self._make_bucket()
-        return await asyncio.to_thread(bucket.object_exists, key)
+        found = await asyncio.to_thread(bucket.object_exists, key)
+        logger.info(f"exists: key {key} {'found' if found else 'not found'} in {self._bucket}")
+        return found

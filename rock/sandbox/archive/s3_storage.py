@@ -6,7 +6,10 @@ import tempfile
 import boto3
 from botocore.exceptions import ClientError
 
+from rock.logger import init_logger
 from rock.sandbox.archive.abstract import AbstractDirStorage
+
+logger = init_logger(__name__)
 
 
 class S3DirStorage(AbstractDirStorage):
@@ -136,17 +139,21 @@ class S3DirStorage(AbstractDirStorage):
 
     async def delete(self, key: str) -> bool:
         if not await self.exists(key):
+            logger.info(f"delete: key {key} not found in {self._bucket}, skipping")
             return False
         client = self._make_client()
         await asyncio.to_thread(client.delete_object, Bucket=self._bucket, Key=key)
+        logger.info(f"delete: removed key {key} from {self._bucket}")
         return True
 
     async def exists(self, key: str) -> bool:
         client = self._make_client()
         try:
             await asyncio.to_thread(client.head_object, Bucket=self._bucket, Key=key)
+            logger.info(f"exists: key {key} found in {self._bucket}")
             return True
         except ClientError as e:
             if e.response["Error"]["Code"] == "404":
+                logger.info(f"exists: key {key} not found in {self._bucket}")
                 return False
             raise

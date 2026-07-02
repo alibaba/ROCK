@@ -8,7 +8,10 @@ from urllib.parse import urlparse
 
 import httpx
 
+from rock.logger import init_logger
 from rock.sandbox.archive.abstract import AbstractImageStorage
+
+logger = init_logger(__name__)
 
 
 class DockerRegistryV2ImageStorage(AbstractImageStorage):
@@ -57,6 +60,7 @@ class DockerRegistryV2ImageStorage(AbstractImageStorage):
         async with httpx.AsyncClient() as client:
             auth_headers = await self._resolve_auth_headers(client, base_url, name)
             if not auth_headers:
+                logger.warning(f"delete: auth negotiation failed for {image_ref}")
                 return False
 
             resp = await client.get(
@@ -67,13 +71,20 @@ class DockerRegistryV2ImageStorage(AbstractImageStorage):
                 logger.warning(f"delete: unauthorized fetching manifest for {image_ref} (status=401)")
                 return False
             if resp.status_code != 200:
+                logger.info(f"delete: manifest not found for {image_ref} (status={resp.status_code})")
                 return False
             digest = resp.headers.get("Docker-Content-Digest")
             if not digest:
+                logger.warning(f"delete: no Docker-Content-Digest header for {image_ref}")
                 return False
 
             resp = await client.delete(f"{base_url}/v2/{name}/manifests/{digest}", headers=auth_headers)
-            return resp.status_code in (200, 202)
+            deleted = resp.status_code in (200, 202)
+            if deleted:
+                logger.info(f"delete: removed manifest {image_ref} (digest={digest})")
+            else:
+                logger.warning(f"delete: failed to remove {image_ref} (status={resp.status_code})")
+            return deleted
 
     async def _resolve_auth_headers(self, client: httpx.AsyncClient, base_url: str, repo_name: str) -> dict | None:
         """Negotiate auth with the registry and return headers for subsequent requests."""
@@ -118,12 +129,15 @@ class DockerRegistryV2ImageStorage(AbstractImageStorage):
         async with httpx.AsyncClient() as client:
             auth_headers = await self._resolve_auth_headers(client, base_url, name)
             if not auth_headers:
+                logger.warning(f"exists: auth negotiation failed for {image_ref}")
                 return False
             resp = await client.head(
                 f"{base_url}/v2/{name}/manifests/{tag}",
                 headers={**auth_headers, "Accept": accept},
             )
-            return resp.status_code == 200
+            found = resp.status_code == 200
+            logger.info(f"exists: {image_ref} {'found' if found else 'not found'} (status={resp.status_code})")
+            return found
 
     def _docker_auth(self):
         return _DockerAuthContext(self) if self._has_auth else _NoAuthContext()

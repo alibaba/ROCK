@@ -211,6 +211,7 @@ class SandboxStateMachine(StateChart):
             acr_ns = sandbox_info.get("acr_namespace", "sandbox_archive")
             key = ArchiveKeys.dir_key(sandbox_id, prefix)
             ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, acr_ns)
+            logger.info(f"delete: cleaning up archive artifacts for {sandbox_id} (dir={key}, image={ref})")
             try:
                 await dir_storage.delete(key)
             except Exception as e:
