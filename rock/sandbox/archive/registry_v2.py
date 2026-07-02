@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 import os
 import re
 import shutil
@@ -197,7 +198,7 @@ class DockerRegistryV2ImageStorage(AbstractImageStorage):
 
 
 class _DockerAuthContext:
-    """Context manager that creates isolated DOCKER_CONFIG and performs docker login."""
+    """Context manager that creates isolated DOCKER_CONFIG with registry credentials."""
 
     def __init__(self, storage: DockerRegistryV2ImageStorage):
         self._storage = storage
@@ -205,18 +206,13 @@ class _DockerAuthContext:
 
     async def __aenter__(self) -> dict:
         self._tmpdir = tempfile.mkdtemp()
+        creds = base64.b64encode(f"{self._storage._username}:{self._storage._password}".encode()).decode()
+        config = {"auths": {self._storage._registry_url: {"auth": creds}}}
+        config_path = os.path.join(self._tmpdir, "config.json")
+        with open(config_path, "w") as f:
+            json.dump(config, f)
         env = os.environ.copy()
         env["DOCKER_CONFIG"] = self._tmpdir
-        await DockerRegistryV2ImageStorage._docker_cmd(
-            "docker",
-            "login",
-            self._storage._registry_url,
-            "--username",
-            self._storage._username,
-            "--password-stdin",
-            env=env,
-            stdin_data=self._storage._password.encode(),
-        )
         return env
 
     async def __aexit__(self, *args):
