@@ -33,7 +33,10 @@ Rock 内部有两条独立的路径，方案 B 都要改：
 
 ---
 
-## Phase 1：生命周期 seam —— OpenSandboxOperator
+## Phase 1：生命周期 seam —— OpenSandboxOperator ✅ 已完成
+
+> 提交：`feat(config): add OpenSandboxConfig`、`feat(operator): add OpenSandboxOperator lifecycle backend`。
+> 20 个新单测全绿，操作+配置回归 187 passed，ruff 通过，client 调用已对照真实 `opensandbox==0.1.13` SDK 签名验证。Issue #1202。
 
 ### 1.1 配置（TDD）
 
