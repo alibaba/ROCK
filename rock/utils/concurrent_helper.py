@@ -18,6 +18,19 @@ _ray_executor: ThreadPoolExecutor | None = None
 MAX_WORKERS = 300
 RAY_EXECUTOR_MAX_WORKERS = 500
 
+# Dedicated pool for blocking DB calls (sync SQLAlchemy / psycopg2). Sized to
+# match the DB connection ceiling so a worker thread never waits on a slot.
+DB_THREAD_POOL_SIZE = 800
+
+
+def create_db_executor(max_workers: int = DB_THREAD_POOL_SIZE) -> ThreadPoolExecutor:
+    """Create a dedicated thread pool for blocking DB operations.
+
+    Each caller owns the returned pool (shut it down on close); this keeps DB
+    work off the asyncio event loop without sharing a global with other users.
+    """
+    return ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="db")
+
 
 def _get_thread_pool():
     """Get global thread pool"""

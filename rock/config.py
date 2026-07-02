@@ -244,6 +244,10 @@ class DatabaseConfig:
     #   SQLite:     sqlite:///relative/path.db  or  sqlite:////absolute/path.db
     #   PostgreSQL: postgresql://user:password@host:port/dbname
     url: str = ""
+    # PostgreSQL connection pool. Live connections cap = pool_size + max_overflow;
+    # keep it <= PG server ``max_connections`` (minus headroom). Ignored for SQLite.
+    pool_size: int = 300
+    max_overflow: int = 500
 
 
 @dataclass

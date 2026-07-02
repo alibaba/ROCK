@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 from sqlalchemy.exc import DisconnectionError, InterfaceError, OperationalError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from rock.admin.core.db_provider import DatabaseProvider
 from rock.admin.core.schema import SandboxRecord
@@ -112,6 +111,14 @@ class SandboxTable:
         (``info`` takes priority on conflicts).
         Raises ``IntegrityError`` if ``sandbox_id`` already exists.
         """
+        return await self._db.run(self._create_sync, sandbox_id, info, config)
+
+    def _create_sync(
+        self,
+        sandbox_id: str,
+        info: SandboxInfo,
+        config: DockerDeploymentConfig | None = None,
+    ) -> None:
         config_dict = config.model_dump() if config is not None else {}
         merged = {**config_dict, **info}
         filtered = _pick_columns(merged)
@@ -125,9 +132,9 @@ class SandboxTable:
             filtered["spec"] = config_dict
 
         record = SandboxRecord(sandbox_id=sandbox_id, **filtered)
-        async with AsyncSession(self._db.engine) as session:
+        with self._db.session_factory() as session:
             session.add(record)
-            await session.commit()
+            session.commit()
 
     @_retry_on_disconnect
     @monitor_metastore_operation
@@ -139,8 +146,11 @@ class SandboxTable:
         SandboxInfo fields (e.g. ``state_history``, ``port_mapping``) at the
         top level — scalar columns take priority over the blob.
         """
-        async with AsyncSession(self._db.engine) as session:
-            record = await session.get(SandboxRecord, sandbox_id)
+        return await self._db.run(self._get_sync, sandbox_id)
+
+    def _get_sync(self, sandbox_id: str) -> dict | None:
+        with self._db.session_factory() as session:
+            record = session.get(SandboxRecord, sandbox_id)
             if record is None:
                 return None
             return _merge_status_blob(record.to_dict())
@@ -149,52 +159,64 @@ class SandboxTable:
     @monitor_metastore_operation
     async def update(self, sandbox_id: str, info: SandboxInfo) -> None:
         """Partial update of scalar columns; always overwrites ``status`` with *info*."""
+        return await self._db.run(self._update_sync, sandbox_id, info)
+
+    def _update_sync(self, sandbox_id: str, info: SandboxInfo) -> None:
         filtered = _pick_columns(info)
         filtered["status"] = dict(info)
 
-        async with AsyncSession(self._db.engine) as session:
-            record = await session.get(SandboxRecord, sandbox_id)
+        with self._db.session_factory() as session:
+            record = session.get(SandboxRecord, sandbox_id)
             if record is None:
                 logger.warning("update: sandbox_id=%s not found", sandbox_id)
                 return
             for key, value in filtered.items():
                 setattr(record, key, value)
-            await session.commit()
+            session.commit()
 
     @_retry_on_disconnect
     @monitor_metastore_operation
     async def delete(self, sandbox_id: str) -> None:
         """Hard-delete a sandbox record."""
-        async with AsyncSession(self._db.engine) as session:
-            record = await session.get(SandboxRecord, sandbox_id)
+        return await self._db.run(self._delete_sync, sandbox_id)
+
+    def _delete_sync(self, sandbox_id: str) -> None:
+        with self._db.session_factory() as session:
+            record = session.get(SandboxRecord, sandbox_id)
             if record is not None:
-                await session.delete(record)
-                await session.commit()
+                session.delete(record)
+                session.commit()
 
     @_retry_on_disconnect
     @monitor_metastore_operation
     async def list_by(self, column: str, value: str | int | float | bool) -> list[dict]:
         """Equality query on a single column. Only columns in ``SandboxRecord.LIST_BY_ALLOWLIST`` are permitted."""
+        return await self._db.run(self._list_by_sync, column, value)
+
+    def _list_by_sync(self, column: str, value: str | int | float | bool) -> list[dict]:
         if column not in SandboxRecord.LIST_BY_ALLOWLIST:
             raise ValueError(f"Querying by column '{column}' is not allowed")
         col_attr = getattr(SandboxRecord, column)
         stmt = select(SandboxRecord).where(col_attr == value)
-        async with AsyncSession(self._db.engine) as session:
-            result = await session.execute(stmt)
+        with self._db.session_factory() as session:
+            result = session.execute(stmt)
             return [_merge_status_blob(r.to_dict()) for r in result.scalars().all()]
 
     @_retry_on_disconnect
     @monitor_metastore_operation
     async def list_by_in(self, column: str, values: list[str | int | float | bool]) -> list[dict]:
         """IN query on a single column. Only columns in ``SandboxRecord.LIST_BY_ALLOWLIST`` are permitted."""
-        if column not in SandboxRecord.LIST_BY_ALLOWLIST:
-            raise ValueError(f"Querying by column '{column}' is not allowed")
         if not values:
             return []
+        return await self._db.run(self._list_by_in_sync, column, values)
+
+    def _list_by_in_sync(self, column: str, values: list[str | int | float | bool]) -> list[dict]:
+        if column not in SandboxRecord.LIST_BY_ALLOWLIST:
+            raise ValueError(f"Querying by column '{column}' is not allowed")
         col_attr = getattr(SandboxRecord, column)
         stmt = select(SandboxRecord).where(col_attr.in_(values))
-        async with AsyncSession(self._db.engine) as session:
-            result = await session.execute(stmt)
+        with self._db.session_factory() as session:
+            result = session.execute(stmt)
             return [_merge_status_blob(r.to_dict()) for r in result.scalars().all()]
 
 

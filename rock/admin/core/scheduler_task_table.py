@@ -8,7 +8,6 @@ from __future__ import annotations
 from enum import Enum
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from rock.admin.core.db_provider import DatabaseProvider
 from rock.admin.core.sandbox_table import _retry_on_disconnect
@@ -34,32 +33,44 @@ class SchedulerTaskTable:
 
     @_retry_on_disconnect
     async def insert_tasks(self, records: list[SchedulerTaskRecord]) -> None:
-        async with AsyncSession(self._db.engine, expire_on_commit=False) as session:
+        return await self._db.run(self._insert_tasks_sync, records)
+
+    def _insert_tasks_sync(self, records: list[SchedulerTaskRecord]) -> None:
+        with self._db.session_factory() as session:
             for r in records:
                 session.add(r)
-            await session.commit()
+            session.commit()
 
     @_retry_on_disconnect
     async def get_tasks_by_group(self, taskset_id: str) -> list[SchedulerTaskRecord]:
-        async with AsyncSession(self._db.engine, expire_on_commit=False) as session:
+        return await self._db.run(self._get_tasks_by_group_sync, taskset_id)
+
+    def _get_tasks_by_group_sync(self, taskset_id: str) -> list[SchedulerTaskRecord]:
+        with self._db.session_factory() as session:
             stmt = select(SchedulerTaskRecord).where(SchedulerTaskRecord.taskset_id == taskset_id)
-            rows = (await session.execute(stmt)).scalars().all()
+            rows = session.execute(stmt).scalars().all()
             return list(rows)
 
     @_retry_on_disconnect
     async def update_task(self, task_id: str, **fields) -> bool:
-        async with AsyncSession(self._db.engine) as session:
-            row = await session.get(SchedulerTaskRecord, task_id)
+        return await self._db.run(self._update_task_sync, task_id, fields)
+
+    def _update_task_sync(self, task_id: str, fields: dict) -> bool:
+        with self._db.session_factory() as session:
+            row = session.get(SchedulerTaskRecord, task_id)
             if row is None:
                 return False
             for k, v in fields.items():
                 setattr(row, k, v)
-            await session.commit()
+            session.commit()
             return True
 
     @_retry_on_disconnect
     async def has_recent_task(self, task_type: str, since_epoch: float) -> bool:
-        async with AsyncSession(self._db.engine) as session:
+        return await self._db.run(self._has_recent_task_sync, task_type, since_epoch)
+
+    def _has_recent_task_sync(self, task_type: str, since_epoch: float) -> bool:
+        with self._db.session_factory() as session:
             stmt = (
                 select(SchedulerTaskRecord.task_id)
                 .where(
@@ -67,5 +78,5 @@ class SchedulerTaskTable:
                 )
                 .limit(1)
             )
-            row = (await session.execute(stmt)).first()
+            row = session.execute(stmt).first()
             return row is not None

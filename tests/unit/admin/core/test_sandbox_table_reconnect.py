@@ -10,8 +10,6 @@ and data is preserved (same PGDATA directory, new process).
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 import pytest
 
 from rock.admin.core.sandbox_table import SandboxTable
@@ -109,26 +107,27 @@ class TestSandboxTablePgProcessRestart:
     @pytest.fixture
     async def table(self, restartable_pg):
         """pool_size=1, pool_pre_ping=False — decorator must handle stale connections."""
-        from sqlalchemy.ext.asyncio import create_async_engine
+        from concurrent.futures import ThreadPoolExecutor
 
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import Session, sessionmaker
+
+        from rock.admin.core.db_provider import DatabaseProvider
         from rock.admin.core.schema import Base
+        from rock.config import DatabaseConfig
 
-        url = restartable_pg["url"].replace("postgresql://", "postgresql+asyncpg://")
-        engine = create_async_engine(
-            url,
-            pool_size=1,
-            max_overflow=0,
-            pool_pre_ping=False,
-            connect_args={"statement_cache_size": 0},
-        )
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        provider = DatabaseProvider(db_config=DatabaseConfig(url=restartable_pg["url"]))
+        # Force pool_size=1 / no pre-ping so the pool does NOT silently reconnect —
+        # the @_retry_on_disconnect decorator must be what recovers the stale connection.
+        provider._engine = create_engine(provider._url, pool_size=1, max_overflow=0, pool_pre_ping=False)
+        provider._session_factory = sessionmaker(bind=provider._engine, class_=Session, expire_on_commit=False)
+        provider._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="db-test")
+        with provider._engine.begin() as conn:
+            Base.metadata.create_all(conn)
 
-        provider = MagicMock()
-        provider.engine = engine
         t = SandboxTable(provider)
         yield t
-        await engine.dispose()
+        await provider.close()
 
     _OUTAGE_SECONDS = 4
 

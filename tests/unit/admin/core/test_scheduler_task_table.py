@@ -1,134 +1,78 @@
-"""Tests for SchedulerTaskTable CRUD (single-table: scheduler_task)."""
+"""Tests for SchedulerTaskTable CRUD (single-table: scheduler_task).
+
+Runs against a real in-memory SQLite DatabaseProvider (sync engine + DB thread
+pool), so it exercises the actual sync execution path rather than mocking it.
+"""
 
 from __future__ import annotations
 
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from rock.admin.core.schema import SchedulerTaskRecord
 from rock.admin.core.scheduler_task_table import Phase, SchedulerTaskTable
+from rock.admin.core.schema import SchedulerTaskRecord
 
 
-def _make_table_with_mock_session():
-    table = SchedulerTaskTable.__new__(SchedulerTaskTable)
-    table._db = MagicMock()
-
-    mock_session = AsyncMock()
-    cm = AsyncMock()
-    cm.__aenter__ = AsyncMock(return_value=mock_session)
-    cm.__aexit__ = AsyncMock(return_value=None)
-
-    return table, cm, mock_session
+@pytest.fixture
+async def scheduler_table(db_provider):
+    return SchedulerTaskTable(db_provider)
 
 
-@pytest.mark.asyncio
-async def test_insert_tasks():
-    table, cm, session = _make_table_with_mock_session()
-
-    record = SchedulerTaskRecord(
-        task_id="b" * 32,
-        taskset_id="a" * 32,
-        task_type="image_cleanup",
-        target_workers=["10.0.0.1"],
-        creation_timestamp=time.time(),
-        phase=Phase.PENDING,
-        assigned_pod="pod-x",
-    )
-
-    with patch("rock.admin.core.scheduler_task_table.AsyncSession", return_value=cm):
-        await table.insert_tasks([record])
-
-    session.add.assert_called_once_with(record)
-    session.commit.assert_awaited_once()
+def _record(*, task_id: str = "b" * 32, taskset_id: str = "a" * 32, phase: Phase = Phase.PENDING, **overrides):
+    fields = {
+        "task_id": task_id,
+        "taskset_id": taskset_id,
+        "task_type": "image_cleanup",
+        "target_workers": ["10.0.0.1"],
+        "creation_timestamp": time.time(),
+        "phase": phase,
+        "assigned_pod": "pod-x",
+    }
+    fields.update(overrides)
+    return SchedulerTaskRecord(**fields)
 
 
-@pytest.mark.asyncio
-async def test_get_tasks_by_group():
-    table, cm, session = _make_table_with_mock_session()
+async def test_insert_tasks(scheduler_table):
+    await scheduler_table.insert_tasks([_record()])
 
-    mock_record = SchedulerTaskRecord(
-        task_id="b" * 32,
-        taskset_id="a" * 32,
-        task_type="image_cleanup",
-        target_workers=["10.0.0.1"],
-        creation_timestamp=time.time(),
-        phase=Phase.RUNNING,
-        assigned_pod="pod-x",
-    )
+    rows = await scheduler_table.get_tasks_by_group("a" * 32)
+    assert len(rows) == 1
+    assert rows[0].task_id == "b" * 32
 
-    scalars_mock = MagicMock()
-    scalars_mock.all.return_value = [mock_record]
-    result_mock = MagicMock()
-    result_mock.scalars.return_value = scalars_mock
-    session.execute = AsyncMock(return_value=result_mock)
 
-    with patch("rock.admin.core.scheduler_task_table.AsyncSession", return_value=cm):
-        results = await table.get_tasks_by_group("a" * 32)
+async def test_get_tasks_by_group(scheduler_table):
+    await scheduler_table.insert_tasks([_record(phase=Phase.RUNNING)])
 
+    results = await scheduler_table.get_tasks_by_group("a" * 32)
     assert len(results) == 1
     assert isinstance(results[0], SchedulerTaskRecord)
     assert results[0].taskset_id == "a" * 32
 
 
-@pytest.mark.asyncio
-async def test_update_task():
-    table, cm, session = _make_table_with_mock_session()
+async def test_update_task(scheduler_table):
+    await scheduler_table.insert_tasks([_record()])
 
-    row = SchedulerTaskRecord(
-        task_id="b" * 32,
-        taskset_id="a" * 32,
-        task_type="image_cleanup",
-        target_workers=["10.0.0.1"],
-        creation_timestamp=time.time(),
-        phase=Phase.PENDING,
-        assigned_pod="pod-x",
-    )
-    session.get = AsyncMock(return_value=row)
-
-    with patch("rock.admin.core.scheduler_task_table.AsyncSession", return_value=cm):
-        ok = await table.update_task("b" * 32, phase=Phase.RUNNING, start_time=123.0)
-
+    ok = await scheduler_table.update_task("b" * 32, phase=Phase.RUNNING, start_time=123.0)
     assert ok is True
-    assert row.phase == Phase.RUNNING
-    assert row.start_time == 123.0
+
+    rows = await scheduler_table.get_tasks_by_group("a" * 32)
+    assert rows[0].phase == Phase.RUNNING
+    assert rows[0].start_time == 123.0
 
 
-@pytest.mark.asyncio
-async def test_update_task_not_found():
-    table, cm, session = _make_table_with_mock_session()
-    session.get = AsyncMock(return_value=None)
-
-    with patch("rock.admin.core.scheduler_task_table.AsyncSession", return_value=cm):
-        ok = await table.update_task("nonexistent", phase=Phase.RUNNING)
-
+async def test_update_task_not_found(scheduler_table):
+    ok = await scheduler_table.update_task("nonexistent", phase=Phase.RUNNING)
     assert ok is False
 
 
-@pytest.mark.asyncio
-async def test_has_recent_task_true():
-    table, cm, session = _make_table_with_mock_session()
+async def test_has_recent_task_true(scheduler_table):
+    await scheduler_table.insert_tasks([_record(creation_timestamp=time.time())])
 
-    result_mock = MagicMock()
-    result_mock.first.return_value = ("some_id",)
-    session.execute = AsyncMock(return_value=result_mock)
-
-    with patch("rock.admin.core.scheduler_task_table.AsyncSession", return_value=cm):
-        found = await table.has_recent_task("image_cleanup", time.time() - 60)
-
+    found = await scheduler_table.has_recent_task("image_cleanup", time.time() - 60)
     assert found is True
 
 
-@pytest.mark.asyncio
-async def test_has_recent_task_false():
-    table, cm, session = _make_table_with_mock_session()
-
-    result_mock = MagicMock()
-    result_mock.first.return_value = None
-    session.execute = AsyncMock(return_value=result_mock)
-
-    with patch("rock.admin.core.scheduler_task_table.AsyncSession", return_value=cm):
-        found = await table.has_recent_task("image_cleanup", time.time() - 60)
-
+async def test_has_recent_task_false(scheduler_table):
+    found = await scheduler_table.has_recent_task("image_cleanup", time.time() - 60)
     assert found is False
