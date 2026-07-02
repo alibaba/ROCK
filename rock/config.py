@@ -176,7 +176,7 @@ class ArchiveDirStorageConfig:
     access_key_id: str = ""
     access_key_secret: str = ""
     region: str = ""
-    prefix: str = "archive-logs/"
+    prefix: str = "rock-archives/"
 
 
 @dataclass
