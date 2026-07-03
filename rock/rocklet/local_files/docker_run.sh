@@ -77,7 +77,7 @@ if [ "$(is_musl)" = "true" ]; then
     fi
 
     sed -i "s|https://.*alpinelinux.org|https://mirrors.aliyun.com|g" /etc/apk/repositories
-    apk add bash
+    command -v bash >/dev/null 2>&1 || apk add bash
     apk add --allow-untrusted --force-overwrite /tmp/local_files/alpine_glibc/*.apk
     mkdir -p /lib64
     ln -sf /usr/glibc-compat/lib/ld-linux-x86-64.so.2 /lib64/ld-linux-x86-64.so.2
