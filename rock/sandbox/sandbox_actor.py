@@ -432,10 +432,12 @@ class SandboxActor(GemActor):
 
         ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, acr_ns)
         # Delete existing tag before push — some registries (ACR) reject overwrites.
+        # Swallow the error so a benign 404 (tag never existed) doesn't abort the archive,
+        # but log at warning so a real auth/network failure is not silently masked.
         try:
             await image_storage.delete(ref)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[{sandbox_id}] pre-push delete of {ref} failed (may be first archive): {e}")
         self._archive_status.update_status("image_archive", Status.RUNNING, "pushing to registry")
         try:
             await image_storage.push_from_local(local_tag, ref)
