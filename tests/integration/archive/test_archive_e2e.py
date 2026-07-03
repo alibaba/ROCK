@@ -179,7 +179,7 @@ class TestArchiveRestoreDeleteE2E:
 
         try:
             with pytest.raises(Exception):
-                await actor.archive(dir_cfg, img_cfg)
+                await actor._do_archive(dir_cfg, img_cfg, {})
 
             ref = ArchiveKeys.image_ref(sandbox_container, image_storage.registry_url, "sandbox_archive")
             assert not await image_storage.exists(ref), "Image should be cleaned up on failure"
