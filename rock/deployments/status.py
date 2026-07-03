@@ -1,6 +1,5 @@
 import json
 import os
-from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -8,6 +7,7 @@ from pydantic import BaseModel, Field
 from rock import env_vars
 from rock.deployments.constants import Status
 from rock.logger import init_logger
+from rock.utils.system import get_iso8601_timestamp
 
 logger = init_logger(__name__)
 
@@ -46,7 +46,7 @@ class ServiceStatus(BaseModel):
 
     def update_status(self, phase_name: str, status: Status, message: str):
         phase = self.phases[phase_name]
-        now = datetime.now(timezone.utc).isoformat()
+        now = get_iso8601_timestamp()
         if status == Status.RUNNING and phase.started_at is None:
             phase.started_at = now
         if status in (Status.SUCCESS, Status.FAILED, Status.TIMEOUT):
