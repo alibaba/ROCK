@@ -79,9 +79,6 @@ class SandboxManager(BaseManager):
 
     def _init_archive_storage(self, rock_config: RockConfig) -> None:
         archive_cfg = rock_config.lifecycle.archive
-        if not archive_cfg.enabled:
-            logger.info("archive disabled, skipping storage init")
-            return
         image_registry_cfg = archive_cfg.acr
         dir_storage_cfg = archive_cfg.dir_storage
         registry_ready = image_registry_cfg.registry_url and image_registry_cfg.username and image_registry_cfg.password
@@ -89,7 +86,8 @@ class SandboxManager(BaseManager):
             dir_storage_cfg.endpoint and dir_storage_cfg.access_key_id and dir_storage_cfg.access_key_secret
         )
         if not (registry_ready and dir_storage_ready):
-            raise RuntimeError("archive.enabled=true but image registry or dir_storage credentials are missing")
+            logger.warning("archive storage credentials incomplete, archive/restore will be unavailable")
+            return
         self._dir_storage = AbstractDirStorage.from_config(dir_storage_cfg)
         self._image_storage = AbstractImageStorage.from_config(image_registry_cfg)
         logger.info(

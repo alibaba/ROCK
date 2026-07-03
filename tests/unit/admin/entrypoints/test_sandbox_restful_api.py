@@ -45,10 +45,11 @@ async def test_restart_restful(sandbox_app):
 @pytest.mark.asyncio
 async def test_archive_allowed(sandbox_app):
     app, mock_manager = sandbox_app
+    mock_manager.rock_config.lifecycle.archive.enabled = True
     mock_manager.rock_config.lifecycle.archive.is_allowed.return_value = True
     mock_manager.archive_sandbox = AsyncMock()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post(f"{BASE}/sandboxes/sb-1/archive")
+        resp = await client.post(f"{BASE}/sandboxes/sb-1/archive", headers={"X-Key": "good-key"})
         assert resp.status_code == 200
         assert resp.json()["status"] == "Success"
     mock_manager.archive_sandbox.assert_called_once_with("sb-1")
@@ -56,8 +57,9 @@ async def test_archive_allowed(sandbox_app):
 
 @pytest.mark.asyncio
 async def test_archive_forbidden(sandbox_app):
-    """Unauthorised key: handle_exceptions returns HTTP 200 with status=Failed."""
+    """Unauthorised key: API layer rejects before calling manager."""
     app, mock_manager = sandbox_app
+    mock_manager.rock_config.lifecycle.archive.enabled = True
     mock_manager.rock_config.lifecycle.archive.is_allowed.return_value = False
     mock_manager.archive_sandbox = AsyncMock()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

@@ -3,7 +3,6 @@ import re
 import time
 from typing import Annotated, Any
 
-import httpx
 from fastapi import APIRouter, Body, Depends, File, Form, Header, UploadFile
 
 from rock.actions import (
@@ -528,6 +527,8 @@ async def archive(
     rock_authorization: str | None = Header(default=None, alias="X-Key"),
 ) -> RockResponse:
     archive_cfg = sandbox_manager.rock_config.lifecycle.archive
+    if not archive_cfg.enabled:
+        raise BadRequestRockError("archive feature is disabled")
     if not archive_cfg.is_allowed(rock_authorization):
         raise BadRequestRockError("archive not allowed for this authorization key")
     await sandbox_manager.archive_sandbox(sandbox_id)
