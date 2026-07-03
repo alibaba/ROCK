@@ -7,6 +7,12 @@ import pytest
 from rock.deployments.docker import DockerDeployment
 
 
+@pytest.fixture(autouse=True)
+def mock_exit_actor():
+    with patch("ray.actor.exit_actor") as m:
+        yield m
+
+
 @pytest.fixture
 def actor():
     from rock.sandbox.sandbox_actor import SandboxActor
@@ -80,16 +86,18 @@ class TestSandboxActorRestore:
         side_effect=RuntimeError("pull failed"),
     )
     async def test_pull_failure_no_download(
-        self, mock_pull, actor, dir_storage_config, image_storage_config, monkeypatch
+        self, mock_pull, actor, dir_storage_config, image_storage_config, monkeypatch, mock_exit_actor
     ):
         import rock.env_vars as _env_vars
 
         monkeypatch.setattr(_env_vars, "ROCK_LOGGING_PATH", "/tmp/logs")
 
-        with pytest.raises(RuntimeError, match="pull failed"):
-            await actor.restore_and_start(dir_storage_config, image_storage_config)
+        # restore_and_start catches the exception, logs it, then exits the actor
+        # so a stale detached actor doesn't linger.  It should NOT re-raise.
+        await actor.restore_and_start(dir_storage_config, image_storage_config)
 
         actor._run_shell_command.assert_not_called()
+        mock_exit_actor.assert_called_once()
 
     @patch("rock.sandbox.archive.oss_storage.OssDirStorage.exists", new_callable=AsyncMock, return_value=True)
     @patch(

@@ -172,7 +172,13 @@ class SandboxActor(GemActor):
             self.log_lifecycle_summary(reason)
 
     async def restart(self):
-        """Restart an existing stopped container using docker start."""
+        """Restart an existing stopped container using docker start.
+
+        On success the actor stays alive as the long-lived runtime for the
+        RUNNING sandbox.  On any failure the actor exits so a stale detached
+        actor doesn't linger — the manager-side reconcile loop will observe
+        the sandbox stuck in PENDING and stop it back to STOPPED.
+        """
         logger.info(f"[{self._config.container_name}] start to restart")
         try:
             await self._deployment.restart()
@@ -187,10 +193,8 @@ class SandboxActor(GemActor):
             await self._setup_monitor()
             logger.info(f"[{self._config.container_name}] actor restarted")
         except Exception as e:
-            logger.error(
-                f"[{self._config.container_name}] Error occurred while restarting container: {e}", exc_info=True
-            )
-            raise
+            logger.exception(f"[{self._config.container_name}] restart failed: {e}")
+            ray.actor.exit_actor()
 
     async def delete(self):
         container_name = self._config.container_name if self._config else None
@@ -456,13 +460,27 @@ class SandboxActor(GemActor):
         image_storage_config: dict,
         archive_params: dict | None = None,
     ) -> None:
-        """Full restore: pull image + download logs + docker start + arm watchdog."""
+        """Full restore: pull image + download logs + docker start + arm watchdog.
+
+        On success the actor stays alive as the long-lived runtime for the
+        RUNNING sandbox.  On any failure (timeout or exception) the actor
+        exits so a stale detached actor doesn't linger — the manager-side
+        reconcile loop will observe the missing actor and move the sandbox
+        back to ARCHIVED via ``restore_failed``.
+        """
         archive_params = archive_params or {}
         timeout = archive_params.get("timeout_seconds", 1800)
-        await asyncio.wait_for(
-            self._do_restore_and_start(dir_storage_config, image_storage_config, archive_params),
-            timeout=timeout,
-        )
+        try:
+            await asyncio.wait_for(
+                self._do_restore_and_start(dir_storage_config, image_storage_config, archive_params),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"[{self._config.container_name}] restore timed out after {timeout}s")
+            ray.actor.exit_actor()
+        except Exception as e:
+            logger.exception(f"[{self._config.container_name}] restore failed: {e}")
+            ray.actor.exit_actor()
 
     async def _do_restore_and_start(
         self,
