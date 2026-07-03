@@ -1,19 +1,30 @@
 import json
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from rock import env_vars
 from rock.deployments.constants import Status
+from rock.logger import init_logger
+
+logger = init_logger(__name__)
 
 
 class PhaseStatus(BaseModel):
     status: Status = Status.WAITING
     message: str = "waiting"
+    started_at: str | None = None
+    completed_at: str | None = None
 
-    def to_dict(self) -> dict[str, str]:
-        return {"status": self.status.value, "message": self.message}
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"status": self.status.value, "message": self.message}
+        if self.started_at:
+            d["started_at"] = self.started_at
+        if self.completed_at:
+            d["completed_at"] = self.completed_at
+        return d
 
 
 class ServiceStatus(BaseModel):
@@ -34,8 +45,14 @@ class ServiceStatus(BaseModel):
         return self.phases[phase_name]
 
     def update_status(self, phase_name: str, status: Status, message: str):
-        self.phases[phase_name].status = status
-        self.phases[phase_name].message = message
+        phase = self.phases[phase_name]
+        now = datetime.now(timezone.utc).isoformat()
+        if status == Status.RUNNING and phase.started_at is None:
+            phase.started_at = now
+        if status in (Status.SUCCESS, Status.FAILED, Status.TIMEOUT):
+            phase.completed_at = now
+        phase.status = status
+        phase.message = message
 
     def add_port_mapping(self, local_port: int, container_port: int):
         self.port_mapping[local_port] = container_port
@@ -64,7 +81,12 @@ class ServiceStatus(BaseModel):
         """Create ServiceStatus object from dictionary"""
         phases = {}
         for key, phase_data in data.get("phases", {}).items():
-            phases[key] = PhaseStatus(status=Status(phase_data["status"]), message=phase_data["message"])
+            phases[key] = PhaseStatus(
+                status=Status(phase_data["status"]),
+                message=phase_data.get("message", ""),
+                started_at=phase_data.get("started_at"),
+                completed_at=phase_data.get("completed_at"),
+            )
 
         port_mapping = {}
         for port_value, mapping in data.get("port_mapping", {}).items():
@@ -90,6 +112,32 @@ class PersistedServiceStatus(ServiceStatus):
 
     def set_sandbox_id(self, sandbox_id: str):
         self.sandbox_id = sandbox_id
+        self._load_and_merge()
+
+    def _load_and_merge(self):
+        """Load existing service_status file and merge phases (preserving history)."""
+        path = PersistedServiceStatus.gen_service_status_path(self.sandbox_id)
+        if not os.path.exists(path):
+            return
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            existing_phases = data.get("phases", {})
+            for name, phase_data in existing_phases.items():
+                if name not in self.phases:
+                    self.phases[name] = PhaseStatus(
+                        status=Status(phase_data["status"]),
+                        message=phase_data.get("message", ""),
+                        started_at=phase_data.get("started_at"),
+                        completed_at=phase_data.get("completed_at"),
+                    )
+            existing_ports = data.get("port_mapping", {})
+            for port_str, mapping in existing_ports.items():
+                port = int(port_str)
+                if port not in self.port_mapping:
+                    self.port_mapping[port] = mapping
+        except Exception as e:
+            logger.warning(f"load persisted service status failed for {self.sandbox_id}: {e}")
 
     def _save_to_file(self):
         """Save ServiceStatus to the file specified by _json_path"""
