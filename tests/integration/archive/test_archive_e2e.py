@@ -78,7 +78,6 @@ def actor(sandbox_container):
     config = MagicMock()
     config.container_name = sandbox_container
     deployment = MagicMock()
-    deployment.restart = AsyncMock()
     deployment.restart_from_image = AsyncMock()
 
     actor = ActorClass.__new__(ActorClass)

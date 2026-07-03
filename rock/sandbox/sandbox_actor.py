@@ -495,11 +495,7 @@ class SandboxActor(GemActor):
         else:
             logger.info(f"[{sandbox_id}] ROCK_LOGGING_PATH not set, skipping log restore")
 
-        if isinstance(self._deployment, DockerDeployment):
-            await self._deployment.restart_from_image(ref)
-        else:
-            await self._deployment.restart()
-        if isinstance(self._deployment, DockerDeployment):
-            self._clean_container_background()
+        await self._deployment.restart_from_image(ref)
+        self._clean_container_background()
         await self._setup_monitor()
         logger.info(f"[{sandbox_id}] restore_and_start complete")
