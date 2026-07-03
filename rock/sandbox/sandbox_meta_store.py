@@ -133,10 +133,11 @@ class SandboxMetaStore:
         if result and len(result) > 0:
             return result[0]
         if check_db:
+            # SandboxTable.get already merges the `status` JSONB blob onto the
+            # returned dict, so no further hoisting is needed here.
             result = await self._db.get(sandbox_id)
             if result:
-                status_blob = result.pop("status", None) or {}
-                return {**status_blob, **result}
+                return result
         return None
 
     async def exists(self, sandbox_id: str) -> bool:
