@@ -69,9 +69,8 @@ class TestArchiveOperatorNotConfigured:
         manager_no_archive._meta_store.list_by.assert_called_once()
 
     async def test_auto_archive_stopped_skips(self, manager_no_archive):
-        manager_no_archive._dir_storage = AsyncMock()
-        manager_no_archive._image_storage = AsyncMock()
-        manager_no_archive._operator.supports_archive.return_value = False
-        manager_no_archive.rock_config.lifecycle.auto_archive_after_secondsonds = 3600
+        manager_no_archive._dir_storage = None
+        manager_no_archive._image_storage = None
+        manager_no_archive.rock_config.lifecycle.auto_archive_after_seconds = 3600
         await manager_no_archive._auto_archive_stopped()
         manager_no_archive._meta_store.list_by.assert_not_called()

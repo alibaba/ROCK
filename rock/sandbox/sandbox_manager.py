@@ -510,9 +510,7 @@ class SandboxManager(BaseManager):
         auto_archive_sec = self.rock_config.lifecycle.auto_archive_after_seconds
         if not auto_archive_sec:
             return
-        if not self._operator or not self._operator.supports_archive():
-            return
-        if not self._dir_storage or not self._image_storage:
+        if not self._operator or not self._dir_storage or not self._image_storage:
             return
 
         try:
