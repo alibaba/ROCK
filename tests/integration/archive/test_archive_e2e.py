@@ -95,9 +95,12 @@ class TestArchiveRestoreDeleteE2E:
     @pytest.fixture(autouse=True)
     def _patch_actor_storage(self, monkeypatch, log_dir):
         """Patch actor to use local S3 instead of OSS, and set ROCK_LOGGING_PATH."""
+        import ray.actor
+
         import rock.sandbox.archive.oss_storage as oss_mod
 
         monkeypatch.setattr(oss_mod, "OssDirStorage", S3DirStorage)
+        monkeypatch.setattr(ray.actor, "exit_actor", lambda: None)
 
         import rock.env_vars as _env_vars
 
