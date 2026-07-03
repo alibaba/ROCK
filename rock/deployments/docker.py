@@ -1025,6 +1025,17 @@ class DockerDeployment(AbstractDeployment):
         executor = get_executor()
         loop = asyncio.get_running_loop()
 
+        if self._config.disk is not None and not DockerUtil.detect_storage_opt_support():
+            logger.warning(
+                f"[{self._container_name}] --storage-opt not supported on this worker "
+                f"(requires overlay2 + xfs + prjquota), ignoring disk={self._config.disk}"
+            )
+            self._effective_disk = None
+
+        # Remove any leftover container with the same name (may exist if the
+        # archive actor was killed before it could `docker rm`).
+        DockerUtil.remove_container_force(self._container_name)
+
         self._service_status.set_sandbox_id(self._container_name)
         await self.do_port_mapping()
 

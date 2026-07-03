@@ -55,11 +55,10 @@ class AbstractOperator(ABC):
     async def start_restore(
         self,
         config: DeploymentConfig,
-        host_ip: str | None,
         dir_storage_config: dict,
         image_storage_config: dict,
         archive_params: dict | None = None,
-    ) -> None:
+    ) -> str | None:
         from rock.sdk.common.exceptions import BadRequestRockError
 
         raise BadRequestRockError(f"restore not supported on {type(self).__name__}")

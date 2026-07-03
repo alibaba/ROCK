@@ -183,17 +183,23 @@ class RayOperator(AbstractOperator):
     async def start_restore(
         self,
         config: DockerDeploymentConfig,
-        host_ip: str | None,
         dir_storage_config: dict,
         image_storage_config: dict,
         archive_params: dict | None = None,
-    ) -> None:
+    ) -> str | None:
         """Fire-and-forget restore: actor pulls image, downloads logs, starts container.
 
         The actor stays alive as the long-lived detached actor for the sandbox
-        (same as what `submit` creates for a new sandbox). `get_status` alive
-        detection will transition the state to RUNNING once the container is up.
+        (same as what ``submit`` creates for a new sandbox).  ``get_status``
+        alive detection will transition the state to RUNNING once the container
+        is up.
+
+        Returns the host IP of the node where the actor was scheduled so the
+        caller can persist it to the meta store (needed for ``get_status`` to
+        reach the correct worker).
         """
         async with self._ray_service.get_ray_rwlock().read_lock():
-            sandbox_actor = await self.create_actor(config, pin_to_host_ip=host_ip)
+            sandbox_actor = await self.create_actor(config)
+            new_host_ip = await self._ray_service.async_ray_get(sandbox_actor.host_ip.remote())
             sandbox_actor.restore_and_start.remote(dir_storage_config, image_storage_config, archive_params)
+            return new_host_ip

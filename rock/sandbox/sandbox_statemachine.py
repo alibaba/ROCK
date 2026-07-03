@@ -310,13 +310,17 @@ class SandboxStateMachine(StateChart):
             if restore_timeout_seconds:
                 archive_params["timeout_seconds"] = restore_timeout_seconds
             config = DockerDeploymentConfig(**spec)
-            await operator.start_restore(
+            new_host_ip = await operator.start_restore(
                 config=config,
-                host_ip=sandbox_info.get("host_ip"),
                 dir_storage_config=dir_storage.client_config,
                 image_storage_config=image_storage.client_config,
                 archive_params=archive_params,
             )
+            if new_host_ip and new_host_ip != sandbox_info.get("host_ip"):
+                logger.info(f"restore sandbox {sandbox_id} scheduled on new host {new_host_ip}")
+                sandbox_info["host_ip"] = new_host_ip
+                await meta_store.update(sandbox_id, sandbox_info)
+                self.sandbox_info = sandbox_info
 
     async def on_restore_failed(self, sandbox_id: str, meta_store, reason: str = "") -> None:
         """PENDING → ARCHIVED: timeout or unrecoverable error during restore."""
