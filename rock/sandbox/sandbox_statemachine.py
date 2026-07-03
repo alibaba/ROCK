@@ -130,7 +130,9 @@ class SandboxStateMachine(StateChart):
     async def on_alive(self, sandbox_id: str, meta_store, sandbox_info: SandboxInfo) -> None:
         sandbox_info["state"] = RockState.RUNNING
         if not sandbox_info.get("start_time"):
-            sandbox_info["start_time"] = get_iso8601_timestamp()
+            phases = sandbox_info.get("phases", {})
+            docker_run = phases.get("docker_run", {})
+            sandbox_info["start_time"] = docker_run.get("completed_at") or get_iso8601_timestamp()
         if self.sandbox_info and "state_history" in self.sandbox_info:
             sandbox_info["state_history"] = self.sandbox_info["state_history"]
         await meta_store.update(sandbox_id, sandbox_info)
