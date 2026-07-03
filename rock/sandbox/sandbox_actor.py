@@ -453,7 +453,7 @@ class SandboxActor(GemActor):
         await self._run_shell_command("docker", "rmi", local_tag, check=False)
         self._archive_status.update_status("image_archive", Status.SUCCESS, "image archived")
 
-        await self._run_shell_command("docker", "rm", sandbox_id, check=False)
+        await self._deployment.delete()
         logger.info(f"[{sandbox_id}] archive complete")
 
     async def restore_and_start(

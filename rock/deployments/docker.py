@@ -958,13 +958,6 @@ class DockerDeployment(AbstractDeployment):
         is in a stopped/exited state. A nonexistent container surfaces via
         `docker start` failing — see is_alive()'s poll-based detection.
         """
-        # TODO: once a sandbox delete API exists, move _cleanup_kata_disk() there;
-        # until then kata restart is blocked because _stop() deletes the .img file.
-        if self._config.use_kata_runtime:
-            raise NotImplementedError(
-                f"Restart is not supported for kata runtime containers (container={self._container_name}). "
-            )
-
         executor = get_executor()
         loop = asyncio.get_running_loop()
 
@@ -1056,6 +1049,12 @@ class DockerDeployment(AbstractDeployment):
                 ]
             )
         volume_args.extend(self._prepare_timezone_mount())
+
+        if self._config.use_kata_runtime:
+            self._prepare_kata_disk()
+            disk_path = self._get_kata_disk_image_path()
+            volume_args.extend(["-v", f"{disk_path}:/docker-disk.img"])
+
         runtime_args = self._build_runtime_args()
 
         cmds = [
@@ -1113,13 +1112,14 @@ class DockerDeployment(AbstractDeployment):
         logger.info(f"Container {self._container_name} recreated from {image_ref} successfully")
 
     async def delete(self) -> None:
-        """Remove the container via ``docker rm -f``.
+        """Remove the container via ``docker rm -f`` and clean up kata disk.
 
         Idempotent — a container that doesn't exist counts as success because
         nothing remains to clean up. The actor was previously stopped (or
         freshly created without start), so there is no
         ``self._container_process`` / ``self._runtime`` to unwind here.
-        Quota / log cleanup already ran during ``_stop`` and is not repeated.
+        Kata disk cleanup lives here (not in _stop) so that restart can
+        reuse the disk image after stop.
         """
         container_name = self._container_name or (self._config.container_name if self._config else None)
         if not container_name:
@@ -1129,6 +1129,7 @@ class DockerDeployment(AbstractDeployment):
         executor = get_executor()
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(executor, DockerUtil.remove_container_force, container_name)
+        self._cleanup_kata_disk()
 
     def _get_rocklet_port_from_inspect(self) -> int | None:
         """Read the host-side port mapped to the rocklet (container port 22555) from docker inspect."""
@@ -1191,7 +1192,6 @@ class DockerDeployment(AbstractDeployment):
 
             self._container_process = None
             self._cleanup_rootfs_xfs_quota()
-            self._cleanup_kata_disk()
             self._container_name = None
 
         if self._check_stop_task is not None:

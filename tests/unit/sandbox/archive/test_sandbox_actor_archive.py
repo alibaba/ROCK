@@ -23,6 +23,7 @@ def actor():
     config = MagicMock()
     config.container_name = "sbx-test-123"
     deployment = MagicMock()
+    deployment.delete = AsyncMock()
 
     instance = ActorClass.__new__(ActorClass)
     instance._config = config
