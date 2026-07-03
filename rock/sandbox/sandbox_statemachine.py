@@ -13,6 +13,7 @@ from rock.actions.sandbox.response import State as RockState
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.metrics.billing import log_billing_info
 from rock.common.constants import DeleteReason, StopReason
+from rock.config import ArchiveAcrConfig, ArchiveDirStorageConfig
 from rock.deployments.config import DockerDeploymentConfig
 from rock.logger import init_logger
 from rock.sandbox.archive.constants import ArchiveKeys
@@ -209,8 +210,8 @@ class SandboxStateMachine(StateChart):
                 )
 
         if sandbox_info.get("archive_time") and dir_storage and image_storage:
-            prefix = sandbox_info.get("archive_prefix", "rock-archives/")
-            acr_ns = sandbox_info.get("acr_namespace", "sandbox_archive")
+            prefix = sandbox_info.get("archive_prefix", ArchiveDirStorageConfig.prefix)
+            acr_ns = sandbox_info.get("acr_namespace", ArchiveAcrConfig.namespace)
             key = ArchiveKeys.dir_key(sandbox_id, prefix)
             ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, acr_ns)
             logger.info(f"delete: cleaning up archive artifacts for {sandbox_id} (dir={key}, image={ref})")
@@ -240,8 +241,8 @@ class SandboxStateMachine(StateChart):
         logger.info(f"archive sandbox {sandbox_id}")
         sandbox_info = self.sandbox_info or {}
         archive_params = archive_params or {}
-        prefix = archive_params.get("archive_prefix", "rock-archives/")
-        acr_ns = archive_params.get("acr_namespace", "sandbox_archive")
+        prefix = archive_params.get("archive_prefix", ArchiveDirStorageConfig.prefix)
+        acr_ns = archive_params.get("acr_namespace", ArchiveAcrConfig.namespace)
 
         sandbox_info["state"] = RockState.ARCHIVING
         sandbox_info["archive_prefix"] = prefix
@@ -306,8 +307,8 @@ class SandboxStateMachine(StateChart):
 
         if operator:
             archive_params = {
-                "archive_prefix": sandbox_info.get("archive_prefix", "rock-archives/"),
-                "acr_namespace": sandbox_info.get("acr_namespace", "sandbox_archive"),
+                "archive_prefix": sandbox_info.get("archive_prefix", ArchiveDirStorageConfig.prefix),
+                "acr_namespace": sandbox_info.get("acr_namespace", ArchiveAcrConfig.namespace),
             }
             if restore_timeout_seconds:
                 archive_params["timeout_seconds"] = restore_timeout_seconds
