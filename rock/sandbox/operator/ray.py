@@ -1,4 +1,3 @@
-import asyncio
 import json
 
 import ray
@@ -179,23 +178,7 @@ class RayOperator(AbstractOperator):
             config.cpus = 0.1
             config.memory = "256m"
             sandbox_actor = await self.create_actor(config, pin_to_host_ip=host_ip)
-            asyncio.create_task(
-                self._run_archive(sandbox_actor, dir_storage_config, image_storage_config, archive_params)
-            )
-
-    async def _run_archive(self, actor, dir_cfg, image_cfg, archive_params=None):
-        logger.info("_run_archive started")
-        try:
-            # ray.get timeout must exceed the actor-internal timeout to avoid premature cancellation
-            timeout = (archive_params or {}).get("timeout_seconds", 1800) + 60
-            await self._ray_service.async_ray_get(
-                actor.archive.remote(dir_cfg, image_cfg, archive_params), timeout=timeout
-            )
-            logger.info("_run_archive completed successfully")
-        except Exception as e:
-            logger.exception(f"archive remote failed: {e}")
-        finally:
-            ray.kill(actor)
+            sandbox_actor.archive.remote(dir_storage_config, image_storage_config, archive_params)
 
     async def start_restore(
         self,

@@ -64,6 +64,11 @@ class AbstractOperator(ABC):
 
         raise BadRequestRockError(f"restore not supported on {type(self).__name__}")
 
+    async def get_remote_status(self, sandbox_id: str, host_ip: str):
+        from rock.deployments.status import ServiceStatus
+
+        return ServiceStatus()
+
     def set_redis_provider(self, redis_provider: RedisProvider):
         self._redis_provider = redis_provider
 

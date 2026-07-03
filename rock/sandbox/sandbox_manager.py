@@ -34,7 +34,6 @@ from rock.logger import init_logger
 from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
 from rock.sandbox.archive.abstract import AbstractDirStorage, AbstractImageStorage
-from rock.sandbox.archive.constants import ArchiveKeys
 from rock.sandbox.base_manager import BaseManager
 from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.sandbox_actor import SandboxActor
@@ -533,34 +532,45 @@ class SandboxManager(BaseManager):
         )
 
     async def _try_advance_archiving(self, sandbox_id: str, sm: SandboxStateMachine) -> None:
-        """If sandbox is ARCHIVING and image exists in registry, transition to ARCHIVED."""
-        if not self._dir_storage or not self._image_storage:
-            return
+        """If sandbox is ARCHIVING and service_status shows completion, transition to ARCHIVED."""
         if sm.current_state.value != State.ARCHIVING:
             return
 
         info = sm.sandbox_info
-        acr_ns = info.get("acr_namespace", self.rock_config.lifecycle.archive.acr.namespace)
-        ref = ArchiveKeys.image_ref(sandbox_id, self._image_storage.registry_url, acr_ns)
-
-        try:
-            img_ok = await self._image_storage.exists(ref)
-        except Exception as e:
-            logger.warning(f"exists check failed for {sandbox_id}: {e}")
+        host_ip = info.get("host_ip")
+        if not host_ip:
             return
 
-        if img_ok:
+        try:
+            remote_status = await self._operator.get_remote_status(sandbox_id, host_ip)
+        except Exception as e:
+            logger.warning(f"get_remote_status failed for {sandbox_id}: {e}")
+            return
+
+        phases = remote_status.to_dict().get("phases", {})
+        image_phase = phases.get("image_archive", {})
+        status = image_phase.get("status", "")
+
+        if status == "success":
             try:
                 await sm.send("archive_done", sandbox_id=sandbox_id, meta_store=self._meta_store)
                 logger.info(f"archive_done: {sandbox_id}")
             except Exception as e:
                 logger.error(f"archive_done transition failed for {sandbox_id}: {e}", exc_info=True)
+        elif status in ("failed", "timeout"):
+            try:
+                await sm.send(
+                    "archive_failed",
+                    sandbox_id=sandbox_id,
+                    meta_store=self._meta_store,
+                    reason=image_phase.get("message", "unknown"),
+                )
+                logger.warning(f"archive_failed: {sandbox_id} ({image_phase.get('message')})")
+            except Exception as e:
+                logger.error(f"archive_failed transition failed for {sandbox_id}: {e}", exc_info=True)
 
     async def _reconcile_archiving(self) -> None:
         """Reconcile ARCHIVING sandboxes: verify completion or roll back to STOPPED on timeout."""
-        if not self._dir_storage or not self._image_storage:
-            return
-
         try:
             archiving = await self._meta_store.list_by("state", State.ARCHIVING.value)
         except Exception as e:

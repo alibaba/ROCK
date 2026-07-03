@@ -33,7 +33,7 @@ from rock.deployments.abstract import AbstractDeployment
 from rock.deployments.config import DeploymentConfig
 from rock.deployments.constants import Status
 from rock.deployments.docker import DockerDeployment
-from rock.deployments.status import ServiceStatus
+from rock.deployments.status import PersistedServiceStatus, PhaseStatus, ServiceStatus
 from rock.logger import init_logger
 from rock.sandbox.archive.abstract import AbstractDirStorage
 from rock.sandbox.archive.constants import ArchiveKeys
@@ -51,6 +51,7 @@ class SandboxActor(GemActor):
     _clean_container_background_script = "rock/admin/scripts/clean_container_background.sh"
     _clean_container_background_process = None
     _metrics_monitor = None
+    _archive_status = None
     _role = "test"
     _env = "dev"
     _user_id = "default"
@@ -343,16 +344,24 @@ class SandboxActor(GemActor):
         image_storage_config: dict,
         archive_params: dict | None = None,
     ) -> None:
-        """Async archive: commit+push image, then tar+upload log dir."""
+        """Fire-and-forget archive: commit+push image, upload logs, then self-exit."""
         archive_params = archive_params or {}
-        timeout = archive_params.get("timeout_seconds")
-        if timeout:
+        timeout = archive_params.get("timeout_seconds", 1800)
+        try:
             await asyncio.wait_for(
                 self._do_archive(dir_storage_config, image_storage_config, archive_params),
                 timeout=timeout,
             )
-        else:
-            await self._do_archive(dir_storage_config, image_storage_config, archive_params)
+        except asyncio.TimeoutError:
+            logger.error(f"[{self._config.container_name}] archive timed out after {timeout}s")
+            if self._archive_status:
+                self._archive_status.update_status("image_archive", Status.TIMEOUT, f"timeout after {timeout}s")
+        except Exception as e:
+            logger.exception(f"[{self._config.container_name}] archive failed: {e}")
+            if self._archive_status:
+                self._archive_status.update_status("image_archive", Status.FAILED, str(e)[:200])
+        finally:
+            ray.actor.exit_actor()
 
     async def _do_archive(
         self,
@@ -366,6 +375,12 @@ class SandboxActor(GemActor):
         prefix = archive_params.get("archive_prefix", "rock-archives/")
         acr_ns = archive_params.get("acr_namespace", "sandbox_archive")
 
+        self._archive_status = PersistedServiceStatus(
+            phases={"image_archive": PhaseStatus(), "log_archive": PhaseStatus()}
+        )
+        self._archive_status.set_sandbox_id(sandbox_id)
+        self._archive_status.update_status("image_archive", Status.RUNNING, "committing container")
+
         local_tag = f"archive-staging-{sandbox_id}:latest"
         await self._run_shell_command("docker", "commit", sandbox_id, local_tag)
 
@@ -373,7 +388,7 @@ class SandboxActor(GemActor):
         log_dir = f"{log_root}/{sandbox_id}" if log_root else ""
         has_log_dir = bool(log_dir) and os.path.isdir(log_dir)
 
-        # Pre-flight size checks: verify both are within limits before uploading either
+        # Pre-flight size checks
         max_image = archive_params.get("max_image_push_size", "")
         if max_image:
             image_size = await self._get_image_size(local_tag)
@@ -394,21 +409,22 @@ class SandboxActor(GemActor):
                     f"[{sandbox_id}] log dir size {dir_size} bytes exceeds limit {max_dir} ({max_bytes} bytes)"
                 )
 
-        # Both checks passed — proceed with uploads (dir first, then image)
+        # Upload logs (dir first, then image)
         dir_uploaded = False
         if has_log_dir:
             key = ArchiveKeys.dir_key(sandbox_id, prefix)
+            self._archive_status.update_status("log_archive", Status.RUNNING, "uploading logs")
             try:
                 await dir_storage.upload_dir(log_dir, key)
                 dir_uploaded = True
+                self._archive_status.update_status("log_archive", Status.SUCCESS, "logs uploaded")
             except Exception:
+                self._archive_status.update_status("log_archive", Status.FAILED, "upload failed")
                 await self._run_shell_command("docker", "rmi", local_tag, check=False)
                 raise
             shutil.rmtree(log_dir, ignore_errors=True)
-        elif log_root:
-            logger.info(f"[{sandbox_id}] log dir {log_dir} not found, skipping log archive")
         else:
-            logger.info(f"[{sandbox_id}] ROCK_LOGGING_PATH not set, skipping log dir archive")
+            self._archive_status.update_status("log_archive", Status.SUCCESS, "skipped")
 
         ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, acr_ns)
         # Delete existing tag before push — some registries (ACR) reject overwrites.
@@ -416,9 +432,11 @@ class SandboxActor(GemActor):
             await image_storage.delete(ref)
         except Exception:
             pass
+        self._archive_status.update_status("image_archive", Status.RUNNING, "pushing to registry")
         try:
             await image_storage.push_from_local(local_tag, ref)
         except Exception:
+            self._archive_status.update_status("image_archive", Status.FAILED, "push failed")
             await self._run_shell_command("docker", "rmi", local_tag, check=False)
             if dir_uploaded:
                 try:
@@ -427,9 +445,10 @@ class SandboxActor(GemActor):
                     logger.warning(f"[{sandbox_id}] failed to cleanup dir {key} after image push failure")
             raise
         await self._run_shell_command("docker", "rmi", local_tag, check=False)
+        self._archive_status.update_status("image_archive", Status.SUCCESS, "image archived")
 
         await self._run_shell_command("docker", "rm", sandbox_id, check=False)
-        logger.info(f"[{sandbox_id}] container removed after archive")
+        logger.info(f"[{sandbox_id}] archive complete")
 
     async def restore_and_start(
         self,
@@ -439,14 +458,11 @@ class SandboxActor(GemActor):
     ) -> None:
         """Full restore: pull image + download logs + docker start + arm watchdog."""
         archive_params = archive_params or {}
-        timeout = archive_params.get("timeout_seconds")
-        if timeout:
-            await asyncio.wait_for(
-                self._do_restore_and_start(dir_storage_config, image_storage_config, archive_params),
-                timeout=timeout,
-            )
-        else:
-            await self._do_restore_and_start(dir_storage_config, image_storage_config, archive_params)
+        timeout = archive_params.get("timeout_seconds", 1800)
+        await asyncio.wait_for(
+            self._do_restore_and_start(dir_storage_config, image_storage_config, archive_params),
+            timeout=timeout,
+        )
 
     async def _do_restore_and_start(
         self,

@@ -7,6 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def mock_exit_actor():
+    with patch("ray.actor.exit_actor"):
+        yield
+
+
 @pytest.fixture
 def actor():
     """Create a SandboxActor instance without Ray, using the underlying class."""
@@ -22,6 +28,7 @@ def actor():
     instance._config = config
     instance._deployment = deployment
     instance._run_shell_command = AsyncMock()
+    instance._archive_status = None
     return instance
 
 
@@ -68,6 +75,8 @@ class TestSandboxActorArchive:
         call_args = mock_upload.call_args
         assert "sbx-test-123" in call_args[0][0]
         assert "sbx-test-123" in call_args[0][1]
+        assert actor._archive_status.phases["image_archive"].status.value == "success"
+        assert actor._archive_status.phases["log_archive"].status.value == "success"
 
     @patch("rock.sandbox.archive.oss_storage.OssDirStorage.upload_dir", new_callable=AsyncMock)
     @patch(
@@ -82,11 +91,11 @@ class TestSandboxActorArchive:
 
         monkeypatch.setattr(_env_vars, "ROCK_LOGGING_PATH", "/tmp/logs")
 
-        with pytest.raises(RuntimeError, match="push failed"):
-            await actor.archive(dir_storage_config, image_storage_config)
+        await actor.archive(dir_storage_config, image_storage_config)
 
         actor._run_shell_command.assert_any_call("docker", "rmi", "archive-staging-sbx-test-123:latest", check=False)
         mock_upload.assert_not_called()
+        assert actor._archive_status.phases["image_archive"].status.value == "failed"
 
     @patch(
         "rock.sandbox.archive.oss_storage.OssDirStorage.upload_dir",
@@ -105,13 +114,13 @@ class TestSandboxActorArchive:
             log_dir = os.path.join(tmpdir, "sbx-test-123")
             os.makedirs(log_dir)
 
-            with pytest.raises(RuntimeError, match="upload failed"):
-                await actor.archive(dir_storage_config, image_storage_config)
+            await actor.archive(dir_storage_config, image_storage_config)
 
         # Dir upload happens before image push; failure aborts before push.
         mock_push.assert_not_called()
         # Local tag still cleaned up
         actor._run_shell_command.assert_any_call("docker", "rmi", "archive-staging-sbx-test-123:latest", check=False)
+        assert actor._archive_status.phases["log_archive"].status.value == "failed"
 
     @patch("rock.sandbox.archive.registry_v2.DockerRegistryV2ImageStorage.push_from_local", new_callable=AsyncMock)
     async def test_no_logging_path_skips_log_archive(
@@ -144,7 +153,7 @@ class TestArchiveSizeLimits:
     """Tests for archive size limit enforcement."""
 
     @patch("rock.sandbox.archive.registry_v2.DockerRegistryV2ImageStorage.push_from_local", new_callable=AsyncMock)
-    async def test_image_exceeds_limit_raises(
+    async def test_image_exceeds_limit_fails(
         self, mock_push, actor, dir_storage_config, image_storage_config, monkeypatch
     ):
         import subprocess
@@ -158,10 +167,10 @@ class TestArchiveSizeLimits:
 
         limits = {"max_image_push_size": "16g", "max_dir_upload_size": "16g"}
 
-        with pytest.raises(RuntimeError, match="exceeds limit"):
-            await actor.archive(dir_storage_config, image_storage_config, limits)
+        await actor.archive(dir_storage_config, image_storage_config, limits)
 
         mock_push.assert_not_called()
+        assert actor._archive_status.phases["image_archive"].status.value == "failed"
 
     @patch("rock.sandbox.archive.oss_storage.OssDirStorage.upload_dir", new_callable=AsyncMock)
     @patch("rock.sandbox.archive.registry_v2.DockerRegistryV2ImageStorage.push_from_local", new_callable=AsyncMock)
@@ -184,7 +193,7 @@ class TestArchiveSizeLimits:
 
     @patch("rock.sandbox.archive.oss_storage.OssDirStorage.upload_dir", new_callable=AsyncMock)
     @patch("rock.sandbox.archive.registry_v2.DockerRegistryV2ImageStorage.push_from_local", new_callable=AsyncMock)
-    async def test_dir_exceeds_limit_raises(
+    async def test_dir_exceeds_limit_fails(
         self, mock_push, mock_upload, actor, dir_storage_config, image_storage_config, monkeypatch
     ):
         import subprocess
@@ -207,11 +216,11 @@ class TestArchiveSizeLimits:
             actor._run_shell_command = AsyncMock(side_effect=side_effect)
 
             limits = {"max_image_push_size": "16g", "max_dir_upload_size": "16g"}
-            with pytest.raises(RuntimeError, match="exceeds limit"):
-                await actor.archive(dir_storage_config, image_storage_config, limits)
+            await actor.archive(dir_storage_config, image_storage_config, limits)
 
         mock_push.assert_not_called()
         mock_upload.assert_not_called()
+        assert actor._archive_status.phases["image_archive"].status.value == "failed"
 
     @patch("rock.sandbox.archive.oss_storage.OssDirStorage.upload_dir", new_callable=AsyncMock)
     @patch("rock.sandbox.archive.registry_v2.DockerRegistryV2ImageStorage.push_from_local", new_callable=AsyncMock)
