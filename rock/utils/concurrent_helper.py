@@ -14,7 +14,9 @@ V = TypeVar("V")
 _thread_pool = None
 _thread_pool_lock = threading.Lock()
 _global_executor: ThreadPoolExecutor | None = None
+_ray_executor: ThreadPoolExecutor | None = None
 MAX_WORKERS = 300
+RAY_EXECUTOR_MAX_WORKERS = 800
 
 
 def _get_thread_pool():
@@ -74,6 +76,14 @@ def get_executor() -> ThreadPoolExecutor:
     if _global_executor is None:
         _global_executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
     return _global_executor
+
+
+def get_ray_executor() -> ThreadPoolExecutor:
+    """Get dedicated thread pool executor for Ray operations"""
+    global _ray_executor
+    if _ray_executor is None:
+        _ray_executor = ThreadPoolExecutor(max_workers=RAY_EXECUTOR_MAX_WORKERS, thread_name_prefix="RayExecutor")
+    return _ray_executor
 
 
 class Timer:

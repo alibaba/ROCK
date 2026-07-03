@@ -48,6 +48,7 @@ from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sandbox.service.warmup_service import WarmupService
 from rock.utils import EAGLE_EYE_TRACE_ID, sandbox_id_ctx_var, trace_id_ctx_var
+from rock.utils.concurrent_helper import get_ray_executor
 from rock.utils.providers import RedisProvider
 from rock.utils.system import is_primary_pod
 from rock.utils.worker import resolve_workers
@@ -150,7 +151,7 @@ async def lifespan(app: FastAPI):
     proxy_service_ref = None
     if env_vars.ROCK_ADMIN_ROLE == "admin":
         # init ray service
-        ray_service = RayService(rock_config.ray)
+        ray_service = RayService(rock_config.ray, executor=get_ray_executor())
         ray_service.init()
 
         # create operator using factory with context pattern

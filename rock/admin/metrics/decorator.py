@@ -9,7 +9,10 @@ from typing import TYPE_CHECKING
 
 from rock.admin.metrics.constants import MetricsConstants
 from rock.admin.metrics.monitor import MetricsMonitor
+from rock.logger import init_logger
 from rock.sdk.common.exceptions import BadRequestRockError
+
+logger = init_logger(__name__)
 
 if TYPE_CHECKING:
     from rock.sandbox.sandbox_meta_store import SandboxMetaStore
@@ -195,6 +198,10 @@ def monitor_sandbox_operation(
                     result = await f(self, *args, **kwargs)
                     return _record_metrics(metrics_monitor, result, attributes, start_time, metric_prefix)
                 except Exception as e:
+                    logger.error(
+                        f"[{op_name}] sandbox_id={sandbox_id} failed: {type(e).__name__}: {e}",
+                        exc_info=e,
+                    )
                     return _record_metrics(metrics_monitor, e, attributes, start_time, metric_prefix)
 
             return wrapper
@@ -229,6 +236,10 @@ def monitor_sandbox_operation(
                     result = f(self, *args, **kwargs)
                     return _record_metrics(metrics_monitor, result, attributes, start_time, metric_prefix)
                 except Exception as e:
+                    logger.error(
+                        f"[{op_name}] sandbox_id={sandbox_id} failed: {type(e).__name__}: {e}",
+                        exc_info=e,
+                    )
                     return _record_metrics(metrics_monitor, e, attributes, start_time, metric_prefix)
 
             return wrapper
