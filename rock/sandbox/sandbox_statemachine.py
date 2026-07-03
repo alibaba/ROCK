@@ -136,6 +136,10 @@ class SandboxStateMachine(StateChart):
             sandbox_info["start_time"] = docker_run.get("completed_at") or get_iso8601_timestamp()
         if self.sandbox_info and "state_history" in self.sandbox_info:
             sandbox_info["state_history"] = self.sandbox_info["state_history"]
+        # Clear archive_time once the sandbox is fully live again — otherwise
+        # _reconcile_pending would misclassify a subsequent plain restart as a
+        # restore-in-progress and time it out to ARCHIVED.
+        sandbox_info.pop("archive_time", None)
         await meta_store.update(sandbox_id, sandbox_info)
 
     async def on_restart(self, sandbox_id: str, operator, meta_store) -> None:
