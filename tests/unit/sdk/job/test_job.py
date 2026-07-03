@@ -311,7 +311,7 @@ class TestJobTrackingFanOut:
 
     async def test_run_calls_all_registered_tracking_adapters(self):
         """When multiple adapters are registered, all should be called."""
-        from rock.sdk.job.adapter import TrackingAdapter
+        from rock.sdk.job.tracking.adapter import TrackingAdapter
 
         class MockAdapter1(TrackingAdapter):
             def __init__(self):
@@ -341,7 +341,7 @@ class TestJobTrackingFanOut:
         mock_sandbox = _make_mock_sandbox()
         with (
             patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox),
-            patch("rock.sdk.job.adapter.resolve_tracking_adapters", return_value=[adapter1, adapter2]),
+            patch("rock.sdk.job.api.resolve_tracking_adapters", return_value=[adapter1, adapter2]),
         ):
             result = await Job(BashJobConfig(script="echo hi", job_name="test")).run()
 
@@ -355,7 +355,7 @@ class TestJobTrackingFanOut:
 
     async def test_run_continues_if_one_adapter_fails(self):
         """If one adapter raises an exception, others should still be called."""
-        from rock.sdk.job.adapter import TrackingAdapter
+        from rock.sdk.job.tracking.adapter import TrackingAdapter
 
         class FailingAdapter(TrackingAdapter):
             def init(self, *, namespace, experiment_id, job_id, config):
@@ -381,7 +381,7 @@ class TestJobTrackingFanOut:
         mock_sandbox = _make_mock_sandbox()
         with (
             patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox),
-            patch("rock.sdk.job.adapter.resolve_tracking_adapters", return_value=[failing, working]),
+            patch("rock.sdk.job.api.resolve_tracking_adapters", return_value=[failing, working]),
         ):
             result = await Job(BashJobConfig(script="echo hi", job_name="test")).run()
 
@@ -396,7 +396,7 @@ class TestJobTrackingFanOut:
         mock_sandbox = _make_mock_sandbox()
         with (
             patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox),
-            patch("rock.sdk.job.adapter.resolve_tracking_adapters", return_value=[]),
+            patch("rock.sdk.job.api.resolve_tracking_adapters", return_value=[]),
         ):
             result = await Job(BashJobConfig(script="echo hi", job_name="test")).run()
 

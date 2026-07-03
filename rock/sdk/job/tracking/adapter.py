@@ -6,7 +6,7 @@ Adapters are discovered by scanning the directories listed in the
 CLI CommandLoader.
 
 Internal / proprietary adapters (e.g. one that reports to an internal backend)
-are layered into the default directory (``rock/sdk/tracking``) via a symlink,
+are layered into the default directory (``rock/sdk/job/tracking``) via a symlink,
 so no entry_points registration or ``pip install`` step is required. When the
 directory is empty or absent (as in the published open-source package),
 ``resolve_tracking_adapters()`` simply returns an empty list.
@@ -93,7 +93,11 @@ def _load_adapter_classes(directory: str) -> list[type[TrackingAdapter]]:
                 continue
 
             for _name, obj in inspect.getmembers(module, inspect.isclass):
-                if issubclass(obj, TrackingAdapter) and obj is not TrackingAdapter and obj.__module__ == module_name:
+                if (
+                    issubclass(obj, TrackingAdapter)
+                    and obj is not TrackingAdapter
+                    and (obj.__module__ == module_name or obj.__module__.startswith(module_name))
+                ):
                     classes.append(obj)
     return classes
 

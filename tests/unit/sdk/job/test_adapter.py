@@ -1,4 +1,4 @@
-"""Tests for rock.sdk.job.adapter — TrackingAdapter base class + directory-scan discovery.
+"""Tests for rock.sdk.job.tracking.adapter — TrackingAdapter base class + directory-scan discovery.
 
 Adapters are discovered by scanning the directories listed in
 ``ROCK_TRACKING_LOAD_PATHS`` for ``TrackingAdapter`` subclasses. Internal /
@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import textwrap
 
-from rock.sdk.job.adapter import TrackingAdapter, resolve_tracking_adapters
 from rock.sdk.job.config import JobConfig
+from rock.sdk.job.tracking.adapter import TrackingAdapter, resolve_tracking_adapters
 
 
 class _ConcreteAdapter(TrackingAdapter):
@@ -39,7 +39,7 @@ def _write_adapter(directory, filename: str, class_name: str) -> None:
     """Write a .py file defining a TrackingAdapter subclass into *directory*."""
     src = textwrap.dedent(
         f"""
-        from rock.sdk.job.adapter import TrackingAdapter
+        from rock.sdk.job.tracking.adapter import TrackingAdapter
 
         class {class_name}(TrackingAdapter):
             def init(self, *, namespace, experiment_id, job_id, config):
@@ -115,7 +115,7 @@ class TestResolveTrackingAdapters:
         (tmp_path / "noise.py").write_text(
             textwrap.dedent(
                 """
-                from rock.sdk.job.adapter import TrackingAdapter
+                from rock.sdk.job.tracking.adapter import TrackingAdapter
 
                 class NotAnAdapter:
                     pass

@@ -14,15 +14,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from rock.logger import init_logger
 from rock.sdk.job.executor import JobExecutor
 from rock.sdk.job.operator import ScatterOperator
 from rock.sdk.job.result import JobResult, JobStatus
+from rock.sdk.job.tracking.adapter import TrackingAdapter, resolve_tracking_adapters
 
 if TYPE_CHECKING:
     from rock.sdk.job.config import JobConfig
     from rock.sdk.job.executor import JobClient
     from rock.sdk.job.operator import Operator
     from rock.sdk.job.result import TrialResult
+
+logger = init_logger(__name__)
 
 
 class Job:
@@ -41,6 +45,7 @@ class Job:
         self._executor = JobExecutor()
         self._operator = operator or ScatterOperator()
         self._job_client: JobClient | None = None
+        self._tracking_adapters: list[TrackingAdapter] = resolve_tracking_adapters()
 
     async def run(self) -> JobResult:
         """Full lifecycle: submit + wait."""
@@ -96,12 +101,8 @@ class Job:
         return result
 
     def _report_tracking(self, result: JobResult) -> None:
-        """Resolve all adapters and report job metrics. Never raises."""
-        from rock.logger import init_logger
-        from rock.sdk.job.adapter import resolve_tracking_adapters
-
-        adapters = resolve_tracking_adapters()
-        if not adapters:
+        """Report job metrics to all resolved adapters. Never raises."""
+        if not self._tracking_adapters:
             return
 
         config = self._config
@@ -109,7 +110,7 @@ class Job:
         experiment_id = config.experiment_id or "rock-experiment"
         job_name = config.job_name or "default"
 
-        for adapter in adapters:
+        for adapter in self._tracking_adapters:
             try:
                 adapter.init(namespace=namespace, experiment_id=experiment_id, job_id=job_name, config=config)
 
@@ -137,9 +138,7 @@ class Job:
                     }
                 )
             except Exception:  # noqa: BLE001 — tracking failure must not affect result return
-                init_logger(__name__).warning(
-                    f"Tracking adapter {type(adapter).__name__} failed to report", exc_info=True
-                )
+                logger.warning(f"Tracking adapter {type(adapter).__name__} failed to report", exc_info=True)
             finally:
                 try:
                     adapter.close()
