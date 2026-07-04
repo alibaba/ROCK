@@ -45,6 +45,7 @@ admin = [
     "sqlmodel",
     "aiosqlite",
     "asyncpg",
+    "psycopg2-binary",
     "boto3",
     "ray[default]==2.43.0",
     "pip",
