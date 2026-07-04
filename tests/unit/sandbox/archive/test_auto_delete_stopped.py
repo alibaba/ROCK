@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from rock.common.constants import DeleteReason
-from rock.config import SandboxLifecycleConfig
+from rock.config import AutoTransitionConfig, SandboxLifecycleConfig
 
 
 @pytest.fixture
@@ -16,7 +16,7 @@ def manager():
     m = MagicMock(spec=SandboxManager)
     m._meta_store = AsyncMock()
     m.rock_config = MagicMock()
-    m.rock_config.lifecycle = SandboxLifecycleConfig(auto_delete_after_seconds=3600)
+    m.rock_config.lifecycle = SandboxLifecycleConfig(auto_transition=AutoTransitionConfig(auto_delete_seconds=3600))
     m.delete = AsyncMock()
     m._auto_delete_stopped = SandboxManager._auto_delete_stopped.__get__(m, SandboxManager)
     return m
@@ -24,7 +24,7 @@ def manager():
 
 class TestAutoDeleteStopped:
     async def test_disabled_when_zero(self, manager):
-        manager.rock_config.lifecycle.auto_delete_after_seconds = 0
+        manager.rock_config.lifecycle.auto_transition.auto_delete_seconds = 0
         await manager._auto_delete_stopped()
         manager._meta_store.list_by_in.assert_not_called()
 

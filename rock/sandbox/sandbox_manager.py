@@ -79,7 +79,7 @@ class SandboxManager(BaseManager):
 
     def _init_archive_storage(self, rock_config: RockConfig) -> None:
         archive_cfg = rock_config.lifecycle.archive
-        image_registry_cfg = archive_cfg.acr
+        image_registry_cfg = archive_cfg.registry
         dir_storage_cfg = archive_cfg.dir_storage
         registry_ready = image_registry_cfg.registry_url and image_registry_cfg.username and image_registry_cfg.password
         dir_storage_ready = (
@@ -192,7 +192,7 @@ class SandboxManager(BaseManager):
                 operator=self._operator,
                 dir_storage=self._dir_storage,
                 image_storage=self._image_storage,
-                restore_timeout_seconds=self.rock_config.lifecycle.restore_timeout_seconds,
+                restore_timeout_seconds=self.rock_config.lifecycle.archive.restore_timeout_seconds,
             )
         elif state == State.STOPPED:
             await sm.send(
@@ -473,9 +473,10 @@ class SandboxManager(BaseManager):
         logger.info(f"[auto_stop] done: alive={alive_count}, expired={expired_count}")
 
     async def _auto_delete_stopped(self) -> None:
-        """Delete STOPPED and ARCHIVED sandboxes idle longer than auto_delete_after_seconds."""
-        auto_delete_sec = self.rock_config.lifecycle.auto_delete_after_seconds
+        """Delete STOPPED and ARCHIVED sandboxes idle longer than auto_delete_seconds."""
+        auto_delete_sec = self.rock_config.lifecycle.auto_transition.auto_delete_seconds
         if not auto_delete_sec:
+            logger.info("[auto_delete] disabled (auto_delete_seconds=0)")
             return
 
         try:
@@ -484,7 +485,9 @@ class SandboxManager(BaseManager):
             logger.warning(f"[auto_delete] list_by_in failed: {e}")
             return
 
+        logger.info(f"[auto_delete] candidates={len(candidates)}, threshold={auto_delete_sec}s")
         now = datetime.datetime.now(timezone.utc)
+        deleted_count = 0
         for info in candidates:
             sandbox_id = info.get("sandbox_id", "")
             stop_time_str = info.get("stop_time", "")
@@ -496,21 +499,28 @@ class SandboxManager(BaseManager):
             except (ValueError, TypeError):
                 continue
             if elapsed < auto_delete_sec:
+                logger.info(
+                    f"[auto_delete] {sandbox_id} (state={info.get('state')}) idle {int(elapsed)}s < {auto_delete_sec}s, skip"
+                )
                 continue
             try:
                 logger.info(
                     f"[auto_delete] {sandbox_id} (state={info.get('state')}) idle for {int(elapsed)}s, deleting"
                 )
                 await self.delete(sandbox_id, reason=DeleteReason.EXPIRED)
+                deleted_count += 1
             except Exception as e:
                 logger.error(f"[auto_delete] {sandbox_id}: {e}", exc_info=True)
+        logger.info(f"[auto_delete] done: deleted={deleted_count}/{len(candidates)}")
 
     async def _auto_archive_stopped(self) -> None:
-        """Archive STOPPED sandboxes that have been idle longer than auto_archive_after_seconds."""
-        auto_archive_sec = self.rock_config.lifecycle.auto_archive_after_seconds
+        """Archive STOPPED sandboxes that have been idle longer than auto_archive_seconds."""
+        auto_archive_sec = self.rock_config.lifecycle.auto_transition.auto_archive_seconds
         if not auto_archive_sec:
+            logger.info("[auto_archive] disabled (auto_archive_seconds=0)")
             return
         if not self._operator or not self._dir_storage or not self._image_storage:
+            logger.info("[auto_archive] skipped (storage not configured)")
             return
 
         try:
@@ -519,7 +529,9 @@ class SandboxManager(BaseManager):
             logger.warning(f"[auto_archive] list_by failed: {e}")
             return
 
+        logger.info(f"[auto_archive] candidates={len(stopped_list)}, threshold={auto_archive_sec}s")
         now = datetime.datetime.now(timezone.utc)
+        archived_count = 0
         for info in stopped_list:
             sandbox_id = info.get("sandbox_id", "")
             stop_time_str = info.get("stop_time", "")
@@ -531,15 +543,19 @@ class SandboxManager(BaseManager):
             except (ValueError, TypeError):
                 continue
             if elapsed < auto_archive_sec:
+                logger.info(f"[auto_archive] {sandbox_id} idle {int(elapsed)}s < {auto_archive_sec}s, skip")
                 continue
             try:
                 logger.info(f"[auto_archive] {sandbox_id} stopped for {int(elapsed)}s, archiving")
                 await self.archive_sandbox(sandbox_id)
+                archived_count += 1
             except Exception as e:
                 logger.error(f"[auto_archive] {sandbox_id}: {e}", exc_info=True)
+        logger.info(f"[auto_archive] done: archived={archived_count}/{len(stopped_list)}")
 
     async def _reconcile(self) -> None:
         """Reconcile intermediate states (PENDING, ARCHIVING) on short interval."""
+        logger.info("reconcile")
         await self._reconcile_pending()
         await self._reconcile_archiving()
 
@@ -593,10 +609,10 @@ class SandboxManager(BaseManager):
         archive_cfg = self.rock_config.lifecycle.archive
         archive_params = {
             "archive_prefix": archive_cfg.dir_storage.prefix,
-            "acr_namespace": archive_cfg.acr.namespace,
+            "registry_namespace": archive_cfg.registry.namespace,
             "max_image_push_size": archive_cfg.max_image_push_size,
             "max_dir_upload_size": archive_cfg.max_dir_upload_size,
-            "timeout_seconds": self.rock_config.lifecycle.archive_timeout_seconds,
+            "timeout_seconds": self.rock_config.lifecycle.archive.archive_timeout_seconds,
         }
         await sm.send(
             "archive",
@@ -654,6 +670,7 @@ class SandboxManager(BaseManager):
             logger.warning(f"[reconcile_archiving] list_by failed: {e}")
             return
 
+        logger.info(f"[reconcile_archiving] found {len(archiving)} ARCHIVING sandboxes")
         for info in archiving:
             sandbox_id = info.get("sandbox_id", "")
             if not sandbox_id:
@@ -661,10 +678,12 @@ class SandboxManager(BaseManager):
 
             sm = await self._get_current_statemachine(sandbox_id)
             if not sm or sm.current_state.value != State.ARCHIVING:
+                logger.info(f"[reconcile_archiving] {sandbox_id} state mismatch, skip")
                 continue
 
             await self._try_advance_archiving(sandbox_id, sm)
             if sm.current_state.value != State.ARCHIVING:
+                logger.info(f"[reconcile_archiving] {sandbox_id} advanced to {sm.current_state.value.value}")
                 continue
 
             started_at = get_current_state_started_at(info.get("state_history", []), "archiving")
@@ -676,7 +695,9 @@ class SandboxManager(BaseManager):
             except (ValueError, TypeError):
                 continue
 
-            if elapsed < self.rock_config.lifecycle.archive_timeout_seconds:
+            timeout_sec = self.rock_config.lifecycle.archive.archive_timeout_seconds
+            if elapsed < timeout_sec:
+                logger.info(f"[reconcile_archiving] {sandbox_id} in progress {int(elapsed)}s < {timeout_sec}s")
                 continue
 
             try:
@@ -686,9 +707,11 @@ class SandboxManager(BaseManager):
                     meta_store=self._meta_store,
                     reason=f"timeout after {int(elapsed)}s",
                 )
-                logger.warning(f"archive_failed: {sandbox_id} ({int(elapsed)}s)")
+                logger.warning(f"[reconcile_archiving] {sandbox_id} timed out after {int(elapsed)}s, rolled back")
             except Exception as e:
-                logger.error(f"archive_failed transition failed for {sandbox_id}: {e}", exc_info=True)
+                logger.error(
+                    f"[reconcile_archiving] archive_failed transition failed for {sandbox_id}: {e}", exc_info=True
+                )
 
     async def _reconcile_pending(self) -> None:
         """Reconcile PENDING sandboxes: advance to RUNNING or timeout restore back to ARCHIVED."""
@@ -698,6 +721,7 @@ class SandboxManager(BaseManager):
             logger.warning(f"[reconcile_pending] list_by failed: {e}")
             return
 
+        logger.info(f"[reconcile_pending] found {len(pending_list)} PENDING sandboxes")
         for info in pending_list:
             sandbox_id = info.get("sandbox_id", "")
             if not sandbox_id:
@@ -711,7 +735,8 @@ class SandboxManager(BaseManager):
                         elapsed = (datetime.datetime.now(timezone.utc) - started).total_seconds()
                     except (ValueError, TypeError):
                         elapsed = 0
-                    if elapsed >= self.rock_config.lifecycle.restore_timeout_seconds:
+                    timeout_sec = self.rock_config.lifecycle.archive.restore_timeout_seconds
+                    if elapsed >= timeout_sec:
                         sm = await self._get_current_statemachine(sandbox_id)
                         if sm and sm.current_state.value == State.PENDING:
                             await sm.send(
@@ -722,11 +747,14 @@ class SandboxManager(BaseManager):
                             )
                             logger.warning(f"[reconcile_pending] restore_failed: {sandbox_id} ({int(elapsed)}s)")
                         continue
+                    logger.info(f"[reconcile_pending] {sandbox_id} restoring {int(elapsed)}s < {timeout_sec}s")
+                    continue
 
                 # 2. Try advance PENDING → RUNNING
                 sm = await self._get_current_statemachine(sandbox_id)
                 if sm is None:
                     continue
+                logger.info(f"[reconcile_pending] {sandbox_id} checking alive")
                 await self._try_advance_pending(sandbox_id, sm)
 
             except asyncio.CancelledError:

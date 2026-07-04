@@ -377,7 +377,7 @@ class SandboxActor(GemActor):
         dir_storage = AbstractDirStorage.from_config(ArchiveDirStorageConfig(**dir_storage_config))
         image_storage = DockerRegistryV2ImageStorage(**image_storage_config)
         prefix = archive_params.get("archive_prefix", "rock-archives/")
-        acr_ns = archive_params.get("acr_namespace", "sandbox_archive")
+        registry_ns = archive_params.get("registry_namespace", "sandbox_archive")
 
         self._archive_status = PersistedServiceStatus(
             phases={"image_archive": PhaseStatus(), "log_archive": PhaseStatus()}
@@ -430,7 +430,7 @@ class SandboxActor(GemActor):
         else:
             self._archive_status.update_status("log_archive", Status.SUCCESS, "skipped")
 
-        ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, acr_ns)
+        ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, registry_ns)
         # Delete existing tag before push — some registries (ACR) reject overwrites.
         # Swallow the error so a benign 404 (tag never existed) doesn't abort the archive,
         # but log at warning so a real auth/network failure is not silently masked.
@@ -494,9 +494,9 @@ class SandboxActor(GemActor):
         dir_storage = AbstractDirStorage.from_config(ArchiveDirStorageConfig(**dir_storage_config))
         image_storage = DockerRegistryV2ImageStorage(**image_storage_config)
         prefix = archive_params.get("archive_prefix", "rock-archives/")
-        acr_ns = archive_params.get("acr_namespace", "sandbox_archive")
+        registry_ns = archive_params.get("registry_namespace", "sandbox_archive")
 
-        ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, acr_ns)
+        ref = ArchiveKeys.image_ref(sandbox_id, image_storage.registry_url, registry_ns)
         await image_storage.pull_to_local(ref)
 
         log_root = env_vars.ROCK_LOGGING_PATH

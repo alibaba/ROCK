@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from rock.config import ArchiveAcrConfig, ArchiveDirStorageConfig
+    from rock.config import ArchiveDirStorageConfig, ArchiveRegistryConfig
 
 
 class AbstractDirStorage(ABC):
@@ -59,7 +59,7 @@ class AbstractImageStorage(ABC):
     """
 
     @classmethod
-    def from_config(cls, cfg: ArchiveAcrConfig) -> AbstractImageStorage:
+    def from_config(cls, cfg: ArchiveRegistryConfig) -> AbstractImageStorage:
         from rock.sandbox.archive.registry_v2 import DockerRegistryV2ImageStorage
 
         return DockerRegistryV2ImageStorage(

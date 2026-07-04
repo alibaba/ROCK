@@ -38,7 +38,7 @@ class BaseManager(ABC):
             user_defined_tags=rock_config.runtime.user_defined_tags,
         )
         self._report_interval = 10
-        self._auto_transition_interval = rock_config.lifecycle.auto_transition_interval_seconds
+        self._auto_transition_interval = rock_config.lifecycle.auto_transition.interval_seconds
         self._reconcile_interval = rock_config.lifecycle.reconcile_interval_seconds
         self._setup_scheduler()
         self.deployment_manager = DeploymentManager(rock_config, enable_runtime_auto_clear)

@@ -385,9 +385,9 @@ async def _apply_cpu_overcommit_default(config: DockerDeploymentConfig, rock_aut
 
 
 def _apply_auto_clear_default(config: DockerDeploymentConfig, request: SandboxStartRequest) -> None:
-    """Use lifecycle.auto_clear_default_seconds when SDK did not explicitly set auto_clear_time_minutes."""
+    """Use lifecycle.auto_clear_seconds when SDK did not explicitly set auto_clear_time_minutes."""
     if "auto_clear_time_minutes" not in request.model_fields_set:
-        default_sec = sandbox_manager.rock_config.lifecycle.auto_clear_default_seconds
+        default_sec = sandbox_manager.rock_config.lifecycle.auto_transition.auto_clear_seconds
         config.auto_clear_time_minutes = default_sec // 60
 
 

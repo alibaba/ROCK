@@ -33,7 +33,6 @@ def manager():
 
     m.rock_config = MagicMock()
     m.rock_config.lifecycle.archive = ArchiveConfig()
-    m.rock_config.lifecycle.restore_timeout_seconds = 1800
 
     m.archive_sandbox = SandboxManager.archive_sandbox.__get__(m, SandboxManager)
     m.restart_async = SandboxManager.restart_async.__get__(m, SandboxManager)

@@ -28,7 +28,7 @@ class SandboxInfo(TypedDict, total=False):
     delete_time: str
     archive_time: str
     archive_prefix: str
-    acr_namespace: str
+    registry_namespace: str
     extended_params: dict[str, str]
     state_history: list[StateTransitionRecord]
 
