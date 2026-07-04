@@ -23,9 +23,6 @@ from rock.utils.service import build_sandbox_from_redis
 
 logger = init_logger(__name__)
 
-# Timeout for the entire submit flow (actor creation + all .remote() calls + sandbox_info retrieval)
-_SUBMIT_TIMEOUT_SECONDS = 60
-
 
 class RayOperator(AbstractOperator):
     def __init__(self, ray_service: RayService, runtime_config: RuntimeConfig):
