@@ -37,7 +37,7 @@ def base_manager(meta_store):
     from rock.sandbox.base_manager import BaseManager
 
     class _ConcreteManager(BaseManager):
-        async def _check_job_background(self):
+        async def _auto_transition(self):
             ...
 
         async def _reconcile(self):
