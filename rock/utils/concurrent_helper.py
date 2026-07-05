@@ -16,7 +16,7 @@ _thread_pool_lock = threading.Lock()
 _global_executor: ThreadPoolExecutor | None = None
 _ray_executor: ThreadPoolExecutor | None = None
 MAX_WORKERS = 300
-RAY_EXECUTOR_MAX_WORKERS = 800
+RAY_EXECUTOR_MAX_WORKERS = 500
 
 
 def _get_thread_pool():
