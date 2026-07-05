@@ -20,7 +20,7 @@ RAY_EXECUTOR_MAX_WORKERS = 500
 
 # Dedicated pool for blocking DB calls (sync SQLAlchemy / psycopg2). Sized to
 # match the DB connection ceiling so a worker thread never waits on a slot.
-DB_THREAD_POOL_SIZE = 800
+DB_THREAD_POOL_SIZE = 500
 
 
 def create_db_executor(max_workers: int = DB_THREAD_POOL_SIZE) -> ThreadPoolExecutor:
