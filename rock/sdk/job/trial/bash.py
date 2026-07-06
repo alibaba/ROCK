@@ -185,9 +185,7 @@ class BashTrial(AbstractTrial):
                 list_result = await sandbox.execute(
                     Command(command=["find", root, "-mindepth", "2", "-maxdepth", "2", "-name", "result.json"])
                 )
-                stdout = getattr(list_result, "stdout", "")
-                if isinstance(stdout, str):
-                    trial_files.extend(line.strip() for line in stdout.strip().split("\n") if line.strip())
+                trial_files.extend(line.strip() for line in list_result.stdout.strip().split("\n") if line.strip())
             except Exception as e:
                 logger.debug(f"Failed to list bash reward results under {root}: {e}")
 
@@ -197,6 +195,7 @@ class BashTrial(AbstractTrial):
                 response = await sandbox.read_file(ReadFileRequest(path=trial_file))
                 data = json.loads(response.content)
                 result = RewardTrialResult.from_reward_json(data)
+                result.exit_code = exit_code
                 if exit_code != 0 and result.exception_info is None:
                     result.exception_info = self._bash_exception(exit_code)
                 results.append(result)

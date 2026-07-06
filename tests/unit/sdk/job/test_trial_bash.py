@@ -138,6 +138,9 @@ class TestBashTrialCollect:
         cfg = BashJobConfig(script="echo hi", job_name="myjob")
         trial = BashTrial(cfg)
         mock_sandbox = AsyncMock()
+        list_result = MagicMock()
+        list_result.stdout = ""
+        mock_sandbox.execute = AsyncMock(return_value=list_result)
 
         result = await trial.collect(mock_sandbox, output="hi\n", exit_code=0)
 
@@ -149,6 +152,9 @@ class TestBashTrialCollect:
         cfg = BashJobConfig(script="false", job_name="myjob")
         trial = BashTrial(cfg)
         mock_sandbox = AsyncMock()
+        list_result = MagicMock()
+        list_result.stdout = ""
+        mock_sandbox.execute = AsyncMock(return_value=list_result)
 
         result = await trial.collect(mock_sandbox, output="", exit_code=1)
 
@@ -182,6 +188,121 @@ class TestBashTrialCollect:
         assert len(result) == 1
         assert result[0].task_name == "task-1"
         assert result[0].score == pytest.approx(0.85)
+
+    async def test_collect_propagates_exit_code_to_reward_result(self):
+        cfg = BashJobConfig(script="false", job_name="myjob")
+        trial = BashTrial(cfg)
+        mock_sandbox = AsyncMock()
+
+        list_result = MagicMock()
+        list_result.stdout = "/data/logs/user-defined/task-1__abc/result.json\n"
+        mock_sandbox.execute = AsyncMock(return_value=list_result)
+
+        response = MagicMock()
+        response.content = json.dumps(
+            {
+                "task_name": "task-1",
+                "trial_name": "task-1__abc",
+                "verifier_result": {"rewards": {"reward": 0.85}},
+                "exception_info": None,
+            }
+        )
+        mock_sandbox.read_file = AsyncMock(return_value=response)
+
+        result = await trial.collect(mock_sandbox, output="ignored", exit_code=7)
+
+        assert isinstance(result, list)
+        assert result[0].exit_code == 7
+        assert result[0].exception_info is not None
+        assert result[0].exception_info.exception_type == "BashExitCode"
+
+    async def test_collect_reads_multiple_reward_protocol_trial_results(self):
+        cfg = BashJobConfig(script="echo hi", job_name="myjob")
+        trial = BashTrial(cfg)
+        mock_sandbox = AsyncMock()
+
+        first = "/data/logs/user-defined/task-1__abc/result.json"
+        second = "/data/logs/user-defined/task-2__def/result.json"
+        list_result = MagicMock()
+        list_result.stdout = f"{first}\n{second}\n"
+        mock_sandbox.execute = AsyncMock(return_value=list_result)
+
+        payloads = {
+            first: {
+                "task_name": "task-1",
+                "trial_name": "task-1__abc",
+                "verifier_result": {"rewards": {"reward": 0.25}},
+            },
+            second: {
+                "task_name": "task-2",
+                "trial_name": "task-2__def",
+                "verifier_result": {"rewards": {"reward": 0.75}},
+            },
+        }
+
+        async def read_file(req):
+            response = MagicMock()
+            response.content = json.dumps(payloads[req.path])
+            return response
+
+        mock_sandbox.read_file = AsyncMock(side_effect=read_file)
+
+        result = await trial.collect(mock_sandbox, output="ignored", exit_code=0)
+
+        assert isinstance(result, list)
+        assert [r.task_name for r in result] == ["task-1", "task-2"]
+        assert [r.score for r in result] == [pytest.approx(0.25), pytest.approx(0.75)]
+
+    async def test_collect_skips_broken_reward_json_and_uses_stdout_score(self):
+        cfg = BashJobConfig(script="echo hi", job_name="myjob")
+        trial = BashTrial(cfg)
+        mock_sandbox = AsyncMock()
+
+        list_result = MagicMock()
+        list_result.stdout = "/data/logs/user-defined/task-1__abc/result.json\n"
+        mock_sandbox.execute = AsyncMock(return_value=list_result)
+
+        response = MagicMock()
+        response.content = "{not-json"
+        mock_sandbox.read_file = AsyncMock(return_value=response)
+
+        result = await trial.collect(
+            mock_sandbox,
+            output="=== Score Summary ===\nscore: 0.625\n",
+            exit_code=0,
+        )
+
+        assert result.task_name == "myjob"
+        assert result.score == pytest.approx(0.625)
+
+    async def test_collect_deduplicates_reward_result_paths(self):
+        cfg = BashJobConfig(
+            script="echo hi",
+            job_name="myjob",
+            environment=EnvironmentConfig(env={"LOG_DIR": "/logs", "ROCK_ARTIFACT_DIR": "/other"}),
+        )
+        trial = BashTrial(cfg)
+        mock_sandbox = AsyncMock()
+
+        list_result = MagicMock()
+        list_result.stdout = "/logs/task-1__abc/result.json\n/logs/task-1__abc/result.json\n"
+        mock_sandbox.execute = AsyncMock(return_value=list_result)
+
+        response = MagicMock()
+        response.content = json.dumps(
+            {
+                "task_name": "task-1",
+                "trial_name": "task-1__abc",
+                "verifier_result": {"rewards": {"reward": 0.85}},
+            }
+        )
+        mock_sandbox.read_file = AsyncMock(return_value=response)
+
+        result = await trial.collect(mock_sandbox, output="ignored", exit_code=0)
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert mock_sandbox.read_file.call_count == 1
 
     async def test_collect_uses_stdout_score_when_no_result_json_exists(self):
         cfg = BashJobConfig(script="echo hi", job_name="myjob")
@@ -268,6 +389,7 @@ def _oss_sandbox(ns="ns", exp="exp"):
     sb._namespace = ns
     sb._experiment_id = exp
     sb.arun = AsyncMock(return_value=MagicMock(exit_code=0, output=""))
+    sb.execute = AsyncMock(return_value=MagicMock(stdout=""))
     sb.fs.ensure_ossutil = AsyncMock(return_value=True)
     sb.fs.upload_dir = AsyncMock(return_value=MagicMock(exit_code=0))
     return sb
