@@ -297,29 +297,35 @@ class TestLogout:
 
 
 class TestBuild:
-    async def test_delegates_to_docker_command(self, client):
+    async def test_delegates_to_docker_util(self, client):
         mock_result = MagicMock(returncode=0, stdout="", stderr="")
-        with patch.object(client._docker_cmd, "buildx_build", return_value=mock_result) as mock_build:
+        with patch("rock.sdk.envhub.docker.DockerUtil.buildx_build", return_value=mock_result) as mock_build:
             result = await client.build("Dockerfile", "/ctx", "myapp:v1")
         assert result.returncode == 0
-        mock_build.assert_called_once_with("Dockerfile", "/ctx", "--tag", "myapp:v1")
+        mock_build.assert_called_once_with("Dockerfile", "/ctx", "--tag", "myapp:v1", docker_executable="docker")
 
     async def test_with_extra_args(self, client):
         mock_result = MagicMock(returncode=0)
-        with patch.object(client._docker_cmd, "buildx_build", return_value=mock_result) as mock_build:
+        with patch("rock.sdk.envhub.docker.DockerUtil.buildx_build", return_value=mock_result) as mock_build:
             await client.build("Dockerfile", "/ctx", "myapp:v1", "--no-cache", "--platform=linux/amd64")
         mock_build.assert_called_once_with(
-            "Dockerfile", "/ctx", "--tag", "myapp:v1", "--no-cache", "--platform=linux/amd64"
+            "Dockerfile",
+            "/ctx",
+            "--tag",
+            "myapp:v1",
+            "--no-cache",
+            "--platform=linux/amd64",
+            docker_executable="docker",
         )
 
 
 class TestPush:
-    async def test_delegates_to_docker_command(self, client):
+    async def test_delegates_to_docker_util(self, client):
         mock_result = MagicMock(returncode=0)
-        with patch.object(client._docker_cmd, "push_image", return_value=mock_result) as mock_push:
+        with patch("rock.sdk.envhub.docker.DockerUtil.push_image_tag", return_value=mock_result) as mock_push:
             result = await client.push("reg.example.com/ns/app:v1")
         assert result.returncode == 0
-        mock_push.assert_called_once_with("reg.example.com/ns/app:v1")
+        mock_push.assert_called_once_with("reg.example.com/ns/app:v1", docker_executable="docker")
 
 
 # ======================================================================
@@ -422,7 +428,6 @@ class TestConstruction:
     async def test_custom_docker_executable(self):
         c = DockerClient(docker_executable="/usr/local/bin/docker")
         assert c._docker_executable == "/usr/local/bin/docker"
-        assert c._docker_cmd.docker_executable == "/usr/local/bin/docker"
 
     async def test_registries_param_forwarded_to_resolver(self):
         c = DockerClient(registries=["reg.example.com/ns"])

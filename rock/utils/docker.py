@@ -269,6 +269,37 @@ class DockerUtil:
         return subprocess.check_output(["docker", "rmi", image], timeout=30)
 
     @classmethod
+    def buildx_build(
+        cls,
+        dockerfile: str,
+        context_path: str,
+        *extra_args: str,
+        docker_executable: str = "docker",
+        timeout: int = 600,
+    ) -> subprocess.CompletedProcess:
+        """Run ``docker buildx build``."""
+        cmd = [docker_executable, "buildx", "build", "-f", dockerfile, context_path, *extra_args]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
+        return result
+
+    @classmethod
+    def push_image_tag(
+        cls,
+        tag: str,
+        *,
+        docker_executable: str = "docker",
+        timeout: int = 600,
+    ) -> subprocess.CompletedProcess:
+        """Run ``docker push``."""
+        cmd = [docker_executable, "push", tag]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
+        return result
+
+    @classmethod
     def remove_container_force(cls, name: str, timeout: int = 10) -> None:
         """Swallows errors (missing container, daemon hiccups, timeout) and only
         warns — intended for cleanup paths where the caller's primary error

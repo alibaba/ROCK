@@ -10,7 +10,6 @@ from pathlib import Path
 import yaml
 
 from rock.logger import init_logger
-from rock.sdk.builder.provider.docker import DockerCommand
 from rock.sdk.envhub.regionless.resolver import _DEFAULT_PROBE_TIMEOUT_SEC, RockRegistryResolver
 from rock.utils.docker import DockerUtil, ImageUtil
 
@@ -22,7 +21,7 @@ class DockerClient:
 
     Regionless operations (resolve / rewrite) are delegated to
     :class:`RockRegistryResolver`; Docker CLI operations use
-    :class:`DockerUtil` and :class:`DockerCommand` via ``asyncio.to_thread``.
+    :class:`DockerUtil` via ``asyncio.to_thread``.
     """
 
     def __init__(
@@ -32,7 +31,6 @@ class DockerClient:
         registries: list[str] | None = None,
     ) -> None:
         self._resolver = resolver or RockRegistryResolver(registries=registries)
-        self._docker_cmd = DockerCommand(docker_executable=docker_executable)
         self._docker_executable = docker_executable
 
     # ------------------------------------------------------------------
@@ -188,11 +186,17 @@ class DockerClient:
         *extra_args: str,
     ) -> subprocess.CompletedProcess:
         return await asyncio.to_thread(
-            self._docker_cmd.buildx_build, dockerfile, context_path, "--tag", tag, *extra_args
+            DockerUtil.buildx_build,
+            dockerfile,
+            context_path,
+            "--tag",
+            tag,
+            *extra_args,
+            docker_executable=self._docker_executable,
         )
 
     async def push(self, tag: str) -> subprocess.CompletedProcess:
-        return await asyncio.to_thread(self._docker_cmd.push_image, tag)
+        return await asyncio.to_thread(DockerUtil.push_image_tag, tag, docker_executable=self._docker_executable)
 
     # ------------------------------------------------------------------
     # Docker: mirror (composite)

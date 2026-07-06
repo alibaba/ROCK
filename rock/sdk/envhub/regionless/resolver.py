@@ -57,7 +57,7 @@ class RockRegistryResolver:
         self._cache_lock = asyncio.Lock()
 
     @staticmethod
-    def parse_registries(raw: str) -> list[str]:
+    def _parse_registries(raw: str) -> list[str]:
         """Split the env value into an ordered list of non-empty registry entries."""
         if not raw:
             return []
@@ -67,7 +67,7 @@ class RockRegistryResolver:
         return [token.strip().rstrip("/") for token in tokens if token.strip()]
 
     @staticmethod
-    def split_tag_or_digest(image: str) -> tuple[str, str]:
+    def _split_tag_or_digest(image: str) -> tuple[str, str]:
         """Split image into (path, tag-or-digest-suffix).
 
         Examples:
@@ -85,7 +85,7 @@ class RockRegistryResolver:
         return image, ":latest"
 
     @staticmethod
-    def build_candidate(image: str, registry: str) -> str:
+    def _build_candidate(image: str, registry: str) -> str:
         """Build the candidate image reference under the ROCK registry.
 
         Strips the original registry and first-level namespace, preserving any
@@ -93,7 +93,7 @@ class RockRegistryResolver:
         Example: ``ghcr.io/foo/bar/baz:v1`` with registry ``reg/ns`` →
         ``reg/ns/bar/baz:v1``.
         """
-        path, suffix = RockRegistryResolver.split_tag_or_digest(image)
+        path, suffix = RockRegistryResolver._split_tag_or_digest(image)
         if "/" in path:
             _, path = path.split("/", 1)
         if "/" in path:
@@ -101,7 +101,7 @@ class RockRegistryResolver:
         return f"{registry.rstrip('/')}/{path}{suffix}"
 
     @staticmethod
-    def build_candidate_with_original_namespace(image: str, registry: str) -> str:
+    def _build_candidate_with_original_namespace(image: str, registry: str) -> str:
         """Build candidate preserving the original namespace from the image.
 
         Replaces only the registry host, keeping the original namespace and
@@ -109,7 +109,7 @@ class RockRegistryResolver:
         Example: ``ghcr.io/swebench/foo:v1`` with registry
         ``reg.aliyuncs.com/fixed-ns`` → ``reg.aliyuncs.com/swebench/foo:v1``.
         """
-        path, suffix = RockRegistryResolver.split_tag_or_digest(image)
+        path, suffix = RockRegistryResolver._split_tag_or_digest(image)
         # Strip the original registry host from the image path
         if "/" in path:
             first_part, rest = path.split("/", 1)
@@ -127,7 +127,7 @@ class RockRegistryResolver:
     @staticmethod
     def _parse_image_parts(image: str) -> tuple[str, str, str]:
         """Extract (registry_host, repo_path, tag) from a fully-qualified image reference."""
-        path, suffix = RockRegistryResolver.split_tag_or_digest(image)
+        path, suffix = RockRegistryResolver._split_tag_or_digest(image)
         tag = suffix.lstrip(":")
         first_slash = path.find("/")
         if first_slash == -1:
@@ -201,7 +201,7 @@ class RockRegistryResolver:
         if self._registries is not None:
             registries = self._registries
         else:
-            registries = self.parse_registries(os.environ.get(ROCK_REGISTRY_ENV, ""))
+            registries = self._parse_registries(os.environ.get(ROCK_REGISTRY_ENV, ""))
         if not registries:
             return image
 
@@ -214,8 +214,8 @@ class RockRegistryResolver:
         resolved = image
         for registry in registries:
             candidates = []
-            original_ns = self.build_candidate_with_original_namespace(image, registry)
-            fixed_ns = self.build_candidate(image, registry)
+            original_ns = self._build_candidate_with_original_namespace(image, registry)
+            fixed_ns = self._build_candidate(image, registry)
             if original_ns != image:
                 candidates.append(original_ns)
             if fixed_ns != image and fixed_ns not in candidates:

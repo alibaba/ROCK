@@ -17,22 +17,22 @@ def resolver():
 
 class TestSplitTagOrDigest:
     def test_explicit_tag(self):
-        assert RockRegistryResolver.split_tag_or_digest("foo/bar:1.2") == ("foo/bar", ":1.2")
+        assert RockRegistryResolver._split_tag_or_digest("foo/bar:1.2") == ("foo/bar", ":1.2")
 
     def test_no_tag_defaults_to_latest(self):
-        assert RockRegistryResolver.split_tag_or_digest("foo/bar") == ("foo/bar", ":latest")
+        assert RockRegistryResolver._split_tag_or_digest("foo/bar") == ("foo/bar", ":latest")
 
     def test_digest(self):
-        assert RockRegistryResolver.split_tag_or_digest("foo/bar@sha256:abc") == ("foo/bar", "@sha256:abc")
+        assert RockRegistryResolver._split_tag_or_digest("foo/bar@sha256:abc") == ("foo/bar", "@sha256:abc")
 
     def test_host_with_port_no_tag(self):
-        assert RockRegistryResolver.split_tag_or_digest("registry:5000/foo/bar") == (
+        assert RockRegistryResolver._split_tag_or_digest("registry:5000/foo/bar") == (
             "registry:5000/foo/bar",
             ":latest",
         )
 
     def test_host_with_port_and_tag(self):
-        assert RockRegistryResolver.split_tag_or_digest("registry:5000/foo/bar:v1") == (
+        assert RockRegistryResolver._split_tag_or_digest("registry:5000/foo/bar:v1") == (
             "registry:5000/foo/bar",
             ":v1",
         )
@@ -40,57 +40,57 @@ class TestSplitTagOrDigest:
 
 class TestParseRegistries:
     def test_empty(self):
-        assert RockRegistryResolver.parse_registries("") == []
-        assert RockRegistryResolver.parse_registries("   ") == []
+        assert RockRegistryResolver._parse_registries("") == []
+        assert RockRegistryResolver._parse_registries("   ") == []
 
     def test_single(self):
-        assert RockRegistryResolver.parse_registries("reg.example.com/ns") == ["reg.example.com/ns"]
+        assert RockRegistryResolver._parse_registries("reg.example.com/ns") == ["reg.example.com/ns"]
 
     def test_comma_separated(self):
-        assert RockRegistryResolver.parse_registries("a.com/x, b.com/y") == ["a.com/x", "b.com/y"]
+        assert RockRegistryResolver._parse_registries("a.com/x, b.com/y") == ["a.com/x", "b.com/y"]
 
     def test_semicolon_separated(self):
-        assert RockRegistryResolver.parse_registries("a.com/x;b.com/y") == ["a.com/x", "b.com/y"]
+        assert RockRegistryResolver._parse_registries("a.com/x;b.com/y") == ["a.com/x", "b.com/y"]
 
     def test_mixed_separators_and_trailing_slashes(self):
-        assert RockRegistryResolver.parse_registries("a.com/x/, b.com/y; c.com/z/") == [
+        assert RockRegistryResolver._parse_registries("a.com/x/, b.com/y; c.com/z/") == [
             "a.com/x",
             "b.com/y",
             "c.com/z",
         ]
 
     def test_skips_blank_entries(self):
-        assert RockRegistryResolver.parse_registries("a.com/x,,;  ; b.com/y") == ["a.com/x", "b.com/y"]
+        assert RockRegistryResolver._parse_registries("a.com/x,,;  ; b.com/y") == ["a.com/x", "b.com/y"]
 
 
 class TestBuildCandidate:
     def test_strips_first_namespace_only(self):
         assert (
-            RockRegistryResolver.build_candidate("swebench/sweb.eval.x86_64.foo:latest", "reg.example.com/mirror")
+            RockRegistryResolver._build_candidate("swebench/sweb.eval.x86_64.foo:latest", "reg.example.com/mirror")
             == "reg.example.com/mirror/sweb.eval.x86_64.foo:latest"
         )
 
     def test_explicit_dockerhub_host(self):
         assert (
-            RockRegistryResolver.build_candidate("docker.io/library/python:3.12", "reg.example.com/ns")
+            RockRegistryResolver._build_candidate("docker.io/library/python:3.12", "reg.example.com/ns")
             == "reg.example.com/ns/python:3.12"
         )
 
     def test_ghcr_image(self):
         assert (
-            RockRegistryResolver.build_candidate("ghcr.io/foo/bar/baz:v1", "reg.example.com/ns")
+            RockRegistryResolver._build_candidate("ghcr.io/foo/bar/baz:v1", "reg.example.com/ns")
             == "reg.example.com/ns/bar/baz:v1"
         )
 
     def test_default_tag_when_missing(self):
-        assert RockRegistryResolver.build_candidate("foo/bar", "reg.example.com/ns") == "reg.example.com/ns/bar:latest"
+        assert RockRegistryResolver._build_candidate("foo/bar", "reg.example.com/ns") == "reg.example.com/ns/bar:latest"
 
     def test_strips_trailing_slash_on_registry(self):
-        assert RockRegistryResolver.build_candidate("foo/bar:1", "reg.example.com/ns/") == "reg.example.com/ns/bar:1"
+        assert RockRegistryResolver._build_candidate("foo/bar:1", "reg.example.com/ns/") == "reg.example.com/ns/bar:1"
 
     def test_deeply_nested_namespaces_preserved(self):
         assert (
-            RockRegistryResolver.build_candidate("gcr.io/project/subproj/image:v1", "reg.example.com/ns")
+            RockRegistryResolver._build_candidate("gcr.io/project/subproj/image:v1", "reg.example.com/ns")
             == "reg.example.com/ns/subproj/image:v1"
         )
 
@@ -98,7 +98,7 @@ class TestBuildCandidate:
 class TestBuildCandidateWithOriginalNamespace:
     def test_preserves_original_namespace(self):
         assert (
-            RockRegistryResolver.build_candidate_with_original_namespace(
+            RockRegistryResolver._build_candidate_with_original_namespace(
                 "ghcr.io/swebench/foo:v1", "reg.aliyuncs.com/fixed-ns"
             )
             == "reg.aliyuncs.com/swebench/foo:v1"
@@ -106,7 +106,7 @@ class TestBuildCandidateWithOriginalNamespace:
 
     def test_no_registry_host_in_image(self):
         assert (
-            RockRegistryResolver.build_candidate_with_original_namespace(
+            RockRegistryResolver._build_candidate_with_original_namespace(
                 "swebench/foo:latest", "reg.aliyuncs.com/fixed-ns"
             )
             == "reg.aliyuncs.com/swebench/foo:latest"
@@ -114,7 +114,7 @@ class TestBuildCandidateWithOriginalNamespace:
 
     def test_deeply_nested_namespaces(self):
         assert (
-            RockRegistryResolver.build_candidate_with_original_namespace(
+            RockRegistryResolver._build_candidate_with_original_namespace(
                 "gcr.io/project/subproj/image:v1", "reg.aliyuncs.com/ns"
             )
             == "reg.aliyuncs.com/project/subproj/image:v1"
@@ -122,13 +122,13 @@ class TestBuildCandidateWithOriginalNamespace:
 
     def test_default_tag_when_missing(self):
         assert (
-            RockRegistryResolver.build_candidate_with_original_namespace("ghcr.io/org/app", "reg.example.com/ns")
+            RockRegistryResolver._build_candidate_with_original_namespace("ghcr.io/org/app", "reg.example.com/ns")
             == "reg.example.com/org/app:latest"
         )
 
     def test_registry_without_namespace(self):
         assert (
-            RockRegistryResolver.build_candidate_with_original_namespace("ghcr.io/org/app:v1", "reg.example.com")
+            RockRegistryResolver._build_candidate_with_original_namespace("ghcr.io/org/app:v1", "reg.example.com")
             == "reg.example.com/org/app:v1"
         )
 
