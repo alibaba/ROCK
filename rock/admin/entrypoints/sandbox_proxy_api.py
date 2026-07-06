@@ -25,7 +25,7 @@ from rock.admin.proto.request import (
     SandboxReadFileRequest,
     SandboxWriteFileRequest,
 )
-from rock.admin.proto.response import BatchSandboxStatusResponse, SandboxListResponse
+from rock.admin.proto.response import BatchSandboxStatusResponse, SandboxListResponse, SandboxStatusResponse
 from rock.common.exception import handle_exceptions
 from rock.common.port_validation import validate_port_forward_port
 from rock.common.validation import NonBlankStr
@@ -150,6 +150,12 @@ async def close_session(request: SandboxCloseBashSessionRequest) -> RockResponse
 @handle_exceptions(error_message="get sandbox is alive failed")
 async def is_alive(sandbox_id: NonBlankStr):
     return RockResponse(result=await sandbox_proxy_service.is_alive(sandbox_id))
+
+
+@sandbox_proxy_router.get("/get_status")
+@handle_exceptions(error_message="get sandbox status failed")
+async def get_status(sandbox_id: NonBlankStr, include_all_states: bool = False) -> RockResponse[SandboxStatusResponse]:
+    return RockResponse(result=await sandbox_proxy_service.get_status(sandbox_id, include_all_states))
 
 
 @sandbox_proxy_router.post("/read_file")

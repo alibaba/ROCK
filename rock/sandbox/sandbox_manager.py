@@ -273,8 +273,8 @@ class SandboxManager(BaseManager):
     @monitor_sandbox_operation()
     async def get_status(self, sandbox_id, include_all_states: bool = False) -> SandboxStatusResponse:
         # get status from meta_store
-        sm = await self._get_current_statemachine(sandbox_id)
-        if sm is None:
+        sandbox_info = await self._meta_store.get(sandbox_id, check_db=True)
+        if sandbox_info is None:
             raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
 
         # update status from operator
@@ -282,22 +282,25 @@ class SandboxManager(BaseManager):
         operator_sandbox_info: SandboxInfo | None = await self._operator.get_status(sandbox_id=sandbox_id)
         if operator_sandbox_info is not None:
             is_alive = operator_sandbox_info.get("state") == State.RUNNING
-            if sm.current_state.value == State.PENDING and is_alive:
+
+            # Optimization: only init state machine when PENDING→RUNNING transition needed
+            # If operator already says RUNNING, skip state machine overhead
+            if is_alive and sandbox_info.get("state") == State.PENDING:
+                sm = await self._get_current_statemachine(sandbox_id)
                 await sm.send(
                     "alive", sandbox_id=sandbox_id, meta_store=self._meta_store, sandbox_info=operator_sandbox_info
                 )
+
             if operator_sandbox_info.get("state") in (State.PENDING, State.RUNNING):
                 await self._refresh_timeout(sandbox_id)
 
         # compat with legacy get_status behavior by default (include_all_states == False),
         # raise 'not found' if not on pending or running status.
-        if not include_all_states and sm.current_state.value not in (State.PENDING, State.RUNNING):
+        if not include_all_states and sandbox_info.get("state") not in (State.PENDING, State.RUNNING):
             raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
 
         if operator_sandbox_info is not None:
             sandbox_info = operator_sandbox_info
-        else:
-            sandbox_info = sm.sandbox_info
 
         return SandboxStatusResponse(
             sandbox_id=sandbox_id,
@@ -320,7 +323,7 @@ class SandboxManager(BaseManager):
             start_time=sandbox_info.get("start_time"),
             stop_time=sandbox_info.get("stop_time"),
             create_time=sandbox_info.get("create_time"),
-            state_history=sm.sandbox_info.get("state_history", []) if sm.sandbox_info else [],
+            state_history=sandbox_info.get("state_history", []),
         )
 
     async def build_sandbox_info_from_redis(self, sandbox_id: str, deployment_info: SandboxInfo) -> SandboxInfo | None:

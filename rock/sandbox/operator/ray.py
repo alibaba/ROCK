@@ -2,23 +2,19 @@ import json
 
 import ray
 
-from rock import env_vars
-from rock.actions.sandbox.response import IsAliveResponse, State
+from rock.actions.sandbox.response import State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.core.ray_service import RayService
 from rock.common.constants import StopReason
 from rock.config import RuntimeConfig
 from rock.deployments.config import DockerDeploymentConfig
-from rock.deployments.constants import Port
 from rock.deployments.docker import DockerDeployment
-from rock.deployments.status import PersistedServiceStatus, ServiceStatus
 from rock.logger import init_logger
 from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.sandbox_actor import SandboxActor
+from rock.sandbox.utils.rocklet_probe import check_alive_status, get_remote_status
 from rock.sdk.common.exceptions import BadRequestRockError
-from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var
 from rock.utils.format import parse_size_to_bytes
-from rock.utils.http import HttpUtils
 from rock.utils.service import build_sandbox_from_redis
 
 logger = init_logger(__name__)
@@ -93,8 +89,8 @@ class RayOperator(AbstractOperator):
         if sandbox_info is None:
             return None
         host_ip = sandbox_info.get("host_ip")
-        remote_status = await self.get_remote_status(sandbox_id, host_ip)
-        is_alive = await self._check_alive_status(sandbox_id, host_ip, remote_status)
+        remote_status = await get_remote_status(sandbox_id, host_ip)
+        is_alive = await check_alive_status(sandbox_id, host_ip, remote_status)
         # TODO: sink update state according to is_alive logic into SandboxInfo
         if is_alive:
             sandbox_info["state"] = State.RUNNING
@@ -161,45 +157,3 @@ class RayOperator(AbstractOperator):
             sandbox_info["state"] = State.PENDING
             logger.info(f"sandbox {sandbox_id} restarted")
             return sandbox_info
-
-    async def _check_alive_status(self, sandbox_id: str, host_ip: str, remote_status: ServiceStatus) -> bool:
-        """Check if sandbox is alive"""
-        try:
-            alive_resp = await HttpUtils.get(
-                url=f"http://{host_ip}:{remote_status.get_mapped_port(Port.PROXY)}/is_alive",
-                headers={
-                    "sandbox_id": sandbox_id,
-                    EAGLE_EYE_TRACE_ID: trace_id_ctx_var.get(),
-                },
-            )
-            return IsAliveResponse(**alive_resp).is_alive
-        except Exception:
-            return False
-
-    async def get_remote_status(self, sandbox_id: str, host_ip: str) -> ServiceStatus:
-        service_status_path = PersistedServiceStatus.gen_service_status_path(sandbox_id)
-        worker_rocklet_port = env_vars.ROCK_WORKER_ROCKLET_PORT if env_vars.ROCK_WORKER_ROCKLET_PORT else Port.PROXY
-        execute_url = f"http://{host_ip}:{worker_rocklet_port}/execute"
-        read_file_url = f"http://{host_ip}:{worker_rocklet_port}/read_file"
-        headers = {"sandbox_id": sandbox_id, EAGLE_EYE_TRACE_ID: trace_id_ctx_var.get()}
-        find_file_rsp = await HttpUtils.post(
-            url=execute_url,
-            headers=headers,
-            data={"command": ["ls", service_status_path], "sandbox_id": sandbox_id},
-            read_timeout=60,
-        )
-
-        # When the file does not exist, exit_code = 2
-        if find_file_rsp.get("exit_code") and find_file_rsp.get("exit_code") == 2:
-            return ServiceStatus()
-
-        response: dict = await HttpUtils.post(
-            url=read_file_url,
-            headers=headers,
-            data={"path": service_status_path, "sandbox_id": sandbox_id},
-            read_timeout=60,
-        )
-        if response.get("content"):
-            return ServiceStatus.from_content(response.get("content"))
-        logger.warning(f"{service_status_path} exists, but content is empty")
-        return ServiceStatus()

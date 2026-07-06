@@ -37,7 +37,8 @@ def mock_operator():
 @pytest.fixture
 def mock_meta_store():
     store = AsyncMock()
-    store.get = AsyncMock(return_value=None)
+    # Default: return sandbox info (not None) so get_status can proceed
+    store.get = AsyncMock(return_value=_make_sandbox_info(state=State.PENDING))
     store.update = AsyncMock()
     return store
 
@@ -82,13 +83,13 @@ class TestGetStatusIncludeAllStates:
         mock_meta_store.update.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_operator_data_with_flag_true_skips_db_fallback(
-        self, sandbox_manager, mock_operator, mock_meta_store
-    ):
-        """operator returns data + include_all_states=True → check_db=True never triggered."""
+    async def test_running_state_skips_state_machine_init(self, sandbox_manager, mock_operator, mock_meta_store):
+        """When meta_store and operator both say RUNNING, state machine is NOT initialized (optimization)."""
+        # Set meta_store to return RUNNING (not PENDING) so no transition is needed
+        mock_meta_store.get = AsyncMock(return_value=_make_sandbox_info(state=State.RUNNING))
         mock_operator.get_status = AsyncMock(return_value=_make_sandbox_info(state=State.RUNNING))
 
         await sandbox_manager.get_status("sandbox-1", include_all_states=True)
 
-        for c in mock_meta_store.get.call_args_list:
-            assert not c.kwargs.get("check_db")
+        # State machine should NOT be initialized when no PENDING→RUNNING transition needed
+        sandbox_manager._get_current_statemachine.assert_not_called()

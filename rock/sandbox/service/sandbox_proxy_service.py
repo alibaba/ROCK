@@ -42,8 +42,11 @@ from rock.common.port_validation import validate_port_forward_port
 from rock.logger import init_logger
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.utils.proxy import build_upstream_ws_headers
+from rock.sandbox.utils.rocklet_probe import check_alive_status, get_remote_status
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 from rock.sdk.common.exceptions import BadRequestRockError
+from rock.rocklet import __version__ as swe_version
+from rock.sandbox import __version__ as gateway_version
 from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var
 
 logger = init_logger(__name__)
@@ -1013,3 +1016,79 @@ class SandboxProxyService:
             )
         finally:
             await resp.aclose()
+
+    @monitor_sandbox_operation()
+    async def get_status(self, sandbox_id: str, include_all_states: bool = False) -> SandboxStatusResponse:
+        """Get sandbox status via meta_store + rocklet RPC (reuses _rpc_client pool).
+
+        Mirrors SandboxManager.get_status structure but uses rocklet RPCs instead of
+        Ray operator for live status probing. is_alive reflects rocklet responsiveness
+        (can I send traffic?) rather than container-process existence.
+        PENDING→RUNNING transition via sm.send("alive"), timeout refresh via
+        _update_expire_time. No Ray dependency.
+
+        State machine is initialized lazily — only when a PENDING→RUNNING transition
+        is needed, avoiding the overhead of SandboxStateMachine.from_state_value()
+        for the common (already-running) path.
+        """
+        sandbox_info = await self._meta_store.get(sandbox_id, check_db=True)
+        if sandbox_info is None:
+            raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
+
+        state = sandbox_info.get("state")
+        host_ip = sandbox_info.get("host_ip")
+
+        is_alive = False
+        operator_sandbox_info = None
+        if host_ip and state in (State.RUNNING, State.PENDING):
+            remote_status = await get_remote_status(sandbox_id, host_ip, http_client=self._rpc_client)
+            is_alive = await check_alive_status(sandbox_id, host_ip, remote_status, http_client=self._rpc_client)
+
+            await self._update_expire_time(sandbox_id)
+
+            if is_alive:
+                operator_sandbox_info = dict(sandbox_info)
+                operator_sandbox_info["state"] = State.RUNNING
+                operator_sandbox_info.update(remote_status.to_dict())
+
+            if state == State.PENDING and is_alive:
+                from rock.sandbox.sandbox_statemachine import SandboxStateMachine
+
+                sm = await SandboxStateMachine.from_state_value(state, sandbox_info=sandbox_info)
+                await sm.send(
+                    "alive",
+                    sandbox_id=sandbox_id,
+                    meta_store=self._meta_store,
+                    sandbox_info=operator_sandbox_info,
+                )
+                # on_alive callback updates state_history in sm.sandbox_info
+                sandbox_info = sm.sandbox_info
+
+        if not include_all_states and state not in (State.PENDING, State.RUNNING):
+            raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
+
+        info = operator_sandbox_info if operator_sandbox_info is not None else sandbox_info
+
+        return SandboxStatusResponse(
+            sandbox_id=sandbox_id,
+            status=info.get("phases"),
+            port_mapping=info.get("port_mapping"),
+            state=info.get("state"),
+            host_name=info.get("host_name"),
+            host_ip=host_ip,
+            is_alive=is_alive,
+            image=info.get("image"),
+            swe_rex_version=swe_version,
+            gateway_version=gateway_version,
+            user_id=info.get("user_id"),
+            experiment_id=info.get("experiment_id"),
+            namespace=info.get("namespace"),
+            cpus=info.get("cpus"),
+            memory=info.get("memory"),
+            disk=info.get("disk"),
+            disk_limit_rootfs=info.get("disk"),
+            start_time=info.get("start_time"),
+            stop_time=info.get("stop_time"),
+            create_time=info.get("create_time"),
+            state_history=sandbox_info.get("state_history", []),
+        )
