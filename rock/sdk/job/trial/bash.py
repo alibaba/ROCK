@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import secrets
 from pathlib import Path
 
 from rock import env_vars
+from rock.actions import Command, ReadFileRequest
 from rock.logger import init_logger
 from rock.sdk.job.config import BashJobConfig
-from rock.sdk.job.result import ExceptionInfo, TrialResult
+from rock.sdk.job.result import ExceptionInfo, RewardTrialResult, TrialResult, VerifierResult
 from rock.sdk.job.trial.abstract import AbstractTrial
 from rock.sdk.job.trial.registry import register_trial
 from rock.sdk.sandbox.client import Sandbox
@@ -23,6 +26,8 @@ _OSS_CREDENTIAL_FIELDS = (
     "oss_region",
     "oss_bucket",
 )
+
+_SCORE_RE = re.compile(r"^score:\s*(?P<score>\S+)\s*$", re.MULTILINE)
 
 
 class BashTrial(AbstractTrial):
@@ -49,8 +54,14 @@ class BashTrial(AbstractTrial):
         session env.
         """
         await super().on_sandbox_ready(sandbox)
+        self._prepare_reward_session_env()
         if self._oss_mirror_enabled():
             self._prepare_oss_session_env()
+
+    def _prepare_reward_session_env(self) -> None:
+        """Inject default reward-protocol paths for bash templates."""
+        env = self._config.environment.env
+        env.setdefault("LOG_DIR", env_vars.ROCK_BASH_JOB_ARTIFACT_DIR)
 
     def _prepare_oss_session_env(self) -> None:
         """Resolve OSS credentials, validate, and inject derived ROCK_* keys.
@@ -83,9 +94,9 @@ class BashTrial(AbstractTrial):
                 raise ValueError(f"oss_mirror.enabled=True but {env_key} is not resolvable")
 
         env["ROCK_ARTIFACT_DIR"] = env_vars.ROCK_BASH_JOB_ARTIFACT_DIR
-        env[
-            "ROCK_OSS_PREFIX"
-        ] = f"artifacts/{self._config.namespace}/{self._config.experiment_id}/{self._config.job_name}"
+        env["ROCK_OSS_PREFIX"] = (
+            f"artifacts/{self._config.namespace}/{self._config.experiment_id}/{self._config.job_name}"
+        )
 
     @staticmethod
     def _render_wrapper(user_script: str, token: str | None = None) -> str:
@@ -148,13 +159,83 @@ class BashTrial(AbstractTrial):
             return script
         return self._render_wrapper(script)
 
-    async def collect(self, sandbox: Sandbox, output: str, exit_code: int) -> TrialResult:
+    def _result_roots(self) -> list[str]:
+        env = self._config.environment.env
+        roots = [
+            env.get("LOG_DIR"),
+            env.get("ROCK_ARTIFACT_DIR"),
+            env_vars.ROCK_BASH_JOB_ARTIFACT_DIR,
+        ]
+        return list(dict.fromkeys(root for root in roots if root))
+
+    @staticmethod
+    def _bash_exception(exit_code: int) -> ExceptionInfo | None:
+        if exit_code == 0:
+            return None
+        return ExceptionInfo(
+            exception_type="BashExitCode",
+            exception_message=f"Bash script exited with code {exit_code}",
+        )
+
+    async def _collect_reward_results(self, sandbox: Sandbox, exit_code: int) -> list[RewardTrialResult]:
+        """Read reward-protocol trial-level result.json files from sandbox."""
+        trial_files: list[str] = []
+        for root in self._result_roots():
+            try:
+                list_result = await sandbox.execute(
+                    Command(command=["find", root, "-mindepth", "2", "-maxdepth", "2", "-name", "result.json"])
+                )
+                stdout = getattr(list_result, "stdout", "")
+                if isinstance(stdout, str):
+                    trial_files.extend(line.strip() for line in stdout.strip().split("\n") if line.strip())
+            except Exception as e:
+                logger.debug(f"Failed to list bash reward results under {root}: {e}")
+
+        results: list[RewardTrialResult] = []
+        for trial_file in dict.fromkeys(trial_files):
+            try:
+                response = await sandbox.read_file(ReadFileRequest(path=trial_file))
+                data = json.loads(response.content)
+                result = RewardTrialResult.from_reward_json(data)
+                if exit_code != 0 and result.exception_info is None:
+                    result.exception_info = self._bash_exception(exit_code)
+                results.append(result)
+            except Exception as e:
+                logger.warning(f"Failed to parse bash reward result {trial_file}: {e}")
+        return results
+
+    def _collect_stdout_score(self, output: str, exit_code: int) -> RewardTrialResult | None:
+        matches = _SCORE_RE.findall(output or "")
+        if not matches:
+            return None
+        raw_score = matches[-1]
+        if raw_score.upper() == "N/A":
+            return None
+        try:
+            score = float(raw_score)
+        except ValueError:
+            logger.warning(f"Failed to parse bash score summary value: {raw_score!r}")
+            return None
+        return RewardTrialResult(
+            task_name=self._config.job_name or "",
+            exception_info=self._bash_exception(exit_code),
+            raw_output=output,
+            exit_code=exit_code,
+            verifier_result=VerifierResult(rewards={"reward": score}),
+        )
+
+    async def collect(self, sandbox: Sandbox, output: str, exit_code: int) -> TrialResult | list[TrialResult]:
+        reward_results = await self._collect_reward_results(sandbox, exit_code)
+        if reward_results:
+            return reward_results
+
+        stdout_score = self._collect_stdout_score(output, exit_code)
+        if stdout_score is not None:
+            return stdout_score
+
         exception_info = None
         if exit_code != 0:
-            exception_info = ExceptionInfo(
-                exception_type="BashExitCode",
-                exception_message=f"Bash script exited with code {exit_code}",
-            )
+            exception_info = self._bash_exception(exit_code)
 
         return TrialResult(
             task_name=self._config.job_name or "",

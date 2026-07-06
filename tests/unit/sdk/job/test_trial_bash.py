@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -154,6 +155,50 @@ class TestBashTrialCollect:
         assert result.exception_info is not None
         assert result.exception_info.exception_type == "BashExitCode"
         assert result.status == "failed"
+
+    async def test_collect_reads_reward_protocol_trial_result_json(self):
+        cfg = BashJobConfig(script="echo hi", job_name="myjob")
+        trial = BashTrial(cfg)
+        mock_sandbox = AsyncMock()
+
+        list_result = MagicMock()
+        list_result.stdout = "/data/logs/user-defined/task-1__abc/result.json\n"
+        mock_sandbox.execute = AsyncMock(return_value=list_result)
+
+        response = MagicMock()
+        response.content = json.dumps(
+            {
+                "task_name": "task-1",
+                "trial_name": "task-1__abc",
+                "verifier_result": {"rewards": {"reward": 0.85, "task_score": 0.85}},
+                "exception_info": None,
+            }
+        )
+        mock_sandbox.read_file = AsyncMock(return_value=response)
+
+        result = await trial.collect(mock_sandbox, output="ignored", exit_code=0)
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0].task_name == "task-1"
+        assert result[0].score == pytest.approx(0.85)
+
+    async def test_collect_uses_stdout_score_when_no_result_json_exists(self):
+        cfg = BashJobConfig(script="echo hi", job_name="myjob")
+        trial = BashTrial(cfg)
+        mock_sandbox = AsyncMock()
+        list_result = MagicMock()
+        list_result.stdout = ""
+        mock_sandbox.execute = AsyncMock(return_value=list_result)
+
+        result = await trial.collect(
+            mock_sandbox,
+            output="=== Score Summary ===\nscore: 0.625\n",
+            exit_code=0,
+        )
+
+        assert result.task_name == "myjob"
+        assert result.score == pytest.approx(0.625)
 
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ from rock.sdk.job.api import Job
 from rock.sdk.job.config import BashJobConfig, JobConfig
 from rock.sdk.job.executor import JobClient, JobExecutor, TrialClient
 from rock.sdk.job.operator import Operator, ScatterOperator
-from rock.sdk.job.result import ExceptionInfo, JobResult, JobStatus, TrialResult
+from rock.sdk.job.result import ExceptionInfo, JobResult, JobStatus, RewardTrialResult, TrialResult
 from rock.sdk.job.trial import AbstractTrial, register_trial
 
 __all__ = [
@@ -16,6 +16,7 @@ __all__ = [
     "JobResult",
     "JobStatus",
     "TrialResult",
+    "RewardTrialResult",
     "ExceptionInfo",
     "JobExecutor",
     "JobClient",
