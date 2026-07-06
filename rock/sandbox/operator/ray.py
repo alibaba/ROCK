@@ -9,7 +9,6 @@ from rock.common.constants import StopReason
 from rock.config import RuntimeConfig
 from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.docker import DockerDeployment
-from rock.deployments.status import ServiceStatus
 from rock.logger import init_logger
 from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.sandbox_actor import SandboxActor
@@ -90,8 +89,8 @@ class RayOperator(AbstractOperator):
         if sandbox_info is None:
             return None
         host_ip = sandbox_info.get("host_ip")
-        remote_status = await self.get_remote_status(sandbox_id, host_ip)
-        is_alive = await self._check_alive_status(sandbox_id, host_ip, remote_status)
+        remote_status = await get_remote_status(sandbox_id, host_ip)
+        is_alive = await check_alive_status(sandbox_id, host_ip, remote_status)
         # TODO: sink update state according to is_alive logic into SandboxInfo
         if is_alive:
             sandbox_info["state"] = State.RUNNING
@@ -158,10 +157,3 @@ class RayOperator(AbstractOperator):
             sandbox_info["state"] = State.PENDING
             logger.info(f"sandbox {sandbox_id} restarted")
             return sandbox_info
-
-    async def _check_alive_status(self, sandbox_id: str, host_ip: str, remote_status: ServiceStatus) -> bool:
-        """Check if sandbox is alive"""
-        return await check_alive_status(sandbox_id, host_ip, remote_status)
-
-    async def get_remote_status(self, sandbox_id: str, host_ip: str) -> ServiceStatus:
-        return await get_remote_status(sandbox_id, host_ip)

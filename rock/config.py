@@ -188,7 +188,6 @@ class ArchiveAcrConfig:
 
 @dataclass
 class ArchiveConfig:
-    enabled: bool = False
     dir_storage: ArchiveDirStorageConfig = field(default_factory=ArchiveDirStorageConfig)
     acr: ArchiveAcrConfig = field(default_factory=ArchiveAcrConfig)
     scan_interval_sec: int = 30
