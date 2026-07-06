@@ -1044,6 +1044,8 @@ class SandboxProxyService:
             remote_status = await get_remote_status(sandbox_id, host_ip, http_client=self._rpc_client)
             is_alive = await check_alive_status(sandbox_id, host_ip, remote_status, http_client=self._rpc_client)
 
+            await self._update_expire_time(sandbox_id)
+
             if is_alive:
                 operator_sandbox_info = dict(sandbox_info)
                 operator_sandbox_info["state"] = State.RUNNING
@@ -1061,9 +1063,6 @@ class SandboxProxyService:
                 )
                 # on_alive callback updates state_history in sm.sandbox_info
                 sandbox_info = sm.sandbox_info
-
-            if is_alive:
-                await self._update_expire_time(sandbox_id)
 
         if not include_all_states and state not in (State.PENDING, State.RUNNING):
             raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
