@@ -480,7 +480,9 @@ class SandboxManager(BaseManager):
             return
 
         try:
-            candidates = await self._meta_store.list_by_in("state", [State.STOPPED.value, State.ARCHIVED.value])
+            candidates = await self._meta_store.list_by_in(
+                "state", [State.STOPPED.value, State.ARCHIVED.value], order_by="stop_time", limit=1000
+            )
         except Exception as e:
             logger.warning(f"[auto_delete] list_by_in failed: {e}")
             return
@@ -524,7 +526,9 @@ class SandboxManager(BaseManager):
             return
 
         try:
-            stopped_list = await self._meta_store.list_by("state", State.STOPPED.value)
+            stopped_list = await self._meta_store.list_by(
+                "state", State.STOPPED.value, order_by="stop_time", limit=1000
+            )
         except Exception as e:
             logger.warning(f"[auto_archive] list_by failed: {e}")
             return

@@ -189,32 +189,54 @@ class SandboxTable:
 
     @_retry_on_disconnect
     @monitor_metastore_operation
-    async def list_by(self, column: str, value: str | int | float | bool) -> list[dict]:
+    async def list_by(
+        self, column: str, value: str | int | float | bool, order_by: str | None = None, limit: int | None = None
+    ) -> list[dict]:
         """Equality query on a single column. Only columns in ``SandboxRecord.LIST_BY_ALLOWLIST`` are permitted."""
-        return await self._db.run(self._list_by_sync, column, value)
+        return await self._db.run(self._list_by_sync, column, value, order_by, limit)
 
-    def _list_by_sync(self, column: str, value: str | int | float | bool) -> list[dict]:
+    def _list_by_sync(
+        self, column: str, value: str | int | float | bool, order_by: str | None = None, limit: int | None = None
+    ) -> list[dict]:
         if column not in SandboxRecord.LIST_BY_ALLOWLIST:
             raise ValueError(f"Querying by column '{column}' is not allowed")
         col_attr = getattr(SandboxRecord, column)
         stmt = select(SandboxRecord).where(col_attr == value)
+        if order_by:
+            order_col = getattr(SandboxRecord, order_by)
+            stmt = stmt.order_by(order_col.desc())
+        if limit:
+            stmt = stmt.limit(limit)
         with self._db.session_factory() as session:
             result = session.execute(stmt)
             return [_merge_status_blob(r.to_dict()) for r in result.scalars().all()]
 
     @_retry_on_disconnect
     @monitor_metastore_operation
-    async def list_by_in(self, column: str, values: list[str | int | float | bool]) -> list[dict]:
+    async def list_by_in(
+        self,
+        column: str,
+        values: list[str | int | float | bool],
+        order_by: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict]:
         """IN query on a single column. Only columns in ``SandboxRecord.LIST_BY_ALLOWLIST`` are permitted."""
         if not values:
             return []
-        return await self._db.run(self._list_by_in_sync, column, values)
+        return await self._db.run(self._list_by_in_sync, column, values, order_by, limit)
 
-    def _list_by_in_sync(self, column: str, values: list[str | int | float | bool]) -> list[dict]:
+    def _list_by_in_sync(
+        self, column: str, values: list[str | int | float | bool], order_by: str | None = None, limit: int | None = None
+    ) -> list[dict]:
         if column not in SandboxRecord.LIST_BY_ALLOWLIST:
             raise ValueError(f"Querying by column '{column}' is not allowed")
         col_attr = getattr(SandboxRecord, column)
         stmt = select(SandboxRecord).where(col_attr.in_(values))
+        if order_by:
+            order_col = getattr(SandboxRecord, order_by)
+            stmt = stmt.order_by(order_col.desc())
+        if limit:
+            stmt = stmt.limit(limit)
         with self._db.session_factory() as session:
             result = session.execute(stmt)
             return [_merge_status_blob(r.to_dict()) for r in result.scalars().all()]

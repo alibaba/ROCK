@@ -64,6 +64,8 @@ class SandboxRecord(Base):
         Index("ix_sandbox_record_host_ip", "host_ip"),
         Index("ix_sandbox_record_host_name", "host_name"),
         Index("ix_sandbox_record_create_user_gray_flag", "create_user_gray_flag"),
+        Index("ix_sandbox_record_state_stop_time", "state", "stop_time"),
+        Index("ix_sandbox_record_state_start_time", "state", "start_time"),
     )
 
     # Columns allowed as the filter key in list_by().

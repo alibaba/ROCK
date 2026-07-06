@@ -178,11 +178,15 @@ class SandboxMetaStore:
         return await self._db.list_by_in("sandbox_id", sandbox_ids)
 
     @monitor_metastore_operation
-    async def list_by(self, field: str, value: str | int | float | bool) -> list[SandboxInfo]:
+    async def list_by(
+        self, field: str, value: str | int | float | bool, order_by: str | None = None, limit: int | None = None
+    ) -> list[SandboxInfo]:
         """Query sandboxes by *field* == *value* from the DB."""
-        return await self._db.list_by(field, value)
+        return await self._db.list_by(field, value, order_by=order_by, limit=limit)
 
     @monitor_metastore_operation
-    async def list_by_in(self, field: str, values: list) -> list[SandboxInfo]:
+    async def list_by_in(
+        self, field: str, values: list, order_by: str | None = None, limit: int | None = None
+    ) -> list[SandboxInfo]:
         """Query sandboxes by *field* IN *values* from the DB."""
-        return await self._db.list_by_in(field, values)
+        return await self._db.list_by_in(field, values, order_by=order_by, limit=limit)
