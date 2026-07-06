@@ -24,11 +24,11 @@ import asyncio
 import os
 import re
 from pathlib import Path
-from urllib.parse import urlencode
 
 import httpx
 
 from rock.logger import init_logger
+from rock.utils.registry import parse_image_ref, probe_manifest
 
 logger = init_logger(__name__)
 
@@ -67,24 +67,6 @@ class RockRegistryResolver:
         return [token.strip().rstrip("/") for token in tokens if token.strip()]
 
     @staticmethod
-    def _split_tag_or_digest(image: str) -> tuple[str, str]:
-        """Split image into (path, tag-or-digest-suffix).
-
-        Examples:
-            "foo/bar:1.2" -> ("foo/bar", ":1.2")
-            "foo/bar@sha256:abc" -> ("foo/bar", "@sha256:abc")
-            "foo/bar" -> ("foo/bar", ":latest")
-        """
-        if "@" in image:
-            path, _, digest = image.partition("@")
-            return path, f"@{digest}"
-        last_slash = image.rfind("/")
-        last_colon = image.rfind(":")
-        if last_colon > last_slash:
-            return image[:last_colon], f":{image[last_colon + 1 :]}"
-        return image, ":latest"
-
-    @staticmethod
     def _build_candidate(image: str, registry: str) -> str:
         """Build the candidate image reference under the ROCK registry.
 
@@ -93,12 +75,10 @@ class RockRegistryResolver:
         Example: ``ghcr.io/foo/bar/baz:v1`` with registry ``reg/ns`` →
         ``reg/ns/bar/baz:v1``.
         """
-        path, suffix = RockRegistryResolver._split_tag_or_digest(image)
-        if "/" in path:
-            _, path = path.split("/", 1)
-        if "/" in path:
-            _, path = path.split("/", 1)
-        return f"{registry.rstrip('/')}/{path}{suffix}"
+        _, repo, tag = parse_image_ref(image)
+        if "/" in repo:
+            _, repo = repo.split("/", 1)
+        return f"{registry.rstrip('/')}/{repo}:{tag}"
 
     @staticmethod
     def _build_candidate_with_original_namespace(image: str, registry: str) -> str:
@@ -109,72 +89,21 @@ class RockRegistryResolver:
         Example: ``ghcr.io/swebench/foo:v1`` with registry
         ``reg.aliyuncs.com/fixed-ns`` → ``reg.aliyuncs.com/swebench/foo:v1``.
         """
-        path, suffix = RockRegistryResolver._split_tag_or_digest(image)
-        # Strip the original registry host from the image path
-        if "/" in path:
-            first_part, rest = path.split("/", 1)
-            if "." in first_part or ":" in first_part:
-                path = rest
-        # Extract only the host from the mirror registry (before first /)
+        reg_host, repo, tag = parse_image_ref(image)
+        if not reg_host:
+            # No registry host in image — repo is the full path
+            pass
         mirror_host = registry.split("/", 1)[0] if "/" in registry else registry
-        return f"{mirror_host}/{path}{suffix}"
-
-    @staticmethod
-    def _parse_bearer_challenge(header: str) -> dict[str, str]:
-        """Parse ``realm``, ``service``, ``scope`` from a Bearer WWW-Authenticate header."""
-        return {m.group(1): m.group(2) for m in re.finditer(r'(\w+)="([^"]*)"', header)}
-
-    @staticmethod
-    def _parse_image_parts(image: str) -> tuple[str, str, str]:
-        """Extract (registry_host, repo_path, tag) from a fully-qualified image reference."""
-        path, suffix = RockRegistryResolver._split_tag_or_digest(image)
-        tag = suffix.lstrip(":")
-        first_slash = path.find("/")
-        if first_slash == -1:
-            return (path, "", tag)
-        registry = path[:first_slash]
-        repo = path[first_slash + 1 :]
-        return (registry, repo, tag)
+        return f"{mirror_host}/{repo}:{tag}"
 
     async def _http_probe_manifest(self, image: str, timeout_sec: float) -> bool:
         """Check whether *image* exists on its registry via the v2 manifest API."""
-        registry, repo, tag = self._parse_image_parts(image)
+        registry, repo, tag = parse_image_ref(image)
         if not registry or not repo:
             return False
 
-        url = f"https://{registry}/v2/{repo}/manifests/{tag}"
-        headers = {
-            "Accept": ", ".join(
-                [
-                    "application/vnd.docker.distribution.manifest.v2+json",
-                    "application/vnd.oci.image.manifest.v1+json",
-                    "application/vnd.docker.distribution.manifest.list.v2+json",
-                    "application/vnd.oci.image.index.v1+json",
-                ]
-            )
-        }
-
         try:
-            async with httpx.AsyncClient(timeout=timeout_sec) as client:
-                resp = await client.get(url, headers=headers)
-
-                if resp.status_code == 401 and "www-authenticate" in resp.headers:
-                    www_auth = resp.headers["www-authenticate"]
-                    if www_auth.startswith("Bearer "):
-                        params = self._parse_bearer_challenge(www_auth)
-                        realm = params.get("realm", "")
-                        service = params.get("service", "")
-                        scope = params.get("scope", "")
-                        token_url = f"{realm}?{urlencode({'service': service, 'scope': scope})}"
-                        token_resp = await client.get(token_url)
-                        if token_resp.status_code == 200:
-                            data = token_resp.json()
-                            token = data.get("token") or data.get("access_token")
-                            if token:
-                                headers["Authorization"] = f"Bearer {token}"
-                                resp = await client.get(url, headers=headers)
-
-                return resp.status_code == 200
+            return await probe_manifest(registry=registry, repo=repo, tag=tag, timeout=timeout_sec)
         except httpx.HTTPError:
             logger.debug("HTTP probe for %s failed (network/protocol)", image, exc_info=True)
             return False

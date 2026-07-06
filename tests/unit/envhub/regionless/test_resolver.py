@@ -15,29 +15,6 @@ def resolver():
     r.reset_cache()
 
 
-class TestSplitTagOrDigest:
-    def test_explicit_tag(self):
-        assert RockRegistryResolver._split_tag_or_digest("foo/bar:1.2") == ("foo/bar", ":1.2")
-
-    def test_no_tag_defaults_to_latest(self):
-        assert RockRegistryResolver._split_tag_or_digest("foo/bar") == ("foo/bar", ":latest")
-
-    def test_digest(self):
-        assert RockRegistryResolver._split_tag_or_digest("foo/bar@sha256:abc") == ("foo/bar", "@sha256:abc")
-
-    def test_host_with_port_no_tag(self):
-        assert RockRegistryResolver._split_tag_or_digest("registry:5000/foo/bar") == (
-            "registry:5000/foo/bar",
-            ":latest",
-        )
-
-    def test_host_with_port_and_tag(self):
-        assert RockRegistryResolver._split_tag_or_digest("registry:5000/foo/bar:v1") == (
-            "registry:5000/foo/bar",
-            ":v1",
-        )
-
-
 class TestParseRegistries:
     def test_empty(self):
         assert RockRegistryResolver._parse_registries("") == []
