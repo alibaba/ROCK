@@ -71,6 +71,17 @@ class TestJobMeta:
 # ---------------------------------------------------------------------------
 
 
+class TestMetaModuleDocstring:
+    def test_docstring_does_not_claim_harbor_writes_meta(self):
+        """P1-3: meta.py docstring must not claim Harbor writes rock_meta.json."""
+        import rock.sdk.job.meta as meta_module
+
+        docstring = meta_module.__doc__ or ""
+        assert "Both Harbor and Bash" not in docstring, (
+            "docstring incorrectly claims both job types write rock_meta.json"
+        )
+
+
 class TestRenderMetaJson:
     def test_bash_running(self):
         from rock.sdk.job.config import BashJobConfig
@@ -205,6 +216,96 @@ class TestBashTrialMetaIntegration:
         trial = BashTrial(config)
         script = trial.build()
         assert "rock_meta.json" not in script
+
+    def test_epilogue_heredoc_is_quoted(self):
+        """P1-1: epilogue heredoc must use single-quoted delimiter to prevent
+        shell expansion of $() in config values."""
+        from rock.sdk.job.trial.bash import BashTrial
+
+        config = self._build_bash_config()
+        trial = BashTrial(config)
+        trial._ossutil_ready = True
+        script = trial.build()
+        # Both prologue and epilogue heredocs must be single-quoted
+        meta_writes = [line for line in script.splitlines() if "rock_meta.json" in line and "cat >" in line]
+        for line in meta_writes:
+            assert "'__ROCK_META_EOF__'" in line or "<<" not in line, (
+                f"heredoc delimiter must be single-quoted to prevent shell expansion: {line}"
+            )
+
+    def test_epilogue_no_shell_variable_expansion_in_heredoc(self):
+        """P1-1: config fields with $() must not be shell-executed."""
+        from rock.sdk.job.trial.bash import BashTrial
+
+        config = self._build_bash_config()
+        config.job_name = "safe-job"
+        trial = BashTrial(config)
+        trial._ossutil_ready = True
+        script = trial.build()
+        # The epilogue heredoc body should NOT contain raw $-prefixed
+        # values from config (those should go through sed placeholders)
+        heredoc_sections = script.split("__ROCK_META_EOF__")
+        for section in heredoc_sections:
+            if '"status":' in section and '"exit_code":' in section:
+                # This is an epilogue heredoc body — must not have
+                # unquoted shell vars like $_rock_status directly
+                assert "$_rock_status" not in section, (
+                    "epilogue heredoc body must use placeholders, not raw shell variables"
+                )
+
+    def test_prologue_no_sed_null_replacement(self):
+        """P1-2: prologue must not use sed to replace 'null' — it produces
+        invalid JSON and can match null in other fields."""
+        from rock.sdk.job.trial.bash import BashTrial
+
+        config = self._build_bash_config()
+        trial = BashTrial(config)
+        trial._ossutil_ready = True
+        script = trial.build()
+        assert 's/null/' not in script, "must not use sed to replace literal 'null'"
+
+    def test_meta_produces_valid_json_after_sed(self):
+        """P1-2: heredoc body + sed substitution must produce valid JSON
+        (no unquoted time strings, no bare null replacement)."""
+        import re
+
+        from rock.sdk.job.trial.bash import BashTrial
+
+        config = self._build_bash_config()
+        trial = BashTrial(config)
+        trial._ossutil_ready = True
+        script = trial.build()
+        heredoc_bodies = re.findall(
+            r"<< *'__ROCK_META_EOF__'\n(.*?)__ROCK_META_EOF__", script, re.DOTALL
+        )
+        assert len(heredoc_bodies) >= 2, "should have at least prologue + epilogue heredocs"
+        for body in heredoc_bodies:
+            # Simulate sed: replace placeholders with realistic values
+            simulated = (
+                body.replace("__ROCK_STATUS__", "completed")
+                .replace("__ROCK_STARTED__", "2024-01-01T10:00:00Z")
+                .replace("__ROCK_FINISHED__", "2024-01-01T12:00:00Z")
+                .replace("__ROCK_EXIT_CODE__", "0")
+            )
+            data = json.loads(simulated)
+            assert data["schema_version"] == "1"
+            assert data["job_type"] == "bash"
+
+    def test_epilogue_uses_sed_for_runtime_values(self):
+        """P1-1/P1-2 fix: runtime values (status, timestamps, exit_code)
+        must be injected via sed after a quoted heredoc, not inside it."""
+        from rock.sdk.job.trial.bash import BashTrial
+
+        config = self._build_bash_config()
+        trial = BashTrial(config)
+        trial._ossutil_ready = True
+        script = trial.build()
+        # The script should contain sed commands that replace placeholders
+        assert "__ROCK_STATUS__" in script
+        assert "__ROCK_STARTED__" in script
+        assert "__ROCK_FINISHED__" in script
+        assert "__ROCK_EXIT_CODE__" in script
+        assert "sed" in script
 
 
 # ---------------------------------------------------------------------------

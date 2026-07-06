@@ -1,9 +1,11 @@
 """Unified job metadata — written inside the sandbox, read by JobViewer.
 
-Both Harbor and Bash jobs write ``rock_meta.json`` to the job output
-directory. The existing OSS upload mechanisms (ossutil for Bash,
-Harbor's _oss_mirror_job_root_files for Harbor) automatically push it
-to ``artifacts/{namespace}/{experiment_id}/{job_name}/rock_meta.json``.
+Bash jobs write ``rock_meta.json`` via the wrapper script prologue/epilogue.
+The existing ossutil upload automatically pushes it to
+``artifacts/{namespace}/{experiment_id}/{job_name}/rock_meta.json``.
+
+Harbor jobs rely on Harbor's own result.json and OSS mirror mechanism;
+rock_meta.json is currently only generated for Bash jobs.
 """
 
 from __future__ import annotations
