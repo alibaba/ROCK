@@ -185,10 +185,16 @@ def gen_alter(dialect, source: str, table_filter: str | None = None) -> str:
             if col_name not in old_columns:
                 lines.append(f"ALTER TABLE {table.name} ADD COLUMN {col_def};")
 
+        new_index_names = {(idx.name or "").lower() for idx in table.indexes if idx.name}
         for idx in sorted(table.indexes, key=lambda i: i.name or ""):
             idx_name = (idx.name or "").lower()
             if idx_name and idx_name not in old_indexes:
                 lines.append(str(CreateIndex(idx).compile(dialect=dialect)).strip() + ";")
+
+        table_prefix = f"ix_{table.name}_"
+        for old_idx_name in sorted(old_indexes):
+            if old_idx_name.startswith(table_prefix) and old_idx_name not in new_index_names:
+                lines.append(f"DROP INDEX {old_idx_name};")
 
     return "\n\n".join(lines) if lines else "-- No changes detected"
 

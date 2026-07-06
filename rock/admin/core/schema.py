@@ -57,13 +57,7 @@ class SandboxRecord(Base):
     __table_args__ = (
         Index("ix_sandbox_record_user_id", "user_id"),
         Index("ix_sandbox_record_state", "state"),
-        Index("ix_sandbox_record_namespace", "namespace"),
-        Index("ix_sandbox_record_experiment_id", "experiment_id"),
-        Index("ix_sandbox_record_cluster_name", "cluster_name"),
         Index("ix_sandbox_record_image", "image"),
-        Index("ix_sandbox_record_host_ip", "host_ip"),
-        Index("ix_sandbox_record_host_name", "host_name"),
-        Index("ix_sandbox_record_create_user_gray_flag", "create_user_gray_flag"),
         Index("ix_sandbox_record_state_stop_time", "state", "stop_time"),
         Index("ix_sandbox_record_state_start_time", "state", "start_time"),
     )
@@ -74,14 +68,8 @@ class SandboxRecord(Base):
         {
             "sandbox_id",
             "user_id",
-            "image",
-            "experiment_id",
-            "namespace",
-            "cluster_name",
             "state",
-            "host_ip",
-            "host_name",
-            "create_user_gray_flag",
+            "image",
         }
     )
 
