@@ -65,6 +65,9 @@ scheduler:
       enabled: true
       params:
         max_age_hours: 72
+    - task_class: rock.admin.scheduler.tasks.docker_health_task.DockerHealthTask
+      enabled: true
+      interval_seconds: 1800       # Probe the Docker daemon every minute; restart if exited
     - task_class: rock.admin.scheduler.tasks.image_pull_task.ImagePullTask
       enabled: true
       interval_seconds: 21600
