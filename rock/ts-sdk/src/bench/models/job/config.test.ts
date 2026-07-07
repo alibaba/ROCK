@@ -346,6 +346,7 @@ describe('HarborJobConfig', () => {
       expect(result.environment.image).toBe('python:3.11');
       expect(result.orchestrator.type).toBe(OrchestratorType.LOCAL);
       expect(result.verifier.disable).toBe(false);
+      expect(result.verifier.env).toEqual({});
       expect(result.metrics).toEqual([]);
     });
 

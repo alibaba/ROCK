@@ -139,6 +139,7 @@ describe('VerifierConfig', () => {
       expect(result.disable).toBe(false);
       expect(result.patch).toBeNull();
       expect(result.mode).toBeNull();
+      expect(result.env).toEqual({});
       expect(result.native_config).toEqual({
         image: null,
         script: null,
@@ -158,6 +159,19 @@ describe('VerifierConfig', () => {
       expect(result.mode).toBe('native');
       expect(result.native_config.image).toBe('ubuntu:latest');
       expect(result.native_config.script).toBe('bash run.sh');
+    });
+
+    test('parses verifier env', () => {
+      const result = VerifierConfigSchema.parse({
+        env: {
+          OPENAI_API_KEY: '${OPENAI_API_KEY}',
+          JUDGE_MODEL: 'openai/gpt-5',
+        },
+      });
+      expect(result.env).toEqual({
+        OPENAI_API_KEY: '${OPENAI_API_KEY}',
+        JUDGE_MODEL: 'openai/gpt-5',
+      });
     });
 
     test('rejects invalid mode', () => {

@@ -463,6 +463,32 @@ class TestNativeConfig:
         assert data["template"]["name"] == "my-agent/my-org/my-dataset"
 
 
+class TestVerifierConfig:
+    def test_env_default_empty(self):
+        cfg = VerifierConfig()
+        assert cfg.env == {}
+
+    def test_env_serializes_for_harbor_yaml(self):
+        cfg = HarborJobConfig(
+            experiment_id="test-exp",
+            verifier=VerifierConfig(
+                env={
+                    "OPENAI_API_KEY": "${OPENAI_API_KEY}",
+                    "OPENAI_BASE_URL": "https://example.com/v1",
+                    "JUDGE_MODEL": "openai/gpt-5",
+                }
+            ),
+        )
+
+        data = yaml.safe_load(cfg.to_harbor_yaml())
+
+        assert data["verifier"]["env"] == {
+            "OPENAI_API_KEY": "${OPENAI_API_KEY}",
+            "OPENAI_BASE_URL": "https://example.com/v1",
+            "JUDGE_MODEL": "openai/gpt-5",
+        }
+
+
 class TestHarborInheritsBase:
     def test_harbor_inherits_base_fields(self):
         """HarborJobConfig (agent's) inherits all base JobConfig fields."""
