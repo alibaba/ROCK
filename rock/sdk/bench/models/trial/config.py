@@ -85,6 +85,7 @@ class VerifierConfig(BaseModel):
     patch: bool | None = None
     mode: Literal["harbor", "native"] | None = None
     native_config: NativeConfig = Field(default_factory=NativeConfig)
+    env: dict[str, str] = Field(default_factory=dict)
 
 
 class TaskConfig(BaseModel):

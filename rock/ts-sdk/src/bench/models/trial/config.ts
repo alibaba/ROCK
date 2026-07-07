@@ -185,6 +185,7 @@ export const VerifierConfigSchema = z.object({
   patch: z.boolean().nullable().default(null),
   mode: z.enum(['harbor', 'native']).nullable().default(null),
   native_config: NativeConfigSchema.default({}),
+  env: z.record(z.string()).default({}),
 });
 
 export type VerifierConfig = z.infer<typeof VerifierConfigSchema>;

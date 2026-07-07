@@ -110,6 +110,7 @@ class TestVerifierConfig:
         assert v.disable is False
         assert v.patch is None
         assert v.mode is None
+        assert v.env == {}
 
     def test_mode_harbor(self):
         v = VerifierConfig(mode="harbor")
