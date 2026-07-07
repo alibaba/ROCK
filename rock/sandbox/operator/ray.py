@@ -92,6 +92,9 @@ class RayOperator(AbstractOperator):
             logger.info(f"sandbox {sandbox_id} is submitted")
             return sandbox_info
 
+    async def get_remote_status(self, sandbox_id: str, host_ip: str):
+        return await get_remote_status(sandbox_id, host_ip)
+
     async def get_status(self, sandbox_id: str) -> SandboxInfo | None:
         sandbox_info: SandboxInfo = await build_sandbox_from_redis(self._redis_provider, sandbox_id)
         if sandbox_info is None:
