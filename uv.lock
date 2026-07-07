@@ -4447,6 +4447,7 @@ admin = [
     { name = "kubernetes" },
     { name = "nacos-sdk-python" },
     { name = "numpy" },
+    { name = "opensandbox" },
     { name = "pexpect", marker = "sys_platform != 'win32'" },
     { name = "pip" },
     { name = "psutil" },
@@ -4504,9 +4505,6 @@ model-service = [
     { name = "psutil" },
     { name = "swebench" },
     { name = "uvicorn" },
-]
-opensandbox = [
-    { name = "opensandbox" },
 ]
 rocklet = [
     { name = "bashlex", marker = "sys_platform != 'win32'" },
@@ -4574,7 +4572,7 @@ requires-dist = [
     { name = "nacos-sdk-python", marker = "extra == 'sandbox-actor'", specifier = ">=0.1.14" },
     { name = "numpy", marker = "extra == 'rocklet'", specifier = "<=2.2.6" },
     { name = "openai", marker = "extra == 'model-service'", specifier = ">=1.50.0" },
-    { name = "opensandbox", marker = "extra == 'opensandbox'", specifier = ">=0.1.13" },
+    { name = "opensandbox", marker = "extra == 'admin'", specifier = ">=0.1.13" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-exporter-prometheus" },
@@ -4596,7 +4594,6 @@ requires-dist = [
     { name = "rich" },
     { name = "rl-rock", extras = ["admin"], marker = "extra == 'all'" },
     { name = "rl-rock", extras = ["builder"], marker = "extra == 'all'" },
-    { name = "rl-rock", extras = ["opensandbox"], marker = "extra == 'all'" },
     { name = "rl-rock", extras = ["rocklet"], marker = "extra == 'admin'" },
     { name = "rl-rock", extras = ["rocklet"], marker = "extra == 'all'" },
     { name = "sqlmodel", marker = "extra == 'admin'" },
@@ -4610,7 +4607,7 @@ requires-dist = [
     { name = "uvloop", marker = "extra == 'admin'" },
     { name = "websockets", marker = "extra == 'admin'", specifier = ">=15.0.1" },
 ]
-provides-extras = ["admin", "rocklet", "sandbox-actor", "builder", "model-service", "opensandbox", "all"]
+provides-extras = ["admin", "rocklet", "sandbox-actor", "builder", "model-service", "all"]
 
 [package.metadata.requires-dev]
 test = [
