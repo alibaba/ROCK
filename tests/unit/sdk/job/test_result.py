@@ -71,6 +71,14 @@ class TestJobResult:
 
 
 class TestRewardTrialResult:
+    def test_reward_protocol_models_are_shared_with_harbor(self):
+        from rock.sdk.bench.models.trial.result import VerifierResult as HarborVerifierResult
+        from rock.sdk.job.result import VerifierResult as JobVerifierResult
+        from rock.sdk.reward.result import VerifierResult as SharedVerifierResult
+
+        assert JobVerifierResult is SharedVerifierResult
+        assert HarborVerifierResult is SharedVerifierResult
+
     def test_score_comes_from_verifier_reward(self):
         result = RewardTrialResult.from_reward_json(
             {

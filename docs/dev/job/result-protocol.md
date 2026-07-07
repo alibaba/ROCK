@@ -394,26 +394,23 @@ score: 0.71
 
 该 fallback 只用于兼容没有 trial 级 `result.json` 的旧 BashJob。新任务应优先写结构化 result。
 
-## 8. Harbor 与 Bash 当前模型差异
+## 8. Harbor 与 Bash 当前模型关系
 
-长期协议建议使用同一套字段。当前代码中 Harbor 和 Bash 的 result model 还存在轻微差异：
+SDK 使用同一套 reward protocol 模型解析 Harbor 和 Bash 的 trial 级 `result.json`：
 
-| 字段 / 行为 | Bash `RewardTrialResult` | Harbor `HarborTrialResult` |
-|-------------|--------------------------|-----------------------------|
-| `trial_uri` | 有 | 无 |
-| `task_id` | 有 | 无 |
-| `task_checksum` | 有 | 无 |
-| `config` | 有 | 无 |
-| `trial_name` | 有 | 有 |
-| `source` | 有 | 有 |
-| `agent_info` | 有 | 有 |
-| `agent_result` | 有 | 有 |
-| `verifier_result` | 有 | 有 |
-| timing fields | 有 | 有 |
-| `score` | 强转为 `float` | 返回 `int | float` |
+- 共享模型定义在 `rock.sdk.reward.result`。
+- `RewardTrialResult` 负责协议字段、`score`、`token_ids`、状态和耗时计算。
+- `HarborTrialResult` 是 `RewardTrialResult` 的薄子类，保留 `from_harbor_json()` 和 Harbor 历史 import 路径。
+- `rock.sdk.job.result` 只保留 Job 聚合结果模型，并 re-export reward model 兼容旧 import。
+
+当前行为差异主要来自 collector，而不是协议模型：
+
+| 行为 | Bash | Harbor |
+|------|------|--------|
+| trial result 路径 | `<root>/<trial_name>/result.json` | `<jobs_dir>/<job_name>/<trial_name>/result.json` |
+| root 查找来源 | `LOG_DIR`、`ROCK_ARTIFACT_DIR`、默认 artifact root | `jobs_dir/job_name` |
 | no trial result fallback | stdout `score:`，再基础 `TrialResult` | `HarborNoTrials` 基础 `TrialResult` |
-
-另外，`AgentInfo`、`AgentResult`、`VerifierResult`、`TimingInfo` 在 Bash 与 Harbor 侧当前是两套同构类型。字段结构一致，但 Python 类型身份不同。
+| exit code 传播 | 传播到每个 parsed `RewardTrialResult` | Harbor collector 按 Harbor 流程处理 |
 
 ## 9. 生产者要求
 

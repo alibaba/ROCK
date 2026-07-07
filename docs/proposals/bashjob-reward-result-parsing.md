@@ -61,9 +61,17 @@ verifier_result.rewards.reward
 
 ## 方案
 
-### 1. 新增 `RewardTrialResult`
+### 1. 共用 reward protocol result model
 
-在 `rock.sdk.job.result` 中新增 `RewardTrialResult(TrialResult)`，作为 Bash reward protocol 的结构化结果模型。
+在 `rock.sdk.reward.result` 中提供共享 `RewardTrialResult(TrialResult)`，作为 Bash 和 Harbor 都能复用的 reward protocol 结构化结果模型。
+
+兼容导出：
+
+- `rock.sdk.job.result.RewardTrialResult`
+- `rock.sdk.job.RewardTrialResult`
+- `rock.sdk.bench.models.trial.result.HarborTrialResult`
+
+其中 `HarborTrialResult` 是 `RewardTrialResult` 的薄子类，用于保留 Harbor 侧历史 API。
 
 核心字段：
 

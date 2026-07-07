@@ -12,9 +12,10 @@ from rock import env_vars
 from rock.actions import Command, ReadFileRequest
 from rock.logger import init_logger
 from rock.sdk.job.config import BashJobConfig
-from rock.sdk.job.result import ExceptionInfo, RewardTrialResult, TrialResult, VerifierResult
+from rock.sdk.job.result import ExceptionInfo, TrialResult
 from rock.sdk.job.trial.abstract import AbstractTrial
 from rock.sdk.job.trial.registry import register_trial
+from rock.sdk.reward.result import RewardTrialResult, VerifierResult
 from rock.sdk.sandbox.client import Sandbox
 
 logger = init_logger(__name__)
