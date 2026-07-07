@@ -15,19 +15,14 @@ from rock.utils.providers.redis_provider import RedisProvider
 
 logger = init_logger(__name__)
 
-# Operator types that delegate lifecycle to an external service and therefore
-# do NOT require the admin to bring up a local Ray cluster at startup.
-_RAY_FREE_OPERATORS = {"opensandbox"}
-
-
 def operator_requires_ray(operator_type: str) -> bool:
     """Whether admin must initialize a Ray cluster for this operator backend.
 
-    The opensandbox backend delegates the full sandbox lifecycle to an external
-    OpenSandbox service via its SDK, so no Ray cluster is needed. ray/k8s keep
-    their existing behavior (ray init).
+    Only the ``ray`` operator runs sandboxes as Ray actors and therefore needs a
+    local Ray cluster. ``k8s`` and ``opensandbox`` delegate the sandbox lifecycle
+    to an external orchestrator, so admin boots without Ray for them.
     """
-    return operator_type.lower() not in _RAY_FREE_OPERATORS
+    return operator_type.lower() == "ray"
 
 
 @dataclass
