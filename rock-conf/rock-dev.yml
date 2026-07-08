@@ -62,5 +62,18 @@ k8s:
 
 # Runtime configuration
 runtime:
-  # Operator type: 'ray' or 'k8s'
+  # Operator type: 'ray', 'k8s', or 'opensandbox'
   operator_type: "k8s"
+
+# OpenSandbox operator backend (used when runtime.operator_type == "opensandbox").
+# Rock delegates the sandbox lifecycle to an external OpenSandbox service via its
+# Python SDK. Uncomment and fill in to switch this admin cluster to opensandbox.
+#
+# opensandbox:
+#   endpoint: "opensandbox.internal:8090"   # OpenSandbox server host (SDK domain)
+#   api_key: ""                             # or leave empty to use OPEN_SANDBOX_API_KEY env
+#   protocol: "https"                       # "http" or "https"
+#   runtime: "docker"                       # OpenSandbox runtime: "docker" or "k8s" (informational)
+#   namespace: "rock"                       # label/namespace scope for sandboxes
+#   use_server_proxy: false                 # route execd (cmd/file) via server; enable only if the deployment supports it
+#   default_timeout: 600                    # SDK request timeout (seconds)
