@@ -19,7 +19,7 @@
 | `request_timeout` | 30s | |
 | `use_server_proxy` | `False` | **对 Rock 很关键**：置 `True` 时所有 execd（命令/文件）请求经 OpenSandbox server 代理，client 无需直连沙箱网络 |
 
-→ 映射到 Rock 的 `OpenSandboxConfig`（endpoint/api_key/protocol/use_server_proxy/default_timeout）。**建议 `use_server_proxy=True`**：Rock admin 只需对 OpenSandbox server 一个出口，天然契合 Rock 现有"admin 代理到沙箱"的架构，省掉 `get_endpoint`/直连沙箱的复杂度。
+→ 映射到 Rock 的 `OpenSandboxConfig`（endpoint/api_key/protocol/use_server_proxy/default_timeout）。**`use_server_proxy` 默认 `False`**（与 SDK 默认一致，且并非所有 OpenSandbox 部署都支持 server-proxy 模式）；仅当目标部署确认支持时才在 yaml 里显式设 `true`。它只影响 execd（命令/文件）路由，即 Phase 2；生命周期始终直连服务端，不受影响。
 
 **Async 模型**：SDK 原生 `async def`（也有 `opensandbox.sync.*` 同步包装）。Rock proxy/operator 均为 async → **直接用 async 接口，无需 executor 包裹**（与 rocklet 的 `RemoteSandbox` 用线程池不同，这里更简单）。
 
@@ -154,7 +154,7 @@ execd（`specs/execd-api.yaml`）：`POST /command`(SSE)、`POST /session`、`PO
 5. **session_id 映射持久化**：`{sandbox_id:session_name → os_session_id}` 存 redis（多 worker 安全）。
 6. **stop/restart/delete 语义（✅ 已定）**：`stop→pause`（Paused=Rock `stopped`）、`restart→resume`、`delete→kill`（Terminated=Rock `deleted`）。文档需说明：pause 的沙箱是否仍占资源取决于 OpenSandbox 实现，与 ray/docker 后端 stop 的语义存在差异。
 7. **portforward**：一期 `NotImplementedError`，二期基于 `get_endpoint` 桥接。
-8. **use_server_proxy=True**：推荐，简化网络与鉴权（Rock admin 单出口到 OpenSandbox server）。
+8. **use_server_proxy 默认 False**：与 SDK 默认一致；部分部署不支持 server-proxy 模式，需要时再显式开启（仅影响 Phase 2 的 execd 路由）。
 9. **定时运维任务 gate**（沿用主计划 Phase 2.4）：`scheduler/tasks/*` 的 rocklet 直连任务在 opensandbox 后端下跳过。
 
 ---

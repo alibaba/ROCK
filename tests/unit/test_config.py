@@ -101,7 +101,7 @@ def test_opensandbox_config_defaults():
     assert cfg.protocol == "https"
     assert cfg.runtime == "docker"
     assert cfg.namespace == "rock"
-    assert cfg.use_server_proxy is True
+    assert cfg.use_server_proxy is False
     assert cfg.default_timeout == 600
 
 

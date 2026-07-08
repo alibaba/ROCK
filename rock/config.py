@@ -368,10 +368,11 @@ class OpenSandboxConfig:
     namespace: str = "rock"
     """Namespace/label scope for sandboxes created by this Rock instance."""
 
-    use_server_proxy: bool = True
+    use_server_proxy: bool = False
     """When True, execd (command/file) requests are proxied through the
-    OpenSandbox server, so Rock admin needs a single egress. Maps to SDK
-    ConnectionConfig.use_server_proxy."""
+    OpenSandbox server. Off by default to match the SDK default and because not
+    all OpenSandbox deployments support server-proxy mode; enable it only when
+    the target deployment does. Maps to SDK ConnectionConfig.use_server_proxy."""
 
     default_timeout: int = 600
     """Default request timeout (seconds) for SDK calls."""

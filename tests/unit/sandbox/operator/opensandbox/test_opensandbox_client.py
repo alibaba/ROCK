@@ -133,4 +133,4 @@ async def test_connection_config_built_from_rock_config(client):
     assert conn.kwargs["api_key"] == "k"
     assert conn.kwargs["domain"] == "opensandbox.local"
     assert conn.kwargs["protocol"] == "http"
-    assert conn.kwargs["use_server_proxy"] is True
+    assert conn.kwargs["use_server_proxy"] is False
