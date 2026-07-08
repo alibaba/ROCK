@@ -319,7 +319,9 @@ export class LinuxFileSystem extends FileSystem {
     const ossEnabled = process.env['ROCK_OSS_ENABLE']?.toLowerCase() === 'true';
 
     if (ossEnabled && fileSize >= ossThreshold) {
-      return this.downloadViaOssProxy(remotePath, localPath, timeout, onProgress);
+      const ossResult = await this.downloadViaOssProxy(remotePath, localPath, timeout, onProgress);
+      if (ossResult.success) return ossResult;
+      logger.warn(`OSS download failed, falling back to direct: ${ossResult.message}`);
     }
 
     return this.downloadDirect(remotePath, localPath);
@@ -329,9 +331,22 @@ export class LinuxFileSystem extends FileSystem {
     try {
       const fs = await import('fs/promises');
       const path = await import('path');
-      const response = await this.sandbox.readFile({ path: remotePath });
       const parentDir = path.dirname(localPath);
       await fs.mkdir(parentDir, { recursive: true });
+
+      // Use base64 encoding to safely transfer binary files
+      const result = await this.sandbox.execute({
+        command: ['base64', remotePath],
+        timeout: 120,
+      });
+      if (result.exitCode === 0 && result.stdout) {
+        const buffer = Buffer.from(result.stdout, 'base64');
+        await fs.writeFile(localPath, buffer);
+        return { success: true, message: `Successfully downloaded ${remotePath} to ${localPath}` };
+      }
+
+      // Fallback to readFile for text files or if base64 fails
+      const response = await this.sandbox.readFile({ path: remotePath });
       await fs.writeFile(localPath, response.content, 'utf-8');
       return { success: true, message: `Successfully downloaded ${remotePath} to ${localPath}` };
     } catch (e) {
@@ -357,17 +372,32 @@ export class LinuxFileSystem extends FileSystem {
   private async ensureOssutil(): Promise<boolean> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sandbox = this.sandbox as any;
-    const process = sandbox.getProcess ? sandbox.getProcess() : null;
-    if (!process || !process.executeScript) {
-      logger.warn('Process.executeScript is not available');
+
+    // Quick check: if ossutil is already installed, skip the script entirely
+    const check = await this.sandbox.execute({ command: ['ossutil', 'version'], timeout: 60 });
+    if (check.exitCode === 0) {
+      return true;
+    }
+
+    // Match Python SDK pattern: write script to file, then execute via nohup.
+    // run_in_session has an 85s server-side hard limit; nohup avoids this.
+    const ts = Date.now().toString();
+    const scriptPath = `/tmp/ensure_ossutil_${ts}.sh`;
+
+    const writeResult = await sandbox.writeFile({ content: ENSURE_OSSUTIL_SCRIPT, path: scriptPath });
+    if (!writeResult.success) {
+      logger.warn(`Failed to write ossutil script: ${writeResult.message}`);
       return false;
     }
-    const ts = Date.now().toString();
-    const result = await process.executeScript({
-      scriptContent: ENSURE_OSSUTIL_SCRIPT,
-      scriptName: `ensure_ossutil_${ts}.sh`,
-      cleanup: true,
+
+    const result = await sandbox.arun(`bash ${scriptPath}`, {
+      mode: 'nohup',
+      waitTimeout: 300,
     });
+
+    // Cleanup script file
+    try { await this.sandbox.execute({ command: ['rm', '-f', scriptPath], timeout: 10 }); } catch { /* ignore */ }
+
     if (result.exitCode !== 0) {
       logger.warn(`ossutil install failed: ${result.output}`);
       return false;

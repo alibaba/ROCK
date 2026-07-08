@@ -226,9 +226,9 @@ export class OssClient {
 
       // mkdir -p target parent
       const parentDir = targetPath.replace(/\/[^/]*$/, '').replace(/^$/, '/');
-      await sandbox.arun(`mkdir -p '${parentDir}'`, { waitTimeout: 10, mode: 'normal' } as never);
+      await sandbox.arun(`mkdir -p '${parentDir}'`, { mode: 'normal', timeout: 10 });
 
-      // wget the signed URL
+      // wget the signed URL (nohup: avoids server-side 85s session timeout)
       const downloadCmd = `wget -O '${targetPath}' '${signedUrl}'`;
       await sandbox.arun(downloadCmd, { mode: 'nohup', waitTimeout: 600 });
 

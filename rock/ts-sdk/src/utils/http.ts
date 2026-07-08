@@ -263,7 +263,7 @@ export class HttpUtils {
  * Extract nohup PID from output
  */
 export function extractNohupPid(output: string): number | null {
-  const pattern = new RegExp(`${PID_PREFIX}(\\d+)${PID_SUFFIX}`);
+  const pattern = new RegExp(`${PID_PREFIX}(\\d+)`);
   const match = output.match(pattern);
   if (match?.[1]) {
     return parseInt(match[1], 10);

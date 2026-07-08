@@ -686,11 +686,19 @@ export class Sandbox extends AbstractSandbox {
       timeout = 300,
     } = options;
 
-    const sessionName = session ?? 'default';
+    let sessionName = session ?? null;
 
     if (mode === 'normal') {
-      // Run command directly without pre-creating session (matches Python SDK behavior)
+      // If no session specified, create a temporary one (matches Python SDK behavior)
+      if (!sessionName) {
+        sessionName = `bash-${Date.now()}`;
+        await this.createSession({ session: sessionName, startupSource: [], envEnable: false });
+      }
       return this.runInSession({ command: cmd, session: sessionName, timeout });
+    }
+
+    if (!sessionName) {
+      sessionName = 'default';
     }
 
     return this.arunWithNohup(cmd, options);
@@ -953,14 +961,26 @@ export class Sandbox extends AbstractSandbox {
           const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
           return { success: true, message: `Process completed successfully in ${elapsed}s` };
         }
-      } catch {
-        // Check timed out or errored
-        consecutiveFailures += 1;
-        if (consecutiveFailures >= maxConsecutiveFailures) {
+      } catch (e: unknown) {
+        // Match Python SDK behavior: distinguish timeout from command failure.
+        // When kill -0 returns non-zero, the server returns status=Failed which
+        // causes runInSession to throw — this means the process has exited.
+        const isTimeout = e instanceof Error && (
+          e.message.includes('timeout') || e.message.includes('ETIMEDOUT') ||
+          e.message.includes('ECONNABORTED')
+        );
+        if (isTimeout) {
+          consecutiveFailures += 1;
+          if (consecutiveFailures >= maxConsecutiveFailures) {
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+            return { success: false, message: `Process check failed after ${elapsed}s due to consecutive timeouts` };
+          }
+          await sleep(waitInterval * 1000);
+        } else {
+          // Process does not exist or other error — consider process completed
           const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-          return { success: false, message: `Process check failed after ${elapsed}s due to consecutive timeouts` };
+          return { success: true, message: `Process completed successfully in ${elapsed}s` };
         }
-        await sleep(waitInterval * 1000);
       }
     }
 
