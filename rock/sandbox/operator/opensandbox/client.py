@@ -60,15 +60,26 @@ class OpenSandboxClient:
     async def create(self, *, image, cpu, memory, env=None, metadata=None, timeout=None) -> str:
         """Create a sandbox and return its OpenSandbox id."""
         self._load_sdk()
+        create_kwargs = {
+            "resource": {"cpu": cpu, "memory": memory},
+            "env": env,
+            "metadata": metadata,
+            "connection_config": self._connection_config(),
+            # Return as soon as the sandbox id is assigned; do NOT block create()
+            # on the SDK readiness health check. Rock's lifecycle is async —
+            # submit() returns PENDING and get_status() polls until RUNNING — and
+            # the health probe would otherwise time out (default 30s) on a cold
+            # image pull, or when the caller cannot directly reach the sandbox.
+            "skip_health_check": True,
+        }
+        # Only pass timeout when set. Passing timeout=None explicitly overrides
+        # the SDK's default with a null duration, which strict servers reject
+        # ("Provided duration string (nulls) is invalid"); omit it to keep the
+        # SDK default (sandbox TTL) instead.
+        if timeout:
+            create_kwargs["timeout"] = timedelta(seconds=timeout)
         try:
-            sandbox = await self._sandbox_cls.create(
-                image,
-                resource={"cpu": cpu, "memory": memory},
-                env=env,
-                metadata=metadata,
-                timeout=timedelta(seconds=timeout) if timeout else None,
-                connection_config=self._connection_config(),
-            )
+            sandbox = await self._sandbox_cls.create(image, **create_kwargs)
         except Exception as e:
             raise InternalServerRockError(f"opensandbox create failed: {e}") from e
         return sandbox.id

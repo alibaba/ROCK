@@ -81,6 +81,24 @@ async def test_create_returns_id_and_maps_resources(client):
     assert FakeSandbox.created_kwargs["image"] == "python:3.11"
     assert FakeSandbox.created_kwargs["resource"] == {"cpu": "2", "memory": "8Gi"}
     assert FakeSandbox.created_kwargs["metadata"] == {"a": "b"}
+    # create() must not block on readiness — Rock polls get_status for RUNNING.
+    assert FakeSandbox.created_kwargs["skip_health_check"] is True
+
+
+@pytest.mark.asyncio
+async def test_create_omits_timeout_when_unset(client):
+    # Passing timeout=None explicitly would send a null duration that strict
+    # servers reject; when unset we must not pass the kwarg at all.
+    await client.create(image="python:3.11", cpu="1", memory="1Gi")
+    assert "timeout" not in FakeSandbox.created_kwargs
+
+
+@pytest.mark.asyncio
+async def test_create_passes_timeout_when_set(client):
+    from datetime import timedelta
+
+    await client.create(image="python:3.11", cpu="1", memory="1Gi", timeout=300)
+    assert FakeSandbox.created_kwargs["timeout"] == timedelta(seconds=300)
 
 
 @pytest.mark.asyncio
