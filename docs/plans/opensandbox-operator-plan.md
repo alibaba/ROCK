@@ -57,8 +57,8 @@ Rock 内部有两条独立的路径，方案 B 都要改：
 - [ ] 测试 `tests/unit/sandbox/operator/test_opensandbox_operator.py`（对照现有 K8sOperator 测法）：
   - `submit(DockerDeploymentConfig, user_info)` → 调 client.create，返回合法 `SandboxInfo`（含 sandbox_id、image、cpus、memory、state=PENDING，以及 host/连接信息塞进 `extended_params`）。
   - `get_status` → 存在返回 SandboxInfo，404 返回 None；与 redis 缓存 merge（复用 K8sOperator 的 `_merge_sandbox_info` 思路）。
-  - `stop` → `sandbox.pause()`（Paused → Rock `stopped`），返回 bool。
-  - `restart` → `Sandbox.resume(id)`（回 Running）。
+  - `stop` → 默认明确不支持；OpenSandbox `pause` 需要创建时显式启用 persistence。
+  - `restart` → 默认明确不支持；OpenSandbox `resume` 需要创建时显式启用 persistence。
   - `delete` → `sandbox.kill()`（Terminated → Rock `deleted`，不可逆）。
 - [ ] 实现 `rock/sandbox/operator/opensandbox/operator.py`：`OpenSandboxOperator(AbstractOperator)`，委托 `OpenSandboxClient`；`set_redis_provider`/`set_nacos_provider` 复用基类。
 - [ ] `rock/sandbox/operator/opensandbox/__init__.py` 导出。
@@ -137,7 +137,7 @@ Rock 内部有两条独立的路径，方案 B 都要改：
 ## 风险与开放问题（经 Phase 0 更新）
 
 1. ~~**SDK 能力覆盖**~~ —— ✅ 已确认全覆盖（见契约文档 §4）。session/portforward/文件均有对应，portforward 一期先 NotImplemented。
-2. **stop/restart 生命周期语义** —— ✅ **已定**：`stop → sandbox.pause()`（Paused，映射 Rock `stopped`，可复用）、`restart → Sandbox.resume(id)`（回到 Running）、`delete → sandbox.kill()`（Terminated，映射 Rock `deleted`，不可逆）。语义对齐 Rock 现有「停了还能起回来」。注意 pause 的沙箱是否仍占资源取决于 OpenSandbox 实现，需在文档说明与 ray/docker 后端 stop 的差异。
+2. **stop/restart 生命周期语义** —— ✅ **已定**：Phase 1 默认不支持 `stop/restart`；`delete → sandbox.kill()`（Terminated → Rock `deleted`，不可逆）。OpenSandbox `pause/resume` 需要创建时显式启用 persistence，普通 sandbox 调 `pause` 会被服务端拒绝，不能隐式标记为 Rock `stopped`。
 3. **sandbox_id 双标识**：已定方案——Rock id 主键 + `extended_params["opensandbox_id"]` + OpenSandbox `metadata["rock_sandbox_id"]`（契约 §1）。
 4. **session_id 映射持久化**：OpenSandbox 返回不透明 session_id，需 `{sandbox_id:session_name → os_session_id}` 存 redis（多 worker 安全）。
 5. **memory 单位/ disk quota**：`8g`→`8Gi` 需转换；rootfs disk quota OpenSandbox 无直接对应（先忽略+warn）。

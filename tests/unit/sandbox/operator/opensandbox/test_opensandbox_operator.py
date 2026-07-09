@@ -13,6 +13,7 @@ from rock.sandbox.operator.opensandbox.operator import (
     _docker_mem_to_k8s,
     _map_state,
 )
+from rock.sdk.common.exceptions import BadRequestRockError
 
 
 class FakeClient:
@@ -156,21 +157,20 @@ async def test_get_status_returns_none_when_opensandbox_gone(operator, client):
 
 
 @pytest.mark.asyncio
-async def test_stop_pauses(operator, client):
+async def test_stop_is_unsupported_by_default(operator, client):
     operator._redis_provider = AsyncMock()
     operator._redis_provider.json_get = AsyncMock(return_value=[{"extended_params": {"opensandbox_id": "osb-1"}}])
-    ok = await operator.stop("sbx-1", reason=StopReason.MANUAL)
-    assert ok is True
-    assert ("pause", "osb-1") in client.calls
+    with pytest.raises(BadRequestRockError, match="does not support stop"):
+        await operator.stop("sbx-1", reason=StopReason.MANUAL)
+    assert ("pause", "osb-1") not in client.calls
 
 
 @pytest.mark.asyncio
-async def test_restart_resumes(operator, client):
+async def test_restart_is_unsupported_by_default(operator, client):
     config = _deployment_config(sandbox_id="sbx-1", extended_params={"opensandbox_id": "osb-1"})
-    info = await operator.restart(config)
-    assert ("resume", "osb-1") in client.calls
-    assert info["sandbox_id"] == "sbx-1"
-    assert info["state"] == State.PENDING
+    with pytest.raises(BadRequestRockError, match="does not support restart"):
+        await operator.restart(config)
+    assert ("resume", "osb-1") not in client.calls
 
 
 @pytest.mark.asyncio

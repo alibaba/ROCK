@@ -48,8 +48,8 @@ Rock `DockerDeploymentConfig` → `Sandbox.create(...)`（`sandbox.py:66`，asyn
 |------------------|-----------------|------|
 | `submit` | `Sandbox.create(...)` | 见上 |
 | `get_status` | `Sandbox.connect(id)` + `get_info()`（或 server `GET /v1/sandboxes/{id}`） | 状态映射见下 |
-| `stop` | `sandbox.pause()` | ✅ 已定：Paused → Rock `stopped`，可复用 |
-| `restart` | `Sandbox.resume(id)` | ✅ 已定：回到 Running |
+| `stop` | 不默认调用 `sandbox.pause()` | ✅ 已定：Phase 1 明确不支持；OpenSandbox `pause` 需要创建时显式启用 persistence |
+| `restart` | 不默认调用 `Sandbox.resume(id)` | ✅ 已定：Phase 1 明确不支持；OpenSandbox `resume` 需要创建时显式启用 persistence |
 | `delete` | `sandbox.kill()`（terminate，不可逆） | Terminated → Rock `deleted`；OpenSandbox 无软删 |
 
 **状态映射**（OpenSandbox `SandboxState` → Rock `State`，Rock 只有 `pending/running/stopped/deleted`）：
@@ -58,7 +58,7 @@ Rock `DockerDeploymentConfig` → `Sandbox.create(...)`（`sandbox.py:66`，asyn
 |-------------|-----------|
 | `Pending` | `pending` |
 | `Running` | `running` |
-| `Pausing` / `Paused` | `stopped`（Rock 无 paused 概念；配合 restart→resume） |
+| `Pausing` / `Paused` | `stopped`（Rock 无 paused 概念；Phase 1 不默认支持 restart/resume） |
 | `Stopping` / `Terminated` | `stopped`（terminated 亦可映射 `deleted`，按调用上下文） |
 | `Failed` | `stopped` + 失败原因写入 `phases`/`reason`（Rock State 枚举无 FAILED） |
 | `Unknown` | 保留上次已知，缺省 `pending` |
@@ -152,7 +152,7 @@ execd（`specs/execd-api.yaml`）：`POST /command`(SSE)、`POST /session`、`PO
 3. **disk quota 缺口**：OpenSandbox create 无 rootfs quota，Rock `disk` 暂无处安放 → 先忽略并 warn，或后续用 volumes 方案；文档标注该后端不支持 rootfs 限额。
 4. **sandbox_id 双标识**：Rock id 主键 + `extended_params["opensandbox_id"]` + OpenSandbox `metadata["rock_sandbox_id"]`。
 5. **session_id 映射持久化**：`{sandbox_id:session_name → os_session_id}` 存 redis（多 worker 安全）。
-6. **stop/restart/delete 语义（✅ 已定）**：`stop→pause`（Paused=Rock `stopped`）、`restart→resume`、`delete→kill`（Terminated=Rock `deleted`）。文档需说明：pause 的沙箱是否仍占资源取决于 OpenSandbox 实现，与 ray/docker 后端 stop 的语义存在差异。
+6. **stop/restart/delete 语义（✅ 已定）**：Phase 1 默认不支持 `stop/restart`，只保留 `delete→kill`（Terminated=Rock `deleted`）。OpenSandbox `pause/resume` 需要创建时显式启用 persistence；普通 sandbox 调 `pause` 会被服务端拒绝，不能隐式标记为 Rock `stopped`。
 7. **portforward**：一期 `NotImplementedError`，二期基于 `get_endpoint` 桥接。
 8. **use_server_proxy 默认 False**：与 SDK 默认一致；部分部署不支持 server-proxy 模式，需要时再显式开启（仅影响 Phase 2 的 execd 路由）。
 9. **定时运维任务 gate**（沿用主计划 Phase 2.4）：`scheduler/tasks/*` 的 rocklet 直连任务在 opensandbox 后端下跳过。

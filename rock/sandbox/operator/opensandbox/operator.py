@@ -2,11 +2,11 @@
 
 Delegates sandbox lifecycle to an OpenSandbox deployment via its Python SDK.
 Command/file execution is handled separately by the proxy-layer backend
-(Phase 2). Lifecycle semantics (locked in Phase 0):
+(Phase 2). Lifecycle semantics:
 
   submit  -> Sandbox.create
-  stop    -> sandbox.pause()      (Paused  -> Rock STOPPED, reusable)
-  restart -> Sandbox.resume(id)   (back to Running)
+  stop    -> unsupported by default; OpenSandbox pause requires persistence
+  restart -> unsupported by default; OpenSandbox resume requires persistence
   delete  -> sandbox.kill()       (Terminated -> Rock DELETED, irreversible)
 
 See docs/plans/opensandbox-operator-plan.md and opensandbox-sdk-contract.md.
@@ -132,29 +132,16 @@ class OpenSandboxOperator(AbstractOperator):
         return redis_info
 
     async def stop(self, sandbox_id: str, reason: StopReason = StopReason.MANUAL) -> bool:
-        opensandbox_id = await self._resolve_os_id_from_redis(sandbox_id)
-        if not opensandbox_id:
-            raise BadRequestRockError(f"cannot resolve opensandbox_id for sandbox {sandbox_id}")
-        logger.info("[%s] opensandbox stop -> pause (reason=%s)", sandbox_id, reason.value)
-        await self._client.pause(opensandbox_id)
-        return True
+        raise BadRequestRockError(
+            "OpenSandbox backend does not support stop by default. "
+            "OpenSandbox pause requires creating the sandbox with persistence enabled; use delete instead."
+        )
 
     async def restart(self, config: DockerDeploymentConfig, host_ip: str | None = None) -> SandboxInfo:
-        sandbox_id = config.container_name
-        opensandbox_id = (config.extended_params or {}).get(EXT_OPENSANDBOX_ID) or await self._resolve_os_id_from_redis(
-            sandbox_id
+        raise BadRequestRockError(
+            "OpenSandbox backend does not support restart by default. "
+            "OpenSandbox resume requires creating the sandbox with persistence enabled; create a new sandbox instead."
         )
-        if not opensandbox_id:
-            raise BadRequestRockError(f"cannot resolve opensandbox_id for sandbox {sandbox_id}")
-        logger.info("[%s] opensandbox restart -> resume", sandbox_id)
-        await self._client.resume(opensandbox_id)
-        info: SandboxInfo = {
-            "sandbox_id": sandbox_id,
-            "image": config.image,
-            "state": State.PENDING,
-            "extended_params": {EXT_BACKEND: BACKEND_NAME, EXT_OPENSANDBOX_ID: opensandbox_id},
-        }
-        return info
 
     async def delete(self, config: DockerDeploymentConfig, host_ip: str | None = None) -> bool:
         sandbox_id = config.container_name
