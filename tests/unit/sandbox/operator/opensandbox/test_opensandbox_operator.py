@@ -121,6 +121,43 @@ async def test_submit_records_backend_and_opensandbox_id(operator, client):
     assert info["extended_params"]["opensandbox_id"] == "osb-xyz"
 
 
+@pytest.mark.asyncio
+async def test_submit_leaves_image_unchanged_without_registry_prefix(operator, client):
+    config = _deployment_config()
+    config.image = " python:3.11 "
+
+    info = await operator.submit(config, user_info={})
+
+    call = dict(client.calls[0][1])
+    assert call["image"] == " python:3.11 "
+    assert info["image"] == " python:3.11 "
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("image", "expected"),
+    [
+        ("python:3.11", "registry.example.com/library/python:3.11"),
+        ("team/python:3.11", "registry.example.com/library/team/python:3.11"),
+        ("ghcr.io/team/python:3.11", "ghcr.io/team/python:3.11"),
+        ("localhost:5000/python:3.11", "localhost:5000/python:3.11"),
+    ],
+)
+async def test_submit_applies_configured_image_registry_prefix(client, image, expected):
+    operator = OpenSandboxOperator(
+        OpenSandboxConfig(image_registry_prefix="registry.example.com/library"),
+        client=client,
+    )
+    config = _deployment_config()
+    config.image = image
+
+    info = await operator.submit(config, user_info={})
+
+    call = dict(client.calls[0][1])
+    assert call["image"] == expected
+    assert info["image"] == expected
+
+
 # ---- get_status ------------------------------------------------------------
 
 

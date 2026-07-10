@@ -74,6 +74,7 @@ runtime:
 #   api_key: ""                             # or leave empty to use OPEN_SANDBOX_API_KEY env
 #   protocol: "https"                       # "http" or "https"
 #   runtime: "docker"                       # OpenSandbox runtime: "docker" or "k8s" (informational)
+#   image_registry_prefix: ""                # prefix incomplete image names; empty lets OpenSandbox decide
 #   namespace: "rock"                       # label/namespace scope for sandboxes
 #   use_server_proxy: false                 # route execd (cmd/file) via server; enable only if the deployment supports it
 #   default_timeout: 600                    # SDK request timeout (seconds)

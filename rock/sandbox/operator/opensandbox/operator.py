@@ -68,6 +68,24 @@ def _docker_mem_to_k8s(mem: str) -> str:
     return m
 
 
+def _qualify_image_registry(image: str, prefix: str | None) -> str:
+    """Prefix an image unless its first path component identifies a registry."""
+    prefix = (prefix or "").strip().rstrip("/")
+    if not prefix:
+        return image
+
+    image = image.strip()
+    if not image:
+        return image
+
+    if "/" in image:
+        first_component = image.split("/", 1)[0]
+        if "." in first_component or ":" in first_component or first_component == "localhost":
+            return image
+
+    return f"{prefix}/{image}"
+
+
 class OpenSandboxOperator(AbstractOperator):
     """Operator that manages sandboxes on an OpenSandbox backend."""
 
@@ -85,6 +103,7 @@ class OpenSandboxOperator(AbstractOperator):
 
     async def submit(self, config: DockerDeploymentConfig, user_info: dict = {}) -> SandboxInfo:
         sandbox_id = config.container_name
+        image = _qualify_image_registry(config.image, self._os_config.image_registry_prefix)
         cpu = _format_cpu(config.limit_cpus or config.cpus)
         memory = _docker_mem_to_k8s(config.memory)
         user_id = user_info.get("user_id", "default")
@@ -97,7 +116,7 @@ class OpenSandboxOperator(AbstractOperator):
             "namespace": namespace,
         }
         opensandbox_id = await self._client.create(
-            image=config.image,
+            image=image,
             cpu=cpu,
             memory=memory,
             metadata=metadata,
@@ -106,7 +125,7 @@ class OpenSandboxOperator(AbstractOperator):
         logger.info("[%s] opensandbox submitted, opensandbox_id=%s", sandbox_id, opensandbox_id)
         info: SandboxInfo = {
             "sandbox_id": sandbox_id,
-            "image": config.image,
+            "image": image,
             "cpus": config.cpus,
             "memory": config.memory,
             "user_id": user_id,

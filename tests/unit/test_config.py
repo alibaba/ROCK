@@ -103,6 +103,7 @@ def test_opensandbox_config_defaults():
     assert cfg.namespace == "rock"
     assert cfg.use_server_proxy is False
     assert cfg.default_timeout == 600
+    assert cfg.image_registry_prefix is None
 
 
 def test_opensandbox_config_accepts_overrides():
@@ -116,6 +117,7 @@ def test_opensandbox_config_accepts_overrides():
         namespace="ns-a",
         use_server_proxy=False,
         default_timeout=1200,
+        image_registry_prefix="registry.example.com/library",
     )
     assert cfg.endpoint == "api.opensandbox.example.com"
     assert cfg.api_key == "secret"
@@ -124,6 +126,7 @@ def test_opensandbox_config_accepts_overrides():
     assert cfg.namespace == "ns-a"
     assert cfg.use_server_proxy is False
     assert cfg.default_timeout == 1200
+    assert cfg.image_registry_prefix == "registry.example.com/library"
 
 
 def test_rock_config_has_opensandbox_default():
@@ -146,6 +149,7 @@ async def test_opensandbox_config_from_yaml(tmp_path, monkeypatch):
                     "api_key": "secret",
                     "protocol": "http",
                     "runtime": "k8s",
+                    "image_registry_prefix": "registry.example.com/library",
                 },
             }
         )
@@ -159,6 +163,7 @@ async def test_opensandbox_config_from_yaml(tmp_path, monkeypatch):
     assert rock_config.opensandbox.api_key == "secret"
     assert rock_config.opensandbox.protocol == "http"
     assert rock_config.opensandbox.runtime == "k8s"
+    assert rock_config.opensandbox.image_registry_prefix == "registry.example.com/library"
 
 
 def test_oss_config_defaults():
@@ -730,7 +735,7 @@ async def test_nacos_lifecycle_partial_update_preserves_yaml_values():
     await rock_config.update()
 
     assert rock_config.lifecycle.default_startup_timeout_seconds == 1200
-    assert rock_config.lifecycle.min_startup_timeout_seconds == 300   # preserved, not reset to 600
+    assert rock_config.lifecycle.min_startup_timeout_seconds == 300  # preserved, not reset to 600
     assert rock_config.lifecycle.max_startup_timeout_seconds == 3600  # preserved, not reset to 1800
 
 

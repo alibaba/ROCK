@@ -365,6 +365,9 @@ class OpenSandboxConfig:
     """OpenSandbox runtime backend: "docker" or "k8s". Informational on the Rock
     side; the actual runtime is decided by the OpenSandbox server config."""
 
+    image_registry_prefix: str | None = None
+    """Optional registry/namespace prefix for image names without an explicit registry."""
+
     namespace: str = "rock"
     """Namespace/label scope for sandboxes created by this Rock instance."""
 
