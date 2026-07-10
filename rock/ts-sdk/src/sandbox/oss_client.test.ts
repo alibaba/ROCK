@@ -14,7 +14,12 @@
  * - Progress callbacks (onProgress)
  */
 
-import { OssClient, OssClientConfig } from './oss_client.js';
+import { OssClient } from './oss_client.js';
+import * as fsPromises from 'fs/promises';
+
+jest.mock('fs/promises', () => ({
+  stat: jest.fn(),
+}));
 
 // ─── computeObjectName tests ──────────────────────────────────────
 describe('computeObjectName', () => {
@@ -237,6 +242,34 @@ describe('OssClient', () => {
   // Since OssClient takes a Sandbox reference, we test the internal logic
   // by creating minimal mock sandbox and observing behavior.
 
+  function createUploadTestHarness(
+    remoteStat: { stdout: string; stderr?: string; exitCode?: number },
+    localFileSize = 10,
+  ): { client: OssClient; sandbox: { execute: jest.Mock } } {
+    const sandbox = {
+      sandboxId: 'sb-123',
+      arun: jest.fn().mockResolvedValue({
+        output: '',
+        exitCode: 0,
+        failureReason: '',
+        expectString: '',
+      }),
+      execute: jest.fn().mockResolvedValue({ stderr: '', ...remoteStat }),
+      url: 'https://sandbox.example.com',
+      buildHeaders: jest.fn().mockReturnValue({}),
+    };
+    const bucket = {
+      put: jest.fn().mockResolvedValue({}),
+      multipartUpload: jest.fn().mockResolvedValue({}),
+      signatureUrl: jest.fn().mockReturnValue('https://oss.example.com/signed'),
+    };
+    const client = new OssClient(sandbox);
+    (client as unknown as { bucket: typeof bucket }).bucket = bucket;
+    (fsPromises.stat as jest.Mock).mockResolvedValue({ size: localFileSize });
+
+    return { client, sandbox };
+  }
+
   test('isAvailable should return false initially', () => {
     // We test the concept: a fresh OssClient is not available until setup
     // The isAvailable getter checks bucket is not null
@@ -248,5 +281,35 @@ describe('OssClient', () => {
     });
     // Even with resolved config, a fresh client won't have an initialized bucket
     expect(hasOssConfig).not.toBeNull();
+  });
+
+  test('uploadViaOss should fail when the sandbox file is incomplete', async () => {
+    const { client } = createUploadTestHarness({ stdout: '4\n', exitCode: 0 });
+
+    const result = await client.uploadViaOss('/local/file.bin', '/remote/file.bin');
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('expected 10 bytes, got 4 bytes');
+  });
+
+  test('uploadViaOss should fail when the sandbox file size cannot be read', async () => {
+    const { client } = createUploadTestHarness({ stdout: '', exitCode: 1 });
+
+    const result = await client.uploadViaOss('/local/file.bin', '/remote/file.bin');
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('unable to verify sandbox file size');
+  });
+
+  test('uploadViaOss should succeed when sandbox and local file sizes match', async () => {
+    const { client, sandbox } = createUploadTestHarness({ stdout: '10\n', exitCode: 0 });
+
+    const result = await client.uploadViaOss('/local/file.bin', '/remote/file.bin');
+
+    expect(result.success).toBe(true);
+    expect(sandbox.execute).toHaveBeenCalledWith({
+      command: ['stat', '-c', '%s', '/remote/file.bin'],
+      timeout: 60,
+    });
   });
 });

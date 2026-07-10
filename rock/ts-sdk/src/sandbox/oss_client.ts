@@ -232,12 +232,24 @@ export class OssClient {
       const downloadCmd = `wget -O '${targetPath}' '${signedUrl}'`;
       await sandbox.arun(downloadCmd, { mode: 'nohup', waitTimeout: 600 });
 
-      // Verify target exists in sandbox
-      const check = await sandbox.execute({ command: ['test', '-f', targetPath], timeout: 60 });
-      if ((check as { exitCode: number }).exitCode !== 0) {
+      // Nohup only confirms that wget exited, not that it succeeded. Verify the
+      // downloaded file is complete before reporting the upload as successful.
+      const sizeCheck = await sandbox.execute({ command: ['stat', '-c', '%s', targetPath], timeout: 60 });
+      const { exitCode, stdout } = sizeCheck as { exitCode?: number; stdout: string };
+      const remoteSizeOutput = stdout.trim();
+      if (exitCode !== 0 || !/^\d+$/.test(remoteSizeOutput)) {
         return {
           success: false,
-          message: `Failed to upload file ${fileName}, sandbox download phase failed`,
+          message: `Failed to upload file ${fileName}, unable to verify sandbox file size`,
+          fileName,
+        };
+      }
+
+      const remoteFileSize = Number(remoteSizeOutput);
+      if (remoteFileSize !== fileSize) {
+        return {
+          success: false,
+          message: `Failed to upload file ${fileName}, expected ${fileSize} bytes, got ${remoteFileSize} bytes`,
           fileName,
         };
       }
