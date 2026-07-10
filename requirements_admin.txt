@@ -116,6 +116,7 @@ attrs==25.4.0
     # via
     #   aiohttp
     #   jsonschema
+    #   opensandbox
     #   referencing
     #   twisted
 automat==25.4.16 ; sys_platform != 'win32'
@@ -228,7 +229,9 @@ httpcore==1.0.9
 httptools==0.8.0
     # via rl-rock
 httpx==0.28.1
-    # via rl-rock
+    # via
+    #   opensandbox
+    #   rl-rock
 hyperlink==21.0.0 ; sys_platform != 'win32'
     # via twisted
 idna==3.11
@@ -305,6 +308,8 @@ opencensus==0.11.4
     # via ray
 opencensus-context==0.1.3
     # via opencensus
+opensandbox==0.1.13
+    # via rl-rock
 opentelemetry-api==1.38.0
     # via
     #   opentelemetry-exporter-otlp-proto-grpc
@@ -401,6 +406,7 @@ pydantic==2.11.9
     # via
     #   fastapi
     #   nacos-sdk-python
+    #   opensandbox
     #   ray
     #   rl-rock
     #   sqlmodel
@@ -419,6 +425,7 @@ python-dateutil==2.9.0.post0
     #   botocore
     #   kubernetes
     #   matplotlib
+    #   opensandbox
 python-multipart==0.0.20
     # via rl-rock
 python-statemachine==3.1.2

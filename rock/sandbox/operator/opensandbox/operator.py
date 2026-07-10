@@ -1,4 +1,4 @@
-"""OpenSandbox lifecycle operator (方案 B, Phase 1).
+"""OpenSandbox lifecycle operator (Approach B, Phase 1).
 
 Delegates sandbox lifecycle to an OpenSandbox deployment via its Python SDK.
 Command/file execution is handled separately by the proxy-layer backend
