@@ -20,9 +20,9 @@ from rock.deployments.docker import XFS_PRJID_MIN, XFS_PRJID_RANGE, DockerDeploy
 
 
 class TestDockerDeploymentConfigDiskLimit:
-    def test_default_disk_is_none(self):
+    def test_default_disk_is_50g(self):
         config = DockerDeploymentConfig()
-        assert config.disk is None
+        assert config.disk == "50G"
 
     def test_custom_disk(self):
         config = DockerDeploymentConfig(disk="50g")
@@ -65,7 +65,7 @@ class TestStorageOpts:
     def test_storage_opts_default_value(self, _mock_validator):
         deployment = DockerDeployment.from_config(DockerDeploymentConfig())
         result = deployment._storage_opts()
-        assert result == []
+        assert result == ["--storage-opt", "size=50G"]
 
     @patch("rock.deployments.docker.DockerSandboxValidator")
     def test_storage_opts_various_sizes(self, _mock_validator):

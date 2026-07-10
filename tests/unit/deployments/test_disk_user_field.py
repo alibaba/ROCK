@@ -17,10 +17,10 @@ from rock.sdk.sandbox.config import SandboxConfig
 class TestSandboxStartRequestDiskField:
     """Tests for SandboxStartRequest disk field."""
 
-    def test_default_disk_is_none(self):
-        """Default disk field should be None."""
+    def test_default_disk_is_50g(self):
+        """Default disk field should be 50G."""
         request = SandboxStartRequest(image="python:3.11")
-        assert request.disk is None
+        assert request.disk == "50G"
 
     def test_can_set_disk_field(self):
         """Can set disk field."""
@@ -39,14 +39,14 @@ class TestFromRequestDiskPropagation:
     """Tests for DockerDeploymentConfig.from_request disk field handling."""
 
     def test_from_request_without_disk(self):
-        """from_request should handle request without disk field."""
+        """from_request should use default disk 50G when not specified."""
         request = SandboxStartRequest(sandbox_id="test-sandbox", image="python:3.11", cpus=4, memory="16g")
         config = DockerDeploymentConfig.from_request(request)
 
         assert config.container_name == "test-sandbox"
         assert config.cpus == 4
         assert config.memory == "16g"
-        assert config.disk is None
+        assert config.disk == "50G"
 
     def test_from_request_with_disk(self):
         """from_request should propagate disk field to config.disk."""
@@ -76,10 +76,10 @@ class TestFromRequestDiskPropagation:
 class TestSandboxConfigDiskField:
     """Tests for SDK SandboxConfig disk field."""
 
-    def test_default_disk_is_none(self):
-        """Default disk field should be None."""
+    def test_default_disk_is_50g(self):
+        """Default disk field should be 50G."""
         config = SandboxConfig()
-        assert config.disk is None
+        assert config.disk == "50G"
 
     def test_can_set_disk_field(self):
         """Can set disk field."""

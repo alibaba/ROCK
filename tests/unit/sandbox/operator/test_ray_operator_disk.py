@@ -22,7 +22,7 @@ class TestRayOperatorDiskResource:
 
     def test_no_disk_resource_when_disk_limit_is_none(self):
         operator = self._make_operator()
-        config = DockerDeploymentConfig(container_name="test-1", cpus=2, memory="4g")
+        config = DockerDeploymentConfig(container_name="test-1", cpus=2, memory="4g", disk=None)
         opts = operator._generate_actor_options(config)
 
         assert opts["num_cpus"] == 2
@@ -45,7 +45,7 @@ class TestRayOperatorDiskResource:
 
     def test_pin_to_host_without_disk(self):
         operator = self._make_operator()
-        config = DockerDeploymentConfig(container_name="test-4", cpus=2, memory="4g")
+        config = DockerDeploymentConfig(container_name="test-4", cpus=2, memory="4g", disk=None)
         opts = operator._generate_actor_options(config, pin_to_host_ip="10.0.0.1")
 
         assert opts["resources"] == {"node:10.0.0.1": 0.001}

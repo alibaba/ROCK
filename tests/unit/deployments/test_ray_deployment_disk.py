@@ -17,7 +17,7 @@ class TestRayDeploymentDiskResource:
             return RayDeployment.from_config(config)
 
     def test_no_disk_resource_when_disk_limit_is_none(self):
-        deployment = self._make_deployment(container_name="test-1", cpus=2, memory="4g")
+        deployment = self._make_deployment(container_name="test-1", cpus=2, memory="4g", disk=None)
         opts = deployment._generate_actor_options("sandbox-test-1")
 
         assert opts["num_cpus"] == 2
