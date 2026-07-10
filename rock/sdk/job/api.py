@@ -1,13 +1,7 @@
-"""Job — thin user-facing facade over JobExecutor + Operator.
+"""Job facade over JobExecutor + Operator.
 
-Only 2 params (config + operator). Delegates everything to JobExecutor.
-
-Usage:
-    result = await Job(config).run()
-    # or
-    job = Job(config, operator=ScatterOperator(size=8))
-    await job.submit()
-    result = await job.wait()
+The facade intentionally keeps single-job semantics. Full-dataset orchestration
+belongs to the CLI layer.
 """
 
 from __future__ import annotations
@@ -26,15 +20,7 @@ if TYPE_CHECKING:
 
 
 class Job:
-    """Job Facade — the thin user-facing entry point.
-
-    Usage:
-        result = await Job(config).run()
-        # or
-        job = Job(config, operator=ScatterOperator(size=8))
-        await job.submit()
-        result = await job.wait()
-    """
+    """Thin user-facing entry point for one JobConfig."""
 
     def __init__(self, config: JobConfig, operator: Operator | None = None):
         self._config = config
@@ -65,20 +51,15 @@ class Job:
                 await tc.sandbox.arun(cmd=f"kill {tc.pid}", session=tc.session)
 
     def _build_result(self, raw_results: list[TrialResult | list[TrialResult]]) -> JobResult:
-        """Flatten list-returning collect() outputs into JobResult.trial_results.
-
-        Each element of ``raw_results`` is whatever one Trial's ``collect()``
-        returned — either a single TrialResult or a list. HarborTrial returns
-        a list (one entry per sub-trial); BashTrial returns a single result.
-        """
+        """Flatten list-returning collect() outputs into JobResult.trial_results."""
         flat: list[TrialResult] = []
-        for r in raw_results:
-            if isinstance(r, list):
-                flat.extend(r)
+        for result in raw_results:
+            if isinstance(result, list):
+                flat.extend(result)
             else:
-                flat.append(r)
+                flat.append(result)
+
         all_success = all(t.exception_info is None for t in flat)
-        # G5: surface first non-empty output / non-zero exit code from sub-trials
         raw_output = next((t.raw_output for t in flat if t.raw_output), "")
         exit_code = next((t.exit_code for t in flat if t.exit_code != 0), 0)
         return JobResult(

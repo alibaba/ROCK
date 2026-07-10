@@ -1,4 +1,4 @@
-"""Operator — generic algorithm that produces a TrialList from a JobConfig."""
+"""Operator primitives that produce Trial lists from a JobConfig."""
 
 from __future__ import annotations
 
@@ -13,11 +13,7 @@ if TYPE_CHECKING:
 
 
 class Operator(ABC):
-    """Operator base: apply(config) -> list[AbstractTrial].
-
-    Operators generate a TrialList from a config. They don't manage
-    sandbox lifecycle (JobExecutor does) — just decide what to run.
-    """
+    """Operator base: apply(config) -> list[AbstractTrial]."""
 
     @abstractmethod
     def apply(self, config: JobConfig) -> list[AbstractTrial]:
@@ -26,15 +22,7 @@ class Operator(ABC):
 
 
 class ScatterOperator(Operator):
-    """Scatter: create `size` identical Trial instances from config.
-
-    Analog of torch.distributed.scatter — same data/config distributed to N workers.
-
-    Usage:
-      ScatterOperator()           # size=1, single trial (default)
-      ScatterOperator(size=8)     # 8 parallel trials
-      ScatterOperator(size=0)     # empty list, no-op
-    """
+    """Create ``size`` identical Trial instances from config."""
 
     def __init__(self, size: int = 1):
         self.size = size

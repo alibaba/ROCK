@@ -532,3 +532,168 @@ class TestJobViewerFileOps:
     def test_file_exists_false(self, viewer, mock_bucket):
         mock_bucket.object_exists.return_value = False
         assert viewer.file_exists("nonexistent") is False
+
+
+# ---------------------------------------------------------------------------
+# Run metadata tests (full-dataset run support)
+# ---------------------------------------------------------------------------
+
+
+class TestJobViewerRunMeta:
+    @pytest.fixture
+    def viewer(self):
+        bucket = MagicMock()
+        return JobViewer(bucket, namespace=NAMESPACE, experiment_id=EXPERIMENT_ID), bucket
+
+    def test_get_run_meta_found(self, viewer):
+        from rock.sdk.job.meta import RunMeta
+
+        v, bucket = viewer
+        meta = RunMeta(
+            run_id="20260706T143052-a1b2c3d4",
+            dataset="alibaba/aone-bench", split="test",
+            total_tasks=100, pending_tasks=100,
+            started_at="2026-07-06T14:30:52Z", status="running",
+            task_job_map={"task-001": "j1"},
+        )
+        bucket.get_object.return_value = _make_oss_object(meta.model_dump_json().encode())
+        result = v.get_run_meta("20260706T143052-a1b2c3d4")
+        assert result is not None
+        assert result.run_id == "20260706T143052-a1b2c3d4"
+        assert result.status == "running"
+        bucket.get_object.assert_called_once_with(f"artifacts/{NAMESPACE}/{EXPERIMENT_ID}/_meta/run_20260706T143052-a1b2c3d4.json")
+
+    def test_get_run_meta_not_found(self, viewer):
+        v, bucket = viewer
+        bucket.get_object.side_effect = oss2.exceptions.NoSuchKey(404, {}, b"", {"Code": "NoSuchKey"})
+        result = v.get_run_meta("nonexistent")
+        assert result is None
+
+    def test_write_run_meta(self, viewer):
+        from rock.sdk.job.meta import RunMeta
+
+        v, bucket = viewer
+        meta = RunMeta(
+            run_id="20260706T143052-a1b2c3d4",
+            dataset="alibaba/aone-bench", split="test",
+            total_tasks=50, pending_tasks=50,
+            started_at="2026-07-06T14:30:52Z", status="running",
+            task_job_map={"t1": "j1"},
+        )
+        v.write_run_meta(meta)
+        bucket.put_object.assert_called_once()
+        key = bucket.put_object.call_args[0][0]
+        assert key == f"artifacts/{NAMESPACE}/{EXPERIMENT_ID}/_meta/run_20260706T143052-a1b2c3d4.json"
+        body = bucket.put_object.call_args[0][1]
+        data = json.loads(body)
+        assert data["run_id"] == "20260706T143052-a1b2c3d4"
+
+    def test_list_runs(self, viewer):
+        from rock.sdk.job.meta import RunMeta
+
+        v, bucket = viewer
+        meta1 = RunMeta(
+            run_id="20260706T100000-aaaaaaaa", dataset="d", split="test",
+            total_tasks=10, pending_tasks=10, started_at="2026-07-06T10:00:00Z",
+            status="completed", task_job_map={},
+        )
+        meta2 = RunMeta(
+            run_id="20260706T120000-bbbbbbbb", dataset="d", split="test",
+            total_tasks=10, pending_tasks=5, started_at="2026-07-06T12:00:00Z",
+            status="running", task_job_map={},
+        )
+        prefix = f"artifacts/{NAMESPACE}/{EXPERIMENT_ID}/_meta/"
+
+        mock_obj1 = MagicMock()
+        mock_obj1.key = f"{prefix}run_20260706T100000-aaaaaaaa.json"
+        mock_obj1.is_prefix.return_value = False
+        mock_obj2 = MagicMock()
+        mock_obj2.key = f"{prefix}run_20260706T120000-bbbbbbbb.json"
+        mock_obj2.is_prefix.return_value = False
+
+        with patch("oss2.ObjectIterator", return_value=iter([mock_obj1, mock_obj2])):
+            def get_object_side_effect(key):
+                if "aaaaaaaa" in key:
+                    return _make_oss_object(meta1.model_dump_json().encode())
+                return _make_oss_object(meta2.model_dump_json().encode())
+
+            bucket.get_object.side_effect = get_object_side_effect
+            runs = v.list_runs()
+
+        assert len(runs) == 2
+        assert runs[0].run_id == "20260706T100000-aaaaaaaa"
+
+    def test_resolve_run_id_for_resume_single_incomplete(self, viewer):
+        from rock.sdk.job.meta import RunMeta
+
+        v, bucket = viewer
+        meta1 = RunMeta(
+            run_id="20260706T100000-aaaaaaaa", dataset="d", split="test",
+            total_tasks=10, pending_tasks=10, started_at="t", status="completed", task_job_map={},
+        )
+        meta2 = RunMeta(
+            run_id="20260706T120000-bbbbbbbb", dataset="d", split="test",
+            total_tasks=10, pending_tasks=5, started_at="t", status="running", task_job_map={},
+        )
+        with patch.object(v, "list_runs", return_value=[meta1, meta2]):
+            result = v.resolve_run_id_for_resume()
+        assert result == "20260706T120000-bbbbbbbb"
+
+    def test_resolve_run_id_for_resume_none_incomplete(self, viewer):
+        from rock.sdk.job.meta import RunMeta
+
+        v, bucket = viewer
+        meta1 = RunMeta(
+            run_id="r1", dataset="d", split="test",
+            total_tasks=10, pending_tasks=10, started_at="t", status="completed", task_job_map={},
+        )
+        with patch.object(v, "list_runs", return_value=[meta1]):
+            result = v.resolve_run_id_for_resume()
+        assert result is None
+
+    def test_resolve_run_id_for_resume_multiple_incomplete_raises(self, viewer):
+        from rock.sdk.job.meta import RunMeta
+
+        v, bucket = viewer
+        meta1 = RunMeta(
+            run_id="r1", dataset="d", split="test",
+            total_tasks=10, pending_tasks=10, started_at="t", status="running", task_job_map={},
+        )
+        meta2 = RunMeta(
+            run_id="r2", dataset="d", split="test",
+            total_tasks=10, pending_tasks=5, started_at="t", status="running", task_job_map={},
+        )
+        with patch.object(v, "list_runs", return_value=[meta1, meta2]):
+            with pytest.raises(ValueError, match="multiple"):
+                v.resolve_run_id_for_resume()
+
+    def test_find_completed_tasks_in_run(self, viewer):
+        from rock.sdk.job.meta import RunMeta
+
+        v, bucket = viewer
+        meta = RunMeta(
+            run_id="r1", dataset="d", split="test",
+            total_tasks=3, pending_tasks=3, started_at="t", status="running",
+            task_job_map={"task-001": "j1", "task-002": "j2", "task-003": "j3"},
+        )
+        with patch.object(v, "get_run_meta", return_value=meta):
+            # j1 has completed trial, j2 has failed trial, j3 has no trial
+            def mock_get_trial_results(job_name):
+                from rock.sdk.bench.models.trial.result import HarborTrialResult
+
+                if job_name == "j1":
+                    return {"trial1": HarborTrialResult(task_name="task-001")}
+                elif job_name == "j2":
+                    from rock.sdk.job.result import ExceptionInfo
+                    return {"trial1": HarborTrialResult(
+                        task_name="task-002",
+                        exception_info=ExceptionInfo(exception_type="Timeout", exception_message="timeout"),
+                    )}
+                return {}
+
+            with patch.object(v, "get_trial_results", side_effect=mock_get_trial_results):
+                completed = v.find_completed_tasks_in_run("r1")
+
+        assert completed == {"task-001"}
+        assert "task-002" not in completed
+        assert "task-003" not in completed

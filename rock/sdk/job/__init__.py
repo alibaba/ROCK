@@ -1,7 +1,7 @@
 # Auto-register BashTrial (safe: no bench dependency).
-# HarborTrial is registered by rock.sdk.bench.__init__ to avoid a circular
-# import when rock.sdk.job is triggered mid-bench-load.
+# HarborTrial is registered by rock.sdk.bench.__init__ to avoid circular imports.
 import rock.sdk.job.trial.bash  # noqa: F401
+
 from rock.sdk.job.api import Job
 from rock.sdk.job.config import BashJobConfig, JobConfig
 from rock.sdk.job.executor import JobClient, JobExecutor, TrialClient
@@ -22,6 +22,16 @@ __all__ = [
     "TrialClient",
     "Operator",
     "ScatterOperator",
+    "SingleTaskPlanner",
+    "ResolvedTask",
+    "PlannedJob",
+    "JobMeta",
+    "JobMetaRepository",
+    "RunMeta",
+    "RunJobRef",
+    "RunJobStatus",
+    "RunScoreSummary",
+    "RunMetaRepository",
     "AbstractTrial",
     "register_trial",
     "JobViewer",
@@ -33,4 +43,30 @@ def __getattr__(name: str):
         from rock.sdk.job.viewer import JobViewer
 
         return JobViewer
+    if name in {"SingleTaskPlanner", "ResolvedTask", "PlannedJob"}:
+        from rock.sdk.job.planner import PlannedJob, ResolvedTask, SingleTaskPlanner
+
+        return {
+            "SingleTaskPlanner": SingleTaskPlanner,
+            "ResolvedTask": ResolvedTask,
+            "PlannedJob": PlannedJob,
+        }[name]
+    if name in {"JobMeta", "RunMeta", "RunJobRef", "RunJobStatus", "RunScoreSummary"}:
+        from rock.sdk.job.meta import JobMeta, RunJobRef, RunJobStatus, RunMeta, RunScoreSummary
+
+        return {
+            "JobMeta": JobMeta,
+            "RunMeta": RunMeta,
+            "RunJobRef": RunJobRef,
+            "RunJobStatus": RunJobStatus,
+            "RunScoreSummary": RunScoreSummary,
+        }[name]
+    if name == "JobMetaRepository":
+        from rock.sdk.job.job_meta import JobMetaRepository
+
+        return JobMetaRepository
+    if name == "RunMetaRepository":
+        from rock.sdk.job.run_meta import RunMetaRepository
+
+        return RunMetaRepository
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

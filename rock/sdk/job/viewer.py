@@ -349,13 +349,18 @@ class JobViewer:
         """Read rock_meta.json (unified metadata written by ROCK SDK)."""
         from rock.sdk.job.meta import JobMeta
 
-        data = self._read_json(f"{job_name}/rock_meta.json")
+        data = self._read_json(f"{job_name}/meta.json") or self._read_json(f"{job_name}/rock_meta.json")
         if data is None:
             return None
         try:
             return JobMeta.model_validate(data)
         except Exception:
             return None
+
+    def write_job_meta(self, job_meta) -> None:
+        key = self._oss_key(f"{job_meta.job_name}/meta.json")
+        body = job_meta.model_dump_json(indent=2)
+        self._bucket.put_object(key, body.encode("utf-8"))
 
     def get_exception(self, job_name: str, trial_name: str) -> str | None:
         return self._read_text(f"{job_name}/{trial_name}/exception.txt")
@@ -373,3 +378,75 @@ class JobViewer:
 
     def file_exists(self, path: str) -> bool:
         return self._bucket.object_exists(self._oss_key(path))
+
+    # ── Run metadata (full-dataset run support) ─────────────────────
+
+    def get_run_meta(self, run_id: str):
+        """Read _meta/run_{run_id}.json and return RunMeta or None."""
+        from rock.sdk.job.meta import RunMeta
+
+        data = self._read_json(f"_meta/run_{run_id}.json")
+        if data is None:
+            return None
+        try:
+            return RunMeta.model_validate(data)
+        except Exception:
+            return None
+
+    def write_run_meta(self, run_meta) -> None:
+        """Write RunMeta to OSS as _meta/run_{run_id}.json."""
+        key = self._oss_key(f"_meta/run_{run_meta.run_id}.json")
+        body = run_meta.model_dump_json(indent=2)
+        self._bucket.put_object(key, body)
+
+    def list_runs(self) -> list:
+        """List all runs under this experiment (read _meta/run_*.json files)."""
+        from rock.sdk.job.meta import RunMeta
+
+        meta_prefix = self._oss_key("_meta/")
+        runs = []
+        for obj in oss2.ObjectIterator(self._bucket, prefix=meta_prefix):
+            if obj.is_prefix():
+                continue
+            key = obj.key
+            if not key.endswith(".json") or "/run_" not in key:
+                continue
+            try:
+                result = self._bucket.get_object(key)
+                data = json.loads(result.read().decode("utf-8"))
+                runs.append(RunMeta.model_validate(data))
+            except Exception:
+                pass
+        return sorted(runs, key=lambda r: r.run_id)
+
+    def resolve_run_id_for_resume(self) -> str | None:
+        """Find the most recent incomplete run_id for resume.
+
+        Returns None if all runs are completed.
+        Raises ValueError if multiple incomplete runs exist.
+        """
+        runs = self.list_runs()
+        incomplete = [r for r in runs if r.status != "completed"]
+        if len(incomplete) == 0:
+            return None
+        if len(incomplete) == 1:
+            return incomplete[0].run_id
+        run_ids = [r.run_id for r in incomplete]
+        raise ValueError(f"Found multiple incomplete runs. Specify --run-id explicitly: {run_ids}")
+
+    def find_completed_tasks_in_run(self, run_id: str) -> set[str]:
+        """Find completed tasks within a specific run (does not cross-match other runs).
+
+        Reads the run's task_job_map, checks each job's trial results.
+        Only tasks with at least one successful trial (no exception_info) are considered completed.
+        """
+        run_meta = self.get_run_meta(run_id)
+        if run_meta is None:
+            return set()
+
+        completed = set()
+        for task_id, job_name in run_meta.task_job_map.items():
+            trial_results = self.get_trial_results(job_name)
+            if any(r.status == "completed" for r in trial_results.values()):
+                completed.add(task_id)
+        return completed

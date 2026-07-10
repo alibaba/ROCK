@@ -25,14 +25,76 @@ class JobMeta(BaseModel):
     job_name: str = ""
     job_type: str = ""
     status: str = ""
+    run_id: str | None = None
+    task_id: str | None = None
+    attempt: int = 1
+    status_reason: str | None = None
     namespace: str | None = None
     experiment_id: str | None = None
     user_id: str | None = None
     image: str | None = None
     labels: dict[str, str] = Field(default_factory=dict)
+    env: dict[str, str] = Field(default_factory=dict)
+    sandbox_id: str | None = None
+    session: str | None = None
+    pid: int | None = None
+    tmp_file: str | None = None
+    script_path: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
     started_at: str | None = None
     finished_at: str | None = None
     exit_code: int | None = None
+    score: float | None = None
+    error: str | None = None
+
+
+class RunScoreSummary(BaseModel):
+    """Aggregated score summary for a full-dataset run."""
+
+    completed: int
+    failed: int
+    skipped: int
+    avg_score: float
+    total_score: float
+    pass_rate: float
+    scores: dict[str, float] = Field(default_factory=dict)
+
+
+class RunMeta(BaseModel):
+    """Run-level metadata for single, multi, and full modes."""
+
+    schema_version: str = "2"
+    run_id: str
+    mode: str = "full"
+    status: str
+    dataset: str | None = None
+    split: str | None = None
+    total_tasks: int
+    pending_tasks: int
+    created_at: str | None = None
+    updated_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    status_reason: str | None = None
+    task_job_map: dict[str, str] = Field(default_factory=dict)
+    summary: RunScoreSummary | None = None
+
+
+class RunJobRef(BaseModel):
+    task_id: str
+    job_name: str
+
+
+class RunJobStatus(BaseModel):
+    task_id: str
+    job_name: str
+    status: str = "unknown"
+    sandbox_id: str | None = None
+    score: float | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    error: str | None = None
 
 
 def render_meta_json(config: JobConfig, *, job_type: str, status: str = "running") -> str:

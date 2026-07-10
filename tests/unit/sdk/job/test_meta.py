@@ -410,3 +410,124 @@ class TestJobViewerReadMeta:
         bucket.get_object.return_value = _make_oss_object(b"not valid json")
         meta = v.get_job_meta("j1")
         assert meta is None
+
+
+# ---------------------------------------------------------------------------
+# Phase 6: RunMeta and RunScoreSummary models
+# ---------------------------------------------------------------------------
+
+
+class TestRunScoreSummary:
+    def test_defaults(self):
+        from rock.sdk.job.meta import RunScoreSummary
+
+        s = RunScoreSummary(completed=10, failed=2, skipped=0, avg_score=0.5, total_score=5.0, pass_rate=0.83)
+        assert s.completed == 10
+        assert s.failed == 2
+        assert s.skipped == 0
+        assert s.avg_score == 0.5
+        assert s.total_score == 5.0
+        assert s.pass_rate == 0.83
+        assert s.scores == {}
+
+    def test_with_scores(self):
+        from rock.sdk.job.meta import RunScoreSummary
+
+        s = RunScoreSummary(
+            completed=2, failed=0, skipped=0, avg_score=0.75, total_score=1.5, pass_rate=1.0,
+            scores={"task_a": 1.0, "task_b": 0.5},
+        )
+        assert s.scores == {"task_a": 1.0, "task_b": 0.5}
+
+    def test_serialization_roundtrip(self):
+        from rock.sdk.job.meta import RunScoreSummary
+
+        s = RunScoreSummary(
+            completed=5, failed=1, skipped=2, avg_score=0.6, total_score=3.0, pass_rate=0.625,
+            scores={"t1": 1.0, "t2": 0.0},
+        )
+        data = json.loads(s.model_dump_json())
+        s2 = RunScoreSummary.model_validate(data)
+        assert s2.completed == 5
+        assert s2.scores == {"t1": 1.0, "t2": 0.0}
+
+
+class TestRunMeta:
+    def test_required_fields(self):
+        from rock.sdk.job.meta import RunMeta
+
+        m = RunMeta(
+            run_id="20260706T143052-a1b2c3d4",
+            dataset="alibaba/aone-bench",
+            split="test",
+            total_tasks=100,
+            pending_tasks=100,
+            started_at="2026-07-06T14:30:52Z",
+            status="running",
+            task_job_map={"task_001": "aone-bench_task_001_20260706T143052-a1b2c3d4"},
+        )
+        assert m.run_id == "20260706T143052-a1b2c3d4"
+        assert m.dataset == "alibaba/aone-bench"
+        assert m.split == "test"
+        assert m.total_tasks == 100
+        assert m.pending_tasks == 100
+        assert m.status == "running"
+        assert m.finished_at is None
+        assert m.summary is None
+
+    def test_completed_with_summary(self):
+        from rock.sdk.job.meta import RunMeta, RunScoreSummary
+
+        m = RunMeta(
+            run_id="20260706T143052-a1b2c3d4",
+            dataset="alibaba/aone-bench",
+            split="test",
+            total_tasks=100,
+            pending_tasks=100,
+            started_at="2026-07-06T14:30:52Z",
+            finished_at="2026-07-06T18:00:00Z",
+            status="completed",
+            task_job_map={"task_001": "job_001"},
+            summary=RunScoreSummary(
+                completed=80, failed=20, skipped=0, avg_score=0.42, total_score=33.6, pass_rate=0.8,
+            ),
+        )
+        assert m.status == "completed"
+        assert m.summary.avg_score == 0.42
+
+    def test_serialization_roundtrip(self):
+        from rock.sdk.job.meta import RunMeta
+
+        m = RunMeta(
+            run_id="20260706T143052-a1b2c3d4",
+            dataset="org/ds",
+            split="test",
+            total_tasks=50,
+            pending_tasks=50,
+            started_at="2026-07-06T14:30:52Z",
+            status="running",
+            task_job_map={"t1": "j1", "t2": "j2"},
+        )
+        data = json.loads(m.model_dump_json())
+        m2 = RunMeta.model_validate(data)
+        assert m2.run_id == "20260706T143052-a1b2c3d4"
+        assert m2.task_job_map == {"t1": "j1", "t2": "j2"}
+
+    def test_run_id_format(self):
+        """run_id should follow {YYYYMMDD}T{HHmmss}-{8hex} format."""
+        import re
+
+        from rock.sdk.job.meta import RunMeta
+
+        m = RunMeta(
+            run_id="20260706T143052-a1b2c3d4",
+            dataset="org/ds",
+            split="test",
+            total_tasks=10,
+            pending_tasks=10,
+            started_at="2026-07-06T14:30:52Z",
+            status="running",
+            task_job_map={},
+        )
+        pattern = r"^\d{8}T\d{6}-[0-9a-f]{8}$"
+        assert re.match(pattern, m.run_id)

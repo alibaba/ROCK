@@ -50,6 +50,13 @@ class TestScatterOperator:
         assert all(isinstance(t, BashTrial) for t in trials)
 
 
+class TestUnsupportedDatasetOperator:
+    def test_dataset_operator_is_not_a_job_sdk_entrypoint(self):
+        import rock.sdk.job.operator as operator_module
+
+        assert not hasattr(operator_module, "DatasetOperator")
+
+
 class TestCustomOperator:
     def test_custom_subclass_can_override_apply(self):
         class FixedOperator(Operator):
