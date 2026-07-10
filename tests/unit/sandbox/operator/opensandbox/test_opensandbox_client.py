@@ -13,9 +13,6 @@ class FakeSandbox:
     """Stand-in for opensandbox.Sandbox; records interactions on the class."""
 
     created_kwargs = None
-    connected_id = None
-    resumed_id = None
-    actions = []
     raise_on_create = False
 
     def __init__(self, sandbox_id, state="Running"):
@@ -29,49 +26,46 @@ class FakeSandbox:
         cls.created_kwargs = {"image": image, **kwargs}
         return cls("osb-new")
 
-    connect_kwargs = None
-
-    @classmethod
-    async def connect(cls, sandbox_id, **kwargs):
-        cls.connected_id = sandbox_id
-        cls.connect_kwargs = kwargs
-        return cls(sandbox_id)
-
-    @classmethod
-    async def resume(cls, sandbox_id, **kwargs):
-        cls.resumed_id = sandbox_id
-
-    async def get_info(self):
-        return SimpleNamespace(status=SimpleNamespace(state=self._state))
-
-    async def pause(self):
-        type(self).actions.append(("pause", self.id))
-
-    async def kill(self):
-        type(self).actions.append(("kill", self.id))
-
 
 class FakeConnectionConfig:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
 
 
+class FakeLifecycleService:
+    def __init__(self):
+        self.info_ids = []
+        self.actions = []
+
+    async def get_sandbox_info(self, sandbox_id):
+        self.info_ids.append(sandbox_id)
+        return SimpleNamespace(status=SimpleNamespace(state="Running"))
+
+    async def pause_sandbox(self, sandbox_id):
+        self.actions.append(("pause", sandbox_id))
+
+    async def resume_sandbox(self, sandbox_id):
+        self.actions.append(("resume", sandbox_id))
+
+    async def kill_sandbox(self, sandbox_id):
+        self.actions.append(("kill", sandbox_id))
+
+
 @pytest.fixture(autouse=True)
 def _reset_fake():
     FakeSandbox.created_kwargs = None
-    FakeSandbox.connected_id = None
-    FakeSandbox.resumed_id = None
-    FakeSandbox.actions = []
     FakeSandbox.raise_on_create = False
 
 
 @pytest.fixture
 def client():
-    return OpenSandboxClient(
+    result = OpenSandboxClient(
         OpenSandboxConfig(endpoint="opensandbox.local", api_key="k", protocol="http"),
         sandbox_cls=FakeSandbox,
         connection_config_cls=FakeConnectionConfig,
     )
+    result._lifecycle_service = FakeLifecycleService()
+    return result
 
 
 @pytest.mark.asyncio
@@ -109,28 +103,19 @@ async def test_create_translates_errors(client):
 
 
 @pytest.mark.asyncio
-async def test_get_state_connects_and_reads(client):
+async def test_get_state_reads_lifecycle_service_without_resolving_endpoint(client):
     state = await client.get_state("osb-1")
     assert state == "Running"
-    assert FakeSandbox.connected_id == "osb-1"
-
-
-@pytest.mark.asyncio
-async def test_connect_skips_health_check(client):
-    # A paused sandbox fails the SDK health check; get_state/pause/kill must not
-    # block on it, so connect() is called with skip_health_check=True.
-    await client.get_state("osb-1")
-    assert FakeSandbox.connect_kwargs.get("skip_health_check") is True
+    assert client._lifecycle_service.info_ids == ["osb-1"]
 
 
 @pytest.mark.asyncio
 async def test_get_state_returns_none_on_error(client):
-    class Boom(FakeSandbox):
-        @classmethod
-        async def connect(cls, sandbox_id, **kwargs):
+    class Boom(FakeLifecycleService):
+        async def get_sandbox_info(self, sandbox_id):
             raise RuntimeError("gone")
 
-    client._sandbox_cls = Boom
+    client._lifecycle_service = Boom()
     assert await client.get_state("osb-1") is None
 
 
@@ -139,9 +124,9 @@ async def test_pause_resume_kill(client):
     await client.pause("osb-1")
     await client.kill("osb-2")
     await client.resume("osb-3")
-    assert ("pause", "osb-1") in FakeSandbox.actions
-    assert ("kill", "osb-2") in FakeSandbox.actions
-    assert FakeSandbox.resumed_id == "osb-3"
+    assert ("pause", "osb-1") in client._lifecycle_service.actions
+    assert ("kill", "osb-2") in client._lifecycle_service.actions
+    assert ("resume", "osb-3") in client._lifecycle_service.actions
 
 
 @pytest.mark.asyncio
