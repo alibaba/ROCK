@@ -265,7 +265,7 @@ class BaseTask(ABC):
         async def run_with_limit(ip: str) -> tuple[str, bool, str | None]:
             async with semaphore:
                 try:
-                    await self.run_on_worker(ip)
+                    await asyncio.wait_for(self.run_on_worker(ip), timeout=90)
                     return (ip, True, None)
                 except Exception:
                     return (ip, False, traceback.format_exc())
