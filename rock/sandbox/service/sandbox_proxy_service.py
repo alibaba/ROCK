@@ -10,7 +10,6 @@ import websockets
 from aliyunsdkcore import client
 from aliyunsdkcore.request import CommonRequest
 from fastapi import Response, UploadFile
-from starlette.status import HTTP_504_GATEWAY_TIMEOUT
 
 from rock import env_vars
 from rock.actions import (
@@ -41,6 +40,7 @@ from rock.deployments.status import ServiceStatus
 from rock.common.port_validation import validate_port_forward_port
 from rock.logger import init_logger
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
+from rock.sandbox.service.backends import RockletBackend
 from rock.sandbox.utils.proxy import build_upstream_ws_headers
 from rock.sandbox.utils.rocklet_probe import check_alive_status, get_remote_status
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
@@ -69,6 +69,7 @@ class SandboxProxyService:
         logger.info(f"proxy config: {self.proxy_config}")
         # Control-plane RPC client: short JSON calls to rocklet.
         self._rpc_client = rock_config.http_pool_manager.get("rpc")
+        self._rocklet_backend = RockletBackend(self._rpc_client)
         # Data-plane proxy client: streaming/SSE/large bodies. No total timeout;
         # per-request timeout is set via build_request(timeout=...). NEVER closed
         # per-request — lives for the process lifetime, closed in aclose().
@@ -651,35 +652,15 @@ class SandboxProxyService:
         files: dict | None,
         method: str,
     ):
-        host_ip = sandbox_status_dict.get("host_ip")
-        service_status = ServiceStatus.from_dict(sandbox_status_dict)
-        api_url = self._api_url(host_ip, service_status)
-        headers = self._headers(sandbox_id)
-        logger.info(f"headers: {headers}")
-        full_request_url = f"{api_url}/{path}"
-        logger.info(f"full_request_url: {full_request_url}")
-        logger.info(f"data: {data}")
-        logger.info(f"json_data: {json_data}")
-
-        # Make request
-        try:
-            response = await self._rpc_client.request(
-                method=method,
-                url=full_request_url,
-                headers=headers,
-                json=json_data if json_data else None,
-                data=data if data else None,
-                files=files if files else None,
-            )
-            if response.status_code == 511:
-                return {"exit_code": -1, "failure_reason": response.json()["rockletexception"]["message"]}
-            if response.status_code == HTTP_504_GATEWAY_TIMEOUT:
-                return {"exit_code": -1, "failure_reason": response.json()["detail"]}
-            return response.json()
-        except httpx.RequestError as e:
-            # Handle network-level errors, such as DNS resolution failure, connection timeout, etc.
-            logger.error(f"Error forwarding request to full_request_url: {str(e)}", exc_info=True)
-            raise Exception("Service unavailable: Upstream server is not reachable.")
+        return await self._rocklet_backend.request(
+            sandbox_id,
+            sandbox_status_dict,
+            path,
+            data=data,
+            json_data=json_data,
+            files=files,
+            method=method,
+        )
 
     def _headers(self, sandbox_id: str) -> dict[str, str]:
         headers = {"sandbox_id": sandbox_id, EAGLE_EYE_TRACE_ID: trace_id_ctx_var.get()}
