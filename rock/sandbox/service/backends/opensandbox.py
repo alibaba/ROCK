@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import UploadFile
 
 from rock.actions import CommandResponse, ReadFileResponse, UploadResponse, WriteFileResponse
+from rock.actions.sandbox.response import State
 from rock.admin.proto.request import SandboxCommand, SandboxReadFileRequest, SandboxWriteFileRequest
 from rock.logger import init_logger
 from rock.rocklet.exceptions import NonZeroExitCodeError
@@ -53,6 +54,18 @@ class OpenSandboxBackend:
                 message = f"{command.error_msg}: {message}"
             raise NonZeroExitCodeError(message)
         return response
+
+    async def get_state(self, info: dict) -> State:
+        remote_state = await self._client.get_state(self._opensandbox_id(info))
+        return {
+            "Pending": State.PENDING,
+            "Running": State.RUNNING,
+            "Pausing": State.STOPPED,
+            "Paused": State.STOPPED,
+            "Stopping": State.STOPPED,
+            "Terminated": State.STOPPED,
+            "Failed": State.STOPPED,
+        }.get(remote_state, State.PENDING)
 
     async def read_file(self, sandbox_id: str, info: dict, request: SandboxReadFileRequest) -> ReadFileResponse:
         opensandbox_id = self._opensandbox_id(info)

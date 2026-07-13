@@ -174,6 +174,10 @@ class SandboxProxyService:
 
     @monitor_sandbox_operation()
     async def is_alive(self, sandbox_id: str) -> IsAliveResponse:
+        info = await self._meta_store.get(sandbox_id)
+        if info and self._resolve_backend_name(info) == OPENSANDBOX_BACKEND:
+            status = await self.get_status(sandbox_id)
+            return IsAliveResponse(is_alive=status.is_alive)
         sandbox_status_dicts = await self.get_service_status(sandbox_id)
         return await self._is_alive(sandbox_id, sandbox_status_dicts[0])
 
@@ -1060,10 +1064,19 @@ class SandboxProxyService:
 
         state = sandbox_info.get("state")
         host_ip = sandbox_info.get("host_ip")
+        backend_name = self._resolve_backend_name(sandbox_info)
 
         is_alive = False
         operator_sandbox_info = None
-        if host_ip and state in (State.RUNNING, State.PENDING):
+        if backend_name == OPENSANDBOX_BACKEND and state in (State.RUNNING, State.PENDING):
+            backend = self._resolve_backend(sandbox_info)
+            remote_state = await backend.get_state(sandbox_info)
+            is_alive = remote_state == State.RUNNING
+            operator_sandbox_info = dict(sandbox_info)
+            operator_sandbox_info["state"] = remote_state
+            if is_alive:
+                await self._update_expire_time(sandbox_id)
+        elif host_ip and state in (State.RUNNING, State.PENDING):
             remote_status = await get_remote_status(sandbox_id, host_ip, http_client=self._rpc_client)
             is_alive = await check_alive_status(sandbox_id, host_ip, remote_status, http_client=self._rpc_client)
 
@@ -1074,18 +1087,18 @@ class SandboxProxyService:
                 operator_sandbox_info["state"] = State.RUNNING
                 operator_sandbox_info.update(remote_status.to_dict())
 
-            if state == State.PENDING and is_alive:
-                from rock.sandbox.sandbox_statemachine import SandboxStateMachine
+        if state == State.PENDING and is_alive:
+            from rock.sandbox.sandbox_statemachine import SandboxStateMachine
 
-                sm = await SandboxStateMachine.from_state_value(state, sandbox_info=sandbox_info)
-                await sm.send(
-                    "alive",
-                    sandbox_id=sandbox_id,
-                    meta_store=self._meta_store,
-                    sandbox_info=operator_sandbox_info,
-                )
-                # on_alive callback updates state_history in sm.sandbox_info
-                sandbox_info = sm.sandbox_info
+            sm = await SandboxStateMachine.from_state_value(state, sandbox_info=sandbox_info)
+            await sm.send(
+                "alive",
+                sandbox_id=sandbox_id,
+                meta_store=self._meta_store,
+                sandbox_info=operator_sandbox_info,
+            )
+            # on_alive callback updates state_history in sm.sandbox_info
+            sandbox_info = sm.sandbox_info
 
         if not include_all_states and state not in (State.PENDING, State.RUNNING):
             raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
@@ -1101,7 +1114,7 @@ class SandboxProxyService:
             host_ip=host_ip,
             is_alive=is_alive,
             image=info.get("image"),
-            swe_rex_version=swe_version,
+            swe_rex_version=None if backend_name == OPENSANDBOX_BACKEND else swe_version,
             gateway_version=gateway_version,
             user_id=info.get("user_id"),
             experiment_id=info.get("experiment_id"),

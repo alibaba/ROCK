@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from fastapi import UploadFile
 
+from rock.actions.sandbox.response import State
 from rock.admin.proto.request import SandboxCommand, SandboxReadFileRequest, SandboxWriteFileRequest
 from rock.rocklet.exceptions import NonZeroExitCodeError
 from rock.sandbox.service.backends.opensandbox import OpenSandboxBackend
@@ -194,3 +195,15 @@ async def test_upload_passes_stream_without_buffering(client):
     assert result.success is True
     assert result.file_name == "payload.bin"
     client.write_file.assert_awaited_once_with("osb-1", "/tmp/payload.bin", stream, mode=644)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("remote_state", "expected"),
+    [("Pending", State.PENDING), ("Running", State.RUNNING), ("Paused", State.STOPPED), ("Failed", State.STOPPED)],
+)
+async def test_get_state_maps_opensandbox_lifecycle(client, remote_state, expected):
+    client.get_state.return_value = remote_state
+    backend = OpenSandboxBackend(client)
+
+    assert await backend.get_state(_info()) == expected
