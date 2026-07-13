@@ -1,0 +1,102 @@
+# docker-compose.yaml — harbor compose job (v2: standard compose orchestration)
+#
+# This file is uploaded by ComposeJobConfig (via environment.uploads) to
+# /rock/compose/docker-compose.yaml inside the DinD sandbox, then executed
+# by runner.sh as:
+#   docker compose -f /rock/compose/docker-compose.yaml up \
+#     --abort-on-container-exit --exit-code-from main
+#
+# Environment variables with ${VAR} syntax are interpolated from the outer
+# DinD sandbox's environment (injected via environment.env in job_config.yaml).
+# This is the standard channel for passing credentials into inner containers.
+
+name: rock-compose-harbor
+
+networks:
+  default:
+    name: rock_compose_harbor   # service name = DNS hostname (e.g. http://proxy:8082)
+
+services:
+  # ── proxy sidecar: claude-code proxy, must be healthy before main starts ──
+  proxy:
+    image: ${PROXY_IMAGE}
+    command: ["bash", "/rock/compose/sidecars/proxy-sidecar.sh"]
+    volumes:
+      - /rock/compose:/rock/compose:ro
+    environment:
+      MODEL: "${MODEL}"
+      MODEL_API_KEY: "${MODEL_API_KEY}"
+      MODEL_BASE_URL: "${MODEL_BASE_URL}"
+      HARBOR_AGENT: "${HARBOR_AGENT}"
+      PROVIDER: "${PROVIDER:-anthropic}"
+      FORCE_PROXY: "${FORCE_PROXY:-true}"
+      TEMPERATURE: "${TEMPERATURE:-1.0}"
+      INTERLEAVED_THINKING: "${INTERLEAVED_THINKING:-true}"
+      THINKING_TYPE: "${THINKING_TYPE:-adaptive}"
+      REASONING_EFFORT: "${REASONING_EFFORT:-high}"
+      CONTEXT_1M: "${CONTEXT_1M:-true}"
+      OUTPUT_DIR: /tmp/output
+      SHARED_DIR: /tmp/shared
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1g
+    # NOTE: no healthcheck here. proxy-sidecar.sh self-gates by agent type — for
+    # agent=claude-code it intentionally sleeps without binding :8082 ("Proxy not
+    # needed ... sleeping"). A port-based healthcheck would therefore never pass and
+    # block main via depends_on. main only needs the proxy container *started*
+    # (see main.depends_on: service_started below), not "healthy".
+
+  # ── main service: harbor runner — decides overall exit code ──
+  main:
+    image: ${HARBOR_MAIN_IMAGE}
+    command: ["bash", "/rock/compose/main.sh"]
+    privileged: true       # harbor CLI needs to spawn inner docker containers
+    depends_on:
+      proxy:
+        condition: service_started   # proxy self-gates by agent; only need it started
+    volumes:
+      - /rock/compose:/rock/compose:ro
+      - /var/run/docker.sock:/var/run/docker.sock   # reuse outer dockerd (avoid 3rd DinD layer)
+    environment:
+      # model
+      MODEL: "${MODEL}"
+      MODEL_BASE_URL: "http://proxy:8082"   # service name is the DNS hostname
+      MODEL_API_KEY: "${MODEL_API_KEY}"
+      # harbor task
+      HARBOR_AGENT: "${HARBOR_AGENT}"
+      INSTANCE_ID: "${INSTANCE_ID}"
+      DATASET: "${DATASET}"
+      DATASET_NAME: "${DATASET_NAME:-${DATASET}}"
+      DATASET_VERSION: "${DATASET_VERSION:-latest}"
+      DATASET_TYPE: "${DATASET_TYPE:-registry}"
+      SPLIT: "${SPLIT:-test}"
+      HARBOR_ENV: docker
+      N_ATTEMPTS: "${N_ATTEMPTS:-1}"
+      N_CONCURRENT: "${N_CONCURRENT:-1}"
+      TIMEOUT_MULTIPLIER: "${TIMEOUT_MULTIPLIER:-3.0}"
+      MAX_RETRIES: "${MAX_RETRIES:-3}"
+      MAX_ITERATIONS: "${MAX_ITERATIONS:-200}"
+      SKIP_CONFIRM: "${SKIP_CONFIRM:-true}"
+      OUTPUT_DIR: /tmp/output
+      SHARED_DIR: /tmp/shared
+      # provider flags
+      PROVIDER: "${PROVIDER:-anthropic}"
+      FORCE_PROXY: "${FORCE_PROXY:-true}"
+      TEMPERATURE: "${TEMPERATURE:-1.0}"
+      INTERLEAVED_THINKING: "${INTERLEAVED_THINKING:-true}"
+      THINKING_TYPE: "${THINKING_TYPE:-adaptive}"
+      REASONING_EFFORT: "${REASONING_EFFORT:-high}"
+      CONTEXT_1M: "${CONTEXT_1M:-true}"
+      # OSS credentials (for dataset download and artifact upload)
+      OSS_BUCKET: "${OSS_BUCKET}"
+      OSS_ENDPOINT: "${OSS_ENDPOINT}"
+      OSS_REGION: "${OSS_REGION}"
+      OSS_ACCESS_KEY_ID: "${OSS_ACCESS_KEY_ID}"
+      OSS_ACCESS_KEY_SECRET: "${OSS_ACCESS_KEY_SECRET}"
+    deploy:
+      resources:
+        limits:
+          cpus: "8"
+          memory: 16g

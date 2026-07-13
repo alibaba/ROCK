@@ -694,6 +694,67 @@ class TestJobConfigFromYamlAutoDetect:
         assert isinstance(cfg, HarborJobConfig)
         assert cfg.n_attempts == 2
 
+    def test_auto_detect_compose_by_compose_file(self, tmp_path):
+        """compose_file present → ComposeJobConfig detected."""
+        from rock.sdk.job.compose.config import ComposeJobConfig
+
+        yaml_content = "compose_file: ./docker-compose.yaml\n"
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml_content)
+        cfg = JobConfig.from_yaml(str(p))
+        assert isinstance(cfg, ComposeJobConfig)
+        assert cfg.compose_file == "./docker-compose.yaml"
+
+    def test_auto_detect_compose_no_compose_file_not_detected(self, tmp_path):
+        """Without compose_file key, BashJobConfig is returned instead."""
+        yaml_content = "script: echo hello\ntimeout: 60\n"
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml_content)
+        cfg = JobConfig.from_yaml(str(p))
+        from rock.sdk.job.compose.config import ComposeJobConfig
+
+        assert not isinstance(cfg, ComposeJobConfig)
+        assert isinstance(cfg, BashJobConfig)
+
+    def test_auto_detect_compose_with_full_config(self, tmp_path):
+        """compose_file + other job fields → ComposeJobConfig with all fields populated."""
+        import textwrap
+
+        from rock.sdk.job.compose.config import ComposeJobConfig
+
+        yaml_content = textwrap.dedent(
+            """\
+            job_name: swe-job
+            timeout: 7200
+            compose_file: ./docker-compose.yaml
+            abort_on_container_exit: false
+        """
+        )
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml_content)
+        cfg = JobConfig.from_yaml(str(p))
+        assert isinstance(cfg, ComposeJobConfig)
+        assert cfg.job_name == "swe-job"
+        assert cfg.compose_file == "./docker-compose.yaml"
+        assert cfg.abort_on_container_exit is False
+
+    def test_auto_detect_compose_invalid_compose_file_raises(self, tmp_path):
+        """compose_file key present but empty → validation error surfaced."""
+        yaml_content = "compose_file: ''\n"
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml_content)
+        with pytest.raises(ValueError, match="does not match any known job type"):
+            JobConfig.from_yaml(str(p))
+
+    def test_bash_with_compose_file_rejected(self, tmp_path):
+        """compose_file is not a Bash/Harbor field; mixing with bash-only fields raises."""
+        yaml_content = "compose_file: ./docker-compose.yaml\nscript: echo hello\n"
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml_content)
+        # compose_file triggers ComposeJobConfig path; script is extra→forbidden
+        with pytest.raises(ValueError, match="does not match any known job type"):
+            JobConfig.from_yaml(str(p))
+
 
 # ---------------------------------------------------------------------------
 # OssMirrorConfig on base EnvironmentConfig
