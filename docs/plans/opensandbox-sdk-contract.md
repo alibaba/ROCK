@@ -89,7 +89,9 @@ Rock `Command`（`command: str|list`, `timeout: float=1200`, `env`, `cwd`, `sess
 - `stdout` = `"".join(m.text for m in execution.logs.stdout)`
 - `stderr` = `"".join(m.text for m in execution.logs.stderr)`
 - `exit_code` = `execution.exit_code`
-- `execution.error`（`ExecutionError`）非空时按 Rock 约定填 stderr / 抛 `CommandRockError`
+- `execution.error.name` 为 timeout 时抛 ROCK 既有 `CommandTimeoutError`；其他 error 附加到 stderr，`check=True` 时按非零退出语义抛错。
+
+字符串命令由 OpenSandbox shell 执行；当 ROCK 请求 `shell=False` 时记录不含命令正文的 warning 并保持 OpenSandbox 策略。列表命令使用 `shlex.join` 保留参数边界。
 
 > 注意：OpenSandbox `/command` 是 SSE 流式；SDK 默认累积到 `logs`。Rock `execute` 只要最终结果 → 用默认累积、不传 handlers 即可。
 
@@ -97,11 +99,11 @@ Rock `Command`（`command: str|list`, `timeout: float=1200`, `env`, `cwd`, `sess
 
 | Rock | OpenSandbox `sandbox.files.*`（`services/filesystem.py:37`） | 备注 |
 |------|-----------------------------------------------------------|------|
-| `read_file(ReadFileRequest{path,encoding,errors})` → `ReadFileResponse{content}` | `read_file(path, encoding="utf-8")` → `str` | Rock `errors` 无对应 → 忽略并 debug 记录 |
-| `write_file(WriteFileRequest{content,path})` → `WriteFileResponse{success,message}` | `write_file(path, data, encoding="utf-8", mode=755)` | 成功即 `success=True` |
-| `upload(file, target_path)` → `UploadResponse` | `write_file(target_path, data=bytes)` | OpenSandbox 后端不走 OSS，`UploadMode` 优化对其 no-op（直写） |
+| `read_file(ReadFileRequest{path,encoding,errors})` → `ReadFileResponse{content}` | `read_bytes(path)` → `bytes` | 在 Admin 侧按 ROCK 的 `encoding/errors` 解码 |
+| `write_file(WriteFileRequest{content,path})` → `WriteFileResponse{success,message}` | `get_file_info` + `write_file(path, data, mode=...)` | 保留现有 mode；新文件使用 `644` |
+| `upload(file, target_path)` → `UploadResponse` | `write_file(target_path, data=UploadFile.file)` | 直接传文件流，不整文件缓冲；同样保留现有 mode |
 
-### 2.3 bash session（✅ 支持，但键映射需处理）
+### 2.3 bash session（SDK 支持，ROCK 本期未接入）
 
 Rock 用**会话名**（`session: str="default"`）作 key；OpenSandbox `create_session` 返回**不透明 session_id**，且入参仅 `working_directory`。
 
@@ -111,13 +113,13 @@ Rock 用**会话名**（`session: str="default"`）作 key；OpenSandbox `create
 | `run_in_session(BashAction{command, session, timeout, check})` → `BashObservation{output, exit_code, failure_reason, expect_string}` | `run_in_session(session_id, command, timeout=...)` → `Execution` | `output`=`execution.text`；`check`(raise/silent/ignore)在 Rock 侧处理；`expect_string`（swe-rex 概念）→ `""` |
 | `close_session(CloseBashSessionRequest{session})` | `delete_session(session_id)` | 清映射 |
 
-**session_id 映射存储决策**：OpenSandbox 在服务端保存 session 状态，Rock 需能跨请求/多 worker 找回 `os_session_id`。建议存 redis（key 按 `sandbox_id:session_name`），或 `extended_params`。列为 Phase 2 设计点。
+**当前策略**：ROCK 对 OpenSandbox session 请求明确返回 `BadRequestRockError`，不回退到 rocklet。session_id 的跨 worker 持久化映射留待后续 PR。
 
 ### 2.4 端口转发（websocket portforward）
 
 Rock `_get_rocklet_portforward_url` 把客户端 ws 代理到 rocklet 的 `/portforward`。OpenSandbox 提供 `sandbox.get_endpoint(port) -> SandboxEndpoint{endpoint, headers}` 与 `get_signed_endpoint(port, expires)`。
 - 映射：portforward 请求 → `get_endpoint(port)` 拿到 URL+headers → Rock 侧把客户端 ws 桥接到该 endpoint。
-- 协议不完全对等（rocklet 是 Rock 私有 ws 帧，OpenSandbox 给的是通用 endpoint）→ 列为 Phase 2 中**优先级最低**的一项，可先返回 `BadRequestRockError("portforward not supported on opensandbox backend")`，二期再实现。
+- 协议不完全对等（rocklet 是 Rock 私有 ws 帧，OpenSandbox 给的是通用 endpoint）→ 当前返回 `BadRequestRockError`，不回退到 rocklet；后续再实现 endpoint 桥接。
 
 ---
 
@@ -138,8 +140,8 @@ execd（`specs/execd-api.yaml`）：`POST /command`(SSE)、`POST /session`、`PO
 | 同步取命令结果 | ✅ `commands.run` 累积 | 完备 |
 | 后台进程 | ✅ `RunCommandOpts.background` + `get_command_status` | 完备（Rock 当前 execute 用不到） |
 | 读/写/上传文件 | ✅ `files.read_file/write_file/write_files` | 完备 |
-| bash session 有状态 | ✅ `create_session/run_in_session/delete_session` | 完备，需键映射 |
-| 端口转发 | ⚠️ `get_endpoint`（协议需桥接） | 二期实现 |
+| bash session 有状态 | ✅ SDK 支持 | ROCK 暂未接入，明确拒绝 |
+| 端口转发 | ⚠️ `get_endpoint`（协议需桥接） | ROCK 暂未接入，明确拒绝 |
 | rootfs disk quota | ⚠️ 无直接对应（有 volumes） | 部分缺口 |
 | 原生 async | ✅ | 完备 |
 
@@ -151,10 +153,10 @@ execd（`specs/execd-api.yaml`）：`POST /command`(SSE)、`POST /session`、`PO
 2. **cpus 语义**：Rock `cpus`=cpu-shares 软配，`limit_cpus`=硬限；OpenSandbox `resource.cpu` 更接近硬 request。取 `limit_cpus or cpus`。
 3. **disk quota 缺口**：OpenSandbox create 无 rootfs quota，Rock `disk` 暂无处安放 → 先忽略并 warn，或后续用 volumes 方案；文档标注该后端不支持 rootfs 限额。
 4. **sandbox_id 双标识**：Rock id 主键 + `extended_params["opensandbox_id"]` + OpenSandbox `metadata["rock_sandbox_id"]`。
-5. **session_id 映射持久化**：`{sandbox_id:session_name → os_session_id}` 存 redis（多 worker 安全）。
+5. **session_id 映射持久化**：后续将 `{sandbox_id:session_name → os_session_id}` 存 redis（多 worker 安全）；当前明确不支持。
 6. **stop/restart/delete 语义（✅ 已定）**：Phase 1 默认不支持 `stop/restart`，只保留 `delete→kill`（Terminated=Rock `deleted`）。OpenSandbox `pause/resume` 需要创建时显式启用 persistence；普通 sandbox 调 `pause` 会被服务端拒绝，不能隐式标记为 Rock `stopped`。
-7. **portforward**：一期 `NotImplementedError`，二期基于 `get_endpoint` 桥接。
-8. **use_server_proxy 默认 False**：与 SDK 默认一致；部分部署不支持 server-proxy 模式，需要时再显式开启（仅影响 Phase 2 的 execd 路由）。
+7. **portforward**：当前 `BadRequestRockError`，后续基于 `get_endpoint` 桥接。
+8. **use_server_proxy 默认 False**：与 SDK 默认一致；部分部署不支持 server-proxy 模式，需要时再显式开启（仅影响 execd 路由）。配置选择是严格策略，不做直连/server-proxy 自动 fallback。
 9. **定时运维任务 gate**（沿用主计划 Phase 2.4）：`scheduler/tasks/*` 的 rocklet 直连任务在 opensandbox 后端下跳过。
 
 ---

@@ -79,37 +79,40 @@ Rock 内部有两条独立的路径，方案 B 都要改：
 
 ## Phase 2：执行/文件 seam —— OpenSandbox Runtime backend（方案 B 核心）
 
+> **2026-07-13 交付状态**：本阶段已交付 `execute`、`read_file`、`write_file`、流式 `upload`、`get_status` 和 `is_alive`。OpenSandbox 沙箱通过 `extended_params["backend"]` 严格路由，不安装、不探测、也不回退到 rocklet/22555。session、portforward、scheduler gate、混合 operator 迁移和远程命令取消留待后续 PR。
+
 ### 2.1 抽象后端接口（TDD）
 
 当前 `SandboxProxyService` 的 6 个操作（execute/read_file/write_file/upload/create_session/run_in_session/close_session）都走 `_send_request(...)` → rocklet HTTP；websocket 走 `_get_rocklet_portforward_url`。目标：把「和某个沙箱通信」抽象成后端接口。
 
-- [ ] 定义 `rock/sandbox/service/backends/base.py`：`SandboxRuntimeBackend`（ABC），方法与 Rock 现有数据模型对齐：
+- [x] 定义 `rock/sandbox/service/backends/base.py`：窄 `SandboxRuntimeBackend` Protocol，覆盖本期命令、文件、上传与状态接口。
   - `async execute(sandbox_id, status, Command) -> CommandResponse`
   - `async read_file / write_file / upload`
   - `async create_session / run_in_session / close_session`（Phase 0 若不支持则 raise `NotImplementedError` 并在 manager 层降级）
   - `async portforward(...)`（websocket；OpenSandbox 若无则明确不支持）
-- [ ] 把现有 rocklet 逻辑抽出为 `backends/rocklet.py::RockletBackend`（**保持行为不变**，纯重构）。测试：现有 proxy 相关单测全部仍绿。
+- [x] 把现有 rocklet 逻辑抽出为 `backends/rocklet.py::RockletBackend`（**保持行为不变**，纯重构）。
 
 ### 2.2 后端路由（TDD）
 
-- [ ] 每个 sandbox 需要知道自己属于哪个后端。方案：`SandboxInfo.extended_params["backend"] = "rocklet" | "opensandbox"`，由对应 Operator 在 `submit` 时写入；`SandboxProxyService` 按此选择 backend 实例。
-  - 测试：给定 backend=opensandbox 的 status，proxy 路由到 OpenSandboxBackend；backend 缺省/rocklet 走 RockletBackend（向后兼容，存量沙箱无 backend 字段时默认 rocklet）。
-- [ ] 实现 `SandboxProxyService.__init__` 构建 `{"rocklet": RockletBackend(...), "opensandbox": OpenSandboxBackend(...)}`；`_resolve_backend(status_dict)` 选择；6 个方法改为 `backend = self._resolve_backend(status); return await backend.execute(...)`。
+- [x] `SandboxInfo.extended_params["backend"] = "rocklet" | "opensandbox"` 作为路由依据。OpenSandbox operator 下缺失、未知或冲突 metadata 均 fail closed；只有非 OpenSandbox operator 的存量 sandbox 可缺省为 rocklet。
+- [x] `SandboxProxyService` 按 metadata 选择 backend；OpenSandbox 路径不读取或伪造 `host_ip`/端口映射。
 
 ### 2.3 OpenSandbox backend（TDD）
 
-- [ ] 测试 `tests/unit/sandbox/service/test_opensandbox_backend.py`（mock SDK）：
+- [x] 测试 `tests/unit/sandbox/service/backends/test_opensandbox_backend.py`（mock SDK）：
   - `execute` → `sandbox.commands.run(command.command, timeout=...)`，把结果映射成 `CommandResponse`（stdout/stderr/exit_code/失败语义对齐）。
   - `read_file`/`write_file` → `sandbox.files.read_file` / `write_files([WriteEntry])`，含二进制与 not-found。
   - session 类：按 Phase 0 结论实现或显式 NotImplemented。
-- [ ] 实现 `rock/sandbox/service/backends/opensandbox.py::OpenSandboxBackend`：复用 Phase 1 的 `OpenSandboxClient`（通过 sandbox_id attach 到已存在沙箱），做 Rock↔OpenSandbox 的请求/响应/异常翻译。
+- [x] 实现 `OpenSandboxBackend`：字符串命令按 OpenSandbox shell 语义执行（`shell=False` 仅记录不含命令正文的 warning），列表命令用 `shlex.join`；`check`、timeout 与输出映射保持 ROCK 语义。
+- [x] 文件读取在 Admin 侧按 `encoding/errors` 解码；写入保留现有 mode，新文件用 `644`；上传将 `UploadFile.file` 直接交给 SDK 流式写入，不整文件读入内存。
+- [x] `use_server_proxy` 严格遵循配置，不在直连和 server-proxy 间自动 fallback。
 
 ### 2.4 能力降级与边界
 
-- [ ] 对 OpenSandbox 不支持的操作（如 bash session、portforward），在 `SandboxManager` 或 backend 层给出清晰的 `BadRequestRockError`（错误码走 `rock._codes`），并在文档记录后端能力矩阵。
+- [x] session 与 portforward 在路由边界返回清晰的 `BadRequestRockError`，且不会回退到 rocklet。
 - [ ] `scheduler/tasks/*`（container/image/file cleanup 等）目前直接 `RemoteSandboxRuntime(ip)` 连 rocklet——这些是**worker 维度**的运维任务，仅在 ray/docker 后端有意义。确认 opensandbox 后端下这些定时任务应被跳过（按 operator_type gate），避免对 OpenSandbox 沙箱误发 rocklet 请求。
 
-**Phase 2 验收**：`operator_type: opensandbox` 端到端（mock SDK）跑通 create → execute → read/write file → stop；rocklet 后端行为零回归（全部旧测试绿）。
+**本 PR 验收边界**：mock SDK 跑通 execute/read/write/upload/status，且 rocklet 回归测试通过。真实 OpenSandbox E2E 证据单独记录；scheduler、session、portforward、混合 operator 迁移与远程取消不计入本 PR 完成范围。
 
 ---
 
