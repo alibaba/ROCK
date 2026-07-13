@@ -1,9 +1,11 @@
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from fastapi import UploadFile
 
-from rock.admin.proto.request import SandboxCommand
+from rock.admin.proto.request import SandboxCommand, SandboxReadFileRequest, SandboxWriteFileRequest
 from rock.rocklet.exceptions import NonZeroExitCodeError
 from rock.sandbox.service.backends.opensandbox import OpenSandboxBackend
 from rock.sdk.common.exceptions import BadRequestRockError
@@ -107,3 +109,88 @@ async def test_missing_opensandbox_id_fails_before_client_call(client):
         )
 
     client.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_read_file_decodes_bytes_with_requested_error_policy(client):
+    client.read_bytes.return_value = b"hello\xffworld"
+    backend = OpenSandboxBackend(client)
+
+    result = await backend.read_file(
+        "sbx-1",
+        _info(),
+        SandboxReadFileRequest(
+            path="/tmp/a",
+            encoding="utf-8",
+            errors="replace",
+            sandbox_id="sbx-1",
+        ),
+    )
+
+    assert result.content == "hello�world"
+    client.read_bytes.assert_awaited_once_with("osb-1", "/tmp/a")
+
+
+@pytest.mark.asyncio
+async def test_write_file_uses_644_for_new_file(client):
+    client.get_file_info.return_value = {}
+    backend = OpenSandboxBackend(client)
+
+    result = await backend.write_file(
+        "sbx-1",
+        _info(),
+        SandboxWriteFileRequest(path="/tmp/a", content="hello", sandbox_id="sbx-1"),
+    )
+
+    assert result.success is True
+    client.write_file.assert_awaited_once_with("osb-1", "/tmp/a", "hello", mode=644)
+
+
+@pytest.mark.asyncio
+async def test_write_file_preserves_existing_mode(client):
+    client.get_file_info.return_value = {"/tmp/a": SimpleNamespace(mode=755)}
+    backend = OpenSandboxBackend(client)
+
+    await backend.write_file(
+        "sbx-1",
+        _info(),
+        SandboxWriteFileRequest(path="/tmp/a", content="hello", sandbox_id="sbx-1"),
+    )
+
+    client.write_file.assert_awaited_once_with("osb-1", "/tmp/a", "hello", mode=755)
+
+
+@pytest.mark.asyncio
+async def test_write_aborts_when_metadata_lookup_fails(client):
+    client.get_file_info.side_effect = RuntimeError("metadata unavailable")
+    backend = OpenSandboxBackend(client)
+
+    with pytest.raises(RuntimeError, match="metadata unavailable"):
+        await backend.write_file(
+            "sbx-1",
+            _info(),
+            SandboxWriteFileRequest(path="/tmp/a", content="hello", sandbox_id="sbx-1"),
+        )
+
+    client.write_file.assert_not_awaited()
+
+
+class NoReadAll(BytesIO):
+    def read(self, size=-1):
+        if size == -1:
+            raise AssertionError("upload must not read the whole file")
+        return super().read(size)
+
+
+@pytest.mark.asyncio
+async def test_upload_passes_stream_without_buffering(client):
+    client.get_file_info.return_value = {}
+    backend = OpenSandboxBackend(client)
+    stream = NoReadAll(b"payload")
+    upload = UploadFile(file=stream, filename="payload.bin")
+
+    result = await backend.upload("sbx-1", _info(), upload, "/tmp/payload.bin")
+
+    assert result.success is True
+    assert result.file_name == "payload.bin"
+    client.write_file.assert_awaited_once_with("osb-1", "/tmp/payload.bin", stream, mode=644)

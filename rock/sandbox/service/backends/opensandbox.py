@@ -1,7 +1,10 @@
 import shlex
+from pathlib import Path
 
-from rock.actions import CommandResponse
-from rock.admin.proto.request import SandboxCommand
+from fastapi import UploadFile
+
+from rock.actions import CommandResponse, ReadFileResponse, UploadResponse, WriteFileResponse
+from rock.admin.proto.request import SandboxCommand, SandboxReadFileRequest, SandboxWriteFileRequest
 from rock.logger import init_logger
 from rock.rocklet.exceptions import NonZeroExitCodeError
 from rock.sandbox.operator.opensandbox.client import OpenSandboxClient
@@ -50,6 +53,33 @@ class OpenSandboxBackend:
                 message = f"{command.error_msg}: {message}"
             raise NonZeroExitCodeError(message)
         return response
+
+    async def read_file(self, sandbox_id: str, info: dict, request: SandboxReadFileRequest) -> ReadFileResponse:
+        opensandbox_id = self._opensandbox_id(info)
+        content = await self._client.read_bytes(opensandbox_id, request.path)
+        return ReadFileResponse(
+            content=content.decode(
+                encoding=request.encoding or "utf-8",
+                errors=request.errors or "strict",
+            )
+        )
+
+    async def _file_mode(self, opensandbox_id: str, path: str) -> int:
+        info_by_path = await self._client.get_file_info(opensandbox_id, path)
+        existing = info_by_path.get(path)
+        return existing.mode if existing is not None else 644
+
+    async def write_file(self, sandbox_id: str, info: dict, request: SandboxWriteFileRequest) -> WriteFileResponse:
+        opensandbox_id = self._opensandbox_id(info)
+        mode = await self._file_mode(opensandbox_id, request.path)
+        await self._client.write_file(opensandbox_id, request.path, request.content, mode=mode)
+        return WriteFileResponse(success=True)
+
+    async def upload(self, sandbox_id: str, info: dict, file: UploadFile, target_path: str) -> UploadResponse:
+        opensandbox_id = self._opensandbox_id(info)
+        mode = await self._file_mode(opensandbox_id, target_path)
+        await self._client.write_file(opensandbox_id, target_path, file.file, mode=mode)
+        return UploadResponse(success=True, file_name=Path(target_path).name)
 
     async def aclose(self) -> None:
         await self._client.aclose()
