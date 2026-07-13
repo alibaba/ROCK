@@ -1,6 +1,8 @@
 """Unit tests for OpenSandboxClient with an injected fake SDK."""
 
+from datetime import timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -14,6 +16,8 @@ class FakeSandbox:
 
     created_kwargs = None
     raise_on_create = False
+    connected_kwargs = None
+    connected_handle = None
 
     def __init__(self, sandbox_id, state="Running"):
         self.id = sandbox_id
@@ -26,10 +30,20 @@ class FakeSandbox:
         cls.created_kwargs = {"image": image, **kwargs}
         return cls("osb-new")
 
+    @classmethod
+    async def connect(cls, sandbox_id, **kwargs):
+        cls.connected_kwargs = {"sandbox_id": sandbox_id, **kwargs}
+        return cls.connected_handle
+
 
 class FakeConnectionConfig:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
+
+
+class FakeRunCommandOpts:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
 
 
 class FakeLifecycleService:
@@ -55,6 +69,8 @@ class FakeLifecycleService:
 def _reset_fake():
     FakeSandbox.created_kwargs = None
     FakeSandbox.raise_on_create = False
+    FakeSandbox.connected_kwargs = None
+    FakeSandbox.connected_handle = None
 
 
 @pytest.fixture
@@ -63,6 +79,7 @@ def client():
         OpenSandboxConfig(endpoint="opensandbox.local", api_key="k", protocol="http"),
         sandbox_cls=FakeSandbox,
         connection_config_cls=FakeConnectionConfig,
+        run_command_opts_cls=FakeRunCommandOpts,
     )
     result._lifecycle_service = FakeLifecycleService()
     return result
@@ -137,3 +154,92 @@ async def test_connection_config_built_from_rock_config(client):
     assert conn.kwargs["domain"] == "opensandbox.local"
     assert conn.kwargs["protocol"] == "http"
     assert conn.kwargs["use_server_proxy"] is False
+    assert conn.kwargs["request_timeout"] == timedelta(seconds=600)
+
+
+class FakeRuntimeHandle:
+    def __init__(self):
+        self.commands = SimpleNamespace(run=AsyncMock(return_value=SimpleNamespace(exit_code=0)))
+        self.files = SimpleNamespace(
+            read_bytes=AsyncMock(return_value=b"hello"),
+            get_file_info=AsyncMock(return_value={}),
+            write_file=AsyncMock(),
+        )
+        self.close = AsyncMock()
+
+
+@pytest.fixture
+def runtime_client():
+    transport = SimpleNamespace(aclose=AsyncMock())
+    result = OpenSandboxClient(
+        OpenSandboxConfig(endpoint="opensandbox.local", default_timeout=45),
+        sandbox_cls=FakeSandbox,
+        connection_config_cls=FakeConnectionConfig,
+        run_command_opts_cls=FakeRunCommandOpts,
+        transport=transport,
+    )
+    result._lifecycle_service = FakeLifecycleService()
+    return result, transport
+
+
+@pytest.mark.asyncio
+async def test_read_bytes_connects_without_health_check_and_closes_handle(runtime_client):
+    client, _ = runtime_client
+    handle = FakeRuntimeHandle()
+    FakeSandbox.connected_handle = handle
+
+    result = await client.read_bytes("osb-1", "/tmp/a")
+
+    assert result == b"hello"
+    assert FakeSandbox.connected_kwargs["skip_health_check"] is True
+    handle.files.read_bytes.assert_awaited_once_with("/tmp/a")
+    handle.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_runtime_handle_closes_when_operation_fails(runtime_client):
+    client, _ = runtime_client
+    handle = FakeRuntimeHandle()
+    handle.files.read_bytes.side_effect = RuntimeError("boom")
+    FakeSandbox.connected_handle = handle
+
+    with pytest.raises(InternalServerRockError, match="opensandbox read_bytes failed"):
+        await client.read_bytes("osb-1", "/tmp/a")
+
+    handle.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_runtime_primitives_delegate_to_handle(runtime_client):
+    client, _ = runtime_client
+    handle = FakeRuntimeHandle()
+    FakeSandbox.connected_handle = handle
+    stream = SimpleNamespace()
+
+    await client.execute("osb-1", "pwd", timeout=3, cwd="/tmp", env={"A": "B"})
+    await client.get_file_info("osb-1", "/tmp/a")
+    await client.write_file("osb-1", "/tmp/a", stream, mode=644)
+
+    run_opts = handle.commands.run.await_args.kwargs["opts"]
+    assert run_opts.timeout == timedelta(seconds=3)
+    assert run_opts.working_directory == "/tmp"
+    assert run_opts.envs == {"A": "B"}
+    handle.files.get_file_info.assert_awaited_once_with(["/tmp/a"])
+    handle.files.write_file.assert_awaited_once_with("/tmp/a", stream, mode=644)
+    assert handle.close.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_aclose_closes_injected_transport_once(runtime_client):
+    client, transport = runtime_client
+
+    await client.aclose()
+    await client.aclose()
+
+    transport.aclose.assert_awaited_once()
+
+
+@pytest.mark.parametrize("timeout", [0, -1])
+def test_non_positive_default_timeout_is_rejected(timeout):
+    with pytest.raises(ValueError, match="default_timeout must be positive"):
+        OpenSandboxClient(OpenSandboxConfig(default_timeout=timeout))
