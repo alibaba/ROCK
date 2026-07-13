@@ -40,7 +40,13 @@ from rock.deployments.status import ServiceStatus
 from rock.common.port_validation import validate_port_forward_port
 from rock.logger import init_logger
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
-from rock.sandbox.service.backends import OPENSANDBOX_BACKEND, ROCKLET_BACKEND, RockletBackend
+from rock.sandbox.operator.opensandbox.client import OpenSandboxClient
+from rock.sandbox.service.backends import (
+    OPENSANDBOX_BACKEND,
+    ROCKLET_BACKEND,
+    OpenSandboxBackend,
+    RockletBackend,
+)
 from rock.sandbox.utils.proxy import build_upstream_ws_headers
 from rock.sandbox.utils.rocklet_probe import check_alive_status, get_remote_status
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
@@ -70,7 +76,12 @@ class SandboxProxyService:
         # Control-plane RPC client: short JSON calls to rocklet.
         self._rpc_client = rock_config.http_pool_manager.get("rpc")
         self._rocklet_backend = RockletBackend(self._rpc_client)
-        self._backends = backends or {ROCKLET_BACKEND: self._rocklet_backend}
+        if backends is not None:
+            self._backends = backends
+        else:
+            self._backends = {ROCKLET_BACKEND: self._rocklet_backend}
+            if rock_config.runtime.operator_type.lower() == OPENSANDBOX_BACKEND:
+                self._backends[OPENSANDBOX_BACKEND] = OpenSandboxBackend(OpenSandboxClient(rock_config.opensandbox))
         # Data-plane proxy client: streaming/SSE/large bodies. No total timeout;
         # per-request timeout is set via build_request(timeout=...). NEVER closed
         # per-request — lives for the process lifetime, closed in aclose().
@@ -100,8 +111,11 @@ class SandboxProxyService:
         self._validate_oss_config_or_warn()
 
     async def aclose(self) -> None:
-        """No-op: clients are now managed by HttpPoolManager and closed in lifespan."""
-        pass
+        """Close backend-owned resources; pooled ROCK clients are closed by HttpPoolManager."""
+        for backend in {id(item): item for item in self._backends.values()}.values():
+            close = getattr(backend, "aclose", None)
+            if close is not None:
+                await close()
 
     def _validate_oss_config_or_warn(self) -> None:
         # Same resolution order as gen_oss_sts_token: env > YAML
