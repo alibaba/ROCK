@@ -1,4 +1,5 @@
 import shlex
+from io import IOBase
 from pathlib import Path
 
 from fastapi import UploadFile
@@ -12,6 +13,22 @@ from rock.sandbox.operator.opensandbox.client import OpenSandboxClient
 from rock.sdk.common.exceptions import BadRequestRockError
 
 logger = init_logger(__name__)
+
+
+class _BinaryStreamAdapter(IOBase):
+    """Expose UploadFile's file-like stream as the IOBase expected by the SDK."""
+
+    def __init__(self, stream):
+        self._stream = stream
+
+    def read(self, size=-1):
+        return self._stream.read(size)
+
+    def seek(self, offset, whence=0):
+        return self._stream.seek(offset, whence)
+
+    def seekable(self):
+        return self._stream.seekable()
 
 
 class OpenSandboxBackend:
@@ -93,7 +110,8 @@ class OpenSandboxBackend:
     async def upload(self, sandbox_id: str, info: dict, file: UploadFile, target_path: str) -> UploadResponse:
         opensandbox_id = self._opensandbox_id(info)
         mode = await self._file_mode(opensandbox_id, target_path)
-        await self._client.write_file(opensandbox_id, target_path, file.file, mode=mode)
+        stream = file.file if isinstance(file.file, IOBase) else _BinaryStreamAdapter(file.file)
+        await self._client.write_file(opensandbox_id, target_path, stream, mode=mode)
         return UploadResponse(success=True, file_name=Path(target_path).name)
 
     async def aclose(self) -> None:

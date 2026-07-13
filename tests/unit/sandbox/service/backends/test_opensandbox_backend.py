@@ -1,4 +1,4 @@
-from io import BytesIO
+from io import BytesIO, IOBase
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -200,6 +200,20 @@ class NoReadAll(BytesIO):
         return super().read(size)
 
 
+class NonIOStream:
+    def __init__(self, data: bytes):
+        self._stream = NoReadAll(data)
+
+    def read(self, size=-1):
+        return self._stream.read(size)
+
+    def seek(self, offset, whence=0):
+        return self._stream.seek(offset, whence)
+
+    def seekable(self):
+        return True
+
+
 @pytest.mark.asyncio
 async def test_upload_passes_stream_without_buffering(client):
     client.get_file_info.return_value = {}
@@ -212,6 +226,20 @@ async def test_upload_passes_stream_without_buffering(client):
     assert result.success is True
     assert result.file_name == "payload.bin"
     client.write_file.assert_awaited_once_with("osb-1", "/tmp/payload.bin", stream, mode=644)
+
+
+@pytest.mark.asyncio
+async def test_upload_adapts_non_iobase_stream_without_buffering(client):
+    client.get_file_info.return_value = {}
+    backend = OpenSandboxBackend(client)
+    stream = NonIOStream(b"payload")
+    upload = UploadFile(file=stream, filename="payload.bin")
+
+    await backend.upload("sbx-1", _info(), upload, "/tmp/payload.bin")
+
+    passed_stream = client.write_file.await_args.args[2]
+    assert isinstance(passed_stream, IOBase)
+    assert passed_stream.read(3) == b"pay"
 
 
 @pytest.mark.asyncio

@@ -186,8 +186,14 @@ class OpenSandboxClient:
             return await handle.files.read_bytes(path)
 
     async def get_file_info(self, opensandbox_id: str, path: str):
-        async with self._runtime_handle(opensandbox_id, "get_file_info") as handle:
-            return await handle.files.get_file_info([path])
+        try:
+            async with self._runtime_handle(opensandbox_id, "get_file_info") as handle:
+                return await handle.files.get_file_info([path])
+        except InternalServerRockError as e:
+            sdk_error = getattr(e.__cause__, "error", None)
+            if getattr(sdk_error, "code", None) == "FILE_NOT_FOUND":
+                return {}
+            raise
 
     async def write_file(self, opensandbox_id: str, path: str, data: str | bytes | IO, *, mode: int) -> None:
         async with self._runtime_handle(opensandbox_id, "write_file") as handle:

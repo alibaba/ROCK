@@ -210,6 +210,19 @@ async def test_runtime_handle_closes_when_operation_fails(runtime_client):
 
 
 @pytest.mark.asyncio
+async def test_get_file_info_returns_empty_mapping_when_path_is_missing(runtime_client):
+    client, _ = runtime_client
+    handle = FakeRuntimeHandle()
+    missing = RuntimeError("file not found")
+    missing.error = SimpleNamespace(code="FILE_NOT_FOUND")
+    handle.files.get_file_info.side_effect = missing
+    FakeSandbox.connected_handle = handle
+
+    assert await client.get_file_info("osb-1", "/tmp/missing") == {}
+    handle.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_runtime_primitives_delegate_to_handle(runtime_client):
     client, _ = runtime_client
     handle = FakeRuntimeHandle()
