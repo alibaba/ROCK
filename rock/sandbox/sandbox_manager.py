@@ -353,7 +353,10 @@ class SandboxManager(BaseManager):
             raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
 
         if operator_sandbox_info is not None:
-            sandbox_info = operator_sandbox_info
+            merged_sandbox_info = {**sandbox_info, **operator_sandbox_info}
+            if not operator_sandbox_info.get("phases") and sandbox_info.get("phases"):
+                merged_sandbox_info["phases"] = sandbox_info["phases"]
+            sandbox_info = merged_sandbox_info
 
         return SandboxStatusResponse(
             sandbox_id=sandbox_id,

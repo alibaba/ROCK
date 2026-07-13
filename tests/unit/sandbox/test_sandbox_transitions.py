@@ -166,6 +166,26 @@ class TestManagerGetStatus:
         assert result.is_alive is True
 
     @pytest.mark.asyncio
+    async def test_get_status_keeps_cached_phases_when_operator_phases_empty(
+        self, mgr, mock_meta_store, mock_operator
+    ):
+        mock_meta_store.get.return_value = {
+            "state": State.PENDING,
+            "phases": {"image_pull": {"status": "running", "message": "pulling"}},
+        }
+        mock_operator.get_status.return_value = {
+            "state": State.PENDING,
+            "host_name": "h1",
+            "host_ip": "1.2.3.4",
+            "phases": {},
+            "port_mapping": {},
+        }
+
+        result = await mgr.get_status("sb-1")
+
+        assert result.status == {"image_pull": {"status": "running", "message": "pulling"}}
+
+    @pytest.mark.asyncio
     async def test_updates_meta_on_state_change(self, mgr, mock_meta_store, mock_operator):
         mock_meta_store.get.return_value = {"state": State.PENDING}
         mock_operator.get_status.return_value = {"state": State.RUNNING, "phases": {}, "port_mapping": {}}
