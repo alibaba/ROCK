@@ -92,6 +92,80 @@ async def test_runtime_config_instance_registry_mirrors_from_yaml(tmp_path, monk
     ]
 
 
+def test_opensandbox_config_defaults():
+    from rock.config import OpenSandboxConfig
+
+    cfg = OpenSandboxConfig()
+    assert cfg.endpoint == ""
+    assert cfg.api_key is None
+    assert cfg.protocol == "https"
+    assert cfg.runtime == "docker"
+    assert cfg.namespace == "rock"
+    assert cfg.use_server_proxy is False
+    assert cfg.default_timeout == 600
+    assert cfg.image_registry_prefix is None
+
+
+def test_opensandbox_config_accepts_overrides():
+    from rock.config import OpenSandboxConfig
+
+    cfg = OpenSandboxConfig(
+        endpoint="api.opensandbox.example.com",
+        api_key="secret",
+        protocol="http",
+        runtime="k8s",
+        namespace="ns-a",
+        use_server_proxy=False,
+        default_timeout=1200,
+        image_registry_prefix="registry.example.com/library",
+    )
+    assert cfg.endpoint == "api.opensandbox.example.com"
+    assert cfg.api_key == "secret"
+    assert cfg.protocol == "http"
+    assert cfg.runtime == "k8s"
+    assert cfg.namespace == "ns-a"
+    assert cfg.use_server_proxy is False
+    assert cfg.default_timeout == 1200
+    assert cfg.image_registry_prefix == "registry.example.com/library"
+
+
+def test_rock_config_has_opensandbox_default():
+    from rock.config import OpenSandboxConfig
+
+    cfg = RockConfig()
+    assert isinstance(cfg.opensandbox, OpenSandboxConfig)
+    assert cfg.opensandbox.endpoint == ""
+
+
+@pytest.mark.asyncio
+async def test_opensandbox_config_from_yaml(tmp_path, monkeypatch):
+    yaml_path = tmp_path / "rock-test.yml"
+    yaml_path.write_text(
+        yaml.safe_dump(
+            {
+                "runtime": {"operator_type": "opensandbox"},
+                "opensandbox": {
+                    "endpoint": "api.opensandbox.example.com",
+                    "api_key": "secret",
+                    "protocol": "http",
+                    "runtime": "k8s",
+                    "image_registry_prefix": "registry.example.com/library",
+                },
+            }
+        )
+    )
+    # RuntimeConfig.__post_init__ requires ROCK_PYTHON_ENV_PATH + ROCK_ENVHUB_DB_URL.
+    monkeypatch.setenv("ROCK_PYTHON_ENV_PATH", "/usr")
+    monkeypatch.setenv("ROCK_ENVHUB_DB_URL", "sqlite:////tmp/test.db")
+    rock_config = RockConfig.from_env(str(yaml_path))
+    assert rock_config.runtime.operator_type == "opensandbox"
+    assert rock_config.opensandbox.endpoint == "api.opensandbox.example.com"
+    assert rock_config.opensandbox.api_key == "secret"
+    assert rock_config.opensandbox.protocol == "http"
+    assert rock_config.opensandbox.runtime == "k8s"
+    assert rock_config.opensandbox.image_registry_prefix == "registry.example.com/library"
+
+
 def test_oss_config_defaults():
     from rock.config import OssAccountConfig, OssConfig
 

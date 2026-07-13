@@ -2963,6 +2963,21 @@ wheels = [
 ]
 
 [[package]]
+name = "opensandbox"
+version = "0.1.13"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "attrs" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "python-dateutil" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/3e/e2/d2716adfca0cce6af3913035372d2f8cbe6a836e595d4747e19481113439/opensandbox-0.1.13.tar.gz", hash = "sha256:eab4b6597b2941f0418fa186a377c15b01acb8549f24f84963e7c15434232977" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/f1/57/74459959e69e4271929ab3658c5abcbbf977977d126ddd7d861bfde4d0e5/opensandbox-0.1.13-py3-none-any.whl", hash = "sha256:8decd1eb952a3b539fecaf443b025c24d6d4a535f62242abd11644bc20505570" },
+]
+
+[[package]]
 name = "opentelemetry-api"
 version = "1.38.0"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -4432,6 +4447,7 @@ admin = [
     { name = "kubernetes" },
     { name = "nacos-sdk-python" },
     { name = "numpy" },
+    { name = "opensandbox" },
     { name = "pexpect", marker = "sys_platform != 'win32'" },
     { name = "pip" },
     { name = "psutil" },
@@ -4462,6 +4478,7 @@ all = [
     { name = "kubernetes" },
     { name = "nacos-sdk-python" },
     { name = "numpy" },
+    { name = "opensandbox" },
     { name = "pexpect", marker = "sys_platform != 'win32'" },
     { name = "pip" },
     { name = "psutil" },
@@ -4557,6 +4574,7 @@ requires-dist = [
     { name = "nacos-sdk-python", marker = "extra == 'sandbox-actor'", specifier = ">=0.1.14" },
     { name = "numpy", marker = "extra == 'rocklet'", specifier = "<=2.2.6" },
     { name = "openai", marker = "extra == 'model-service'", specifier = ">=1.50.0" },
+    { name = "opensandbox", marker = "extra == 'admin'", specifier = ">=0.1.13" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-exporter-prometheus" },
