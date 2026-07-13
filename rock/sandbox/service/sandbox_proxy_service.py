@@ -40,7 +40,7 @@ from rock.deployments.status import ServiceStatus
 from rock.common.port_validation import validate_port_forward_port
 from rock.logger import init_logger
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
-from rock.sandbox.service.backends import RockletBackend
+from rock.sandbox.service.backends import OPENSANDBOX_BACKEND, ROCKLET_BACKEND, RockletBackend
 from rock.sandbox.utils.proxy import build_upstream_ws_headers
 from rock.sandbox.utils.rocklet_probe import check_alive_status, get_remote_status
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
@@ -53,7 +53,7 @@ logger = init_logger(__name__)
 
 
 class SandboxProxyService:
-    def __init__(self, rock_config: RockConfig, meta_store: SandboxMetaStore):
+    def __init__(self, rock_config: RockConfig, meta_store: SandboxMetaStore, backends: dict | None = None):
         self._rock_config = rock_config
         self._meta_store = meta_store
         self.metrics_monitor = MetricsMonitor.create(
@@ -70,6 +70,7 @@ class SandboxProxyService:
         # Control-plane RPC client: short JSON calls to rocklet.
         self._rpc_client = rock_config.http_pool_manager.get("rpc")
         self._rocklet_backend = RockletBackend(self._rpc_client)
+        self._backends = backends or {ROCKLET_BACKEND: self._rocklet_backend}
         # Data-plane proxy client: streaming/SSE/large bodies. No total timeout;
         # per-request timeout is set via build_request(timeout=...). NEVER closed
         # per-request — lives for the process lifetime, closed in aclose().
@@ -128,6 +129,7 @@ class SandboxProxyService:
     async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
         sandbox_id = request.sandbox_id
         await self._update_expire_time(sandbox_id)
+        await self._require_capability_backend(sandbox_id, "sessions")
         sandbox_status_dicts = await self.get_service_status(sandbox_id)
         response = await self._send_request(
             sandbox_id, sandbox_status_dicts[0], "create_session", None, request.model_dump(), None, "POST"
@@ -138,6 +140,7 @@ class SandboxProxyService:
     async def run_in_session(self, action: BashAction) -> BashObservation:
         sandbox_id = action.sandbox_id
         await self._update_expire_time(sandbox_id)
+        await self._require_capability_backend(sandbox_id, "sessions")
         sandbox_status_dicts = await self.get_service_status(sandbox_id)
         response = await self._send_request(
             sandbox_id, sandbox_status_dicts[0], "run_in_session", None, action.model_dump(), None, "POST"
@@ -148,6 +151,7 @@ class SandboxProxyService:
     async def close_session(self, request: CloseBashSessionRequest) -> CloseBashSessionResponse:
         sandbox_id = request.sandbox_id
         await self._update_expire_time(sandbox_id)
+        await self._require_capability_backend(sandbox_id, "sessions")
         sandbox_status_dicts = await self.get_service_status(sandbox_id)
         response = await self._send_request(
             sandbox_id, sandbox_status_dicts[0], "close_session", None, request.model_dump(), None, "POST"
@@ -171,40 +175,28 @@ class SandboxProxyService:
     async def read_file(self, request: ReadFileRequest) -> ReadFileResponse:
         sandbox_id = request.sandbox_id
         await self._update_expire_time(sandbox_id)
-        sandbox_status_dicts = await self.get_service_status(sandbox_id)
-        response = await self._send_request(
-            sandbox_id, sandbox_status_dicts[0], "read_file", None, request.model_dump(), None, "POST"
-        )
-        return ReadFileResponse(**response)
+        info = await self._get_runtime_info(sandbox_id)
+        return await self._resolve_backend(info).read_file(sandbox_id, info, request)
 
     @monitor_sandbox_operation()
     async def write_file(self, request: WriteFileRequest) -> WriteFileResponse:
         sandbox_id = request.sandbox_id
         await self._update_expire_time(sandbox_id)
-        sandbox_status_dicts = await self.get_service_status(sandbox_id)
-        response = await self._send_request(
-            sandbox_id, sandbox_status_dicts[0], "write_file", None, request.model_dump(), None, "POST"
-        )
-        return WriteFileResponse(**response)
+        info = await self._get_runtime_info(sandbox_id)
+        return await self._resolve_backend(info).write_file(sandbox_id, info, request)
 
     @monitor_sandbox_operation()
     async def upload(self, file: UploadFile, target_path: str, sandbox_id: str) -> UploadResponse:
         await self._update_expire_time(sandbox_id)
-        sandbox_status_dicts = await self.get_service_status(sandbox_id)
-        data = {"target_path": target_path, "unzip": "false"}
-        files = {"file": (file.filename, file.file, file.content_type)}
-        response = await self._send_request(sandbox_id, sandbox_status_dicts[0], "upload", data, None, files, "POST")
-        return UploadResponse(**response)
+        info = await self._get_runtime_info(sandbox_id)
+        return await self._resolve_backend(info).upload(sandbox_id, info, file, target_path)
 
     @monitor_sandbox_operation()
     async def execute(self, command: Command) -> CommandResponse:
         sandbox_id = command.sandbox_id
         await self._update_expire_time(sandbox_id)
-        sandbox_status_dicts = await self.get_service_status(sandbox_id)
-        response = await self._send_request(
-            sandbox_id, sandbox_status_dicts[0], "execute", None, command.model_dump(), None, "POST"
-        )
-        return CommandResponse(**response)
+        info = await self._get_runtime_info(sandbox_id)
+        return await self._resolve_backend(info).execute(sandbox_id, info, command)
 
     @monitor_sandbox_operation()
     async def batch_get_sandbox_status(self, sandbox_ids: list[str]) -> list[SandboxStatusResponse]:
@@ -339,6 +331,7 @@ class SandboxProxyService:
         # Get sandbox status and rocklet portforward URL
         logger.info(f"[Portforward] Fetching sandbox status: sandbox={sandbox_id}, target_port={port}")
         try:
+            await self._require_capability_backend(sandbox_id, "portforward")
             status_dicts = await self.get_service_status(sandbox_id)
             logger.info(
                 f"[Portforward] Sandbox status retrieved: sandbox={sandbox_id}, target_port={port}, "
@@ -635,6 +628,41 @@ class SandboxProxyService:
                     break
         except Exception as e:
             logger.info(f"Connection closed in {direction}: {e}")
+
+    async def _get_runtime_info(self, sandbox_id: str) -> dict:
+        info = await self._meta_store.get(sandbox_id)
+        if not info:
+            raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
+        if info.get("state") != State.RUNNING:
+            raise BadRequestRockError(f"Sandbox {sandbox_id} is not running (state={info.get('state')})")
+        return info
+
+    def _resolve_backend_name(self, info: dict) -> str:
+        operator_type = self._rock_config.runtime.operator_type.lower()
+        backend = (info.get("extended_params") or {}).get("backend")
+        expected = OPENSANDBOX_BACKEND if operator_type == OPENSANDBOX_BACKEND else ROCKLET_BACKEND
+
+        if backend is None:
+            if expected == OPENSANDBOX_BACKEND:
+                raise BadRequestRockError("OpenSandbox sandbox metadata is missing required backend")
+            return ROCKLET_BACKEND
+        if backend not in (ROCKLET_BACKEND, OPENSANDBOX_BACKEND):
+            raise BadRequestRockError(f"Unknown sandbox backend: {backend}")
+        if backend != expected:
+            raise BadRequestRockError(f"Sandbox backend {backend} conflicts with configured operator {operator_type}")
+        return backend
+
+    def _resolve_backend(self, info: dict):
+        backend_name = self._resolve_backend_name(info)
+        backend = self._backends.get(backend_name)
+        if backend is None:
+            raise BadRequestRockError(f"Sandbox backend {backend_name} is not configured")
+        return backend
+
+    async def _require_capability_backend(self, sandbox_id: str, capability: str) -> None:
+        info = await self._get_runtime_info(sandbox_id)
+        if self._resolve_backend_name(info) == OPENSANDBOX_BACKEND:
+            raise BadRequestRockError(f"OpenSandbox backend does not support {capability} in this release")
 
     async def get_service_status(self, sandbox_id: str):
         sandbox_info = await self._meta_store.get(sandbox_id)
