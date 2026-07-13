@@ -176,7 +176,10 @@ class RemoteSandboxRuntime(AbstractSandbox):
     def _request(self, endpoint: str, request: BaseModel | None, output_class: Any):
         """Small helper to make requests to the server and handle errors and output."""
         response = requests.post(
-            f"{self._api_url}/{endpoint}", json=request.model_dump() if request else None, headers=self._headers
+            f"{self._api_url}/{endpoint}",
+            json=request.model_dump() if request else None,
+            headers=self._headers,
+            timeout=90,
         )
         self._handle_response_errors(response)
         return output_class(**response.json())
