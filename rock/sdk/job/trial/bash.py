@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
 from pathlib import Path
@@ -83,35 +84,70 @@ class BashTrial(AbstractTrial):
                 raise ValueError(f"oss_mirror.enabled=True but {env_key} is not resolvable")
 
         env["ROCK_ARTIFACT_DIR"] = env_vars.ROCK_BASH_JOB_ARTIFACT_DIR
-        env[
-            "ROCK_OSS_PREFIX"
-        ] = f"artifacts/{self._config.namespace}/{self._config.experiment_id}/{self._config.job_name}"
+        env["ROCK_OSS_PREFIX"] = (
+            f"artifacts/{self._config.namespace}/{self._config.experiment_id}/{self._config.job_name}"
+        )
 
-    @staticmethod
-    def _render_wrapper(user_script: str, token: str | None = None) -> str:
+    def _render_meta_template(self, status_placeholder: str) -> str:
+        """Render a rock_meta.json template with placeholders for runtime values.
+
+        All config-derived fields are baked in at Python render time via json.dumps.
+        Runtime values use unique __ROCK_*__ placeholders that sed replaces later.
+        The result is always valid JSON (placeholders are quoted strings / integers).
+        """
+        user_id = getattr(self._config.environment, "user_id", None) or os.environ.get("ROCK_USER_ID")
+        image = getattr(self._config.environment, "image", None)
+        return (
+            "{\n"
+            '  "schema_version": "1",\n'
+            f'  "job_name": {json.dumps(self._config.job_name or "")},\n'
+            '  "job_type": "bash",\n'
+            f'  "status": "{status_placeholder}",\n'
+            f'  "namespace": {json.dumps(self._config.namespace)},\n'
+            f'  "experiment_id": {json.dumps(self._config.experiment_id)},\n'
+            f'  "user_id": {json.dumps(user_id)},\n'
+            f'  "image": {json.dumps(image)},\n'
+            f'  "labels": {json.dumps(self._config.labels)},\n'
+            '  "started_at": "__ROCK_STARTED__",\n'
+            '  "finished_at": "__ROCK_FINISHED__",\n'
+            '  "exit_code": __ROCK_EXIT_CODE__\n'
+            "}"
+        )
+
+    def _render_wrapper(self, user_script: str, token: str | None = None) -> str:
         """Render the BashJob wrapper script.
 
-        Structure: prologue (mkdir + touch + initial upload) → user script
-        (isolated in a single-quoted heredoc) → epilogue (final upload) → exit
+        Structure: prologue (mkdir + meta running + initial upload) → user script
+        (isolated in a single-quoted heredoc) → epilogue (meta final + upload) → exit
         with user's exit code.
 
-        When ``token`` is ``None`` a random 8-char hex is generated. Collision
-        probability is ~2^-32 and collisions also require the user script to
-        contain the terminator on its own line, which is not actively guarded
-        against — the risk is acceptable.
+        All heredocs use single-quoted delimiters to prevent shell expansion.
+        Runtime values are injected via sed placeholder replacement.
         """
         if token is None:
             token = secrets.token_hex(4)  # 8-char hex
         eof = f"__ROCK_USER_SCRIPT_EOF_{token}__"
+
+        meta_running = self._render_meta_template("running")
+        meta_final = self._render_meta_template("__ROCK_STATUS__")
+
         return (
             "#!/bin/bash\n"
             "# rock bash-job wrapper (generated, do not edit)\n"
             "# OSS credentials and paths come from session env; no secrets in this file.\n"
             "set +e\n"
             "\n"
-            "# -- prologue: prepare artifact dir and do an initial placeholder upload --\n"
+            "# -- prologue: prepare artifact dir, write meta, initial upload --\n"
+            "_rock_started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)\n"
             'mkdir -p "$ROCK_ARTIFACT_DIR"\n'
             'touch "$ROCK_ARTIFACT_DIR/.placeholder"\n'
+            "\n"
+            f"cat > \"$ROCK_ARTIFACT_DIR/rock_meta.json\" << '__ROCK_META_EOF__'\n"
+            f"{meta_running}\n"
+            "__ROCK_META_EOF__\n"
+            'sed -i "s/__ROCK_STARTED__/$_rock_started_at/g; s/__ROCK_FINISHED__//g; s/__ROCK_EXIT_CODE__/0/g"'
+            ' "$ROCK_ARTIFACT_DIR/rock_meta.json" 2>/dev/null || true\n'
+            "\n"
             'ossutil cp "$ROCK_ARTIFACT_DIR/" "oss://$OSS_BUCKET/$ROCK_OSS_PREFIX/" \\\n'
             "    --recursive -f >/dev/null 2>&1 || true\n"
             "\n"
@@ -121,7 +157,17 @@ class BashTrial(AbstractTrial):
             f"{eof}\n"
             "_rock_user_rc=$?\n"
             "\n"
-            "# -- epilogue: final upload (failure is logged but does not change exit code) --\n"
+            "# -- epilogue: update meta to final status, then upload --\n"
+            "_rock_finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)\n"
+            '_rock_status=$( [ $_rock_user_rc -eq 0 ] && echo "completed" || echo "failed" )\n'
+            "\n"
+            f"cat > \"$ROCK_ARTIFACT_DIR/rock_meta.json\" << '__ROCK_META_EOF__'\n"
+            f"{meta_final}\n"
+            "__ROCK_META_EOF__\n"
+            'sed -i "s/__ROCK_STATUS__/$_rock_status/g; s/__ROCK_STARTED__/$_rock_started_at/g;'
+            ' s/__ROCK_FINISHED__/$_rock_finished_at/g; s/__ROCK_EXIT_CODE__/$_rock_user_rc/g"'
+            ' "$ROCK_ARTIFACT_DIR/rock_meta.json"\n'
+            "\n"
             'ossutil cp "$ROCK_ARTIFACT_DIR/" "oss://$OSS_BUCKET/$ROCK_OSS_PREFIX/" \\\n'
             "    --recursive -f \\\n"
             '    || echo "[rock] oss upload failed (rc=$?), ignored" >&2\n'

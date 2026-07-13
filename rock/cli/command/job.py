@@ -29,6 +29,14 @@ class JobCommand(Command):
     async def arun(self, args: argparse.Namespace):
         if args.job_command == "run":
             await self._job_run(args)
+        elif args.job_command == "list":
+            self._job_list(args)
+        elif args.job_command == "show":
+            self._job_show(args)
+        elif args.job_command == "trials":
+            self._job_trials(args)
+        elif args.job_command == "trial":
+            self._job_trial(args)
         else:
             logger.error(f"Unknown job subcommand: {args.job_command}")
 
@@ -163,6 +171,109 @@ class JobCommand(Command):
                 )
         return config
 
+    # ------------------------------------------------------------------
+    # Viewer subcommands: list / show / trials / trial
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_viewer(args: argparse.Namespace):
+        from rock.sdk.job.viewer import JobViewer
+
+        if getattr(args, "use_admin", False):
+            return JobViewer.from_admin(
+                admin_base_url=args.base_url,
+                namespace=args.namespace,
+                experiment_id=args.experiment_id,
+                auth_token=getattr(args, "auth_token", None),
+                extra_headers=getattr(args, "extra_headers", None),
+            )
+        return JobViewer.from_credentials(
+            oss_endpoint=args.oss_endpoint,
+            oss_bucket=args.oss_bucket,
+            access_key_id=args.oss_access_key_id,
+            access_key_secret=args.oss_access_key_secret,
+            namespace=args.namespace,
+            experiment_id=args.experiment_id,
+            oss_region=getattr(args, "oss_region", None),
+        )
+
+    def _job_list(self, args: argparse.Namespace):
+        viewer = self._build_viewer(args)
+        jobs = viewer.list_jobs()
+        if not jobs:
+            print("No jobs found.")
+            return
+        for name in jobs:
+            print(f"  {name}")
+        print(f"\nTotal: {len(jobs)} jobs")
+
+    def _job_show(self, args: argparse.Namespace):
+        viewer = self._build_viewer(args)
+        meta = viewer.get_job_meta(args.job_name)
+        if meta:
+            print(f"Job: {meta.job_name}")
+            print(f"  type: {meta.job_type}")
+            print(f"  status: {meta.status}")
+            print(f"  user: {meta.user_id or '-'}")
+            print(f"  image: {meta.image or '-'}")
+            print(f"  started_at: {meta.started_at or '-'}")
+            print(f"  finished_at: {meta.finished_at or '-'}")
+            print(f"  exit_code: {meta.exit_code if meta.exit_code is not None else '-'}")
+            if meta.labels:
+                print(f"  labels: {meta.labels}")
+            return
+        result = viewer.get_job_result(args.job_name)
+        if result is None:
+            print(f"Job not found: {args.job_name}")
+            return
+        print(f"Job: {args.job_name}")
+        print(f"  id: {result.get('id', '-')}")
+        print(f"  started_at: {result.get('started_at', '-')}")
+        print(f"  finished_at: {result.get('finished_at', '-')}")
+        print(f"  n_total_trials: {result.get('n_total_trials', '-')}")
+
+    def _job_trials(self, args: argparse.Namespace):
+        viewer = self._build_viewer(args)
+        trials = viewer.get_trial_results(args.job_name)
+        if not trials:
+            print(f"No trials found for job: {args.job_name}")
+            return
+        header = f"{'NAME':<40} {'STATUS':<12} {'SCORE':<8} {'TASK'}"
+        print(header)
+        print("-" * len(header))
+        for name, trial in sorted(trials.items()):
+            score = f"{trial.score:.2f}" if trial.score is not None else "-"
+            print(f"  {name:<38} {trial.status:<12} {score:<8} {trial.task_name}")
+        print(f"\nTotal: {len(trials)} trials")
+
+    def _job_trial(self, args: argparse.Namespace):
+        viewer = self._build_viewer(args)
+        trial = viewer.get_trial_result(args.job_name, args.trial_name)
+        if trial is None:
+            print(f"Trial not found: {args.trial_name}")
+            return
+        print(f"Trial: {args.trial_name}")
+        print(f"  task: {trial.task_name}")
+        agent = trial.agent_info
+        model = agent.model_info
+        model_str = f" ({model.name})" if model and model.name else ""
+        print(f"  agent: {agent.name} {agent.version}{model_str}")
+        print(f"  status: {trial.status}")
+        print(f"  score: {trial.score:.2f}")
+        print(f"  started_at: {trial.started_at or '-'}")
+        print(f"  finished_at: {trial.finished_at or '-'}")
+        if trial.exception_info:
+            print(f"  exception: {trial.exception_info.exception_type}: {trial.exception_info.exception_message}")
+
+        verifier = viewer.get_verifier_output(args.job_name, args.trial_name)
+        has_verifier = any([verifier.stdout, verifier.stderr, verifier.ctrf])
+        if has_verifier:
+            print("\n  Verifier:")
+            if verifier.stdout:
+                print(f"    stdout: [{len(verifier.stdout)} chars]")
+            if verifier.stderr:
+                print(f"    stderr: [{len(verifier.stderr)} chars]")
+
     def _config_from_flags(self, args: argparse.Namespace):
         """Build a BashJobConfig purely from CLI flags (mode B)."""
         from rock.sdk.bench.models.trial.config import RockEnvironmentConfig
@@ -270,3 +381,35 @@ class JobCommand(Command):
 
         # Stash on the class so _job_run can call parser.error() with the right parser.
         JobCommand._run_parser = run_parser
+
+        # ── Viewer subcommands (shared OSS args via parent) ──────────
+        def _add_viewer_args(parser: argparse.ArgumentParser):
+            parser.add_argument("--namespace", required=True, help="OSS namespace")
+            parser.add_argument("--experiment-id", required=True, help="Experiment ID")
+            parser.add_argument("--oss-endpoint", default=None, help="OSS endpoint (AK/SK mode)")
+            parser.add_argument("--oss-bucket", default=None, help="OSS bucket (AK/SK mode)")
+            parser.add_argument("--oss-access-key-id", default=None, help="OSS access key ID")
+            parser.add_argument("--oss-access-key-secret", default=None, help="OSS access key secret")
+            parser.add_argument("--oss-region", default=None, help="OSS region")
+            parser.add_argument(
+                "--use-admin",
+                action="store_true",
+                default=False,
+                help="Use admin STS auth (requires --base-url)",
+            )
+
+        list_parser = job_subparsers.add_parser("list", help="List jobs from OSS artifacts")
+        _add_viewer_args(list_parser)
+
+        show_parser = job_subparsers.add_parser("show", help="Show job details from OSS")
+        show_parser.add_argument("job_name", help="Job name")
+        _add_viewer_args(show_parser)
+
+        trials_parser = job_subparsers.add_parser("trials", help="List trials for a job")
+        trials_parser.add_argument("job_name", help="Job name")
+        _add_viewer_args(trials_parser)
+
+        trial_parser = job_subparsers.add_parser("trial", help="Show trial details")
+        trial_parser.add_argument("job_name", help="Job name")
+        trial_parser.add_argument("trial_name", help="Trial name")
+        _add_viewer_args(trial_parser)

@@ -24,4 +24,13 @@ __all__ = [
     "ScatterOperator",
     "AbstractTrial",
     "register_trial",
+    "JobViewer",
 ]
+
+
+def __getattr__(name: str):
+    if name == "JobViewer":
+        from rock.sdk.job.viewer import JobViewer
+
+        return JobViewer
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

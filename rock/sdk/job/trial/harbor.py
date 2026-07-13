@@ -65,6 +65,7 @@ class HarborTrial(AbstractTrial):
         if sandbox.sandbox_id:
             labels.setdefault("rock_sandbox_id", sandbox.sandbox_id)
 
+
     def build(self) -> str:
         config_path = f"{USER_DEFINED_LOGS}/rock_job_{self._config.job_name}.yaml"
         return _HARBOR_SCRIPT_TEMPLATE.format(
