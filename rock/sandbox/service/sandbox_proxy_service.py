@@ -678,7 +678,11 @@ class SandboxProxyService:
         return backend
 
     async def _require_capability_backend(self, sandbox_id: str, capability: str) -> None:
-        info = await self._get_runtime_info(sandbox_id)
+        info = await self._meta_store.get(sandbox_id)
+        if not info:
+            raise Exception(f"sandbox {sandbox_id} not started")
+        if info.get("state") != State.RUNNING:
+            raise BadRequestRockError(f"Sandbox {sandbox_id} is not running (state={info.get('state')})")
         if self._resolve_backend_name(info) == OPENSANDBOX_BACKEND:
             raise BadRequestRockError(f"OpenSandbox backend does not support {capability} in this release")
 
