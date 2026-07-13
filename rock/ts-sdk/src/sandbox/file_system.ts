@@ -373,9 +373,18 @@ export class LinuxFileSystem extends FileSystem {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sandbox = this.sandbox as any;
 
-    // Quick check: if ossutil is already installed, skip the script entirely
-    const check = await this.sandbox.execute({ command: ['ossutil', 'version'], timeout: 60 });
-    if (check.exitCode === 0) {
+    // Quick check: use a shell command so a missing executable returns a
+    // non-zero exit code rather than failing execute() before installation can run.
+    let check: CommandResponse | undefined;
+    try {
+      check = await this.sandbox.execute({
+        command: ['sh', '-c', 'command -v ossutil >/dev/null 2>&1 && ossutil version'],
+        timeout: 60,
+      });
+    } catch {
+      // Treat probe failures as "not installed" and continue with installation.
+    }
+    if (check?.exitCode === 0) {
       return true;
     }
 

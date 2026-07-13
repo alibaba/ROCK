@@ -46,6 +46,31 @@ function createMockSandbox(): jest.Mocked<AbstractSandbox> {
 }
 
 describe('FileSystem', () => {
+  describe('ensureOssutil', () => {
+    test('continues with installation when the initial ossutil probe fails', async () => {
+      const mockSandbox = createMockSandbox();
+      mockSandbox.execute
+        .mockRejectedValueOnce(new Error('ossutil command not found'))
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as CommandResponse)
+        .mockResolvedValueOnce({ stdout: 'ossutil version', stderr: '', exitCode: 0 } as CommandResponse);
+      const sandboxWithWriteFile = mockSandbox as unknown as {
+        writeFile: jest.Mock;
+      };
+      sandboxWithWriteFile.writeFile = jest.fn().mockResolvedValue({ success: true, message: '' });
+      const fs = new LinuxFileSystem(mockSandbox);
+
+      const result = await (fs as unknown as { ensureOssutil(): Promise<boolean> }).ensureOssutil();
+
+      expect(result).toBe(true);
+      expect(mockSandbox.execute).toHaveBeenNthCalledWith(1, {
+        command: ['sh', '-c', 'command -v ossutil >/dev/null 2>&1 && ossutil version'],
+        timeout: 60,
+      });
+      expect(sandboxWithWriteFile.writeFile).toHaveBeenCalled();
+      expect(mockSandbox.arun).toHaveBeenCalled();
+    });
+  });
+
   describe('uploadDir injection protection', () => {
     let fs: LinuxFileSystem;
     let mockSandbox: jest.Mocked<AbstractSandbox>;
