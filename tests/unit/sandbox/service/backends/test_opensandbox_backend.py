@@ -7,7 +7,7 @@ from fastapi import UploadFile
 
 from rock.actions.sandbox.response import State
 from rock.admin.proto.request import SandboxCommand, SandboxReadFileRequest, SandboxWriteFileRequest
-from rock.rocklet.exceptions import NonZeroExitCodeError
+from rock.rocklet.exceptions import CommandTimeoutError, NonZeroExitCodeError
 from rock.sandbox.service.backends.opensandbox import OpenSandboxBackend
 from rock.sdk.common.exceptions import BadRequestRockError
 
@@ -95,6 +95,23 @@ async def test_check_true_raises_existing_error(client):
             "sbx-1",
             _info(),
             SandboxCommand(command="false", shell=True, check=True, error_msg="prefix", sandbox_id="sbx-1"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_timeout_execution_raises_existing_timeout_error(client):
+    client.execute.return_value = _execution(
+        stderr="command exceeded deadline",
+        exit_code=None,
+        error=SimpleNamespace(name="TimeoutError", value="command timed out"),
+    )
+    backend = OpenSandboxBackend(client)
+
+    with pytest.raises(CommandTimeoutError, match=r"Timeout \(9.0s\)"):
+        await backend.execute(
+            "sbx-1",
+            _info(),
+            SandboxCommand(command="sleep 10", timeout=9, sandbox_id="sbx-1"),
         )
 
 

@@ -7,7 +7,7 @@ from rock.actions import CommandResponse, ReadFileResponse, UploadResponse, Writ
 from rock.actions.sandbox.response import State
 from rock.admin.proto.request import SandboxCommand, SandboxReadFileRequest, SandboxWriteFileRequest
 from rock.logger import init_logger
-from rock.rocklet.exceptions import NonZeroExitCodeError
+from rock.rocklet.exceptions import CommandTimeoutError, NonZeroExitCodeError
 from rock.sandbox.operator.opensandbox.client import OpenSandboxClient
 from rock.sdk.common.exceptions import BadRequestRockError
 
@@ -40,6 +40,8 @@ class OpenSandboxBackend:
             cwd=command.cwd,
             env=command.env,
         )
+        if execution.error and "timeout" in execution.error.name.lower():
+            raise CommandTimeoutError(f"Timeout ({command.timeout}s) exceeded while running command")
         stdout = "".join(message.text for message in execution.logs.stdout)
         stderr = "".join(message.text for message in execution.logs.stderr)
         if execution.error:

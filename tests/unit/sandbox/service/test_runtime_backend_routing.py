@@ -4,7 +4,7 @@ import pytest
 
 from rock.actions import CommandResponse
 from rock.actions.sandbox.response import State
-from rock.admin.proto.request import SandboxCommand
+from rock.admin.proto.request import SandboxCommand, SandboxCreateBashSessionRequest
 from rock.sandbox.service.backends import OPENSANDBOX_BACKEND, ROCKLET_BACKEND
 from rock.sdk.common.exceptions import BadRequestRockError
 
@@ -67,6 +67,19 @@ async def test_metadata_operator_conflict_fails_closed(sandbox_proxy_service, ba
     )
 
     with pytest.raises(BadRequestRockError, match="conflicts"):
+        await sandbox_proxy_service.execute(SandboxCommand(command="pwd", sandbox_id="sbx-1"))
+
+    rocklet.execute.assert_not_awaited()
+    opensandbox.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unknown_backend_fails_closed(sandbox_proxy_service, backends):
+    rocklet, opensandbox = backends
+    sandbox_proxy_service._rock_config.runtime.operator_type = "ray"
+    sandbox_proxy_service._meta_store.get = AsyncMock(return_value=_info(backend="unknown"))
+
+    with pytest.raises(BadRequestRockError, match="Unknown"):
         await sandbox_proxy_service.execute(SandboxCommand(command="pwd", sandbox_id="sbx-1"))
 
     rocklet.execute.assert_not_awaited()
@@ -137,3 +150,33 @@ async def test_opensandbox_is_alive_uses_backend_state(sandbox_proxy_service, ba
 
     assert result.is_alive is False
     opensandbox.get_state.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_opensandbox_session_is_rejected_before_rocklet_call(sandbox_proxy_service, backends):
+    rocklet, opensandbox = backends
+    sandbox_proxy_service._rock_config.runtime.operator_type = "opensandbox"
+    sandbox_proxy_service._meta_store.get = AsyncMock(
+        return_value=_info(backend=OPENSANDBOX_BACKEND, opensandbox_id="osb-1")
+    )
+
+    with pytest.raises(BadRequestRockError, match="does not support sessions"):
+        await sandbox_proxy_service.create_session(SandboxCreateBashSessionRequest(session="test", sandbox_id="sbx-1"))
+
+    rocklet.assert_not_awaited()
+    opensandbox.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_opensandbox_portforward_is_rejected_before_rocklet_call(sandbox_proxy_service, backends):
+    rocklet, opensandbox = backends
+    sandbox_proxy_service._rock_config.runtime.operator_type = "opensandbox"
+    sandbox_proxy_service._meta_store.get = AsyncMock(
+        return_value=_info(backend=OPENSANDBOX_BACKEND, opensandbox_id="osb-1")
+    )
+
+    with pytest.raises(BadRequestRockError, match="does not support portforward"):
+        await sandbox_proxy_service._require_capability_backend("sbx-1", "portforward")
+
+    rocklet.assert_not_awaited()
+    opensandbox.assert_not_awaited()
