@@ -41,6 +41,7 @@ export const SandboxConfigSchema = BaseConfigSchema.extend({
   useKataRuntime: z.boolean().default(false),
   sandboxId: z.string().optional(),
   autoDeleteSeconds: z.number().int().nullable().default(null),
+  disk: z.string().nullable().default(null),
 });
 
 /**

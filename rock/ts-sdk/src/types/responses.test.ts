@@ -7,6 +7,8 @@
 
 import {
   SandboxStatusResponseSchema,
+  SandboxState,
+  StateTransitionRecordSchema,
   IsAliveResponseSchema,
   CommandResponseSchema,
   ObservationSchema,
@@ -262,5 +264,108 @@ describe('OssCredentials', () => {
         expiration: '2025-03-28T12:00:00Z',
       });
     }).toThrow();
+  });
+});
+
+describe('SandboxState', () => {
+  test('should define all state values', () => {
+    expect(SandboxState.PENDING).toBe('pending');
+    expect(SandboxState.RUNNING).toBe('running');
+    expect(SandboxState.STOPPED).toBe('stopped');
+    expect(SandboxState.ARCHIVING).toBe('archiving');
+    expect(SandboxState.ARCHIVED).toBe('archived');
+    expect(SandboxState.DELETED).toBe('deleted');
+  });
+});
+
+describe('StateTransitionRecord', () => {
+  test('should parse valid record', () => {
+    const result = StateTransitionRecordSchema.parse({
+      fromState: 'stopped',
+      toState: 'archiving',
+      event: 'archive',
+      timestamp: '2026-07-09T10:00:00+08:00',
+    });
+    expect(result.fromState).toBe('stopped');
+    expect(result.toState).toBe('archiving');
+    expect(result.event).toBe('archive');
+    expect(result.timestamp).toBe('2026-07-09T10:00:00+08:00');
+  });
+});
+
+describe('SandboxStatusResponse - new fields', () => {
+  test('should parse state as enum value', () => {
+    const result = SandboxStatusResponseSchema.parse({
+      sandboxId: 'test-id',
+      isAlive: true,
+      state: 'running',
+    });
+    expect(result.state).toBe('running');
+  });
+
+  test('should parse archiving and archived states', () => {
+    const archiving = SandboxStatusResponseSchema.parse({ state: 'archiving' });
+    expect(archiving.state).toBe('archiving');
+
+    const archived = SandboxStatusResponseSchema.parse({ state: 'archived' });
+    expect(archived.state).toBe('archived');
+  });
+
+  test('should default state to null when not provided', () => {
+    const result = SandboxStatusResponseSchema.parse({ sandboxId: 'test-id' });
+    expect(result.state).toBeNull();
+  });
+
+  test('should accept null state', () => {
+    const result = SandboxStatusResponseSchema.parse({ state: null });
+    expect(result.state).toBeNull();
+  });
+
+  test('should parse disk field', () => {
+    const result = SandboxStatusResponseSchema.parse({
+      sandboxId: 'test-id',
+      disk: '20g',
+    });
+    expect(result.disk).toBe('20g');
+  });
+
+  test('should default disk to null', () => {
+    const result = SandboxStatusResponseSchema.parse({ sandboxId: 'test-id' });
+    expect(result.disk).toBeNull();
+  });
+
+  test('should parse stateHistory', () => {
+    const result = SandboxStatusResponseSchema.parse({
+      sandboxId: 'test-id',
+      stateHistory: [
+        { fromState: 'pending', toState: 'running', event: 'alive', timestamp: '2026-07-09T10:00:00+08:00' },
+        { fromState: 'running', toState: 'stopped', event: 'stop', timestamp: '2026-07-09T11:00:00+08:00' },
+      ],
+    });
+    expect(result.stateHistory).toHaveLength(2);
+    expect(result.stateHistory[0]!.fromState).toBe('pending');
+    expect(result.stateHistory[1]!.event).toBe('stop');
+  });
+
+  test('should default stateHistory to empty array', () => {
+    const result = SandboxStatusResponseSchema.parse({ sandboxId: 'test-id' });
+    expect(result.stateHistory).toEqual([]);
+  });
+
+  test('backward compatibility: existing response without new fields parses correctly', () => {
+    const legacyResponse = {
+      sandboxId: '295264ad162d43e6af25cf7974a76657',
+      hostName: 'test-host',
+      hostIp: '11.166.8.116',
+      isAlive: true,
+      image: 'python:3.11',
+      cpus: 2.0,
+      memory: '8g',
+    };
+    const result = SandboxStatusResponseSchema.parse(legacyResponse);
+    expect(result.sandboxId).toBe('295264ad162d43e6af25cf7974a76657');
+    expect(result.state).toBeNull();
+    expect(result.disk).toBeNull();
+    expect(result.stateHistory).toEqual([]);
   });
 });

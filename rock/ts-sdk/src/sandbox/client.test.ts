@@ -513,6 +513,143 @@ describe('Zod Validation', () => {
   });
 });
 
+describe('Sandbox archive()', () => {
+  let sandbox: Sandbox;
+  let mockPost: jest.Mock;
+  let mockGet: jest.Mock;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPost = jest.fn();
+    mockGet = jest.fn();
+    mockedAxios.create = jest.fn().mockReturnValue({
+      post: mockPost,
+      get: mockGet,
+    });
+
+    sandbox = new Sandbox({
+      image: 'test:latest',
+      startupTimeout: 2,
+    });
+  });
+
+  test('should throw when sandbox_id is not set', async () => {
+    await expect(sandbox.archive()).rejects.toThrow('sandbox_id is not set, cannot archive');
+  });
+
+  test('should call POST /sandboxes/{id}/archive on success', async () => {
+    // Start sandbox first
+    mockPost.mockResolvedValueOnce({
+      data: { status: 'Success', result: { sandbox_id: 'test-id', host_name: 'h', host_ip: '1.2.3.4' } },
+      headers: {},
+    });
+    mockGet.mockResolvedValue({
+      data: { status: 'Success', result: { is_alive: true } },
+      headers: {},
+    });
+    await sandbox.start();
+
+    // Mock archive response
+    mockPost.mockResolvedValueOnce({
+      data: { status: 'Success', result: 'test-id archiving' },
+      headers: {},
+    });
+
+    await expect(sandbox.archive()).resolves.toBeUndefined();
+
+    const archiveCall = mockPost.mock.calls.find((call: unknown[]) =>
+      (call[0] as string).includes('/sandboxes/test-id/archive')
+    );
+    expect(archiveCall).toBeDefined();
+  });
+
+  test('should throw BadRequestRockError when API returns 4xxx code', async () => {
+    // Start sandbox first
+    mockPost.mockResolvedValueOnce({
+      data: { status: 'Success', result: { sandbox_id: 'test-id', host_name: 'h', host_ip: '1.2.3.4' } },
+      headers: {},
+    });
+    mockGet.mockResolvedValue({
+      data: { status: 'Success', result: { is_alive: true } },
+      headers: {},
+    });
+    await sandbox.start();
+
+    // Mock archive failure
+    mockPost.mockResolvedValueOnce({
+      data: { status: 'Failed', result: { code: Codes.BAD_REQUEST } },
+      headers: {},
+    });
+
+    await expect(sandbox.archive()).rejects.toThrow(BadRequestRockError);
+  });
+});
+
+describe('Sandbox start() - disk field', () => {
+  let mockPost: jest.Mock;
+  let mockGet: jest.Mock;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPost = jest.fn();
+    mockGet = jest.fn();
+    mockedAxios.create = jest.fn().mockReturnValue({
+      post: mockPost,
+      get: mockGet,
+    });
+  });
+
+  test('should include disk in start payload', async () => {
+    const sandbox = new Sandbox({
+      image: 'test:latest',
+      startupTimeout: 2,
+      disk: '20g',
+    });
+
+    mockPost.mockResolvedValueOnce({
+      data: { status: 'Success', result: { sandbox_id: 'test-id', host_name: 'h', host_ip: '1.2.3.4' } },
+      headers: {},
+    });
+    mockGet.mockResolvedValue({
+      data: { status: 'Success', result: { is_alive: true } },
+      headers: {},
+    });
+
+    await sandbox.start();
+
+    const startCall = mockPost.mock.calls.find((call: unknown[]) =>
+      (call[0] as string).includes('/start_async')
+    );
+    expect(startCall).toBeDefined();
+    const payload = startCall![1] as Record<string, unknown>;
+    expect(payload.disk).toBe('20g');
+  });
+
+  test('should send null disk by default', async () => {
+    const sandbox = new Sandbox({
+      image: 'test:latest',
+      startupTimeout: 2,
+    });
+
+    mockPost.mockResolvedValueOnce({
+      data: { status: 'Success', result: { sandbox_id: 'test-id', host_name: 'h', host_ip: '1.2.3.4' } },
+      headers: {},
+    });
+    mockGet.mockResolvedValue({
+      data: { status: 'Success', result: { is_alive: true } },
+      headers: {},
+    });
+
+    await sandbox.start();
+
+    const startCall = mockPost.mock.calls.find((call: unknown[]) =>
+      (call[0] as string).includes('/start_async')
+    );
+    const payload = startCall![1] as Record<string, unknown>;
+    expect(payload.disk).toBeNull();
+  });
+});
+
 /**
  * arun() session creation behavior tests
  * 

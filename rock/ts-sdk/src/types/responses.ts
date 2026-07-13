@@ -8,6 +8,32 @@ import { z } from 'zod';
 import { Codes } from './codes.js';
 
 /**
+ * Sandbox state enum
+ */
+export const SandboxState = {
+  PENDING: 'pending',
+  RUNNING: 'running',
+  STOPPED: 'stopped',
+  ARCHIVING: 'archiving',
+  ARCHIVED: 'archived',
+  DELETED: 'deleted',
+} as const;
+
+export type SandboxState = (typeof SandboxState)[keyof typeof SandboxState];
+
+/**
+ * State transition record
+ */
+export const StateTransitionRecordSchema = z.object({
+  fromState: z.string(),
+  toState: z.string(),
+  event: z.string(),
+  timestamp: z.string(),
+});
+
+export type StateTransitionRecord = z.infer<typeof StateTransitionRecordSchema>;
+
+/**
  * Base sandbox response
  */
 export const SandboxResponseSchema = z.object({
@@ -46,11 +72,13 @@ export const SandboxStatusResponseSchema = z.object({
   namespace: z.string().optional(),
   cpus: z.number().optional(),
   memory: z.string().optional(),
+  disk: z.string().nullable().default(null),
   diskLimitRootfs: z.string().nullable().default(null),
-  state: z.unknown().optional(),
+  state: z.enum(['pending', 'running', 'stopped', 'archiving', 'archived', 'deleted']).nullable().default(null),
   startTime: z.string().nullable().default(null),
   stopTime: z.string().nullable().default(null),
   createTime: z.string().nullable().default(null),
+  stateHistory: z.array(StateTransitionRecordSchema).default([]),
   // Response headers info
   cluster: z.string().optional(),
   requestId: z.string().optional(),

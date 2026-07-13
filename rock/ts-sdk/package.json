@@ -1,6 +1,6 @@
 {
   "name": "rl-rock",
-  "version": "1.9.2",
+  "version": "1.10.0",
   "description": "ROCK TypeScript SDK - Sandbox management and agent framework",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

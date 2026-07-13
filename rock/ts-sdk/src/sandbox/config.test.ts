@@ -110,6 +110,23 @@ describe('Config uses envVars (not hardcoded)', () => {
   });
 });
 
+describe('SandboxConfigSchema - disk field', () => {
+  test('should default disk to null', () => {
+    const config = SandboxConfigSchema.parse({});
+    expect(config.disk).toBeNull();
+  });
+
+  test('should accept disk value', () => {
+    const config = SandboxConfigSchema.parse({ disk: '20g' });
+    expect(config.disk).toBe('20g');
+  });
+
+  test('should accept null disk', () => {
+    const config = SandboxConfigSchema.parse({ disk: null });
+    expect(config.disk).toBeNull();
+  });
+});
+
 describe('Config lazy evaluation of env vars', () => {
   // This test verifies that env var defaults are evaluated lazily (at parse time)
   // not eagerly (at module load time). This allows env vars to be changed

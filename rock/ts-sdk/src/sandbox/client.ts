@@ -117,6 +117,7 @@ export abstract class AbstractSandbox {
   abstract closeSession(request: CloseSessionRequest): Promise<CloseSessionResponse>;
   abstract delete(): Promise<void>;
   abstract restart(): Promise<void>;
+  abstract archive(): Promise<void>;
   abstract commit(imageTag: string, username: string, password: string): Promise<CommandResponse | undefined>;
   abstract attach(sandboxId: string): Promise<void>;
   abstract arun(
@@ -310,6 +311,7 @@ export class Sandbox extends AbstractSandbox {
       limitCpus: this.config.limitCpus,
       sandboxId: this.config.sandboxId,
       autoDeleteSeconds: this.config.autoDeleteSeconds,
+      disk: this.config.disk,
     };
 
     logger.debug(`Calling start_async API: ${url}`);
@@ -478,6 +480,30 @@ export class Sandbox extends AbstractSandbox {
     throw new InternalServerRockError(
       `Failed to restart sandbox within ${this.config.startupTimeout}s, sandbox: ${this.toString()}`
     );
+  }
+
+  /**
+   * Archive a stopped sandbox (snapshot container + upload logs).
+   *
+   * The sandbox must be in STOPPED state. After this call the server transitions
+   * it to ARCHIVING, and a background scanner will move it to ARCHIVED once
+   * both the image and log uploads are confirmed.
+   */
+  async archive(): Promise<void> {
+    if (!this.sandboxId) {
+      throw new Error('sandbox_id is not set, cannot archive');
+    }
+    const url = `${this.url}/sandboxes/${this.sandboxId}/archive`;
+    const headers = this.buildHeaders();
+    const response = await HttpUtils.post<SandboxResponse & { code?: number }>(url, headers, {});
+    logger.debug(`Archive sandbox response: ${JSON.stringify(response)}`);
+    if (response.status !== 'Success') {
+      const result = response.result;
+      if (result) {
+        raiseForCode(result.code, `Failed to archive sandbox: ${JSON.stringify(response)}`);
+      }
+      throw new Error(`Failed to archive sandbox: ${JSON.stringify(response)}`);
+    }
   }
 
   /**
