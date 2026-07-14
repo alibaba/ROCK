@@ -335,9 +335,10 @@ class SandboxManager(BaseManager):
 
             if is_alive and state == State.PENDING:
                 sm = await self._get_current_statemachine(sandbox_id)
-                await sm.send(
-                    "alive", sandbox_id=sandbox_id, meta_store=self._meta_store, sandbox_info=operator_sandbox_info
-                )
+                if sm.current_state.value == State.PENDING:
+                    await sm.send(
+                        "alive", sandbox_id=sandbox_id, meta_store=self._meta_store, sandbox_info=operator_sandbox_info
+                    )
 
             if operator_sandbox_info.get("state") in (State.PENDING, State.RUNNING):
                 await self._refresh_timeout(sandbox_id)

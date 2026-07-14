@@ -8,7 +8,7 @@ Key behaviour changes covered:
   - start_time/stop_time/create_time populated in every response
 """
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -92,3 +92,20 @@ class TestGetStatusIncludeAllStates:
 
         # State machine should NOT be initialized when no PENDING→RUNNING transition needed
         sandbox_manager._get_current_statemachine.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_running_operator_status_skips_alive_when_current_state_already_running(
+        self, sandbox_manager, mock_operator
+    ):
+        """Avoid double-sending alive when another status refresh already advanced the state machine."""
+        mock_operator.get_status = AsyncMock(return_value=_make_sandbox_info(state=State.RUNNING))
+        mock_sm = MagicMock()
+        mock_sm.current_state.value = State.RUNNING
+        mock_sm.send = AsyncMock()
+        sandbox_manager._get_current_statemachine = AsyncMock(return_value=mock_sm)
+
+        result = await sandbox_manager.get_status("sandbox-1")
+
+        assert result.is_alive is True
+        sandbox_manager._get_current_statemachine.assert_awaited_once_with("sandbox-1")
+        mock_sm.send.assert_not_awaited()
