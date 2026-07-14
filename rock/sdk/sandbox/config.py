@@ -1,6 +1,6 @@
 import warnings
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from rock import env_vars
 
@@ -45,16 +45,23 @@ class SandboxConfig(BaseConfig):
     registry_password: str | None = None
     use_kata_runtime: bool = False
     sandbox_id: str | None = None
+    auto_archive_seconds: int | None = None
     auto_delete_seconds: int | None = None
     disk: str | None = "50G"
     """Disk quota for the sandbox (e.g. '50G'). Applied to both rootfs and log dir."""
 
-    @field_validator("auto_delete_seconds")
+    @field_validator("auto_archive_seconds", "auto_delete_seconds")
     @classmethod
-    def validate_auto_delete_seconds(cls, v):
+    def validate_auto_transition_seconds(cls, v, info):
         if v is not None and v < 0:
-            raise ValueError("auto_delete_seconds must be >= 0")
+            raise ValueError(f"{info.field_name} must be >= 0")
         return v
+
+    @model_validator(mode="after")
+    def validate_auto_transition_exclusive(self):
+        if self.auto_archive_seconds is not None and self.auto_delete_seconds is not None:
+            raise ValueError("auto_archive_seconds and auto_delete_seconds cannot be specified together")
+        return self
 
 
 class SandboxGroupConfig(SandboxConfig):

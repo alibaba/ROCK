@@ -25,8 +25,13 @@ class SandboxInfo(TypedDict, total=False):
     create_time: str
     start_time: str
     stop_time: str
+    auto_stop_time: str
     delete_time: str
     archive_time: str
+    auto_transition_state: State
+    auto_transition_time: str
+    auto_archive_seconds: int
+    auto_delete_seconds: int
     archive_prefix: str
     registry_namespace: str
     extended_params: dict[str, str]

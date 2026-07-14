@@ -6,12 +6,16 @@
 
 from __future__ import annotations
 
+import datetime
+import zoneinfo
 from typing import Any, ClassVar
 
-from sqlalchemy import Boolean, Column, Float, Index, String
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.types import JSON
+
+from rock import env_vars
 
 _JSONB_VARIANT = JSON().with_variant(JSONB(), "postgresql")
 
@@ -42,6 +46,8 @@ class SandboxRecord(Base):
     stop_time = Column(String(64), nullable=True)
     archive_time = Column(String(64), nullable=True)
     delete_time = Column(String(64), nullable=True)
+    auto_transition_state = Column(String(32), nullable=True)
+    auto_transition_time = Column(DateTime(timezone=True), nullable=True)
     host_name = Column(String(255), nullable=True)
     auth_token = Column(String(512), nullable=True)
     rock_authorization_encrypted = Column(String(1024), nullable=True)
@@ -59,6 +65,12 @@ class SandboxRecord(Base):
         Index("ix_sandbox_record_state", "state"),
         Index("ix_sandbox_record_image", "image"),
         Index("ix_sandbox_record_state_stop_time", "state", "stop_time"),
+        Index(
+            "ix_sandbox_record_state_auto_transition",
+            "state",
+            "auto_transition_state",
+            "auto_transition_time",
+        ),
         Index("ix_sandbox_record_state_start_time", "state", "start_time"),
     )
 
@@ -72,7 +84,6 @@ class SandboxRecord(Base):
             "image",
         }
     )
-
     _column_names: ClassVar[set[str] | None] = None
 
     @classmethod
@@ -94,7 +105,19 @@ class SandboxRecord(Base):
 
     def to_dict(self) -> dict[str, Any]:
         """Return all non-``None`` column values as a plain dict."""
-        return {c.key: getattr(self, c.key) for c in self.__table__.columns if getattr(self, c.key) is not None}
+        result: dict[str, Any] = {}
+        for column in self.__table__.columns:
+            value = getattr(self, column.key)
+            if value is None:
+                continue
+            if column.key == "auto_transition_time" and isinstance(value, datetime.datetime):
+                if value.tzinfo is None:
+                    value = value.replace(tzinfo=zoneinfo.ZoneInfo(env_vars.ROCK_TIME_ZONE))
+                else:
+                    value = value.astimezone(zoneinfo.ZoneInfo(env_vars.ROCK_TIME_ZONE))
+                value = value.isoformat(timespec="seconds")
+            result[column.key] = value
+        return result
 
 
 class SchedulerTaskRecord(Base):

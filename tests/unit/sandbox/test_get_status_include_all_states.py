@@ -39,6 +39,7 @@ def mock_meta_store():
     store = AsyncMock()
     # Default: return sandbox info (not None) so get_status can proceed
     store.get = AsyncMock(return_value=_make_sandbox_info(state=State.PENDING))
+    store.get_timeout = AsyncMock(return_value=None)
     store.update = AsyncMock()
     return store
 
@@ -109,3 +110,12 @@ class TestGetStatusIncludeAllStates:
         assert result.is_alive is True
         sandbox_manager._get_current_statemachine.assert_awaited_once_with("sandbox-1")
         mock_sm.send.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_get_status_sets_auto_stop_time_from_timeout(self, sandbox_manager, mock_operator, mock_meta_store):
+        mock_operator.get_status = AsyncMock(return_value=_make_sandbox_info(state=State.RUNNING))
+        mock_meta_store.get_timeout = AsyncMock(return_value={"auto_clear_time": "30", "expire_time": "9999999999"})
+
+        result = await sandbox_manager.get_status("sandbox-1")
+
+        assert result.auto_stop_time == "2286-11-21T01:46:39+08:00"

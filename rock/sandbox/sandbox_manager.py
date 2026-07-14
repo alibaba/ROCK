@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import time
+import zoneinfo
 from datetime import timezone
 
 from fastapi import UploadFile
@@ -38,7 +39,13 @@ from rock.sandbox.base_manager import BaseManager
 from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
-from rock.sandbox.sandbox_statemachine import SandboxStateMachine, get_current_state_started_at
+from rock.sandbox.sandbox_statemachine import (
+    SandboxStateMachine,
+    get_current_state_started_at,
+    parse_iso8601_timestamp,
+    resolve_auto_archive_seconds,
+    resolve_auto_delete_seconds,
+)
 from rock.sandbox.service.factory import create_sandbox_proxy_service
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
@@ -158,10 +165,20 @@ class SandboxManager(BaseManager):
             )
             docker_deployment_config.cpus = self.rock_config.runtime.standard_spec.cpus
             docker_deployment_config.memory = self.rock_config.runtime.standard_spec.memory
-        with StageTimer("startup_timing", f"[{sandbox_id}] Operator submit", logger):
-            sandbox_info: SandboxInfo = await self._operator.submit(docker_deployment_config, user_info)
+
+        sandbox_info: SandboxInfo = {
+            "sandbox_id": sandbox_id,
+            "image": docker_deployment_config.image,
+            "cpus": docker_deployment_config.cpus,
+            "memory": docker_deployment_config.memory,
+        }
+        if docker_deployment_config.disk is not None:
+            sandbox_info["disk"] = docker_deployment_config.disk
         await self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)
         timeout_info = SandboxTimeoutHelper.make_timeout_info(docker_deployment_config.auto_clear_time)
+        auto_stop_time = SandboxTimeoutHelper.auto_stop_time_from_timeout(timeout_info)
+        if auto_stop_time is not None:
+            sandbox_info["auto_stop_time"] = auto_stop_time
         with StageTimer("startup_timing", f"[{sandbox_id}] Meta store create", logger):
             await self._meta_store.create(
                 sandbox_id,
@@ -169,6 +186,24 @@ class SandboxManager(BaseManager):
                 timeout_info=timeout_info,
                 deployment_config=docker_deployment_config,
             )
+
+        self._apply_user_auto_transition_policy(docker_deployment_config)
+        if docker_deployment_config.auto_archive_seconds is not None:
+            sandbox_info["auto_archive_seconds"] = docker_deployment_config.auto_archive_seconds
+        if docker_deployment_config.auto_delete_seconds is not None:
+            sandbox_info["auto_delete_seconds"] = docker_deployment_config.auto_delete_seconds
+        with StageTimer("startup_timing", f"[{sandbox_id}] Meta store policy update", logger):
+            await self._meta_store.update(sandbox_id, sandbox_info)
+
+        with StageTimer("startup_timing", f"[{sandbox_id}] Operator submit", logger):
+            submitted_info = await self._operator.submit(docker_deployment_config, user_info)
+        create_time = sandbox_info.get("create_time")
+        sandbox_info.update(submitted_info)
+        await self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)
+        if create_time is not None:
+            sandbox_info["create_time"] = create_time
+        with StageTimer("startup_timing", f"[{sandbox_id}] Meta store submit update", logger):
+            await self._meta_store.update(sandbox_id, sandbox_info)
         return SandboxStartResponse(
             sandbox_id=sandbox_id,
             host_name=sandbox_info.get("host_name"),
@@ -176,6 +211,30 @@ class SandboxManager(BaseManager):
             disk=sandbox_info.get("disk"),
             disk_limit_rootfs=sandbox_info.get("disk"),
         )
+
+    def _apply_user_auto_transition_policy(self, config: DockerDeploymentConfig) -> None:
+        """Resolve the effective policy and enforce the cluster deadline cap."""
+        cluster_delete_seconds = self.rock_config.lifecycle.auto_transition.auto_delete_seconds
+
+        if config.auto_archive_seconds is not None:
+            field = "auto_archive_seconds"
+            seconds = config.auto_archive_seconds
+            config.auto_delete_seconds = None
+            config.remove_container = False
+        elif config.auto_delete_seconds is not None:
+            field = "auto_delete_seconds"
+            seconds = config.auto_delete_seconds
+        else:
+            if cluster_delete_seconds is not None:
+                config.auto_delete_seconds = cluster_delete_seconds
+                config.remove_container = cluster_delete_seconds == 0
+            return
+
+        effective_seconds = seconds if cluster_delete_seconds is None else min(seconds, cluster_delete_seconds)
+        setattr(config, field, effective_seconds)
+
+        if field == "auto_delete_seconds":
+            config.remove_container = effective_seconds == 0
 
     @monitor_sandbox_operation()
     async def restart_async(self, sandbox_id: str) -> SandboxStartResponse:
@@ -246,13 +305,21 @@ class SandboxManager(BaseManager):
                 operator=self._operator,
                 meta_store=self._meta_store,
                 reason=reason,
+                auto_transition=self.rock_config.lifecycle.auto_transition,
             )
             # `--rm` containers are already gone after stop; cascade to DELETED
             # so the metadata row doesn't linger in STOPPED.
-            # Redis keys are gone after archive; re-read from DB to get spec.
+            # Redis keys are gone after archive; re-read the effective policy
+            # from DB status, falling back to the legacy spec for old records.
             sm = await self._get_current_statemachine(sandbox_id)
-            spec = ((sm.sandbox_info or {}).get("spec") or {}) if sm else {}
-            if spec.get("remove_container"):
+            stopped_info = (sm.sandbox_info or {}) if sm else {}
+            archive_seconds = resolve_auto_archive_seconds(stopped_info)
+            delete_seconds = resolve_auto_delete_seconds(stopped_info)
+            spec = stopped_info.get("spec") or {}
+            remove_container = archive_seconds is None and (
+                delete_seconds == 0 or (delete_seconds is None and spec.get("remove_container"))
+            )
+            if remove_container:
                 await sm.send(
                     "delete",
                     sandbox_id=sandbox_id,
@@ -360,6 +427,12 @@ class SandboxManager(BaseManager):
             if not operator_sandbox_info.get("phases") and sandbox_info.get("phases"):
                 merged_sandbox_info["phases"] = sandbox_info["phases"]
             sandbox_info = merged_sandbox_info
+        timeout_info = await self._meta_store.get_timeout(sandbox_id)
+        auto_stop_time, auto_archive_time, auto_delete_time = SandboxTimeoutHelper.auto_transition_times_for_status(
+            sandbox_info.get("state"),
+            sandbox_info,
+            timeout_info,
+        )
 
         return SandboxStatusResponse(
             sandbox_id=sandbox_id,
@@ -382,6 +455,10 @@ class SandboxManager(BaseManager):
             start_time=sandbox_info.get("start_time"),
             stop_time=sandbox_info.get("stop_time"),
             create_time=sandbox_info.get("create_time"),
+            archive_time=sandbox_info.get("archive_time"),
+            auto_stop_time=auto_stop_time,
+            auto_archive_time=auto_archive_time,
+            auto_delete_time=auto_delete_time,
             state_history=sandbox_info.get("state_history", []),
         )
 
@@ -451,11 +528,12 @@ class SandboxManager(BaseManager):
             return False
 
     async def _auto_transition(self):
-        """Long-interval scan: expire RUNNING/PENDING → STOPPED, auto-delete/archive stale STOPPED."""
+        """Run the primary-node lifecycle scans."""
         logger.info("[auto_transition] start")
         await self._auto_stop_expired()
         await self._auto_delete_stopped()
         await self._auto_archive_stopped()
+        await self._auto_delete_archived()
         logger.info("[auto_transition] done")
 
     async def _auto_stop_expired(self) -> None:
@@ -479,84 +557,114 @@ class SandboxManager(BaseManager):
         logger.info(f"[auto_stop] done: alive={alive_count}, expired={expired_count}")
 
     async def _auto_delete_stopped(self) -> None:
-        """Delete STOPPED and ARCHIVED sandboxes idle longer than auto_delete_seconds."""
-        auto_delete_sec = self.rock_config.lifecycle.auto_transition.auto_delete_seconds
-        if not auto_delete_sec:
-            logger.info("[auto_delete] disabled (auto_delete_seconds=0)")
-            return
+        """Delete STOPPED sandboxes whose auto-delete policy is due."""
+        now = datetime.datetime.now(zoneinfo.ZoneInfo(env_vars.ROCK_TIME_ZONE))
 
         try:
-            candidates = await self._meta_store.list_by_in(
-                "state", [State.STOPPED.value, State.ARCHIVED.value], order_by="stop_time", limit=1000
+            candidates = await self._meta_store.list_expired_by(
+                State.STOPPED.value,
+                State.DELETED.value,
+                now,
+                limit=1000,
             )
         except Exception as e:
-            logger.warning(f"[auto_delete] list_by_in failed: {e}")
+            logger.warning(f"[auto_delete] list_expired_by failed: {e}")
             return
 
-        logger.info(f"[auto_delete] candidates={len(candidates)}, threshold={auto_delete_sec}s")
-        now = datetime.datetime.now(timezone.utc)
+        logger.info(f"[auto_delete] candidates={len(candidates)}, due_at={now.isoformat(timespec='seconds')}")
         deleted_count = 0
         for info in candidates:
             sandbox_id = info.get("sandbox_id", "")
-            stop_time_str = info.get("stop_time", "")
-            if not sandbox_id or not stop_time_str:
+            if not sandbox_id:
+                continue
+
+            due_time = parse_iso8601_timestamp(info.get("auto_transition_time"))
+            if due_time is None:
+                continue
+
+            if now < due_time:
+                logger.info(f"[auto_delete] {sandbox_id} (state={info.get('state')}) not due until {due_time}")
                 continue
             try:
-                stop_time = datetime.datetime.fromisoformat(stop_time_str.replace("Z", "+00:00"))
-                elapsed = (now - stop_time).total_seconds()
-            except (ValueError, TypeError):
-                continue
-            if elapsed < auto_delete_sec:
-                logger.info(
-                    f"[auto_delete] {sandbox_id} (state={info.get('state')}) idle {int(elapsed)}s < {auto_delete_sec}s, skip"
-                )
-                continue
-            try:
-                logger.info(
-                    f"[auto_delete] {sandbox_id} (state={info.get('state')}) idle for {int(elapsed)}s, deleting"
-                )
+                logger.info(f"[auto_delete] {sandbox_id} (state={info.get('state')}) due at {due_time}, deleting")
                 await self.delete(sandbox_id, reason=DeleteReason.EXPIRED)
                 deleted_count += 1
             except Exception as e:
                 logger.error(f"[auto_delete] {sandbox_id}: {e}", exc_info=True)
         logger.info(f"[auto_delete] done: deleted={deleted_count}/{len(candidates)}")
 
-    async def _auto_archive_stopped(self) -> None:
-        """Archive STOPPED sandboxes that have been idle longer than auto_archive_seconds."""
-        auto_archive_sec = self.rock_config.lifecycle.auto_transition.auto_archive_seconds
-        if not auto_archive_sec:
-            logger.info("[auto_archive] disabled (auto_archive_seconds=0)")
+    async def _auto_delete_archived(self) -> None:
+        """Delete ARCHIVED sandboxes at the cluster archive-retention deadline."""
+        now = datetime.datetime.now(zoneinfo.ZoneInfo(env_vars.ROCK_TIME_ZONE))
+
+        try:
+            candidates = await self._meta_store.list_expired_by(
+                State.ARCHIVED.value,
+                State.DELETED.value,
+                now,
+                limit=1000,
+            )
+        except Exception as e:
+            logger.warning(f"[auto_delete_archived] list_expired_by failed: {e}")
             return
+
+        logger.info(f"[auto_delete_archived] candidates={len(candidates)}, due_at={now.isoformat(timespec='seconds')}")
+        deleted_count = 0
+        for info in candidates:
+            sandbox_id = info.get("sandbox_id", "")
+            if not sandbox_id:
+                continue
+
+            due_time = parse_iso8601_timestamp(info.get("auto_transition_time"))
+            if due_time is None:
+                continue
+            if now < due_time:
+                logger.info(f"[auto_delete_archived] {sandbox_id} not due until {due_time}")
+                continue
+
+            try:
+                logger.info(f"[auto_delete_archived] {sandbox_id} due at {due_time}, deleting")
+                await self.delete(sandbox_id, reason=DeleteReason.EXPIRED)
+                deleted_count += 1
+            except Exception as e:
+                logger.error(f"[auto_delete_archived] {sandbox_id}: {e}", exc_info=True)
+        logger.info(f"[auto_delete_archived] done: deleted={deleted_count}/{len(candidates)}")
+
+    async def _auto_archive_stopped(self) -> None:
+        """Archive STOPPED sandboxes whose auto-archive policy is due."""
         if not self._operator or not self._dir_storage or not self._image_storage:
             logger.info("[auto_archive] skipped (storage not configured)")
             return
 
+        now = datetime.datetime.now(zoneinfo.ZoneInfo(env_vars.ROCK_TIME_ZONE))
+
         try:
-            stopped_list = await self._meta_store.list_by(
-                "state", State.STOPPED.value, order_by="stop_time", limit=1000
+            stopped_list = await self._meta_store.list_expired_by(
+                State.STOPPED.value,
+                State.ARCHIVED.value,
+                now,
+                limit=1000,
             )
         except Exception as e:
-            logger.warning(f"[auto_archive] list_by failed: {e}")
+            logger.warning(f"[auto_archive] list_expired_by failed: {e}")
             return
 
-        logger.info(f"[auto_archive] candidates={len(stopped_list)}, threshold={auto_archive_sec}s")
-        now = datetime.datetime.now(timezone.utc)
+        logger.info(f"[auto_archive] candidates={len(stopped_list)}, due_at={now.isoformat(timespec='seconds')}")
         archived_count = 0
         for info in stopped_list:
             sandbox_id = info.get("sandbox_id", "")
-            stop_time_str = info.get("stop_time", "")
-            if not sandbox_id or not stop_time_str:
+            if not sandbox_id:
+                continue
+
+            due_time = parse_iso8601_timestamp(info.get("auto_transition_time"))
+            if due_time is None:
+                continue
+
+            if now < due_time:
+                logger.info(f"[auto_archive] {sandbox_id} not due until {due_time}")
                 continue
             try:
-                stop_time = datetime.datetime.fromisoformat(stop_time_str.replace("Z", "+00:00"))
-                elapsed = (now - stop_time).total_seconds()
-            except (ValueError, TypeError):
-                continue
-            if elapsed < auto_archive_sec:
-                logger.info(f"[auto_archive] {sandbox_id} idle {int(elapsed)}s < {auto_archive_sec}s, skip")
-                continue
-            try:
-                logger.info(f"[auto_archive] {sandbox_id} stopped for {int(elapsed)}s, archiving")
+                logger.info(f"[auto_archive] {sandbox_id} due at {due_time}, archiving")
                 await self.archive_sandbox(sandbox_id)
                 archived_count += 1
             except Exception as e:
@@ -656,7 +764,12 @@ class SandboxManager(BaseManager):
 
         if status == "success":
             try:
-                await sm.send("archive_done", sandbox_id=sandbox_id, meta_store=self._meta_store)
+                await sm.send(
+                    "archive_done",
+                    sandbox_id=sandbox_id,
+                    meta_store=self._meta_store,
+                    auto_transition=self.rock_config.lifecycle.auto_transition,
+                )
                 logger.info(f"archive_done: {sandbox_id}")
             except Exception as e:
                 logger.error(f"archive_done transition failed for {sandbox_id}: {e}", exc_info=True)
@@ -667,6 +780,7 @@ class SandboxManager(BaseManager):
                     sandbox_id=sandbox_id,
                     meta_store=self._meta_store,
                     reason=image_phase.get("message", "unknown"),
+                    auto_transition=self.rock_config.lifecycle.auto_transition,
                 )
                 logger.warning(f"archive_failed: {sandbox_id} ({image_phase.get('message')})")
             except Exception as e:
@@ -716,6 +830,7 @@ class SandboxManager(BaseManager):
                     sandbox_id=sandbox_id,
                     meta_store=self._meta_store,
                     reason=f"timeout after {int(elapsed)}s",
+                    auto_transition=self.rock_config.lifecycle.auto_transition,
                 )
                 logger.warning(f"[reconcile_archiving] {sandbox_id} timed out after {int(elapsed)}s, rolled back")
             except Exception as e:
@@ -754,6 +869,7 @@ class SandboxManager(BaseManager):
                                 sandbox_id=sandbox_id,
                                 meta_store=self._meta_store,
                                 reason=f"timeout after {int(elapsed)}s",
+                                auto_transition=self.rock_config.lifecycle.auto_transition,
                             )
                             logger.warning(f"[reconcile_pending] restore_failed: {sandbox_id} ({int(elapsed)}s)")
                         continue

@@ -64,6 +64,10 @@ class SandboxStatusResponse(BaseModel):
     start_time: str | None = None
     stop_time: str | None = None
     create_time: str | None = None
+    archive_time: str | None = None
+    auto_stop_time: str | None = None
+    auto_archive_time: str | None = None
+    auto_delete_time: str | None = None
     state_history: list[StateTransitionRecord] = []
 
 

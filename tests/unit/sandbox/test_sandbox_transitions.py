@@ -11,6 +11,7 @@ import pytest
 from rock.actions.sandbox.response import State
 from rock.admin.proto.response import SandboxStartResponse
 from rock.common.constants import StopReason
+from rock.config import AutoTransitionConfig, SandboxLifecycleConfig
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sdk.common.exceptions import BadRequestRockError
 
@@ -166,9 +167,31 @@ class TestManagerGetStatus:
         assert result.is_alive is True
 
     @pytest.mark.asyncio
-    async def test_get_status_keeps_cached_phases_when_operator_phases_empty(
-        self, mgr, mock_meta_store, mock_operator
-    ):
+    async def test_running_get_status_filters_inactive_auto_transition_times(self, mgr, mock_meta_store, mock_operator):
+        mock_meta_store.get.return_value = {
+            "state": State.RUNNING,
+            "auto_archive_seconds": 600,
+            "auto_delete_seconds": 1200,
+            "auto_stop_time": "2026-01-01T00:30:00+00:00",
+            "auto_transition_state": State.ARCHIVED,
+            "auto_transition_time": "2026-01-01T00:10:00+00:00",
+        }
+        mock_operator.get_status.return_value = {
+            "state": State.RUNNING,
+            "host_name": "h1",
+            "host_ip": "1.2.3.4",
+            "phases": {},
+            "port_mapping": {},
+        }
+
+        result = await mgr.get_status("sb-1")
+
+        assert result.auto_stop_time == "2026-01-01T00:30:00+00:00"
+        assert result.auto_archive_time is None
+        assert result.auto_delete_time is None
+
+    @pytest.mark.asyncio
+    async def test_get_status_keeps_cached_phases_when_operator_phases_empty(self, mgr, mock_meta_store, mock_operator):
         mock_meta_store.get.return_value = {
             "state": State.PENDING,
             "phases": {"image_pull": {"status": "running", "message": "pulling"}},
@@ -209,7 +232,14 @@ class TestManagerGetStatus:
 def mock_docker_config():
     cfg = MagicMock()
     cfg.container_name = "sb-1"
+    cfg.image = "python:3.11"
+    cfg.cpus = 1.0
+    cfg.memory = "1g"
+    cfg.disk = None
     cfg.auto_clear_time = 30
+    cfg.auto_archive_seconds = None
+    cfg.auto_delete_seconds = None
+    cfg.remove_container = True
     return cfg
 
 
@@ -338,15 +368,184 @@ def mgr_start(mgr, mock_meta_store, mock_operator, mock_docker_config):
     mgr.validate_sandbox_spec = MagicMock()
     mgr.rock_config = MagicMock()
     mgr.rock_config.runtime.use_standard_spec_only = False
+    mgr.rock_config.lifecycle = SandboxLifecycleConfig(
+        auto_transition=AutoTransitionConfig(auto_delete_seconds=3600, auto_delete_archived_seconds=7200)
+    )
 
     mgr.start_async = SandboxManager.start_async.__wrapped__.__get__(mgr)
-    mgr._build_sandbox_info_metadata = AsyncMock()
+    mgr._apply_user_auto_transition_policy = SandboxManager._apply_user_auto_transition_policy.__get__(mgr)
+
+    async def build_metadata(sandbox_info, user_info, cluster_info):
+        sandbox_info["state"] = State.PENDING
+        sandbox_info.setdefault("create_time", "2026-07-20T12:00:00+08:00")
+
+    mgr._build_sandbox_info_metadata = AsyncMock(side_effect=build_metadata)
+
+    mgr.created_spec = {}
+
+    async def capture_create(sandbox_id, sandbox_info, timeout_info=None, deployment_config=None):
+        mgr.created_spec.update(
+            auto_archive_seconds=deployment_config.auto_archive_seconds,
+            auto_delete_seconds=deployment_config.auto_delete_seconds,
+        )
+
+    mock_meta_store.create.side_effect = capture_create
     mgr.start = SandboxManager.start.__wrapped__.__get__(mgr)
     mgr.get_status = AsyncMock(return_value=MagicMock(is_alive=True, state=State.RUNNING))
     return mgr
 
 
 class TestManagerStart:
+    @pytest.mark.asyncio
+    async def test_start_registers_effective_policy_before_operator_submit(
+        self, mgr_start, mock_meta_store, mock_operator
+    ):
+        async def assert_pending_exists(*args, **kwargs):
+            mock_meta_store.create.assert_awaited_once()
+            mock_meta_store.update.assert_awaited_once()
+            pending_info = mock_meta_store.update.await_args.args[1]
+            assert pending_info["sandbox_id"] == "sb-1"
+            assert pending_info["state"] == State.PENDING
+            assert pending_info["auto_delete_seconds"] == 3600
+            return {"host_name": "h1", "host_ip": "1.2.3.4", "memory": "1g", "cpus": 1.0}
+
+        mock_operator.submit.side_effect = assert_pending_exists
+
+        await mgr_start.start_async(MagicMock(image="python:3.11"))
+
+        assert mock_meta_store.update.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_submit_failure_keeps_pending_record_with_spec_timeout_and_effective_policy(
+        self, mgr_start, mock_meta_store, mock_operator, mock_docker_config
+    ):
+        mock_docker_config.auto_delete_seconds = 7200
+        mock_operator.submit.side_effect = RuntimeError("ray submit failed")
+
+        with pytest.raises(RuntimeError, match="ray submit failed"):
+            await mgr_start.start_async(MagicMock(image="python:3.11"))
+
+        mock_meta_store.create.assert_awaited_once()
+        assert mock_meta_store.create.await_args.kwargs["timeout_info"]
+        assert mgr_start.created_spec["auto_delete_seconds"] == 7200
+        mock_meta_store.update.assert_awaited_once()
+        pending_info = mock_meta_store.update.await_args.args[1]
+        assert pending_info["state"] == State.PENDING
+        assert pending_info["auto_delete_seconds"] == 3600
+
+    @pytest.mark.asyncio
+    async def test_uses_cluster_auto_delete_when_user_policy_is_unspecified(
+        self, mgr_start, mock_docker_config, mock_meta_store
+    ):
+        await mgr_start.start_async(MagicMock(image="python:3.11"))
+
+        assert mock_docker_config.auto_delete_seconds == 3600
+        assert mock_docker_config.remove_container is False
+        sandbox_info = mock_meta_store.create.await_args.args[1]
+        assert sandbox_info["auto_delete_seconds"] == 3600
+
+    @pytest.mark.asyncio
+    async def test_cluster_zero_defaults_to_immediate_delete(self, mgr_start, mock_docker_config, mock_meta_store):
+        mgr_start.rock_config.lifecycle.auto_transition.auto_delete_seconds = 0
+
+        await mgr_start.start_async(MagicMock(image="python:3.11"))
+
+        assert mock_docker_config.auto_delete_seconds == 0
+        assert mock_docker_config.remove_container is True
+        sandbox_info = mock_meta_store.create.await_args.args[1]
+        assert sandbox_info["auto_delete_seconds"] == 0
+
+    @pytest.mark.asyncio
+    async def test_no_cluster_default_keeps_auto_delete_disabled(self, mgr_start, mock_docker_config, mock_meta_store):
+        mgr_start.rock_config.lifecycle.auto_transition.auto_delete_seconds = None
+
+        await mgr_start.start_async(MagicMock(image="python:3.11"))
+
+        assert mock_docker_config.auto_delete_seconds is None
+        sandbox_info = mock_meta_store.create.await_args.args[1]
+        assert "auto_delete_seconds" not in sandbox_info
+
+    @pytest.mark.asyncio
+    async def test_auto_archive_ignores_user_auto_delete(self, mgr_start, mock_docker_config, mock_meta_store):
+        mock_docker_config.auto_archive_seconds = 600
+        mock_docker_config.auto_delete_seconds = 10
+
+        await mgr_start.start_async(MagicMock(image="python:3.11"))
+
+        assert mock_docker_config.auto_delete_seconds is None
+        assert mock_docker_config.remove_container is False
+        sandbox_info = mock_meta_store.create.await_args.args[1]
+        assert sandbox_info["auto_archive_seconds"] == 600
+        assert "auto_delete_seconds" not in sandbox_info
+
+    @pytest.mark.asyncio
+    async def test_auto_archive_is_capped_and_requested_value_is_kept_in_spec(
+        self, mgr_start, mock_docker_config, mock_meta_store
+    ):
+        mock_docker_config.auto_archive_seconds = 3601
+
+        await mgr_start.start_async(MagicMock(image="python:3.11"))
+
+        assert mock_docker_config.auto_archive_seconds == 3600
+        sandbox_info = mock_meta_store.create.await_args.args[1]
+        assert sandbox_info["auto_archive_seconds"] == 3600
+        assert mgr_start.created_spec["auto_archive_seconds"] == 3601
+
+    @pytest.mark.asyncio
+    async def test_auto_delete_is_capped_and_requested_value_is_kept_in_spec(
+        self, mgr_start, mock_docker_config, mock_meta_store
+    ):
+        mock_docker_config.auto_delete_seconds = 3601
+
+        await mgr_start.start_async(MagicMock(image="python:3.11"))
+
+        assert mock_docker_config.auto_delete_seconds == 3600
+        sandbox_info = mock_meta_store.create.await_args.args[1]
+        assert sandbox_info["auto_delete_seconds"] == 3600
+        assert mgr_start.created_spec["auto_delete_seconds"] == 3601
+
+    @pytest.mark.asyncio
+    async def test_ignored_auto_delete_is_not_validated(self, mgr_start, mock_docker_config, mock_meta_store):
+        mock_docker_config.auto_archive_seconds = 600
+        mock_docker_config.auto_delete_seconds = 3601
+
+        await mgr_start.start_async(MagicMock(image="python:3.11"))
+
+        assert mock_docker_config.auto_delete_seconds is None
+        sandbox_info = mock_meta_store.create.await_args.args[1]
+        assert sandbox_info["auto_archive_seconds"] == 600
+        assert "auto_delete_seconds" not in sandbox_info
+        assert mgr_start.created_spec["auto_archive_seconds"] == 600
+        assert mgr_start.created_spec["auto_delete_seconds"] == 3601
+
+    @pytest.mark.asyncio
+    async def test_auto_archive_is_unlimited_without_cluster_stopped_retention(
+        self, mgr_start, mock_docker_config, mock_meta_store
+    ):
+        mock_docker_config.auto_archive_seconds = 600
+        mgr_start.rock_config.lifecycle.auto_transition.auto_delete_seconds = None
+
+        await mgr_start.start_async(MagicMock(image="python:3.11"))
+
+        assert mgr_start.created_spec["auto_archive_seconds"] == 600
+        assert mock_docker_config.auto_archive_seconds == 600
+        sandbox_info = mock_meta_store.update.await_args_list[0].args[1]
+        assert sandbox_info["auto_archive_seconds"] == 600
+
+    @pytest.mark.asyncio
+    async def test_auto_delete_is_unlimited_without_cluster_stopped_retention(
+        self, mgr_start, mock_docker_config, mock_meta_store
+    ):
+        mock_docker_config.auto_delete_seconds = 7200
+        mgr_start.rock_config.lifecycle.auto_transition.auto_delete_seconds = None
+
+        await mgr_start.start_async(MagicMock(image="python:3.11"))
+
+        assert mgr_start.created_spec["auto_delete_seconds"] == 7200
+        assert mock_docker_config.auto_delete_seconds == 7200
+        sandbox_info = mock_meta_store.update.await_args_list[0].args[1]
+        assert sandbox_info["auto_delete_seconds"] == 7200
+
     @pytest.mark.asyncio
     async def test_start_writes_meta_store_and_waits_running(self, mgr_start, mock_meta_store, mock_operator):
         mock_operator.submit.return_value["disk"] = "20g"
@@ -358,6 +557,7 @@ class TestManagerStart:
         assert result.disk == "20g"
         assert result.disk_limit_rootfs == "20g"
         mock_meta_store.create.assert_awaited_once()
+        assert mock_meta_store.update.await_count == 2
         mgr_start.get_status.assert_awaited_once_with("sb-1")
 
     @pytest.mark.asyncio

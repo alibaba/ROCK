@@ -104,7 +104,12 @@ class TestCheckArchiveProgress:
 
         await manager._reconcile_archiving()
 
-        sm_mock.send.assert_called_once_with("archive_done", sandbox_id="sbx-1", meta_store=manager._meta_store)
+        sm_mock.send.assert_called_once_with(
+            "archive_done",
+            sandbox_id="sbx-1",
+            meta_store=manager._meta_store,
+            auto_transition=manager.rock_config.lifecycle.auto_transition,
+        )
 
     async def test_image_running_within_timeout_skips(self, manager):
         now = datetime.now(timezone.utc).isoformat()

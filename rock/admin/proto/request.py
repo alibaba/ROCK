@@ -1,7 +1,7 @@
 from typing import Annotated, Literal, TypedDict
 
 from fastapi import Header
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from rock import env_vars
 from rock.actions import (
@@ -40,14 +40,23 @@ class SandboxStartRequest(BaseModel):
     """Total time budget in seconds covering docker pull + runtime startup. Overrides YAML/Nacos defaults when set. Capped at max_startup_timeout."""
     use_kata_runtime: bool = False
     """Whether to use kata container runtime (io.containerd.kata.v2) instead of --privileged mode."""
+    auto_archive_seconds: int | None = None
+    """The time for automatic sandbox archive after stop, with the unit being seconds."""
     auto_delete_seconds: int | None = None
-    """The time for automatic container deletion, with the unit being seconds."""
+    """Automatic deletion delay in seconds; None inherits the cluster default when archive is not configured."""
     disk: str | None = "50G"
     """Disk quota for the sandbox (e.g. '50G'). Applied to rootfs (log dir shares the same quota via XFS prjid). Set None to fall back to cluster defaults."""
     num_gpus: float | None = None
     """Number of GPUs to allocate. Supports fractional values (e.g. 0.5 for GPU sharing)."""
     accelerator_type: str | None = None
     """GPU accelerator type (e.g. 'A100', 'V100'). If not specified, any available GPU will be used."""
+
+    @field_validator("auto_archive_seconds", "auto_delete_seconds")
+    @classmethod
+    def validate_auto_transition_seconds(cls, v, info):
+        if v is not None and v < 0:
+            raise ValueError(f"{info.field_name} must be >= 0")
+        return v
 
 
 class SandboxCommand(Command):

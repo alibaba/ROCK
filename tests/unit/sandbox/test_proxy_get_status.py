@@ -158,13 +158,25 @@ class TestProxyGetStatus:
 
     async def test_stopped_with_include_all_states_true_returns_response(self, proxy_service, mock_meta_store):
         info = _make_meta_info(state=State.STOPPED)
+        info.update(
+            {
+                "archive_time": "2026-01-01T00:00:00+00:00",
+                "auto_transition_state": State.ARCHIVED,
+                "auto_transition_time": "2026-01-01T01:00:00+00:00",
+            }
+        )
         mock_meta_store.get.return_value = info
+        mock_meta_store.get_timeout.return_value = {"expire_time": "1767229200"}
 
         result = await proxy_service.get_status("sandbox-1", include_all_states=True)
 
         assert isinstance(result, SandboxStatusResponse)
         assert result.state == State.STOPPED
         assert result.is_alive is False
+        assert result.archive_time == "2026-01-01T00:00:00+00:00"
+        assert result.auto_stop_time is None
+        assert result.auto_archive_time == "2026-01-01T01:00:00+00:00"
+        assert result.auto_delete_time is None
 
     async def test_rocklet_failure_falls_back_gracefully(self, proxy_service, mock_meta_store, mock_rpc_client):
         mock_meta_store.get.return_value = _make_meta_info(state=State.RUNNING)

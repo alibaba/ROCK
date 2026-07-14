@@ -197,6 +197,7 @@ class Sandbox(AbstractSandbox):
             "use_kata_runtime": self.config.use_kata_runtime,
             "limit_cpus": self.config.limit_cpus,
             "sandbox_id": self.config.sandbox_id,
+            "auto_archive_seconds": self.config.auto_archive_seconds,
             "auto_delete_seconds": self.config.auto_delete_seconds,
             "disk": self.config.disk,
         }

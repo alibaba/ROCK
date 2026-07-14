@@ -1,10 +1,14 @@
 """Tests for SandboxTable — SQLite in-memory (fast) and PostgreSQL (Docker)."""
 
+from datetime import datetime
+
 import pytest
+from sqlalchemy import DateTime
 from sqlalchemy.exc import IntegrityError
 
 from rock.admin.core.db_provider import DatabaseProvider
 from rock.admin.core.sandbox_table import SandboxTable
+from rock.admin.core.schema import SandboxRecord
 from rock.config import DatabaseConfig
 
 
@@ -76,6 +80,91 @@ class TestSandboxTableWithSQLite:
         await db.create("lbi-3", {"user_id": "carol", "create_time": "2025-01-01T00:00:00Z"})
         results = await db.list_by_in("sandbox_id", ["lbi-1", "lbi-3"])
         assert {r["sandbox_id"] for r in results} == {"lbi-1", "lbi-3"}
+
+    async def test_list_expired_by(self, db):
+        await db.create(
+            "due-1",
+            {
+                "state": "stopped",
+                "create_time": "2025-01-01T00:00:00Z",
+                "auto_transition_state": "archived",
+                "auto_transition_time": "2026-01-01T08:00:00+08:00",
+            },
+        )
+        await db.create(
+            "due-2",
+            {
+                "state": "stopped",
+                "create_time": "2025-01-01T00:00:00Z",
+                "auto_transition_state": "archived",
+                "auto_transition_time": "2026-01-01T08:03:00+08:00",
+            },
+        )
+        await db.create(
+            "future-1",
+            {
+                "state": "stopped",
+                "create_time": "2025-01-01T00:00:00Z",
+                "auto_transition_state": "archived",
+                "auto_transition_time": "2026-01-01T08:10:00+08:00",
+            },
+        )
+        await db.create(
+            "wrong-state",
+            {
+                "state": "running",
+                "create_time": "2025-01-01T00:00:00Z",
+                "auto_transition_state": "archived",
+                "auto_transition_time": "2026-01-01T08:00:00+08:00",
+            },
+        )
+
+        results = await db.list_expired_by(
+            "stopped",
+            "archived",
+            datetime.fromisoformat("2026-01-01T08:05:00+08:00"),
+        )
+
+        assert [r["sandbox_id"] for r in results] == ["due-1", "due-2"]
+
+    async def test_list_expired_by_filters_transition_state(self, db):
+        await db.create(
+            "delete-due",
+            {
+                "state": "stopped",
+                "create_time": "2025-01-01T00:00:00Z",
+                "auto_transition_state": "deleted",
+                "auto_transition_time": "2026-01-01T08:00:00+08:00",
+            },
+        )
+
+        results = await db.list_expired_by("stopped", "archived", datetime.fromisoformat("2026-01-01T08:05:00+08:00"))
+
+        assert results == []
+
+    async def test_list_expired_by_supports_archived_delete_time(self, db):
+        await db.create(
+            "archived-due",
+            {
+                "state": "archived",
+                "create_time": "2025-01-01T00:00:00Z",
+                "auto_transition_state": "deleted",
+                "auto_transition_time": "2026-01-01T08:00:00+08:00",
+            },
+        )
+
+        results = await db.list_expired_by(
+            "archived",
+            "deleted",
+            datetime.fromisoformat("2026-01-01T08:05:00+08:00"),
+        )
+
+        assert [record["sandbox_id"] for record in results] == ["archived-due"]
+
+    def test_auto_transition_time_uses_timezone_aware_datetime(self):
+        column_type = SandboxRecord.__table__.c.auto_transition_time.type
+        assert isinstance(column_type, DateTime)
+        assert column_type.timezone is True
 
     async def test_list_by_rejects_blacklisted_column(self, db):
         with pytest.raises(ValueError, match="not allowed"):

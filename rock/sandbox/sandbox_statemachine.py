@@ -6,9 +6,14 @@ callbacks contain the actual async business logic so the state machine is
 the single place that owns both transition validation and execution.
 """
 
+import datetime
+import zoneinfo
+from typing import Any
+
 from statemachine import State as SMState
 from statemachine import StateChart
 
+from rock import env_vars
 from rock.actions.sandbox.response import State as RockState
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.metrics.billing import log_billing_info
@@ -22,6 +27,58 @@ from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils.system import get_iso8601_timestamp
 
 logger = init_logger(__name__)
+
+
+def parse_iso8601_timestamp(value: str | None) -> datetime.datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed
+
+
+def resolve_auto_archive_seconds(info: dict[str, Any]) -> int | None:
+    return _resolve_user_seconds(info, "auto_archive_seconds")
+
+
+def resolve_auto_delete_seconds(info: dict[str, Any]) -> int | None:
+    return _resolve_user_seconds(info, "auto_delete_seconds")
+
+
+def apply_effective_auto_transition_policy(info: dict[str, Any], config: DockerDeploymentConfig) -> None:
+    archive_seconds = resolve_auto_archive_seconds(info)
+    delete_seconds = resolve_auto_delete_seconds(info)
+    if archive_seconds is not None:
+        config.auto_archive_seconds = archive_seconds
+        config.auto_delete_seconds = None
+        config.remove_container = False
+    elif delete_seconds is not None:
+        config.auto_archive_seconds = None
+        config.auto_delete_seconds = delete_seconds
+        config.remove_container = delete_seconds == 0
+
+
+def _resolve_user_seconds(info: dict[str, Any], field: str) -> int | None:
+    raw = info.get(field)
+    if raw is None:
+        spec = info.get("spec") or {}
+        raw = spec.get(field)
+    return _coerce_seconds(raw)
+
+
+def _coerce_seconds(raw: Any) -> int | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, int | str):
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return -1
 
 
 def get_current_state_started_at(state_history: list[dict[str, str]], target_state: str) -> str:
@@ -96,7 +153,9 @@ class SandboxStateMachine(StateChart):
         if len(history) > 100:
             del history[:-100]
 
-    async def on_stop(self, sandbox_id: str, operator, meta_store, reason: StopReason = StopReason.MANUAL) -> None:
+    async def on_stop(
+        self, sandbox_id: str, operator, meta_store, reason: StopReason = StopReason.MANUAL, auto_transition=None
+    ) -> None:
         logger.info(f"stop sandbox {sandbox_id} (reason={reason.value})")
         sandbox_info = self.sandbox_info or {}
 
@@ -110,7 +169,23 @@ class SandboxStateMachine(StateChart):
         # need this for downstream consumers like SandboxLogArchiveTask. The
         # billing call below stays gated on start_time because billing is
         # only meaningful for actually-started sandboxes.
-        sandbox_info["stop_time"] = get_iso8601_timestamp()
+        now = datetime.datetime.now(zoneinfo.ZoneInfo(env_vars.ROCK_TIME_ZONE))
+        sandbox_info["stop_time"] = now.isoformat(timespec="seconds")
+        sandbox_info["auto_stop_time"] = None
+        sandbox_info["auto_transition_state"] = None
+        sandbox_info["auto_transition_time"] = None
+        if auto_transition:
+            archive_seconds = resolve_auto_archive_seconds(sandbox_info)
+            transition_state = RockState.ARCHIVED
+            transition_seconds = archive_seconds
+            if archive_seconds is None:
+                transition_state = RockState.DELETED
+                transition_seconds = resolve_auto_delete_seconds(sandbox_info)
+            if transition_seconds is not None and transition_seconds >= 0:
+                sandbox_info["auto_transition_state"] = transition_state
+                sandbox_info["auto_transition_time"] = (now + datetime.timedelta(seconds=transition_seconds)).isoformat(
+                    timespec="seconds"
+                )
         if sandbox_info.get("start_time"):
             log_billing_info(sandbox_info=sandbox_info)
 
@@ -136,10 +211,16 @@ class SandboxStateMachine(StateChart):
             sandbox_info["start_time"] = docker_run.get("completed_at") or get_iso8601_timestamp()
         if self.sandbox_info and "state_history" in self.sandbox_info:
             sandbox_info["state_history"] = self.sandbox_info["state_history"]
+        if self.sandbox_info:
+            for field in ("auto_archive_seconds", "auto_delete_seconds"):
+                if field in self.sandbox_info:
+                    sandbox_info[field] = self.sandbox_info[field]
         # Clear archive_time once the sandbox is fully live again — otherwise
         # _reconcile_pending would misclassify a subsequent plain restart as a
         # restore-in-progress and time it out to ARCHIVED.
-        sandbox_info.pop("archive_time", None)
+        sandbox_info["archive_time"] = None
+        sandbox_info["auto_transition_state"] = None
+        sandbox_info["auto_transition_time"] = None
         await meta_store.update(sandbox_id, sandbox_info)
 
     async def on_restart(self, sandbox_id: str, operator, meta_store) -> None:
@@ -155,6 +236,7 @@ class SandboxStateMachine(StateChart):
         spec = info.get("spec") or {}
         if spec:
             restart_config = DockerDeploymentConfig(**spec)
+            apply_effective_auto_transition_policy(info, restart_config)
         else:
             logger.warning(
                 f"sandbox {sandbox_id} has no spec snapshot; rebuilding config from flat fields with model defaults"
@@ -177,7 +259,9 @@ class SandboxStateMachine(StateChart):
         # fields (spec/status) won't pollute the alive key.
         new_info = dict(info)
         new_info["state"] = RockState.PENDING
-        new_info.pop("stop_time", None)
+        new_info["stop_time"] = None
+        new_info["auto_transition_state"] = None
+        new_info["auto_transition_time"] = None
         new_info.pop("phases", None)
         await meta_store.update(sandbox_id, new_info)
         await meta_store.update_timeout(sandbox_id, timeout_info)
@@ -230,6 +314,9 @@ class SandboxStateMachine(StateChart):
 
         sandbox_info["state"] = RockState.DELETED
         sandbox_info["delete_time"] = get_iso8601_timestamp()
+        sandbox_info["auto_stop_time"] = None
+        sandbox_info["auto_transition_state"] = None
+        sandbox_info["auto_transition_time"] = None
         await meta_store.archive(sandbox_id, sandbox_info)
         self.sandbox_info = sandbox_info
 
@@ -251,6 +338,9 @@ class SandboxStateMachine(StateChart):
         sandbox_info["state"] = RockState.ARCHIVING
         sandbox_info["archive_prefix"] = prefix
         sandbox_info["registry_namespace"] = registry_ns
+        sandbox_info["auto_stop_time"] = None
+        sandbox_info["auto_transition_state"] = None
+        sandbox_info["auto_transition_time"] = None
         await meta_store.archive(sandbox_id, sandbox_info)
         self.sandbox_info = sandbox_info
 
@@ -265,19 +355,37 @@ class SandboxStateMachine(StateChart):
                 archive_params=archive_params,
             )
 
-    async def on_archive_done(self, sandbox_id: str, meta_store) -> None:
+    async def on_archive_done(self, sandbox_id: str, meta_store, auto_transition=None) -> None:
         logger.info(f"archive done sandbox {sandbox_id}")
         sandbox_info = self.sandbox_info or {}
+        now = datetime.datetime.now(zoneinfo.ZoneInfo(env_vars.ROCK_TIME_ZONE))
         sandbox_info["state"] = RockState.ARCHIVED
-        sandbox_info["archive_time"] = get_iso8601_timestamp()
+        sandbox_info["archive_time"] = now.isoformat(timespec="seconds")
+        sandbox_info["auto_stop_time"] = None
+        sandbox_info["auto_transition_state"] = None
+        sandbox_info["auto_transition_time"] = None
+        if auto_transition and auto_transition.auto_delete_archived_seconds is not None:
+            sandbox_info["auto_transition_state"] = RockState.DELETED
+            sandbox_info["auto_transition_time"] = (
+                now + datetime.timedelta(seconds=auto_transition.auto_delete_archived_seconds)
+            ).isoformat(timespec="seconds")
         await meta_store.archive(sandbox_id, sandbox_info)
         self.sandbox_info = sandbox_info
 
-    async def on_archive_failed(self, sandbox_id: str, meta_store, reason: str = "") -> None:
+    async def on_archive_failed(self, sandbox_id: str, meta_store, reason: str = "", auto_transition=None) -> None:
         logger.info(f"archive failed sandbox {sandbox_id}: {reason}")
         sandbox_info = self.sandbox_info or {}
         sandbox_info["state"] = RockState.STOPPED
-        sandbox_info.pop("archive_time", None)
+        sandbox_info["archive_time"] = None
+        sandbox_info["auto_stop_time"] = None
+        sandbox_info["auto_transition_state"] = None
+        sandbox_info["auto_transition_time"] = None
+        if auto_transition and auto_transition.auto_delete_seconds is not None:
+            now = datetime.datetime.now(zoneinfo.ZoneInfo(env_vars.ROCK_TIME_ZONE))
+            sandbox_info["auto_transition_state"] = RockState.DELETED
+            sandbox_info["auto_transition_time"] = (
+                now + datetime.timedelta(seconds=auto_transition.auto_delete_seconds)
+            ).isoformat(timespec="seconds")
         await meta_store.archive(sandbox_id, sandbox_info)
         self.sandbox_info = sandbox_info
 
@@ -298,12 +406,15 @@ class SandboxStateMachine(StateChart):
         logger.info(f"restore sandbox {sandbox_id}")
         sandbox_info = self.sandbox_info or {}
         sandbox_info["state"] = RockState.PENDING
-        sandbox_info.pop("stop_time", None)
+        sandbox_info["stop_time"] = None
+        sandbox_info["auto_transition_state"] = None
+        sandbox_info["auto_transition_time"] = None
         await meta_store.update(sandbox_id, sandbox_info)
 
         spec = sandbox_info.get("spec") or {}
         if spec:
             config = DockerDeploymentConfig(**spec)
+            apply_effective_auto_transition_policy(sandbox_info, config)
             timeout_info = SandboxTimeoutHelper.make_timeout_info(config.auto_clear_time)
             if timeout_info:
                 await meta_store.update_timeout(sandbox_id, timeout_info)
@@ -317,6 +428,7 @@ class SandboxStateMachine(StateChart):
             if restore_timeout_seconds:
                 archive_params["timeout_seconds"] = restore_timeout_seconds
             config = DockerDeploymentConfig(**spec)
+            apply_effective_auto_transition_policy(sandbox_info, config)
             new_host_ip = await operator.start_restore(
                 config=config,
                 dir_storage_config=dir_storage.client_config,
@@ -329,11 +441,19 @@ class SandboxStateMachine(StateChart):
                 await meta_store.update(sandbox_id, sandbox_info)
                 self.sandbox_info = sandbox_info
 
-    async def on_restore_failed(self, sandbox_id: str, meta_store, reason: str = "") -> None:
+    async def on_restore_failed(self, sandbox_id: str, meta_store, reason: str = "", auto_transition=None) -> None:
         """PENDING → ARCHIVED: timeout or unrecoverable error during restore."""
         logger.info(f"restore failed sandbox {sandbox_id}: {reason}")
         sandbox_info = self.sandbox_info or {}
         sandbox_info["state"] = RockState.ARCHIVED
+        sandbox_info["auto_transition_state"] = None
+        sandbox_info["auto_transition_time"] = None
+        if auto_transition and auto_transition.auto_delete_archived_seconds is not None:
+            now = datetime.datetime.now(zoneinfo.ZoneInfo(env_vars.ROCK_TIME_ZONE))
+            sandbox_info["auto_transition_state"] = RockState.DELETED
+            sandbox_info["auto_transition_time"] = (
+                now + datetime.timedelta(seconds=auto_transition.auto_delete_archived_seconds)
+            ).isoformat(timespec="seconds")
         await meta_store.archive(sandbox_id, sandbox_info)
         self.sandbox_info = sandbox_info
 

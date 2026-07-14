@@ -223,8 +223,10 @@ class ArchiveConfig:
 @dataclass
 class AutoTransitionConfig:
     interval_seconds: int = 180
-    auto_archive_seconds: int = 0
-    auto_delete_seconds: int = 0
+    # Cluster cap for auto-archive delays and cleanup fallback after archive failure.
+    auto_delete_seconds: int | None = None
+    # Cluster retention period for successfully archived sandboxes.
+    auto_delete_archived_seconds: int | None = None
     auto_clear_seconds: int = 1800
 
 

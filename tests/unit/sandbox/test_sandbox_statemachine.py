@@ -15,7 +15,8 @@ from statemachine.exceptions import TransitionNotAllowed
 
 from rock.actions.sandbox.response import State
 from rock.common.constants import StopReason
-from rock.sandbox.sandbox_statemachine import SandboxStateMachine
+from rock.config import AutoTransitionConfig
+from rock.sandbox.sandbox_statemachine import SandboxStateMachine, parse_iso8601_timestamp
 
 # ---------------------------------------------------------------------------
 # Transitions
@@ -37,6 +38,19 @@ class TestTransitions:
         await sm.activate_initial_state()
         await sm.send("alive", sandbox_id="sb", meta_store=AsyncMock(), sandbox_info={})
         assert sm.running.is_active
+
+    @pytest.mark.asyncio
+    async def test_alive_preserves_effective_auto_transition_policy(self):
+        meta_store = AsyncMock()
+        sm = await SandboxStateMachine.from_state_value(
+            State.PENDING,
+            sandbox_info={"auto_delete_seconds": 3600, "spec": {"auto_delete_seconds": 7200}},
+        )
+
+        await sm.send("alive", sandbox_id="sb", meta_store=meta_store, sandbox_info={})
+
+        updated = meta_store.update.await_args.args[1]
+        assert updated["auto_delete_seconds"] == 3600
 
     @pytest.mark.asyncio
     async def test_stop_from_pending(self):
@@ -221,6 +235,118 @@ class TestOnStop:
         assert archived.get("stop_time"), "stop_time must be set even when start_time absent"
         mock_billing.assert_not_called()  # no billing when start_time absent
 
+    @pytest.mark.asyncio
+    async def test_stop_with_auto_archive_defers_auto_delete_until_archive_result(self, mock_operator, mock_meta_store):
+        sm = await SandboxStateMachine.from_state_value(
+            State.RUNNING,
+            sandbox_info={
+                "state": State.RUNNING,
+                "spec": {"auto_archive_seconds": 600, "auto_delete_seconds": 1200},
+            },
+        )
+        await sm.send(
+            "stop",
+            sandbox_id="sb-1",
+            operator=mock_operator,
+            meta_store=mock_meta_store,
+            auto_transition=AutoTransitionConfig(auto_delete_seconds=7200),
+        )
+
+        archived = mock_meta_store.archive.call_args[0][1]
+        stop_time = parse_iso8601_timestamp(archived["stop_time"])
+        auto_archive_time = parse_iso8601_timestamp(archived["auto_transition_time"])
+        assert archived["stop_time"].endswith("+08:00")
+        assert archived["auto_transition_state"] == State.ARCHIVED
+        assert archived["auto_transition_time"].endswith("+08:00")
+        assert (auto_archive_time - stop_time).total_seconds() == 600
+
+    @pytest.mark.asyncio
+    async def test_stop_without_user_policy_sets_no_transition_deadline(self, mock_operator, mock_meta_store):
+        sm = await SandboxStateMachine.from_state_value(State.RUNNING, sandbox_info={"state": State.RUNNING})
+        await sm.send(
+            "stop",
+            sandbox_id="sb-1",
+            operator=mock_operator,
+            meta_store=mock_meta_store,
+            auto_transition=AutoTransitionConfig(auto_delete_seconds=900),
+        )
+
+        archived = mock_meta_store.archive.call_args[0][1]
+        assert archived["auto_transition_state"] is None
+        assert archived["auto_transition_time"] is None
+
+    @pytest.mark.asyncio
+    async def test_stop_sets_auto_delete_time_when_auto_archive_is_not_configured(self, mock_operator, mock_meta_store):
+        sm = await SandboxStateMachine.from_state_value(
+            State.RUNNING,
+            sandbox_info={
+                "state": State.RUNNING,
+                "auto_delete_seconds": 1200,
+            },
+        )
+        await sm.send(
+            "stop",
+            sandbox_id="sb-1",
+            operator=mock_operator,
+            meta_store=mock_meta_store,
+            auto_transition=AutoTransitionConfig(auto_delete_seconds=7200),
+        )
+
+        archived = mock_meta_store.archive.call_args[0][1]
+        stop_time = parse_iso8601_timestamp(archived["stop_time"])
+        auto_delete_time = parse_iso8601_timestamp(archived["auto_transition_time"])
+        assert archived["auto_transition_state"] == State.DELETED
+        assert archived["auto_transition_time"].endswith("+08:00")
+        assert (auto_delete_time - stop_time).total_seconds() == 1200
+
+    @pytest.mark.asyncio
+    async def test_stop_prefers_effective_status_policy_over_requested_spec(self, mock_operator, mock_meta_store):
+        sm = await SandboxStateMachine.from_state_value(
+            State.RUNNING,
+            sandbox_info={
+                "state": State.RUNNING,
+                "auto_delete_seconds": 3600,
+                "spec": {"auto_delete_seconds": 7200},
+            },
+        )
+
+        await sm.send(
+            "stop",
+            sandbox_id="sb-1",
+            operator=mock_operator,
+            meta_store=mock_meta_store,
+            auto_transition=AutoTransitionConfig(auto_delete_seconds=3600),
+        )
+
+        archived = mock_meta_store.archive.call_args.args[1]
+        stop_time = parse_iso8601_timestamp(archived["stop_time"])
+        auto_delete_time = parse_iso8601_timestamp(archived["auto_transition_time"])
+        assert (auto_delete_time - stop_time).total_seconds() == 3600
+
+    @pytest.mark.asyncio
+    async def test_stop_sets_immediate_auto_archive_time_for_zero(self, mock_operator, mock_meta_store):
+        sm = await SandboxStateMachine.from_state_value(
+            State.RUNNING,
+            sandbox_info={
+                "state": State.RUNNING,
+                "auto_archive_seconds": 0,
+                "auto_delete_seconds": 0,
+            },
+        )
+        await sm.send(
+            "stop",
+            sandbox_id="sb-1",
+            operator=mock_operator,
+            meta_store=mock_meta_store,
+            auto_transition=AutoTransitionConfig(auto_delete_seconds=7200),
+        )
+
+        archived = mock_meta_store.archive.call_args[0][1]
+        stop_time = parse_iso8601_timestamp(archived["stop_time"])
+        auto_archive_time = parse_iso8601_timestamp(archived["auto_transition_time"])
+        assert archived["auto_transition_state"] == State.ARCHIVED
+        assert auto_archive_time == stop_time
+
 
 # ---------------------------------------------------------------------------
 # restart transitions
@@ -306,7 +432,9 @@ class TestOnRestart:
         await self._send_restart(mock_meta_store, sandbox_info=info)
         updated_info = mock_meta_store.update.call_args[0][1]
         assert "phases" not in updated_info
-        assert "stop_time" not in updated_info
+        assert updated_info["stop_time"] is None
+        assert updated_info["auto_transition_state"] is None
+        assert updated_info["auto_transition_time"] is None
 
     @pytest.mark.asyncio
     async def test_writes_timeout_built_from_spec(self, mock_meta_store):

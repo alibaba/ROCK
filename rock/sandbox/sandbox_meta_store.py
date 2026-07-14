@@ -7,6 +7,7 @@ All DB operations are awaited for consistency.
 
 from __future__ import annotations
 
+import datetime
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
@@ -190,3 +191,14 @@ class SandboxMetaStore:
     ) -> list[SandboxInfo]:
         """Query sandboxes by *field* IN *values* from the DB."""
         return await self._db.list_by_in(field, values, order_by=order_by, limit=limit)
+
+    @monitor_metastore_operation
+    async def list_expired_by(
+        self,
+        state: str,
+        transition_state: str,
+        now: datetime.datetime,
+        limit: int | None = None,
+    ) -> list[SandboxInfo]:
+        """Query sandboxes by current state, transition target, and deadline."""
+        return await self._db.list_expired_by(state, transition_state, now, limit=limit)

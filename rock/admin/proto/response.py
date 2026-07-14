@@ -4,6 +4,7 @@ from rock.actions import SandboxResponse
 from rock.actions.sandbox.response import State, StateTransitionRecord
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.proto.request import TaskSetSpec
+from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 
 
 class SandboxStartResponse(SandboxResponse):
@@ -38,10 +39,18 @@ class SandboxStatusResponse(BaseModel):
     start_time: str | None = None
     stop_time: str | None = None
     create_time: str | None = None
+    archive_time: str | None = None
+    auto_stop_time: str | None = None
+    auto_archive_time: str | None = None
+    auto_delete_time: str | None = None
     state_history: list[StateTransitionRecord] = []
 
     @classmethod
     def from_sandbox_info(cls, sandbox_info: "SandboxInfo") -> "SandboxStatusResponse":
+        auto_stop_time, auto_archive_time, auto_delete_time = SandboxTimeoutHelper.auto_transition_times_for_status(
+            sandbox_info.get("state"),
+            sandbox_info,
+        )
         return cls(
             sandbox_id=sandbox_info.get("sandbox_id", ""),
             status=sandbox_info.get("phases", {}),
@@ -57,6 +66,13 @@ class SandboxStatusResponse(BaseModel):
             memory=sandbox_info.get("memory"),
             disk=sandbox_info.get("disk"),
             disk_limit_rootfs=sandbox_info.get("disk"),
+            start_time=sandbox_info.get("start_time"),
+            stop_time=sandbox_info.get("stop_time"),
+            create_time=sandbox_info.get("create_time"),
+            archive_time=sandbox_info.get("archive_time"),
+            auto_stop_time=auto_stop_time,
+            auto_archive_time=auto_archive_time,
+            auto_delete_time=auto_delete_time,
             state_history=sandbox_info.get("state_history", []),
         )
 

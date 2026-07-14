@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import functools
 from typing import TYPE_CHECKING, Any
 
@@ -241,11 +242,61 @@ class SandboxTable:
             result = session.execute(stmt)
             return [_merge_status_blob(r.to_dict()) for r in result.scalars().all()]
 
+    @_retry_on_disconnect
+    @monitor_metastore_operation
+    async def list_expired_by(
+        self,
+        state: str,
+        transition_state: str,
+        now: datetime.datetime,
+        limit: int | None = None,
+    ) -> list[dict]:
+        """Query rows whose current state, transition target, and deadline are due."""
+        return await self._db.run(self._list_expired_by_sync, state, transition_state, now, limit)
+
+    def _list_expired_by_sync(
+        self,
+        state: str,
+        transition_state: str,
+        now: datetime.datetime,
+        limit: int | None = None,
+    ) -> list[dict]:
+        stmt = (
+            select(SandboxRecord)
+            .where(SandboxRecord.state == state)
+            .where(SandboxRecord.auto_transition_state == transition_state)
+            .where(SandboxRecord.auto_transition_time.is_not(None))
+            .where(SandboxRecord.auto_transition_time <= now)
+            .order_by(SandboxRecord.auto_transition_time.asc())
+        )
+        if limit:
+            stmt = stmt.limit(limit)
+        with self._db.session_factory() as session:
+            result = session.execute(stmt)
+            return [_merge_status_blob(r.to_dict()) for r in result.scalars().all()]
+
 
 def _pick_columns(data: dict[str, Any]) -> dict[str, Any]:
     """Return only keys matching a scalar SandboxRecord column, excluding sandbox_id/spec/status."""
     columns = SandboxRecord.column_names() - {"sandbox_id", "spec", "status"}
-    return {k: v for k, v in data.items() if k in columns}
+    result = {k: v for k, v in data.items() if k in columns}
+    if "auto_transition_time" in result:
+        result["auto_transition_time"] = _parse_aware_datetime(result["auto_transition_time"])
+    return result
+
+
+def _parse_aware_datetime(value: Any) -> datetime.datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime.datetime):
+        parsed = value
+    elif isinstance(value, str):
+        parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    else:
+        raise TypeError("auto_transition_time must be an ISO 8601 string or datetime")
+    if parsed.tzinfo is None:
+        raise ValueError("auto_transition_time must include a timezone")
+    return parsed
 
 
 def _merge_status_blob(raw: dict[str, Any]) -> dict[str, Any]:

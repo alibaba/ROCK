@@ -50,6 +50,8 @@ def test_all_fields_propagate_from_request_to_docker_config():
         registry_username="user",
         registry_password="secret",
         use_kata_runtime=True,
+        auto_archive_seconds=600,
+        auto_delete_seconds=1200,
     )
     config = DockerDeploymentConfig.from_request(request)
 
@@ -63,6 +65,8 @@ def test_all_fields_propagate_from_request_to_docker_config():
     assert config.registry_username == "user"
     assert config.registry_password == "secret"
     assert config.use_kata_runtime is True
+    assert config.auto_archive_seconds == 600
+    assert config.auto_delete_seconds == 1200
 
 
 def test_sandbox_id_becomes_container_name():

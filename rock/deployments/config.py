@@ -119,10 +119,15 @@ class DockerDeploymentConfig(DeploymentConfig):
     container_name: str | None = None
     """Custom name for the container. If None, a random name will be generated."""
 
+    auto_archive_seconds: int | None = None
+    """Per-sandbox auto-archive policy. 0 = archive immediately after stop;
+    >0 = archive after this many seconds stopped; None = do not auto-archive."""
+
     auto_delete_seconds: int | None = None
-    """Per-sandbox auto-delete policy. 0 = --rm (immediate delete on stop);
-    >0 = delete after this many seconds idle; None = fall back to global
-    lifecycle.auto_delete_seconds."""
+    """Per-sandbox auto-delete policy. 0 = delete immediately after stop;
+    >0 = delete after this many seconds stopped; None = inherit the cluster
+    default when auto_archive_seconds is also None. Ignored when
+    auto_archive_seconds is configured."""
 
     type: Literal["docker"] = "docker"
     """Deployment type discriminator for serialization/deserialization and CLI parsing. Should not be modified."""

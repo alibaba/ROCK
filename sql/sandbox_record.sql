@@ -12,6 +12,8 @@ CREATE TABLE sandbox_record (
 	stop_time VARCHAR(64), 
 	archive_time VARCHAR(64), 
 	delete_time VARCHAR(64), 
+	auto_transition_state VARCHAR(32),
+	auto_transition_time TIMESTAMPTZ,
 	host_name VARCHAR(255), 
 	auth_token VARCHAR(512), 
 	rock_authorization_encrypted VARCHAR(1024), 
@@ -29,6 +31,8 @@ CREATE TABLE sandbox_record (
 CREATE INDEX ix_sandbox_record_image ON sandbox_record (image);
 
 CREATE INDEX ix_sandbox_record_state ON sandbox_record (state);
+
+CREATE INDEX ix_sandbox_record_state_auto_transition ON sandbox_record (state, auto_transition_state, auto_transition_time);
 
 CREATE INDEX ix_sandbox_record_state_start_time ON sandbox_record (state, start_time);
 

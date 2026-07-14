@@ -12,6 +12,7 @@ from rock.admin.core.db_provider import DatabaseProvider
 from rock.admin.core.redis_key import ALIVE_PREFIX, alive_sandbox_key, timeout_sandbox_key
 from rock.admin.core.sandbox_table import SandboxTable
 from rock.config import DatabaseConfig
+from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.utils.providers.redis_provider import RedisProvider
 
@@ -94,6 +95,20 @@ class TestSave:
         result = await redis.json_get(timeout_sandbox_key(SANDBOX_ID), "$")
         assert result is not None
         assert result[0]["auto_clear_time"] == "30"
+
+    async def test_db_get_restores_auto_seconds_from_spec(self, db):
+        """Old status snapshots may miss auto_*_seconds; recover them from spec."""
+        config = DockerDeploymentConfig(
+            container_name=SANDBOX_ID,
+            auto_archive_seconds=600,
+            auto_delete_seconds=1200,
+        )
+        await db.create(SANDBOX_ID, SANDBOX_INFO, config)
+
+        db_record = await db.get(SANDBOX_ID)
+
+        assert db_record["auto_archive_seconds"] == 600
+        assert db_record["auto_delete_seconds"] == 1200
 
 
 class TestUpdate:

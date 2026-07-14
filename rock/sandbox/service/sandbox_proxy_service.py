@@ -1112,6 +1112,12 @@ class SandboxProxyService:
             raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
 
         info = operator_sandbox_info if operator_sandbox_info is not None else sandbox_info
+        timeout_info = await self._meta_store.get_timeout(sandbox_id)
+        auto_stop_time, auto_archive_time, auto_delete_time = SandboxTimeoutHelper.auto_transition_times_for_status(
+            info.get("state"),
+            info,
+            timeout_info,
+        )
 
         return SandboxStatusResponse(
             sandbox_id=sandbox_id,
@@ -1134,5 +1140,9 @@ class SandboxProxyService:
             start_time=info.get("start_time"),
             stop_time=info.get("stop_time"),
             create_time=info.get("create_time"),
+            archive_time=info.get("archive_time"),
+            auto_stop_time=auto_stop_time,
+            auto_archive_time=auto_archive_time,
+            auto_delete_time=auto_delete_time,
             state_history=sandbox_info.get("state_history", []),
         )
