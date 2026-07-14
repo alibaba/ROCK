@@ -146,6 +146,39 @@ async def test_unified_handler_writes_run_meta_and_runs_each_task():
     assert writes[-1].task_job_map == {"t1": "job_t1_run-1", "t2": "job_t2_run-1"}
 
 
+async def test_unified_handler_preserves_yaml_job_name_for_single_task():
+    from rock.cli.job_run import DatasetRef, NullProgressReporter, UnifiedJobRunHandler
+
+    seen_job_names = []
+
+    class FakeExecutor:
+        _max_concurrent = 1
+
+        async def run_job(self, job, callbacks=None):
+            seen_job_names.append(job.job_name)
+            client = SimpleNamespace(sandbox=SimpleNamespace(sandbox_id="sb"), session="s", pid=1)
+            if callbacks:
+                callbacks.on_started(client)
+            result = TrialResult(task_name=job.task_id)
+            if callbacks:
+                callbacks.on_done(client, result)
+            return result
+
+    result = await UnifiedJobRunHandler(
+        mode="single",
+        task_ids=["t1"],
+        dataset_ref=DatasetRef(org=None, dataset=None, split=None),
+        run_id="run-1",
+        run_meta_repo=None,
+        job_meta_repo=None,
+        executor=FakeExecutor(),
+        progress=NullProgressReporter(),
+    ).run(BashJobConfig(job_name="yaml-job", script="echo hi"))
+
+    assert result.failed == 0
+    assert seen_job_names == ["yaml-job"]
+
+
 async def test_unified_handler_resume_recovers_running_job_meta_before_new_sandbox():
     from rock.cli.job_run import DatasetRef, NullProgressReporter, UnifiedJobRunHandler
     from rock.sdk.job.meta import JobMeta, RunMeta

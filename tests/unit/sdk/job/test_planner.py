@@ -67,3 +67,15 @@ class TestSingleTaskPlanner:
         assert planned.config.environment.env["ROCK_SPLIT"] == "test"
         assert template.environment.env["TASK"] == "old"
         assert isinstance(planned.trial, BashTrial)
+
+    def test_plan_preserves_config_job_name_when_requested(self):
+        from rock.sdk.job.planner import ResolvedTask, SingleTaskPlanner
+
+        template = BashJobConfig(job_name="yaml-job", script="echo $TASK")
+        planner = SingleTaskPlanner(run_id="run-123", preserve_job_name=True)
+
+        planned = planner.plan(template, task=ResolvedTask(task_id="task-001", dataset="bench", split="test"))
+
+        assert planned.job_name == "yaml-job"
+        assert planned.config.job_name == "yaml-job"
+        assert planned.config.environment.env["ROCK_JOB_NAME"] == "yaml-job"

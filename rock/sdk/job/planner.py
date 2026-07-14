@@ -29,8 +29,9 @@ class PlannedJob:
 class SingleTaskPlanner:
     """Clone a JobConfig into one task-bound job/trial."""
 
-    def __init__(self, *, run_id: str):
+    def __init__(self, *, run_id: str, preserve_job_name: bool = False):
         self.run_id = run_id
+        self.preserve_job_name = preserve_job_name
 
     def plan(self, config: JobConfig, *, task: ResolvedTask) -> PlannedJob:
         cloned = config.model_copy(deep=True)
@@ -51,6 +52,8 @@ class SingleTaskPlanner:
         return PlannedJob(task_id=task.task_id, job_name=job_name, config=cloned, trial=trial)
 
     def _job_name(self, config: JobConfig, task: ResolvedTask) -> str:
+        if self.preserve_job_name and config.job_name:
+            return config.job_name
         dataset = task.dataset or getattr(config, "job_name", None) or "job"
         dataset_short = dataset.rsplit("/", 1)[-1]
         task_short = task.task_id.rsplit("/", 1)[-1]

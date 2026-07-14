@@ -283,7 +283,7 @@ class UnifiedJobRunHandler:
 
     async def run(self, config: JobConfig) -> RunResult:
         started = datetime.now(timezone.utc)
-        planner = SingleTaskPlanner(run_id=self.run_id)
+        planner = SingleTaskPlanner(run_id=self.run_id, preserve_job_name=self.mode == "single")
         planned_jobs = []
         existing_meta_by_task: dict[str, JobMeta] = {}
         for task_id in self.task_ids:
