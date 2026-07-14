@@ -29,18 +29,18 @@ class JobCommand(Command):
     async def arun(self, args: argparse.Namespace):
         if args.job_command == "run":
             await self._job_run(args)
-        elif args.job_command == "runs":
-            self._job_runs(args)
-        elif args.job_command == "status":
-            self._job_status(args)
-        elif args.job_command == "list":
-            self._job_list(args)
-        elif args.job_command == "show":
-            self._job_show(args)
-        elif args.job_command == "trials":
-            self._job_trials(args)
-        elif args.job_command == "trial":
-            self._job_trial(args)
+        elif args.job_command == "run-list":
+            self._job_run_list(args)
+        elif args.job_command == "run-status":
+            self._job_run_status(args)
+        elif args.job_command == "job-list":
+            self._job_artifact_list(args)
+        elif args.job_command == "job-show":
+            self._job_artifact_show(args)
+        elif args.job_command == "trial-list":
+            self._job_trial_list(args)
+        elif args.job_command == "trial-show":
+            self._job_trial_show(args)
         else:
             logger.error(f"Unknown job subcommand: {args.job_command}")
 
@@ -251,7 +251,7 @@ class JobCommand(Command):
         return config
 
     # ------------------------------------------------------------------
-    # Viewer subcommands: list / show / trials / trial
+    # Viewer subcommands: job-list / job-show / trial-list / trial-show
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -292,7 +292,7 @@ class JobCommand(Command):
             return RunMetaRepository.from_job_config(config)._viewer
         return self._build_viewer(args)
 
-    def _job_runs(self, args: argparse.Namespace):
+    def _job_run_list(self, args: argparse.Namespace):
         from rock.sdk.job.run_meta import RunMetaRepository
 
         runs = RunMetaRepository(self._build_viewer_from_locator(args)).list()
@@ -315,7 +315,7 @@ class JobCommand(Command):
                 f"{meta.pending_tasks:<8} {pass_rate:<10} {avg_score:<10} {meta.dataset or '-'}"
             )
 
-    def _job_status(self, args: argparse.Namespace):
+    def _job_run_status(self, args: argparse.Namespace):
         from rock.sdk.job.run_meta import RunMetaRepository
 
         repo = RunMetaRepository(self._build_viewer_from_locator(args))
@@ -350,7 +350,7 @@ class JobCommand(Command):
                 score = f"{job.score:.2f}" if job.score is not None else "-"
                 print(f"{job.task_id:<20} {job.job_name:<40} {job.status:<12} {score:<8} {job.sandbox_id or '-'}")
 
-    def _job_list(self, args: argparse.Namespace):
+    def _job_artifact_list(self, args: argparse.Namespace):
         viewer = self._build_viewer(args)
         jobs = viewer.list_jobs()
         if not jobs:
@@ -360,7 +360,7 @@ class JobCommand(Command):
             print(f"  {name}")
         print(f"\nTotal: {len(jobs)} jobs")
 
-    def _job_show(self, args: argparse.Namespace):
+    def _job_artifact_show(self, args: argparse.Namespace):
         viewer = self._build_viewer_from_locator(args)
         job_name = args.job_name_option or args.job_name
         if not job_name and args.run_id and args.task_id:
@@ -397,7 +397,7 @@ class JobCommand(Command):
         print(f"  finished_at: {result.get('finished_at', '-')}")
         print(f"  n_total_trials: {result.get('n_total_trials', '-')}")
 
-    def _job_trials(self, args: argparse.Namespace):
+    def _job_trial_list(self, args: argparse.Namespace):
         viewer = self._build_viewer(args)
         trials = viewer.get_trial_results(args.job_name)
         if not trials:
@@ -411,7 +411,7 @@ class JobCommand(Command):
             print(f"  {name:<38} {trial.status:<12} {score:<8} {trial.task_name}")
         print(f"\nTotal: {len(trials)} trials")
 
-    def _job_trial(self, args: argparse.Namespace):
+    def _job_trial_show(self, args: argparse.Namespace):
         viewer = self._build_viewer(args)
         trial = viewer.get_trial_result(args.job_name, args.trial_name)
         if trial is None:
@@ -485,9 +485,14 @@ class JobCommand(Command):
     @staticmethod
     def _add_viewer_args(parser: argparse.ArgumentParser, *, required: bool = True, include_job_config: bool = False):
         if include_job_config:
-            parser.add_argument("--job-config", dest="job_config", default=None, help="JobConfig YAML locator")
-        parser.add_argument("--namespace", required=required, help="OSS namespace")
-        parser.add_argument("--experiment-id", required=required, help="Experiment ID")
+            parser.add_argument(
+                "--job-config",
+                dest="job_config",
+                default=None,
+                help="YAML config used to locate OSS artifacts",
+            )
+        parser.add_argument("--namespace", required=required, help="OSS artifact namespace")
+        parser.add_argument("--experiment-id", required=required, help="OSS artifact experiment id")
         parser.add_argument("--oss-endpoint", default=None, help="OSS endpoint (AK/SK mode)")
         parser.add_argument("--oss-bucket", default=None, help="OSS bucket (AK/SK mode)")
         parser.add_argument("--oss-access-key-id", default=None, help="OSS access key ID")
@@ -580,13 +585,26 @@ class JobCommand(Command):
         # Stash on the class so _job_run can call parser.error() with the right parser.
         JobCommand._run_parser = run_parser
 
-        runs_parser = job_subparsers.add_parser("runs", help="List run metadata")
+        runs_parser = job_subparsers.add_parser(
+            "run-list",
+            help="List historical job runs from run metadata",
+            description="List historical job runs from run metadata.",
+        )
         runs_parser.add_argument("--output", choices=["table", "json"], default="table")
         JobCommand._add_viewer_args(runs_parser, required=False, include_job_config=True)
 
-        status_parser = job_subparsers.add_parser("status", help="Show run status")
-        status_parser.add_argument("--run-id", required=True, help="Run ID")
-        status_parser.add_argument("--jobs", action="store_true", default=False, help="Show task/job rows")
+        status_parser = job_subparsers.add_parser(
+            "run-status",
+            help="Show summary and task/job status for one run",
+            description="Show summary and task/job status for one run.",
+        )
+        status_parser.add_argument("--run-id", required=True, help="Run id from rock job run or run-list")
+        status_parser.add_argument(
+            "--jobs",
+            action="store_true",
+            default=False,
+            help="Include task/job status rows for this run",
+        )
         status_parser.add_argument("--output", choices=["table", "json"], default="table")
         JobCommand._add_viewer_args(status_parser, required=False, include_job_config=True)
 
@@ -594,21 +612,37 @@ class JobCommand(Command):
         def _add_viewer_args(parser: argparse.ArgumentParser):
             JobCommand._add_viewer_args(parser)
 
-        list_parser = job_subparsers.add_parser("list", help="List jobs from OSS artifacts")
+        list_parser = job_subparsers.add_parser(
+            "job-list",
+            help="List job artifact directories in an experiment",
+            description="List job artifact directories in an experiment.",
+        )
         _add_viewer_args(list_parser)
 
-        show_parser = job_subparsers.add_parser("show", help="Show job details from OSS")
-        show_parser.add_argument("job_name", nargs="?", help="Job name")
-        show_parser.add_argument("--job-name", dest="job_name_option", default=None, help="Job name")
-        show_parser.add_argument("--run-id", default=None, help="Run ID")
-        show_parser.add_argument("--task-id", default=None, help="Task ID")
+        show_parser = job_subparsers.add_parser(
+            "job-show",
+            help="Show one job artifact by job name or run/task id",
+            description="Show one job artifact by job name or run/task id.",
+        )
+        show_parser.add_argument("job_name", nargs="?", help="Job artifact name")
+        show_parser.add_argument("--job-name", dest="job_name_option", default=None, help="Job artifact name")
+        show_parser.add_argument("--run-id", default=None, help="Run id from rock job run or run-list")
+        show_parser.add_argument("--task-id", default=None, help="Task id inside the run; use with --run-id")
         JobCommand._add_viewer_args(show_parser, required=False, include_job_config=True)
 
-        trials_parser = job_subparsers.add_parser("trials", help="List trials for a job")
-        trials_parser.add_argument("job_name", help="Job name")
+        trials_parser = job_subparsers.add_parser(
+            "trial-list",
+            help="List trial results under one job artifact",
+            description="List trial results under one job artifact.",
+        )
+        trials_parser.add_argument("job_name", help="Job artifact name")
         _add_viewer_args(trials_parser)
 
-        trial_parser = job_subparsers.add_parser("trial", help="Show trial details")
-        trial_parser.add_argument("job_name", help="Job name")
-        trial_parser.add_argument("trial_name", help="Trial name")
+        trial_parser = job_subparsers.add_parser(
+            "trial-show",
+            help="Show one trial result and verifier details",
+            description="Show one trial result and verifier details.",
+        )
+        trial_parser.add_argument("job_name", help="Job artifact name")
+        trial_parser.add_argument("trial_name", help="Trial name under the job artifact")
         _add_viewer_args(trial_parser)

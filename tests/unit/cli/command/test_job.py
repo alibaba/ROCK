@@ -45,22 +45,87 @@ def test_run_parser_supports_single_multi_full_and_resume():
     assert ns.resume == "run-1"
 
 
-def test_run_query_parsers_use_run_centric_commands():
+def test_run_query_parsers_use_explicit_command_names():
     parser = _build_parser()
-    runs = parser.parse_args(["job", "runs", "--job-config", "foo.yaml", "--output", "json"])
-    assert runs.job_command == "runs"
+    runs = parser.parse_args(["job", "run-list", "--job-config", "foo.yaml", "--output", "json"])
+    assert runs.job_command == "run-list"
     assert runs.job_config == "foo.yaml"
     assert runs.output == "json"
 
-    status = parser.parse_args(["job", "status", "--run-id", "run-1", "--job-config", "foo.yaml", "--jobs"])
-    assert status.job_command == "status"
+    status = parser.parse_args(["job", "run-status", "--run-id", "run-1", "--job-config", "foo.yaml", "--jobs"])
+    assert status.job_command == "run-status"
     assert status.run_id == "run-1"
     assert status.jobs is True
 
-    show = parser.parse_args(["job", "show", "--run-id", "run-1", "--task-id", "t1", "--job-config", "foo.yaml"])
-    assert show.job_command == "show"
+    job_list = parser.parse_args(["job", "job-list", "--namespace", "ns", "--experiment-id", "exp"])
+    assert job_list.job_command == "job-list"
+
+    show = parser.parse_args(["job", "job-show", "--run-id", "run-1", "--task-id", "t1", "--job-config", "foo.yaml"])
+    assert show.job_command == "job-show"
     assert show.run_id == "run-1"
     assert show.task_id == "t1"
+
+    trial_list = parser.parse_args(["job", "trial-list", "job-1", "--namespace", "ns", "--experiment-id", "exp"])
+    assert trial_list.job_command == "trial-list"
+    assert trial_list.job_name == "job-1"
+
+    trial_show = parser.parse_args(["job", "trial-show", "job-1", "trial-1", "--namespace", "ns", "--experiment-id", "exp"])
+    assert trial_show.job_command == "trial-show"
+    assert trial_show.job_name == "job-1"
+    assert trial_show.trial_name == "trial-1"
+
+
+def test_old_query_subcommands_are_removed():
+    parser = _build_parser()
+    for subcommand in ["runs", "status", "list", "show", "trials", "trial"]:
+        with pytest.raises(SystemExit):
+            parser.parse_args(["job", subcommand])
+
+
+def test_job_help_uses_self_describing_query_command_summaries(capsys):
+    parser = _build_parser()
+
+    with pytest.raises(SystemExit) as excinfo:
+        parser.parse_args(["job", "--help"])
+
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert "run-list" in out
+    assert "List historical job runs from run metadata" in out
+    assert "run-status" in out
+    assert "Show summary and task/job status for one run" in out
+    assert "job-list" in out
+    assert "List job artifact directories in an experiment" in out
+    assert "job-show" in out
+    assert "Show one job artifact by job name or run/task id" in out
+    assert "trial-list" in out
+    assert "List trial results under one job artifact" in out
+    assert "trial-show" in out
+    assert "Show one trial result and verifier details" in out
+
+
+def test_query_subcommand_help_explains_locators_and_identifiers(capsys):
+    parser = _build_parser()
+
+    with pytest.raises(SystemExit) as excinfo:
+        parser.parse_args(["job", "job-show", "--help"])
+
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert "Show one job artifact by job name or run/task id" in out
+    assert "YAML config used to locate OSS artifacts" in out
+    assert "Run id from rock job run or run-list" in out
+    assert "Task id inside the run; use with --run-id" in out
+    assert "Job artifact name" in out
+
+    with pytest.raises(SystemExit) as excinfo:
+        parser.parse_args(["job", "trial-show", "--help"])
+
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert "Show one trial result and verifier details" in out
+    assert "Job artifact name" in out
+    assert "Trial name under the job artifact" in out
 
 
 class TestRunValidation:
@@ -139,7 +204,7 @@ class TestRunEndToEnd:
 
 
 class TestRunQueries:
-    def test_runs_prints_run_meta(self, monkeypatch, capsys):
+    def test_run_list_prints_run_meta(self, monkeypatch, capsys):
         from rock.sdk.job.meta import RunMeta, RunScoreSummary
 
         viewer = MagicMock()
@@ -157,7 +222,7 @@ class TestRunQueries:
         ]
         monkeypatch.setattr(JobCommand, "_build_viewer_from_locator", lambda self, args: viewer)
         parser = _build_parser()
-        ns = parser.parse_args(["job", "runs", "--job-config", "foo.yaml"])
+        ns = parser.parse_args(["job", "run-list", "--job-config", "foo.yaml"])
 
         asyncio.run(JobCommand().arun(ns))
 
@@ -166,7 +231,7 @@ class TestRunQueries:
         assert "full" in out
         assert "org/ds" in out
 
-    def test_status_prints_jobs(self, monkeypatch, capsys):
+    def test_run_status_prints_jobs(self, monkeypatch, capsys):
         from rock.sdk.job.meta import RunJobStatus, RunMeta
 
         viewer = MagicMock()
@@ -184,7 +249,7 @@ class TestRunQueries:
         monkeypatch.setattr(JobCommand, "_build_viewer_from_locator", lambda self, args: viewer)
         monkeypatch.setattr("rock.sdk.job.run_meta.RunMetaRepository", FakeRepo)
         parser = _build_parser()
-        ns = parser.parse_args(["job", "status", "--run-id", "run-1", "--job-config", "foo.yaml", "--jobs"])
+        ns = parser.parse_args(["job", "run-status", "--run-id", "run-1", "--job-config", "foo.yaml", "--jobs"])
 
         asyncio.run(JobCommand().arun(ns))
 
