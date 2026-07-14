@@ -39,7 +39,7 @@ from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.sandbox_statemachine import SandboxStateMachine, get_current_state_started_at
-from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+from rock.sandbox.service.factory import create_sandbox_proxy_service
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
 from rock.utils import REQUEST_TIMEOUT_SECONDS, StageTimer
@@ -74,7 +74,7 @@ class SandboxManager(BaseManager):
         self._image_storage = None
         self._init_archive_storage(rock_config)
         self._aes_encrypter = AESEncryption()
-        self._proxy_service = SandboxProxyService(rock_config=rock_config, meta_store=meta_store)
+        self._proxy_service = create_sandbox_proxy_service(rock_config=rock_config, meta_store=meta_store)
         logger.info("sandbox service init success")
 
     def _init_archive_storage(self, rock_config: RockConfig) -> None:

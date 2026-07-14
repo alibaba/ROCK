@@ -8,7 +8,7 @@ Key behaviour changes covered:
   - start_time/stop_time/create_time populated in every response
 """
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -48,17 +48,16 @@ async def sandbox_manager(mock_operator, mock_meta_store, rock_config):
     from rock.sandbox.sandbox_manager import SandboxManager
     from rock.sandbox.sandbox_statemachine import SandboxStateMachine
 
-    with patch("rock.sandbox.sandbox_manager.SandboxProxyService"):
-        manager = SandboxManager.__new__(SandboxManager)
-        manager.rock_config = rock_config
-        manager._operator = mock_operator
-        manager._meta_store = mock_meta_store
-        manager._refresh_timeout = AsyncMock()
+    manager = SandboxManager.__new__(SandboxManager)
+    manager.rock_config = rock_config
+    manager._operator = mock_operator
+    manager._meta_store = mock_meta_store
+    manager._refresh_timeout = AsyncMock()
 
-        mock_sm = await SandboxStateMachine.from_state_value(State.PENDING, sandbox_info={})
-        manager._get_current_statemachine = AsyncMock(return_value=mock_sm)
+    mock_sm = await SandboxStateMachine.from_state_value(State.PENDING, sandbox_info={})
+    manager._get_current_statemachine = AsyncMock(return_value=mock_sm)
 
-        return manager
+    return manager
 
 
 class TestGetStatusIncludeAllStates:

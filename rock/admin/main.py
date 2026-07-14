@@ -45,7 +45,7 @@ from rock.logger import init_logger, reset_log_file
 from rock.sandbox.gem_manager import GemManager
 from rock.sandbox.operator.factory import OperatorContext, OperatorFactory, operator_requires_ray
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
-from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+from rock.sandbox.service.factory import create_sandbox_proxy_service
 from rock.sandbox.service.warmup_service import WarmupService
 from rock.utils import EAGLE_EYE_TRACE_ID, sandbox_id_ctx_var, trace_id_ctx_var
 from rock.utils.concurrent_helper import get_ray_executor
@@ -213,7 +213,7 @@ async def lifespan(app: FastAPI):
         set_ops_service(_init_ops_service(rock_config, scheduler_task_table))
 
     else:
-        sandbox_manager = SandboxProxyService(rock_config=rock_config, meta_store=meta_store)
+        sandbox_manager = create_sandbox_proxy_service(rock_config=rock_config, meta_store=meta_store)
         set_sandbox_proxy_service(sandbox_manager)
         proxy_service_ref = sandbox_manager
 
