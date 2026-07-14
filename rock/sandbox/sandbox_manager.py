@@ -473,18 +473,18 @@ class SandboxManager(BaseManager):
         logger.info(f"[auto_stop] done: alive={alive_count}, expired={expired_count}")
 
     async def _auto_delete_stopped(self) -> None:
-        """Delete STOPPED and ARCHIVED sandboxes idle longer than auto_delete_seconds."""
+        """Delete STOPPED sandboxes idle longer than auto_delete_seconds."""
         auto_delete_sec = self.rock_config.lifecycle.auto_transition.auto_delete_seconds
         if not auto_delete_sec:
             logger.info("[auto_delete] disabled (auto_delete_seconds=0)")
             return
 
         try:
-            candidates = await self._meta_store.list_by_in(
-                "state", [State.STOPPED.value, State.ARCHIVED.value], order_by="stop_time", limit=1000
+            candidates = await self._meta_store.list_by(
+                "state", State.STOPPED.value, order_by="stop_time", limit=1000
             )
         except Exception as e:
-            logger.warning(f"[auto_delete] list_by_in failed: {e}")
+            logger.warning(f"[auto_delete] list_by failed: {e}")
             return
 
         logger.info(f"[auto_delete] candidates={len(candidates)}, threshold={auto_delete_sec}s")

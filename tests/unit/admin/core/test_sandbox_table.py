@@ -77,6 +77,18 @@ class TestSandboxTableWithSQLite:
         results = await db.list_by_in("sandbox_id", ["lbi-1", "lbi-3"])
         assert {r["sandbox_id"] for r in results} == {"lbi-1", "lbi-3"}
 
+    async def test_list_by_in_orders_ascending(self, db):
+        await db.create(
+            "old",
+            {"state": "stopped", "create_time": "2025-01-01T00:00:00Z", "stop_time": "2025-01-01T00:00:00Z"},
+        )
+        await db.create(
+            "new",
+            {"state": "stopped", "create_time": "2025-01-01T00:00:00Z", "stop_time": "2025-01-03T00:00:00Z"},
+        )
+        results = await db.list_by_in("state", ["stopped"], order_by="stop_time")
+        assert [r["sandbox_id"] for r in results] == ["old", "new"]
+
     async def test_list_by_rejects_blacklisted_column(self, db):
         with pytest.raises(ValueError, match="not allowed"):
             await db.list_by("phases", "{}")

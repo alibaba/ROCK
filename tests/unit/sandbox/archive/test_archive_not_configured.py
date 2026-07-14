@@ -74,3 +74,24 @@ class TestArchiveOperatorNotConfigured:
         manager_no_archive.rock_config.lifecycle.auto_transition.auto_archive_seconds = 3600
         await manager_no_archive._auto_archive_stopped()
         manager_no_archive._meta_store.list_by.assert_not_called()
+
+
+class TestAutoArchiveStopped:
+    async def test_queries_oldest_stopped_sandboxes_first(self):
+        from rock.sandbox.sandbox_manager import SandboxManager
+
+        manager = MagicMock(spec=SandboxManager)
+        manager.rock_config.lifecycle = SandboxLifecycleConfig()
+        manager.rock_config.lifecycle.auto_transition.auto_archive_seconds = 3600
+        manager._operator = MagicMock()
+        manager._dir_storage = MagicMock()
+        manager._image_storage = MagicMock()
+        manager._meta_store = AsyncMock()
+        manager._meta_store.list_by = AsyncMock(return_value=[])
+        manager._auto_archive_stopped = SandboxManager._auto_archive_stopped.__get__(manager, SandboxManager)
+
+        await manager._auto_archive_stopped()
+
+        manager._meta_store.list_by.assert_awaited_once_with(
+            "state", "stopped", order_by="stop_time", limit=1000
+        )

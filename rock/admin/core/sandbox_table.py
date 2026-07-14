@@ -204,7 +204,7 @@ class SandboxTable:
         stmt = select(SandboxRecord).where(col_attr == value)
         if order_by:
             order_col = getattr(SandboxRecord, order_by)
-            stmt = stmt.order_by(order_col.desc())
+            stmt = stmt.order_by(order_col.asc())
         if limit:
             stmt = stmt.limit(limit)
         with self._db.session_factory() as session:
@@ -234,7 +234,7 @@ class SandboxTable:
         stmt = select(SandboxRecord).where(col_attr.in_(values))
         if order_by:
             order_col = getattr(SandboxRecord, order_by)
-            stmt = stmt.order_by(order_col.desc())
+            stmt = stmt.order_by(order_col.asc())
         if limit:
             stmt = stmt.limit(limit)
         with self._db.session_factory() as session:
