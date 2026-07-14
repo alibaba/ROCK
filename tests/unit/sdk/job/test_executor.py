@@ -8,6 +8,7 @@ import pytest
 
 import rock.sdk.job.trial.bash  # register BashJobConfig -> BashTrial  # noqa: F401
 from rock.sdk.bench.constants import USER_DEFINED_LOGS
+from rock.sdk.job import observability
 from rock.sdk.job.config import BashJobConfig
 from rock.sdk.job.executor import JobClient, JobExecutor, TrialClient
 from rock.sdk.job.operator import ScatterOperator
@@ -269,3 +270,137 @@ class TestExecutorOnSandboxReady:
         trial.on_sandbox_ready.assert_awaited_once_with(mock_sandbox)
         # Must be called AFTER sandbox.start()
         assert mock_sandbox.start.call_count == 1
+
+
+class _RecordingReporter:
+    def __init__(self):
+        self.events = []
+
+    def record_exception(self, phase, exc_type, severity, labels):
+        self.events.append((phase, exc_type, severity, labels))
+
+
+class TestSubmitPhaseAttribution:
+    async def test_setup_failure_attributed_to_setup_phase(self, monkeypatch):
+        from rock.sdk.job.trial.bash import BashTrial
+
+        fake = _RecordingReporter()
+        monkeypatch.setattr(observability, "_REPORTER", fake)
+
+        mock_sandbox = _make_mock_sandbox()
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            executor = JobExecutor()
+            trial = BashTrial(BashJobConfig(script="echo hi", job_name="t"))
+            trial.setup = AsyncMock(side_effect=ValueError("setup boom"))
+            with pytest.raises(ValueError, match="setup boom"):
+                await executor._do_submit(trial)
+
+        hard = [e for e in fake.events if e[2] == "hard"]
+        assert len(hard) == 1
+        assert hard[0][0] == "setup"
+        assert hard[0][1] == "ValueError"
+
+    async def test_launch_failure_attributed_to_launch_phase(self, monkeypatch):
+        from rock.sdk.job.trial.bash import BashTrial
+
+        fake = _RecordingReporter()
+        monkeypatch.setattr(observability, "_REPORTER", fake)
+
+        mock_sandbox = _make_mock_sandbox()
+        error_obs = MagicMock()
+        error_obs.output = "boom"
+        mock_sandbox.start_nohup_process = AsyncMock(return_value=(None, error_obs))
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            executor = JobExecutor()
+            trial = BashTrial(BashJobConfig(script="echo hi", job_name="t"))
+            with pytest.raises(RuntimeError, match="Failed to start trial"):
+                await executor._do_submit(trial)
+
+        hard = [e for e in fake.events if e[2] == "hard"]
+        assert len(hard) == 1
+        assert hard[0][0] == "launch"
+        assert hard[0][1] == "RuntimeError"
+
+
+class TestWaitPhaseAttribution:
+    async def test_soft_fail_emitted_in_collect_phase(self, monkeypatch):
+        # exit_code != 0 -> BashTrial.collect sets BashExitCode exception_info (soft)
+        fake = _RecordingReporter()
+        monkeypatch.setattr(observability, "_REPORTER", fake)
+
+        mock_sandbox = _make_mock_sandbox()
+        nohup_obs = MagicMock()
+        nohup_obs.output = "bad"
+        nohup_obs.exit_code = 1
+        mock_sandbox.handle_nohup_output = AsyncMock(return_value=nohup_obs)
+
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            executor = JobExecutor()
+            results = await executor.run(ScatterOperator(size=1), BashJobConfig(script="x", job_name="t"))
+
+        assert results[0].exception_info is not None
+        soft = [e for e in fake.events if e[2] == "soft"]
+        assert len(soft) == 1
+        assert soft[0][0] == "collect"
+        assert soft[0][1] == "BashExitCode"
+
+    async def test_process_timeout_soft_fail_in_collect_phase(self, monkeypatch):
+        fake = _RecordingReporter()
+        monkeypatch.setattr(observability, "_REPORTER", fake)
+
+        mock_sandbox = _make_mock_sandbox()
+        mock_sandbox.wait_for_process_completion = AsyncMock(return_value=(False, "timeout"))
+
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            executor = JobExecutor()
+            results = await executor.run(ScatterOperator(size=1), BashJobConfig(script="x", job_name="t"))
+
+        assert results[0].exception_info is not None
+        soft = [e for e in fake.events if e[2] == "soft"]
+        assert len(soft) == 1
+        assert soft[0][0] == "collect"
+        assert soft[0][1] == "ProcessTimeout"
+
+
+class TestObservabilityEndToEnd:
+    async def test_success_path_emits_no_events(self, monkeypatch):
+        fake = _RecordingReporter()
+        monkeypatch.setattr(observability, "_REPORTER", fake)
+        mock_sandbox = _make_mock_sandbox()
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            executor = JobExecutor()
+            await executor.run(ScatterOperator(size=1), BashJobConfig(script="echo hi", job_name="t"))
+        assert fake.events == []
+
+    async def test_labels_contain_sandbox_and_job_identity(self, monkeypatch):
+        fake = _RecordingReporter()
+        monkeypatch.setattr(observability, "_REPORTER", fake)
+        mock_sandbox = _make_mock_sandbox()
+        nohup_obs = MagicMock()
+        nohup_obs.output = "bad"
+        nohup_obs.exit_code = 1
+        mock_sandbox.handle_nohup_output = AsyncMock(return_value=nohup_obs)
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            executor = JobExecutor()
+            await executor.run(ScatterOperator(size=1), BashJobConfig(script="x", job_name="job-xyz"))
+        soft = [e for e in fake.events if e[2] == "soft"]
+        assert len(soft) == 1
+        labels = soft[0][3]
+        assert labels["job_name"] == "job-xyz"
+        assert labels["sandbox_id"] == "sb-test"
+        assert labels["trial_type"] == "bash"
+
+    async def test_hard_fail_counted_exactly_once(self, monkeypatch):
+        from rock.sdk.job.trial.bash import BashTrial
+
+        fake = _RecordingReporter()
+        monkeypatch.setattr(observability, "_REPORTER", fake)
+        mock_sandbox = _make_mock_sandbox()
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            executor = JobExecutor()
+            trial = BashTrial(BashJobConfig(script="x", job_name="t"))
+            trial.setup = AsyncMock(side_effect=ValueError("boom"))
+            with pytest.raises(ValueError):
+                await executor._do_submit(trial)
+        # exactly one hard event despite re-raise propagating through _do_submit
+        assert len([e for e in fake.events if e[2] == "hard"]) == 1
