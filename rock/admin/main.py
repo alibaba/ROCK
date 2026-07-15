@@ -26,6 +26,8 @@ from rock.admin.entrypoints.sandbox_api import sandbox_router, set_sandbox_manag
 from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_sandbox_proxy_service
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
 from rock.admin.gem.api import gem_router, set_env_service
+from rock.admin.metrics.monitor import MetricsMonitor
+from rock.admin.scheduler.metrics import SchedulerMetrics
 from rock.admin.scheduler.scheduler import SchedulerThread, WorkerIPCache
 from rock.admin.scheduler.task_base import BaseTask
 from rock.admin.scheduler.task_factory import TaskFactory
@@ -65,6 +67,19 @@ def _parse_args():
 
 logger = init_logger("admin")
 logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+_SCHEDULER_METRICS_EXPORT_INTERVAL_MILLIS = 1_800_000
+
+
+def _init_scheduler_metrics(rock_config: RockConfig) -> tuple[MetricsMonitor, SchedulerMetrics]:
+    """Create the scheduler-only monitor with a 30-minute fallback export."""
+    monitor = MetricsMonitor.create(
+        export_interval_millis=_SCHEDULER_METRICS_EXPORT_INTERVAL_MILLIS,
+        metrics_endpoint=rock_config.runtime.metrics_endpoint,
+        user_defined_tags=rock_config.runtime.user_defined_tags,
+        metric_prefix="scheduler",
+    )
+    return monitor, SchedulerMetrics(monitor)
 
 
 def _init_ops_service(
@@ -147,6 +162,7 @@ async def lifespan(app: FastAPI):
 
     # init scheduler thread
     scheduler_thread = None
+    scheduler_metrics_monitor = None
 
     # init sandbox service
     proxy_service_ref = None
@@ -201,9 +217,11 @@ async def lifespan(app: FastAPI):
         set_env_service(sandbox_manager)
 
         if rock_config.scheduler.enabled and is_primary_pod():
+            scheduler_metrics_monitor, scheduler_metrics = _init_scheduler_metrics(rock_config)
             scheduler_thread = SchedulerThread(
                 scheduler_config=rock_config.scheduler,
                 nacos_provider=rock_config.nacos_provider,
+                metrics=scheduler_metrics,
             )
             scheduler_thread.start()
             logger.info("Scheduler thread started on primary pod")
@@ -225,6 +243,9 @@ async def lifespan(app: FastAPI):
     if scheduler_thread:
         scheduler_thread.stop()
         logger.info("Scheduler thread stopped")
+    if scheduler_metrics_monitor:
+        await asyncio.to_thread(scheduler_metrics_monitor.shutdown)
+        logger.info("Scheduler metrics monitor stopped")
 
     if proxy_service_ref is not None:
         await proxy_service_ref.aclose()

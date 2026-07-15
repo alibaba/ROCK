@@ -11,13 +11,26 @@ from httpx import ASGITransport, AsyncClient
 from rock.admin.core.scheduler_task_table import Phase
 from rock.admin.core.schema import SchedulerTaskRecord
 from rock.admin.entrypoints.admin_ops_api import admin_ops_router, set_ops_service
+from rock.admin.scheduler.task_base import TaskRunReport, WorkerRunOutcome, WorkerRunResult
 from rock.admin.service.ops_service import OpsService
 
 
 def _fake_task(type_: str):
     t = MagicMock()
     t.type = type_
-    t.run = AsyncMock(return_value=None)
+
+    async def run(worker_ips):
+        return TaskRunReport(
+            task_type=type_,
+            timestamp="2026-07-15T12:00:00",
+            duration_ms=1.0,
+            worker_results=[
+                WorkerRunResult(worker_ip=worker_ip, outcome=WorkerRunOutcome.SUCCESS)
+                for worker_ip in sorted(worker_ips)
+            ],
+        )
+
+    t.run = AsyncMock(side_effect=run)
     return t
 
 
@@ -68,7 +81,7 @@ def setup_module(fake_table):
     service = OpsService(
         task_table=fake_table,
         task_registry=registry,
-        alive_workers_provider=lambda: ["10.0.0.1", "10.0.0.2"],
+        alive_workers_provider=lambda: {"10.0.0.1", "10.0.0.2"},
     )
     set_ops_service(service)
     yield
@@ -212,6 +225,93 @@ class TestGetTaskSet:
         body = r.json()
         assert body["status"] == "Success"
         assert body["result"]["status"]["phase"] == Phase.NOT_FOUND
+
+
+class TestTaskExecutionStatus:
+    @staticmethod
+    def _record(task_type: str = "image_cleanup") -> SchedulerTaskRecord:
+        return SchedulerTaskRecord(
+            task_id="b" * 32,
+            taskset_id="a" * 32,
+            task_type=task_type,
+            target_workers=["10.0.0.1", "10.0.0.2", "10.0.0.3"],
+            creation_timestamp=1.0,
+            phase=Phase.PENDING,
+            assigned_pod="admin-0",
+        )
+
+    @pytest.mark.asyncio
+    async def test_partial_worker_failure_marks_task_failed_with_per_worker_status(self):
+        table = FakeTable()
+        record = self._record()
+        await table.insert_tasks([record])
+        report = TaskRunReport(
+            task_type="image_cleanup",
+            timestamp="2026-07-15T12:00:00",
+            duration_ms=1.0,
+            worker_results=[
+                WorkerRunResult("10.0.0.1", WorkerRunOutcome.SUCCESS),
+                WorkerRunResult("10.0.0.2", WorkerRunOutcome.FAILED, "RuntimeError", "boom"),
+                WorkerRunResult("10.0.0.3", WorkerRunOutcome.TIMEOUT, "TimeoutError", "timed out"),
+            ],
+        )
+        task = MagicMock(type="image_cleanup", run=AsyncMock(return_value=report))
+        service = OpsService(table, {}, lambda: set())
+
+        await service._run_tasks_async(
+            record.taskset_id,
+            [task],
+            record.target_workers,
+            [record],
+        )
+
+        assert record.phase == Phase.FAILED
+        assert record.status == [
+            {"worker": "10.0.0.1", "success": True},
+            {"worker": "10.0.0.2", "success": False, "message": "boom"},
+            {"worker": "10.0.0.3", "success": False, "message": "timed out"},
+        ]
+        assert record.conditions == [
+            {
+                "type": "PartialFailure",
+                "reason": "partial",
+                "message": "2/3 workers failed or timed out",
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_all_worker_failures_use_failed_condition(self):
+        table = FakeTable()
+        record = self._record()
+        record.target_workers = ["10.0.0.1", "10.0.0.2"]
+        await table.insert_tasks([record])
+        report = TaskRunReport(
+            task_type="image_cleanup",
+            timestamp="2026-07-15T12:00:00",
+            duration_ms=1.0,
+            worker_results=[
+                WorkerRunResult("10.0.0.1", WorkerRunOutcome.FAILED, "RuntimeError", "boom"),
+                WorkerRunResult("10.0.0.2", WorkerRunOutcome.TIMEOUT, "TimeoutError", "timed out"),
+            ],
+        )
+        task = MagicMock(type="image_cleanup", run=AsyncMock(return_value=report))
+        service = OpsService(table, {}, lambda: set())
+
+        await service._run_tasks_async(
+            record.taskset_id,
+            [task],
+            record.target_workers,
+            [record],
+        )
+
+        assert record.phase == Phase.FAILED
+        assert record.conditions == [
+            {
+                "type": "Failed",
+                "reason": "failed",
+                "message": "2/2 workers failed or timed out",
+            }
+        ]
 
 
 class TestMultiPod:

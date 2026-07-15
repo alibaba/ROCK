@@ -2,6 +2,7 @@
 import asyncio
 import json
 import os
+import time
 import traceback
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
@@ -20,6 +21,19 @@ from rock.sandbox.remote_sandbox import RemoteSandboxRuntime
 
 logger = init_logger(name="task_base", file_name=SCHEDULER_LOG_NAME)
 
+_MAX_ERROR_DETAIL_BYTES = 4096
+_TRUNCATED_SUFFIX = "...[truncated]"
+
+
+def _truncate_error_detail(error: object) -> str:
+    detail = str(error)
+    encoded = detail.encode("utf-8", errors="replace")
+    if len(encoded) <= _MAX_ERROR_DETAIL_BYTES:
+        return detail
+    suffix = _TRUNCATED_SUFFIX.encode()
+    truncated = encoded[: _MAX_ERROR_DETAIL_BYTES - len(suffix)].decode("utf-8", errors="ignore")
+    return f"{truncated}{_TRUNCATED_SUFFIX}"
+
 
 class IdempotencyType(Enum):
     """Idempotency type for task execution."""
@@ -35,6 +49,112 @@ class TaskStatusEnum(str, Enum):
     RUNNING = "running"
     SUCCESS = "success"
     FAILED = "failed"
+
+
+class WorkerRunOutcome(str, Enum):
+    SUCCESS = "success"
+    STARTED = "started"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+    TIMEOUT = "timeout"
+
+
+class TaskRunOutcome(str, Enum):
+    SUCCESS = "success"
+    PARTIAL = "partial"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    NO_WORKERS = "no_workers"
+
+
+@dataclass(slots=True)
+class WorkerRunResult:
+    worker_ip: str
+    outcome: WorkerRunOutcome
+    error_type: str | None = None
+    error: str | None = None
+
+    @property
+    def succeeded(self) -> bool:
+        return self.outcome not in {WorkerRunOutcome.FAILED, WorkerRunOutcome.TIMEOUT}
+
+    def to_report_dict(self) -> dict:
+        return {
+            "worker_ip": self.worker_ip,
+            "outcome": self.outcome.value,
+            "error_type": self.error_type,
+            "error": self.error,
+        }
+
+
+@dataclass(slots=True)
+class TaskRunReport:
+    task_type: str
+    timestamp: str
+    duration_ms: float
+    worker_results: list[WorkerRunResult]
+
+    @property
+    def total_count(self) -> int:
+        return len(self.worker_results)
+
+    def _count(self, outcome: WorkerRunOutcome) -> int:
+        return sum(1 for result in self.worker_results if result.outcome == outcome)
+
+    @property
+    def started_count(self) -> int:
+        return self._count(WorkerRunOutcome.STARTED)
+
+    @property
+    def skipped_count(self) -> int:
+        return self._count(WorkerRunOutcome.SKIPPED)
+
+    @property
+    def timeout_count(self) -> int:
+        return self._count(WorkerRunOutcome.TIMEOUT)
+
+    @property
+    def failed_count(self) -> int:
+        """Count failed or timed-out workers; ``timeout_count`` is a subset."""
+        return sum(1 for result in self.worker_results if not result.succeeded)
+
+    @property
+    def success_count(self) -> int:
+        """Backward-compatible count of workers whose invocation did not fail."""
+        return sum(1 for result in self.worker_results if result.succeeded)
+
+    @property
+    def outcome(self) -> TaskRunOutcome:
+        if not self.worker_results:
+            return TaskRunOutcome.NO_WORKERS
+        if self.failed_count == self.total_count:
+            return TaskRunOutcome.FAILED
+        if self.failed_count:
+            return TaskRunOutcome.PARTIAL
+        if self.skipped_count == self.total_count:
+            return TaskRunOutcome.SKIPPED
+        return TaskRunOutcome.SUCCESS
+
+    def to_report_dict(self) -> dict:
+        success_results = [result for result in self.worker_results if result.succeeded]
+        failed_results = [result for result in self.worker_results if not result.succeeded]
+        return {
+            "task_type": self.task_type,
+            "timestamp": self.timestamp,
+            "duration_ms": self.duration_ms,
+            "outcome": self.outcome.value,
+            "total": self.total_count,
+            "success_count": self.success_count,
+            "started_count": self.started_count,
+            "skipped_count": self.skipped_count,
+            "failed_count": self.failed_count,
+            "timeout_count": self.timeout_count,
+            "success_ips": [result.worker_ip for result in success_results],
+            "failed_details": [
+                {"ip": result.worker_ip, "reason": result.error or "unknown error"} for result in failed_results
+            ],
+            "worker_results": [result.to_report_dict() for result in self.worker_results],
+        }
 
 
 @dataclass
@@ -200,7 +320,7 @@ class BaseTask(ABC):
             logger.info(f"[{self.type}] killed pid {status.pid} on worker[{ip}]")
         await self._clear_task_status(runtime)
 
-    async def cleanup(self, worker_ips: list[str], max_concurrency: int = 50) -> None:
+    async def cleanup(self, worker_ips: set[str], max_concurrency: int = 50) -> None:
         """Cleanup task across all workers, parallel and best-effort.
 
         Idempotent tasks return immediately. For non-idempotent tasks, kills the
@@ -251,55 +371,77 @@ class BaseTask(ABC):
 
         # Run task (status managed in single_run)
         logger.info(f"[{self.type}] start to run task on worker[{ip}]")
-        await self.single_run(runtime, ip)
+        return await self.single_run(runtime, ip)
 
-    async def run(self, worker_ips: list[str], max_concurrency: int = 50):
+    async def run(self, worker_ips: set[str], max_concurrency: int = 50) -> TaskRunReport:
         """Run task on all workers with concurrency control.
 
         Args:
-            worker_ips: List of worker IP addresses
+            worker_ips: Set of worker IP addresses
             max_concurrency: Maximum number of concurrent tasks (default: 50)
         """
+        started_at = time.perf_counter()
         semaphore = asyncio.Semaphore(max_concurrency)
 
-        async def run_with_limit(ip: str) -> tuple[str, bool, str | None]:
+        async def run_with_limit(ip: str) -> WorkerRunResult:
             async with semaphore:
                 try:
-                    await asyncio.wait_for(self.run_on_worker(ip), timeout=90)
-                    return (ip, True, None)
-                except Exception:
-                    return (ip, False, traceback.format_exc())
+                    result = await asyncio.wait_for(self.run_on_worker(ip), timeout=90)
+                    if result is None:
+                        return WorkerRunResult(worker_ip=ip, outcome=WorkerRunOutcome.SKIPPED)
+
+                    raw_status = result.get("status")
+                    status = raw_status.value if isinstance(raw_status, Enum) else raw_status
+                    if status == TaskStatusEnum.FAILED.value:
+                        return WorkerRunResult(
+                            worker_ip=ip,
+                            outcome=WorkerRunOutcome.FAILED,
+                            error_type="TaskResultFailed",
+                            error=_truncate_error_detail(result.get("error") or "task returned failed status"),
+                        )
+                    if status == TaskStatusEnum.RUNNING.value:
+                        outcome = WorkerRunOutcome.STARTED
+                    else:
+                        outcome = WorkerRunOutcome.SUCCESS
+                    return WorkerRunResult(
+                        worker_ip=ip,
+                        outcome=outcome,
+                    )
+                except TimeoutError:
+                    return WorkerRunResult(
+                        worker_ip=ip,
+                        outcome=WorkerRunOutcome.TIMEOUT,
+                        error_type="TimeoutError",
+                        error=_truncate_error_detail(traceback.format_exc()),
+                    )
+                except Exception as exc:
+                    return WorkerRunResult(
+                        worker_ip=ip,
+                        outcome=WorkerRunOutcome.FAILED,
+                        error_type=type(exc).__name__,
+                        error=_truncate_error_detail(traceback.format_exc()),
+                    )
 
         tasks = [run_with_limit(ip) for ip in worker_ips]
         results = await asyncio.gather(*tasks)
-
-        # Collect success and failure statistics
-        success_ips = [ip for ip, success, _ in results if success]
-        failed_entries = [(ip, reason or "unknown error") for ip, success, reason in results if not success]
-
-        total_count = len(worker_ips)
-        success_count = len(success_ips)
-        failed_count = len(failed_entries)
-
-        logger.info(
-            f"[{self.type}] task completed: total={total_count}, success={success_count}, failed={failed_count}"
+        report = TaskRunReport(
+            task_type=self.type,
+            timestamp=datetime.now().isoformat(),
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            worker_results=results,
         )
 
-        # Persist execution report to file
-        report = {
-            "task_type": self.type,
-            "timestamp": datetime.now().isoformat(),
-            "total": total_count,
-            "success_count": success_count,
-            "failed_count": failed_count,
-            "success_ips": success_ips,
-            "failed_details": [{"ip": ip, "reason": reason} for ip, reason in failed_entries],
-        }
+        logger.info(
+            f"[{self.type}] task completed: total={report.total_count}, "
+            f"success={report.success_count}, failed={report.failed_count}, outcome={report.outcome.value}"
+        )
+
         report_path = f"{env_vars.ROCK_SCHEDULER_STATUS_DIR}/{self.type}_run_report.json"
         try:
             os.makedirs(os.path.dirname(report_path), exist_ok=True)
             with open(report_path, "w", encoding="utf-8") as report_file:
-                json.dump(report, report_file, indent=2, ensure_ascii=False)
+                json.dump(report.to_report_dict(), report_file, indent=2, ensure_ascii=False)
             logger.info(f"[{self.type}] run report saved to {report_path}")
         except Exception as write_exc:
             logger.error(f"[{self.type}] failed to save run report: {write_exc}")
+        return report

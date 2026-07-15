@@ -121,6 +121,32 @@ class MetricsMonitor:
         self._register_counter(MetricsConstants.METASTORE_DB_TOTAL, "Number of total DB operations")
         self._register_gauge(MetricsConstants.METASTORE_DB_RT, "DB operation response time", "ms")
 
+        # Scheduler control plane and task execution metrics
+        self._register_gauge(MetricsConstants.SCHEDULER_UP, "Whether the automatic scheduler is running")
+        self._register_gauge(MetricsConstants.SCHEDULER_WORKERS_ALIVE, "Number of cached alive Ray workers")
+        self._register_gauge(MetricsConstants.SCHEDULER_WORKER_ALIVE, "Cached alive state for a Ray worker")
+        self._register_gauge(
+            MetricsConstants.SCHEDULER_WORKER_CACHE_LAST_SUCCESS_TIMESTAMP,
+            "Unix timestamp of the last successful Ray worker cache refresh",
+            "s",
+        )
+        self._register_gauge(MetricsConstants.SCHEDULER_WORKER_CACHE_TTL, "Ray worker cache TTL", "s")
+        self._register_gauge(MetricsConstants.SCHEDULER_TASKS_REGISTERED, "Whether a scheduler task is registered")
+        self._register_gauge(MetricsConstants.SCHEDULER_TASK_INTERVAL, "Configured scheduler task interval", "s")
+        self._register_gauge(
+            MetricsConstants.SCHEDULER_WORKER_LAST_FAILURE_TIMESTAMP,
+            "Unix timestamp of the last failed scheduler invocation by worker IP",
+            "s",
+        )
+        self._register_counter(
+            MetricsConstants.SCHEDULER_WORKER_CACHE_REFRESH_TOTAL,
+            "Number of Ray worker cache refreshes",
+        )
+        self._register_counter(
+            MetricsConstants.SCHEDULER_WORKER_FAILURES_TOTAL,
+            "Number of failed scheduler worker invocations by worker IP",
+        )
+
     def _register_counter(self, name: str, description: str, unit: str = "1"):
         self.counters[name] = self.create_counter(name, description, unit)
 
@@ -244,6 +270,21 @@ class MetricsMonitor:
         if g is None:
             raise ValueError(f"Gauge {gauge} not found")
         self.record_gauge(g, value, attributes)
+
+    def force_flush(self, timeout_millis: float = 10_000) -> bool:
+        if self._should_skip():
+            return True
+        return self.meter_provider.force_flush(timeout_millis=timeout_millis)
+
+    def shutdown(self, timeout_millis: float = 30_000) -> None:
+        if self._should_skip():
+            return
+        try:
+            self.meter_provider.force_flush(timeout_millis=timeout_millis)
+        except Exception:
+            logger.exception("Final metrics flush failed during monitor shutdown")
+        finally:
+            self.meter_provider.shutdown(timeout_millis=timeout_millis)
 
     @property
     def attributes(self) -> dict[str, str]:

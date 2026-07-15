@@ -244,3 +244,83 @@ class TestMetastoreMetricsRegistration:
         monitor.record_counter_by_name(MetricsConstants.METASTORE_DB_FAILURE, 1, {**attrs, "error_type": "IOError"})
         monitor.record_counter_by_name(MetricsConstants.METASTORE_DB_TOTAL, 1, attrs)
         monitor.record_gauge_by_name(MetricsConstants.METASTORE_DB_RT, 2.0, attrs)
+
+
+class TestSchedulerMetricPrimitives:
+    def test_all_scheduler_metrics_are_registered(self):
+        monitor = _create_dev_monitor()
+
+        expected_gauges = {
+            MetricsConstants.SCHEDULER_UP,
+            MetricsConstants.SCHEDULER_WORKERS_ALIVE,
+            MetricsConstants.SCHEDULER_WORKER_ALIVE,
+            MetricsConstants.SCHEDULER_WORKER_CACHE_LAST_SUCCESS_TIMESTAMP,
+            MetricsConstants.SCHEDULER_WORKER_CACHE_TTL,
+            MetricsConstants.SCHEDULER_TASKS_REGISTERED,
+            MetricsConstants.SCHEDULER_TASK_INTERVAL,
+            "scheduler.worker.last_failure.timestamp",
+        }
+        expected_counters = {
+            MetricsConstants.SCHEDULER_WORKER_CACHE_REFRESH_TOTAL,
+            MetricsConstants.SCHEDULER_WORKER_FAILURES_TOTAL,
+        }
+
+        assert expected_gauges <= monitor.gauges.keys()
+        assert expected_counters <= monitor.counters.keys()
+        assert "scheduler.control_events.total" not in monitor.counters
+        assert {
+            "scheduler.task.last_completion.timestamp",
+        }.isdisjoint(monitor.gauges)
+        assert {
+            "scheduler.task.runs.total",
+            "scheduler.worker.runs.total",
+            "scheduler.task.effect.total",
+        }.isdisjoint(monitor.counters)
+        assert not hasattr(monitor, "histograms")
+        assert not hasattr(monitor, "create_histogram")
+        assert not hasattr(monitor, "record_histogram")
+        assert not hasattr(monitor, "record_histogram_by_name")
+
+    def test_force_flush_delegates_to_meter_provider(self):
+        monitor = _create_dev_monitor()
+
+        with patch.object(monitor.meter_provider, "force_flush", return_value=False) as force_flush:
+            result = monitor.force_flush(timeout_millis=1234)
+
+        assert result is False
+        force_flush.assert_called_once_with(timeout_millis=1234)
+
+    def test_shutdown_delegates_to_meter_provider(self):
+        monitor = _create_dev_monitor()
+
+        with (
+            patch.object(monitor.meter_provider, "force_flush", return_value=True) as force_flush,
+            patch.object(monitor.meter_provider, "shutdown") as shutdown,
+        ):
+            monitor.shutdown(timeout_millis=4321)
+
+        force_flush.assert_called_once_with(timeout_millis=4321)
+        shutdown.assert_called_once_with(timeout_millis=4321)
+
+    def test_shutdown_stops_provider_even_when_final_flush_raises(self):
+        monitor = _create_dev_monitor()
+
+        with (
+            patch.object(monitor.meter_provider, "force_flush", side_effect=RuntimeError("flush failed")),
+            patch.object(monitor.meter_provider, "shutdown") as shutdown,
+        ):
+            monitor.shutdown()
+
+        shutdown.assert_called_once_with(timeout_millis=30_000)
+
+    def test_force_flush_and_shutdown_are_noops_when_metrics_are_skipped(self):
+        monitor = MetricsMonitor(
+            host="127.0.0.1",
+            port="4318",
+            pod="test-pod",
+            env="test",
+            role="admin",
+        )
+
+        assert monitor.force_flush() is True
+        assert monitor.shutdown() is None
