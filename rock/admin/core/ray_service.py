@@ -66,6 +66,11 @@ class RayService:
         logger.info("APScheduler started for reconnecting ray cluster.")
 
     async def _ray_reconnect_with_policy(self):
+        if not await self._is_ray_connection_healthy():
+            logger.warning("Ray connection health check failed; reconnecting ray cluster")
+            await self._reconnect_ray()
+            return
+
         if self._ray_request_count > self._config.ray_reconnect_request_threshold:
             await self._reconnect_ray()
             return
@@ -77,6 +82,62 @@ class RayService:
         logger.info(
             f"Skip reconnecting ray cluster, current ray request count {self._ray_request_count}, ray connecting time {ray_connecting_time}s"
         )
+
+    async def _is_ray_connection_healthy(self) -> bool:
+        """Check that this process still has a usable connection to Ray.
+
+        ``ray.is_initialized()`` only describes local initialization state and
+        can remain true after a Ray Client session has been cleaned up.  A
+        lightweight cluster-resource RPC verifies that the remote session can
+        still serve requests.  Run it outside the event loop because Ray's API
+        is synchronous.
+        """
+        check_start = time.perf_counter()
+        timeout = self._config.ray_health_check_timeout_seconds
+        logger.info(
+            "Ray connection health check started: checks=[is_initialized, cluster_resources], rpc_timeout=%ss",
+            timeout,
+        )
+
+        initialized = ray.is_initialized()
+        logger.info("Ray connection health check item=is_initialized success=%s", initialized)
+        if not initialized:
+            logger.warning(
+                "Ray connection health check completed: healthy=false, failed_item=is_initialized, duration=%.3fs",
+                time.perf_counter() - check_start,
+            )
+            return False
+
+        loop = asyncio.get_running_loop()
+        rpc_start = time.perf_counter()
+        try:
+            resources = await asyncio.wait_for(
+                loop.run_in_executor(self._executor, ray.cluster_resources),
+                timeout=timeout,
+            )
+        except Exception as e:
+            logger.warning(
+                "Ray connection health check item=cluster_resources success=false, duration=%.3fs, error=%s",
+                time.perf_counter() - rpc_start,
+                e,
+                exc_info=e,
+            )
+            logger.warning(
+                "Ray connection health check completed: healthy=false, failed_item=cluster_resources, duration=%.3fs",
+                time.perf_counter() - check_start,
+            )
+            return False
+
+        logger.info(
+            "Ray connection health check item=cluster_resources success=true, resource_count=%d, duration=%.3fs",
+            len(resources),
+            time.perf_counter() - rpc_start,
+        )
+        logger.info(
+            "Ray connection health check completed: healthy=true, duration=%.3fs",
+            time.perf_counter() - check_start,
+        )
+        return True
 
     async def _reconnect_ray(self):
         try:

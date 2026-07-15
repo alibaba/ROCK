@@ -81,6 +81,57 @@ async def test_reconnect_ray_releases_write_lock_after_init_failure():
 
 
 @pytest.mark.asyncio
+async def test_reconnect_policy_reconnects_when_health_check_fails():
+    service = _make_service()
+
+    with (
+        patch.object(service, "_is_ray_connection_healthy", AsyncMock(return_value=False)),
+        patch.object(service, "_reconnect_ray", AsyncMock()) as mock_reconnect,
+    ):
+        await service._ray_reconnect_with_policy()
+
+    mock_reconnect.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_ray_connection_health_check_rejects_cleaned_client_session():
+    service = _make_service(ray_health_check_timeout_seconds=1)
+
+    with (
+        patch("rock.admin.core.ray_service.ray.is_initialized", return_value=True),
+        patch(
+            "rock.admin.core.ray_service.ray.cluster_resources",
+            side_effect=ConnectionError("Attempted to reconnect a session that has already been cleaned up"),
+        ),
+    ):
+        assert await service._is_ray_connection_healthy() is False
+
+
+@pytest.mark.asyncio
+async def test_ray_connection_health_check_succeeds_for_usable_connection():
+    service = _make_service(ray_health_check_timeout_seconds=1)
+
+    with (
+        patch("rock.admin.core.ray_service.ray.is_initialized", return_value=True),
+        patch("rock.admin.core.ray_service.ray.cluster_resources", return_value={"CPU": 1}),
+        patch("rock.admin.core.ray_service.logger") as mock_logger,
+    ):
+        assert await service._is_ray_connection_healthy() is True
+
+    assert any(
+        call.args and "item=is_initialized success=%s" in call.args[0] and call.args[1] is True
+        for call in mock_logger.info.call_args_list
+    )
+    assert any(
+        call.args and "item=cluster_resources success=true" in call.args[0]
+        for call in mock_logger.info.call_args_list
+    )
+    assert any(
+        call.args and "completed: healthy=true" in call.args[0] for call in mock_logger.info.call_args_list
+    )
+
+
+@pytest.mark.asyncio
 async def test_async_ray_get_raises_when_ray_not_initialized():
     service = _make_service()
 
