@@ -28,3 +28,4 @@ docs/superpowers/
 *.intern.md
 .worktrees/
 .claude-flow/
+.codex/
