@@ -67,6 +67,22 @@ async def mgr(mock_meta_store, mock_operator):
     return m
 
 
+@pytest.mark.asyncio
+async def test_build_sandbox_info_metadata_does_not_refresh_aes_key(mgr):
+    mgr._build_sandbox_info_metadata = SandboxManager._build_sandbox_info_metadata.__get__(mgr, SandboxManager)
+    mgr.refresh_aes_key.reset_mock()
+    sandbox_info = {"memory": "1g"}
+
+    await mgr._build_sandbox_info_metadata(
+        sandbox_info,
+        {"rock_authorization": "secret"},
+        {},
+    )
+
+    mgr.refresh_aes_key.assert_not_awaited()
+    assert sandbox_info["rock_authorization_encrypted"] == "enc"
+
+
 # ---------------------------------------------------------------------------
 # TestManagerStop
 # ---------------------------------------------------------------------------

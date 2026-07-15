@@ -12,3 +12,5 @@ ray:
 warmup:
     images:
       - "python:3.11"
+
+aes_encrypt_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="

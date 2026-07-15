@@ -256,7 +256,6 @@ class ProxyServiceConfig:
     max_connections: int = 500
     max_keepalive_connections: int = 100
     batch_get_status_max_count: int = 2000
-    aes_encrypt_key: str | None = None
 
 
 @dataclass
@@ -536,6 +535,7 @@ class RockConfig:
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     opensandbox: OpenSandboxConfig = field(default_factory=OpenSandboxConfig)
     proxy_service: ProxyServiceConfig = field(default_factory=ProxyServiceConfig)
+    aes_encrypt_key: str | None = None
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     image_registry_mirrors: list[ImageRegistryMirror] = field(default_factory=list)
@@ -605,6 +605,8 @@ class RockConfig:
             kwargs["opensandbox"] = OpenSandboxConfig(**config["opensandbox"])
         if "proxy_service" in config:
             kwargs["proxy_service"] = ProxyServiceConfig(**config["proxy_service"])
+        if "aes_encrypt_key" in config:
+            kwargs["aes_encrypt_key"] = config["aes_encrypt_key"]
         if "scheduler" in config:
             kwargs["scheduler"] = SchedulerConfig(**config["scheduler"])
         if "database" in config:
