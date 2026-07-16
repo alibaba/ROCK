@@ -329,11 +329,14 @@ def mgr_start(mgr, mock_meta_store, mock_operator, mock_docker_config):
 class TestManagerStart:
     @pytest.mark.asyncio
     async def test_start_writes_meta_store_and_waits_running(self, mgr_start, mock_meta_store, mock_operator):
+        mock_operator.submit.return_value["disk"] = "20g"
         config = MagicMock()
         config.image = "python:3.11"
         result = await mgr_start.start(config)
         assert isinstance(result, SandboxStartResponse)
         assert result.sandbox_id == "sb-1"
+        assert result.disk == "20g"
+        assert result.disk_limit_rootfs == "20g"
         mock_meta_store.create.assert_awaited_once()
         mgr_start.get_status.assert_awaited_once_with("sb-1")
 

@@ -173,6 +173,8 @@ class SandboxManager(BaseManager):
             sandbox_id=sandbox_id,
             host_name=sandbox_info.get("host_name"),
             host_ip=sandbox_info.get("host_ip"),
+            disk=sandbox_info.get("disk"),
+            disk_limit_rootfs=sandbox_info.get("disk"),
         )
 
     @monitor_sandbox_operation()
