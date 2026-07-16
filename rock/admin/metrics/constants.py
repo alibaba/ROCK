@@ -37,3 +37,7 @@ class MetricsConstants:
     METASTORE_DB_SUCCESS = "meta_store.db.success"
     METASTORE_DB_FAILURE = "meta_store.db.failure"
     METASTORE_DB_RT = "meta_store.db.rt"
+
+    HTTP_POOL_PROXY_ACTIVE_CONNECTIONS = "http_pool.proxy.active_connections"
+    HTTP_POOL_PROXY_IDLE_CONNECTIONS = "http_pool.proxy.idle_connections"
+    HTTP_POOL_PROXY_PENDING_REQUESTS = "http_pool.proxy.pending_requests"

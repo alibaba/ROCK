@@ -51,15 +51,16 @@ def handle_exceptions(error_message: str = "error occurred"):
             try:
                 return await func(*args, **kwargs)
             except RockException as e:
-                logging.error(f"RockException in {func.__name__}: {str(e)}", exc_info=True)
+                logging.error(f"RockException in {func.__name__}: {str(e) or repr(e)}", exc_info=True)
                 return RockResponse(
                     status=ResponseStatus.FAILED,
                     message=error_message,
                     result=from_rock_exception(e),
                 )
             except Exception as e:
-                logger.error(f"Error in {func.__name__}: {str(e)}", exc_info=True)
-                return RockResponse(status=ResponseStatus.FAILED, message=error_message, error=str(e), result=None)
+                error_detail = str(e) or repr(e)
+                logger.error(f"Error in {func.__name__}: {error_detail}", exc_info=True)
+                return RockResponse(status=ResponseStatus.FAILED, message=error_message, error=error_detail, result=None)
 
         return wrapper
 

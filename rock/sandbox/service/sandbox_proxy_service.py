@@ -9,6 +9,8 @@ import oss2
 import websockets
 from aliyunsdkcore import client
 from aliyunsdkcore.request import CommonRequest
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import Response, UploadFile
 from starlette.status import HTTP_504_GATEWAY_TIMEOUT
 
@@ -25,6 +27,7 @@ from rock.actions import (
 )
 from rock.actions.sandbox.response import State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
+from rock.admin.metrics.constants import MetricsConstants
 from rock.admin.metrics.decorator import monitor_sandbox_operation
 from rock.admin.metrics.monitor import MetricsMonitor
 from rock.admin.proto.request import SandboxBashAction as BashAction
@@ -96,10 +99,12 @@ class SandboxProxyService:
 
         self._batch_get_status_max_count = rock_config.proxy_service.batch_get_status_max_count
         self._validate_oss_config_or_warn()
+        self._setup_http_pool_metrics_scheduler()
 
     async def aclose(self) -> None:
-        """No-op: clients are now managed by HttpPoolManager and closed in lifespan."""
-        pass
+        """Shutdown metrics scheduler. Clients are managed by HttpPoolManager and closed in lifespan."""
+        if hasattr(self, "_metrics_scheduler") and self._metrics_scheduler.running:
+            self._metrics_scheduler.shutdown(wait=False)
 
     def _validate_oss_config_or_warn(self) -> None:
         # Same resolution order as gen_oss_sts_token: env > YAML
@@ -122,6 +127,45 @@ class SandboxProxyService:
                 "Server will return null for these in /get_token, clients fall back accordingly.",
                 ", ".join(missing),
             )
+
+    def _setup_http_pool_metrics_scheduler(self):
+        self._metrics_scheduler = AsyncIOScheduler(
+            timezone="UTC", job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 30}
+        )
+        self._metrics_scheduler.add_job(
+            func=self._collect_http_pool_metrics,
+            trigger=IntervalTrigger(seconds=10),
+            id="http_pool_metrics",
+            name="HTTP Pool Metrics Collection",
+        )
+        try:
+            self._metrics_scheduler.start()
+            logger.info("APScheduler started for HTTP pool metrics collection")
+        except RuntimeError:
+            # No running event loop yet (e.g. during tests). The scheduler will
+            # be started lazily via start_http_pool_metrics_scheduler().
+            logger.info("APScheduler deferred — no running event loop")
+
+    def start_http_pool_metrics_scheduler(self):
+        """Start the metrics scheduler if it was deferred during __init__."""
+        if not self._metrics_scheduler.running:
+            self._metrics_scheduler.start()
+            logger.info("APScheduler started for HTTP pool metrics collection (deferred)")
+
+    async def _collect_http_pool_metrics(self):
+        try:
+            pool_stats = self._rock_config.http_pool_manager.get_pool_stats("proxy")
+            stats = pool_stats.get("proxy")
+            if not stats:
+                logger.warning("http pool metrics: proxy pool stats not available")
+                return
+            self.metrics_monitor.record_gauge_by_name(MetricsConstants.HTTP_POOL_PROXY_ACTIVE_CONNECTIONS, stats["active"])
+            self.metrics_monitor.record_gauge_by_name(MetricsConstants.HTTP_POOL_PROXY_IDLE_CONNECTIONS, stats["idle"])
+            self.metrics_monitor.record_gauge_by_name(
+                MetricsConstants.HTTP_POOL_PROXY_PENDING_REQUESTS, stats["pending_requests"]
+            )
+        except Exception as e:
+            logger.error(f"Failed to collect HTTP pool metrics: {e}", exc_info=True)
 
     @monitor_sandbox_operation()
     async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:

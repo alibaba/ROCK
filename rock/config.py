@@ -537,7 +537,7 @@ class RockConfig:
         default_factory=lambda: {
             "probe": HttpPoolConfig(timeout=5.0, max_connections=300, max_keepalive_connections=300),
             "rpc": HttpPoolConfig(timeout=180.0, max_connections=500, max_keepalive_connections=100),
-            "proxy": HttpPoolConfig(timeout=None, max_connections=100, max_keepalive_connections=50),
+            "proxy": HttpPoolConfig(timeout=None, max_connections=2000, max_keepalive_connections=100),
         }
     )
     http_pool_manager: Any = field(default=None, init=False, repr=False)

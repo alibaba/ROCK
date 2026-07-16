@@ -44,6 +44,46 @@ class HttpPoolManager:
         )
         return self._clients[name]
 
+    def get_pool_stats(self, name: str | None = None) -> dict[str, dict[str, int]]:
+        """Return connection stats for the specified pool, or all pools if name is None.
+
+        Accesses httpcore internals — safe for monitoring but not part of the
+        public httpx API, so guard against AttributeError.
+        """
+        stats = {}
+        if name is not None:
+            client = self._clients.get(name)
+            if client is None or client.is_closed:
+                return stats
+            try:
+                pool = client._transport._pool
+                connections = pool.connections
+                active = sum(1 for c in connections if not c.is_idle() and not c.is_closed())
+                stats[name] = {
+                    "active": active,
+                    "idle": sum(1 for c in connections if c.is_idle() and not c.is_closed()),
+                    "pending_requests": max(0, len(pool._requests) - active),
+                }
+            except (AttributeError, TypeError):
+                logger.debug(f"http pool '{name}': unable to read pool internals")
+            return stats
+
+        for pool_name, client in self._clients.items():
+            if client.is_closed:
+                continue
+            try:
+                pool = client._transport._pool
+                connections = pool.connections
+                active = sum(1 for c in connections if not c.is_idle() and not c.is_closed())
+                stats[pool_name] = {
+                    "active": active,
+                    "idle": sum(1 for c in connections if c.is_idle() and not c.is_closed()),
+                    "pending_requests": max(0, len(pool._requests) - active),
+                }
+            except (AttributeError, TypeError):
+                logger.debug(f"http pool '{pool_name}': unable to read pool internals")
+        return stats
+
     async def aclose_all(self) -> None:
         """Close all open clients. Safe to call multiple times."""
         for name, client in self._clients.items():
