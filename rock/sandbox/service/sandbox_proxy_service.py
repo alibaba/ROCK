@@ -756,21 +756,26 @@ class SandboxProxyService:
     async def get_sandbox_websocket_url(
         self, sandbox_id: str, target_path: str | None = None, port: int | None = None
     ) -> str:
-        # if sandbox_id == "iflow-local":   # Local debugging for iflow-cli
-        #     return "ws://127.0.0.1:8090/acp"
-        # if sandbox_id == "local":   # Local debugging for general ws service
-        #     return "ws://127.0.0.1:8090/ws"
-        # Get sandbox  address based on sandbox_id
+        # Get sandbox address based on sandbox_id
         status_dicts = await self.get_service_status(sandbox_id)
         host_ip = status_dicts[0].get("host_ip")
-        if port is None:
-            service_status = ServiceStatus.from_dict(status_dicts[0])
-            port = service_status.get_mapped_port(Port.SERVER)
+        service_status = ServiceStatus.from_dict(status_dicts[0])
 
-        if target_path:
-            return f"ws://{host_ip}:{port}/{target_path}"
+        if port is None or port == Port.SERVER.value:
+            # Default: use SERVER port (8080) mapped to host
+            mapped_port = service_status.get_mapped_port(Port.SERVER)
+            if target_path:
+                return f"ws://{host_ip}:{mapped_port}/{target_path}"
+            else:
+                return f"ws://{host_ip}:{mapped_port}"
         else:
-            return f"ws://{host_ip}:{port}"
+            # Custom port: route through Rocklet (PROXY port) which lives inside the
+            # container and can reach ``localhost:{port}`` reliably.
+            rocklet_port = service_status.get_mapped_port(Port.PROXY)
+            safe_path = target_path.lstrip("/") if target_path else ""
+            url = f"ws://{host_ip}:{rocklet_port}/proxy/{port}/{safe_path}"
+            logger.info(f"[Proxy] WebSocket routing custom port {port} via Rocklet: {url}")
+            return url
 
     async def _forward_messages(self, source_ws, target_ws, direction: str):
         """Forward WebSocket messages bidirectionally.
@@ -946,11 +951,21 @@ class SandboxProxyService:
         status_list = await self.get_service_status(sandbox_id)
 
         host_ip = status_list[0].get("host_ip")
-        if port is None:
-            service_status = ServiceStatus.from_dict(status_list[0])
-            port = service_status.get_mapped_port(Port.SERVER)
+        service_status = ServiceStatus.from_dict(status_list[0])
         qs = f"?{query_string}" if query_string else ""
-        target_url = f"http://{host_ip}:{port}/{target_path}{qs}"
+        if port is None or port == Port.SERVER.value:
+            # Default behaviour: forward to the SERVER port (8080) directly via host_ip
+            mapped_port = service_status.get_mapped_port(Port.SERVER)
+            target_url = f"http://{host_ip}:{mapped_port}/{target_path}{qs}"
+        else:
+            # Custom port: route through Rocklet (PROXY port) which lives inside the
+            # container and can reach ``localhost:{port}`` reliably.  Direct
+            # ``host_ip:{custom_port}`` connections fail because arbitrary container
+            # ports are not mapped to the host.
+            rocklet_port = service_status.get_mapped_port(Port.PROXY)
+            safe_path = target_path.lstrip("/")
+            target_url = f"http://{host_ip}:{rocklet_port}/proxy/{port}/{safe_path}{qs}"
+            logger.info(f"[Proxy] Routing custom port {port} via Rocklet: {target_url}")
 
         request_headers = filter_headers(headers)
         request_kwargs: dict = {"content": body} if body else {}
