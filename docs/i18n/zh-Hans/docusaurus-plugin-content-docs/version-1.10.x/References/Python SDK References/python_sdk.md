@@ -104,7 +104,69 @@ config = SandboxConfig(
 )
 ```
 
-### 2.4 沙箱加速配置
+### 2.4 归档并重启沙箱
+
+当 stopped 沙箱在本地容器被清理后仍需要恢复时，可以使用 `archive()`。
+ROCK 会将容器文件系统保存为归档镜像，并将沙箱日志目录上传到远端存储。
+对 archived 沙箱调用 `restart()` 时，ROCK 会恢复这些内容并启动新容器。
+
+状态流转如下：
+
+```text
+running --stop--> stopped --archive--> archiving --success--> archived
+                                                        |
+                                                        +--restart--> pending --alive--> running
+
+archiving --failure/timeout--> stopped
+pending（恢复中）--failure/timeout--> archived
+```
+
+`archive()` 只负责发起异步归档任务。只有当
+`get_status(include_all_states=True)` 返回 `state == "archived"` 时，
+才表示远端归档已完成，可用于恢复。
+
+```python
+import asyncio
+
+
+async def wait_until_archived(sandbox, timeout=1800):
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        status = await sandbox.get_status(include_all_states=True)
+        if status.state == "archived":
+            return
+        if status.state == "stopped":
+            raise RuntimeError("归档失败或超时，可以重试")
+        if asyncio.get_running_loop().time() >= deadline:
+            raise TimeoutError(f"等待归档超时，当前状态: {status.state}")
+        await asyncio.sleep(3)
+
+
+# 运行此示例前，sandbox 应处于 running 状态。
+await sandbox.arun("echo 'keep me' > /tmp/archive-marker.txt")
+await sandbox.stop()
+
+# archive() 只能对 stopped 沙箱调用。
+await sandbox.archive()
+await wait_until_archived(sandbox)
+
+# restart() 会识别 archived 状态并自动恢复沙箱。
+await sandbox.restart()
+result = await sandbox.arun("cat /tmp/archive-marker.txt")
+assert "keep me" in result.output
+```
+
+如果要在另一个进程中恢复，请使用相同的服务地址、集群和认证信息创建
+`Sandbox`，先调用 `await sandbox.attach(sandbox_id)`，再调用
+`await sandbox.restart()`。应将 `startup_timeout` 设置得足够长，以覆盖归档恢复、
+镜像拉取和容器启动的耗时。
+
+:::warning
+ROCK Admin 服务必须已启用并配置归档存储。仍需要归档时请勿调用 `delete()`：
+归档存储已配置时，删除 archived 沙箱也会删除对应的归档内容。
+:::
+
+### 2.5 沙箱加速配置
 
 ROCK 提供沙箱网络加速功能，支持配置 APT、PIP 和 GitHub 镜像源，提升受限网络环境下的包下载速度。
 

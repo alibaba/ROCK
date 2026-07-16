@@ -105,7 +105,71 @@ config = SandboxConfig(
 )
 ```
 
-### 2.4 Sandbox Speedup Configuration
+### 2.4 Archive and Restart a Sandbox
+
+Use `archive()` when a stopped sandbox must remain recoverable after its local
+container is removed. ROCK saves the container filesystem as an archive image and
+uploads the sandbox log directory to remote storage. Calling `restart()` on the
+archived sandbox restores that content and starts a new container.
+
+The lifecycle is:
+
+```text
+running --stop--> stopped --archive--> archiving --success--> archived
+                                                        |
+                                                        +--restart--> pending --alive--> running
+
+archiving --failure/timeout--> stopped
+pending (during restore) --failure/timeout--> archived
+```
+
+`archive()` only starts the asynchronous archive task. The archive is ready for
+remote recovery only after `get_status(include_all_states=True)` returns
+`state == "archived"`.
+
+```python
+import asyncio
+
+
+async def wait_until_archived(sandbox, timeout=1800):
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        status = await sandbox.get_status(include_all_states=True)
+        if status.state == "archived":
+            return
+        if status.state == "stopped":
+            raise RuntimeError("Archive failed or timed out; it can be retried")
+        if asyncio.get_running_loop().time() >= deadline:
+            raise TimeoutError(f"Timed out waiting for archive; current state: {status.state}")
+        await asyncio.sleep(3)
+
+
+# The sandbox must be running before this example starts.
+await sandbox.arun("echo 'keep me' > /tmp/archive-marker.txt")
+await sandbox.stop()
+
+# archive() is only valid for a stopped sandbox.
+await sandbox.archive()
+await wait_until_archived(sandbox)
+
+# restart() detects the archived state and restores the sandbox automatically.
+await sandbox.restart()
+result = await sandbox.arun("cat /tmp/archive-marker.txt")
+assert "keep me" in result.output
+```
+
+To restore in another process, create a `Sandbox` with the same endpoint, cluster,
+and credentials, call `await sandbox.attach(sandbox_id)`, and then call
+`await sandbox.restart()`. Set `startup_timeout` high enough to cover image restore,
+pull, and startup time.
+
+:::warning
+The ROCK Admin service must enable and configure archive storage. Do not call
+`delete()` while the archive is still needed: deleting an archived sandbox also
+removes its archive artifacts when archive storage is configured.
+:::
+
+### 2.5 Sandbox Speedup Configuration
 
 ROCK provides sandbox network acceleration capabilities, supporting configuration of APT, PIP, and GitHub mirror sources to improve package download speeds in restricted network environments.
 
