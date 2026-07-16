@@ -127,13 +127,19 @@ class ImageCleanupTask(BaseTask):
         """
         runtime = self._get_runtime(ip)
         # prune always runs — idempotent, fail-soft
+        prune_result = {}
         try:
-            await self._run_prune(runtime)
+            prune_result = await self._run_prune(runtime)
         except Exception as e:
             logger.warning(f"[{self.type}] prune failed on worker[{ip}]: {e}")
         # docuum gated by should_run — non-idempotent
         if not await self.should_run(runtime):
             logger.info(f"[{self.type}] docuum already running on worker[{ip}], skip launch")
-            return
+            return {
+                "status": TaskStatusEnum.SUCCESS,
+                "action": "prune_only",
+                **prune_result,
+            }
         logger.info(f"[{self.type}] launch docuum on worker[{ip}]")
-        await self.single_run(runtime, ip)
+        result = await self.single_run(runtime, ip)
+        return {**result, **prune_result}

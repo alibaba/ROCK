@@ -19,7 +19,7 @@ from rock.admin.proto.response import (
     TaskSetStatusModel,
     TaskStatusModel,
 )
-from rock.admin.scheduler.task_base import BaseTask
+from rock.admin.scheduler.task_base import BaseTask, TaskRunOutcome
 from rock.logger import init_logger
 
 logger = init_logger(__name__)
@@ -34,7 +34,7 @@ class OpsService:
         self,
         task_table: SchedulerTaskTable,
         task_registry: dict[str, BaseTask],
-        alive_workers_provider: Callable[[], list[str]],
+        alive_workers_provider: Callable[[], set[str]],
     ) -> None:
         self._task_table = task_table
         self._task_registry = task_registry
@@ -154,15 +154,38 @@ class OpsService:
         worker_ips: list[str],
         records: list[SchedulerTaskRecord],
     ) -> None:
+        worker_ip_set = set(worker_ips)
         for task, record in zip(tasks, records):
             tid = record.task_id
             await self._task_table.update_task(tid, phase=Phase.RUNNING, start_time=time.time())
             try:
-                await task.run(worker_ips)
-                status = [{"worker": ip, "success": True} for ip in worker_ips]
-                await self._task_table.update_task(
-                    tid, phase=Phase.SUCCEEDED, completion_time=time.time(), status=status
-                )
+                report = await task.run(worker_ip_set)
+                status = []
+                for worker_result in report.worker_results:
+                    worker_status = {
+                        "worker": worker_result.worker_ip,
+                        "success": worker_result.succeeded,
+                    }
+                    if worker_result.error:
+                        worker_status["message"] = worker_result.error
+                    status.append(worker_status)
+
+                update_fields = {
+                    "phase": Phase.SUCCEEDED,
+                    "completion_time": time.time(),
+                    "status": status,
+                }
+                if report.failed_count:
+                    condition_type = "PartialFailure" if report.outcome == TaskRunOutcome.PARTIAL else "Failed"
+                    update_fields["phase"] = Phase.FAILED
+                    update_fields["conditions"] = [
+                        {
+                            "type": condition_type,
+                            "reason": report.outcome.value,
+                            "message": (f"{report.failed_count}/{report.total_count} workers failed or timed out"),
+                        }
+                    ]
+                await self._task_table.update_task(tid, **update_fields)
             except Exception as e:
                 logger.exception(f"taskset '{taskset_id}' task '{task.type}' failed")
                 status = [{"worker": ip, "success": False, "message": str(e)} for ip in worker_ips]

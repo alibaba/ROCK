@@ -1,8 +1,9 @@
 import time
 from collections import Counter as CollectionsCounter
+from collections.abc import Callable, Iterable
 
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
-from opentelemetry.metrics import Counter, _Gauge
+from opentelemetry.metrics import Counter, ObservableGauge, Observation, _Gauge
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader, PeriodicExportingMetricReader
 
@@ -36,6 +37,7 @@ class MetricsMonitor:
         self._init_telemetry(export_interval_millis)
         self.counters: dict[str, Counter] = {}
         self.gauges: dict[str, _Gauge] = {}
+        self.observable_gauges: dict[str, ObservableGauge | None] = {}
         self._register_metrics()
         logger.info(
             f"Initializing MetricsCollector with host={host}, port={port}, pod={pod}, "
@@ -122,10 +124,46 @@ class MetricsMonitor:
         self._register_gauge(MetricsConstants.METASTORE_DB_RT, "DB operation response time", "ms")
 
     def _register_counter(self, name: str, description: str, unit: str = "1"):
-        self.counters[name] = self.create_counter(name, description, unit)
+        self.register_counter(name, description, unit)
 
     def _register_gauge(self, name: str, description: str, unit: str = "1"):
+        self.register_gauge(name, description, unit)
+
+    def register_counter(self, name: str, description: str, unit: str = "1") -> None:
+        """Register a synchronous counter for a feature-specific metrics adapter."""
+        if name in self.counters:
+            raise ValueError(f"Counter {name} is already registered")
+        self.counters[name] = self.create_counter(name, description, unit)
+
+    def register_gauge(self, name: str, description: str, unit: str = "1") -> None:
+        """Register a synchronous gauge for a feature-specific metrics adapter."""
+        if name in self.gauges or name in self.observable_gauges:
+            raise ValueError(f"Gauge {name} is already registered")
         self.gauges[name] = self.create_gauge(name, description, unit)
+
+    def register_observable_gauge(
+        self,
+        name: str,
+        callback: Callable[[], Iterable[tuple[float, dict[str, str]]]],
+        description: str,
+        unit: str = "1",
+    ) -> None:
+        """Register a gauge whose current observations are produced at collection time."""
+        if name in self.gauges or name in self.observable_gauges:
+            raise ValueError(f"Metric {name} is already registered")
+        if self._should_skip():
+            self.observable_gauges[name] = None
+            return
+
+        def observe(_options):
+            return [Observation(value, {**self.attributes, **attributes}) for value, attributes in callback()]
+
+        self.observable_gauges[name] = self.meter.create_observable_gauge(
+            name=f"xrl_gateway.{name}",
+            callbacks=[observe],
+            description=description,
+            unit=unit,
+        )
 
     def _init_basic_attributes(self, host: str, port: str, pod: str, env: str, role: str):
         self.host = host
@@ -244,6 +282,21 @@ class MetricsMonitor:
         if g is None:
             raise ValueError(f"Gauge {gauge} not found")
         self.record_gauge(g, value, attributes)
+
+    def force_flush(self, timeout_millis: float = 10_000) -> bool:
+        if self._should_skip():
+            return True
+        return self.meter_provider.force_flush(timeout_millis=timeout_millis)
+
+    def shutdown(self, timeout_millis: float = 30_000) -> None:
+        if self._should_skip():
+            return
+        try:
+            self.meter_provider.force_flush(timeout_millis=timeout_millis)
+        except Exception:
+            logger.exception("Final metrics flush failed during monitor shutdown")
+        finally:
+            self.meter_provider.shutdown(timeout_millis=timeout_millis)
 
     @property
     def attributes(self) -> dict[str, str]:

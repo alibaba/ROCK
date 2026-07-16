@@ -231,14 +231,15 @@ class TestRunOnWorker:
         runtime = AsyncMock()
         monkeypatch.setattr(task, "_get_runtime", lambda ip: runtime)
         monkeypatch.setattr(task, "should_run", AsyncMock(return_value=True))
-        monkeypatch.setattr(task, "single_run", AsyncMock())
-        prune_spy = AsyncMock(return_value={})
+        monkeypatch.setattr(task, "single_run", AsyncMock(return_value={"status": TaskStatusEnum.RUNNING, "pid": 1}))
+        prune_spy = AsyncMock(return_value={"prune_exit_code": 0})
         monkeypatch.setattr(task, "_run_prune", prune_spy)
 
-        await task.run_on_worker("10.0.0.1")
+        result = await task.run_on_worker("10.0.0.1")
 
         prune_spy.assert_awaited_once_with(runtime)
         task.single_run.assert_awaited_once_with(runtime, "10.0.0.1")
+        assert result == {"status": TaskStatusEnum.RUNNING, "pid": 1, "prune_exit_code": 0}
 
     @pytest.mark.asyncio
     async def test_docuum_alive_still_prunes(self, monkeypatch):
@@ -252,15 +253,20 @@ class TestRunOnWorker:
         runtime = AsyncMock()
         monkeypatch.setattr(task, "_get_runtime", lambda ip: runtime)
         monkeypatch.setattr(task, "should_run", AsyncMock(return_value=False))
-        single_run = AsyncMock()
+        single_run = AsyncMock(return_value={"status": TaskStatusEnum.RUNNING})
         monkeypatch.setattr(task, "single_run", single_run)
-        prune_spy = AsyncMock(return_value={})
+        prune_spy = AsyncMock(return_value={"prune_exit_code": 0})
         monkeypatch.setattr(task, "_run_prune", prune_spy)
 
-        await task.run_on_worker("10.0.0.1")
+        result = await task.run_on_worker("10.0.0.1")
 
         prune_spy.assert_awaited_once_with(runtime)
         single_run.assert_not_awaited()  # docuum NOT relaunched (correctly)
+        assert result == {
+            "status": TaskStatusEnum.SUCCESS,
+            "action": "prune_only",
+            "prune_exit_code": 0,
+        }
 
     @pytest.mark.asyncio
     async def test_prune_exception_does_not_block_docuum(self, monkeypatch):
@@ -270,7 +276,7 @@ class TestRunOnWorker:
         monkeypatch.setattr(task, "_get_runtime", lambda ip: runtime)
         monkeypatch.setattr(task, "_run_prune", AsyncMock(side_effect=RuntimeError("docker down")))
         monkeypatch.setattr(task, "should_run", AsyncMock(return_value=True))
-        single_run = AsyncMock()
+        single_run = AsyncMock(return_value={"status": TaskStatusEnum.RUNNING})
         monkeypatch.setattr(task, "single_run", single_run)
 
         # Must not raise (run_on_worker catches prune exception with try/except)
@@ -285,7 +291,7 @@ class TestRunOnWorker:
         runtime = AsyncMock()
         monkeypatch.setattr(task, "_get_runtime", lambda ip: runtime)
         monkeypatch.setattr(task, "should_run", AsyncMock(return_value=True))
-        single_run = AsyncMock()
+        single_run = AsyncMock(return_value={"status": TaskStatusEnum.RUNNING})
         monkeypatch.setattr(task, "single_run", single_run)
         monkeypatch.setattr(task, "_run_prune", AsyncMock(return_value={}))
 
