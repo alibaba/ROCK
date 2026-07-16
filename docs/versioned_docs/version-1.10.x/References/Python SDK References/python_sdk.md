@@ -34,7 +34,12 @@ async def run_sandbox():
     Default admin server port is 8080.
     """
     # Create sandbox configuration
-    config = SandboxConfig(image="python:3.11", memory="8g", cpus=2.0)
+    config = SandboxConfig(
+        image="python:3.11",
+        memory="8g",
+        cpus=2.0,
+        disk="20g",
+    )
 
     # Create sandbox instance
     sandbox = Sandbox(config)
@@ -85,9 +90,16 @@ await sandbox_group.stop()
 
 ### 2.3 Configuration Example
 
+Use `memory`, `cpus`, and `disk` to request the sandbox resources. `disk` accepts a
+size string such as `"20g"` and sets the quota for both the sandbox root filesystem
+and its log directory.
+
 ```python
 config = SandboxConfig(
     image="python:3.11",
+    memory="8g",
+    cpus=2.0,
+    disk="20g",
     auto_clear_seconds=60 * 20,
     experiment_id="test",
 )
