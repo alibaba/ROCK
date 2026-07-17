@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import os
+import socket
 import sys
 import time
 import traceback
@@ -15,6 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
+from uvicorn.supervisors import Multiprocess
 
 from rock import env_vars
 from rock.admin.core.db_provider import DatabaseProvider
@@ -342,6 +344,84 @@ def create_app() -> FastAPI:
     return app
 
 
+def _create_reuse_port_socket(config: uvicorn.Config) -> socket.socket:
+    """Create one worker-owned TCP listener in a SO_REUSEPORT group."""
+    reuse_port = getattr(socket, "SO_REUSEPORT", None)
+    if reuse_port is None:
+        raise RuntimeError("SO_REUSEPORT is unavailable on this platform")
+    if config.uds is not None or config.fd is not None:
+        raise RuntimeError("SO_REUSEPORT workers require a host/port listener")
+
+    host = config.host or "0.0.0.0"
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    listener = socket.socket(family=family, type=socket.SOCK_STREAM)
+    try:
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.setsockopt(socket.SOL_SOCKET, reuse_port, 1)
+        listener.bind((host, config.port))
+    except Exception:
+        listener.close()
+        raise
+    return listener
+
+
+class _ReusePortServer(uvicorn.Server):
+    """Bind a distinct listener after Uvicorn has spawned this worker."""
+
+    def run(self, sockets: list[socket.socket] | None = None) -> None:
+        if sockets:
+            raise RuntimeError("SO_REUSEPORT workers must not inherit a parent listener")
+
+        try:
+            listener = _create_reuse_port_socket(self.config)
+        except Exception:
+            logger.exception(
+                "worker listener bind failed pid=%s host=%s port=%s",
+                os.getpid(),
+                self.config.host,
+                self.config.port,
+            )
+            raise
+        logger.info(
+            "worker listener bound pid=%s address=%s fd=%s so_reuseport=%s",
+            os.getpid(),
+            listener.getsockname(),
+            listener.fileno(),
+            listener.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT),
+        )
+        try:
+            super().run(sockets=[listener])
+        finally:
+            listener.close()
+
+
+def _run_reuse_port_workers(config: uvicorn.Config) -> None:
+    if config.workers <= 1:
+        raise RuntimeError("SO_REUSEPORT multiprocessing requires at least two workers")
+    if not sys.platform.startswith("linux"):
+        raise RuntimeError("independent SO_REUSEPORT worker listeners are supported only on Linux")
+    if config.port == 0:
+        raise RuntimeError("SO_REUSEPORT multiprocessing requires an explicit non-zero port")
+
+    # Fail in the parent before starting the supervisor if the option is
+    # unsupported or the address cannot join a SO_REUSEPORT group.
+    try:
+        probe = _create_reuse_port_socket(config)
+    except Exception:
+        logger.exception("SO_REUSEPORT listener preflight failed host=%s port=%s", config.host, config.port)
+        raise
+    probe.close()
+
+    logger.info(
+        "starting independent SO_REUSEPORT listeners host=%s port=%s workers=%s",
+        config.host,
+        config.port,
+        config.workers,
+    )
+    server = _ReusePortServer(config=config)
+    Multiprocess(config, target=server.run, sockets=[]).run()
+
+
 def main():
     # Set uvloop as global event loop policy (covers Redis, SchedulerThread, etc.)
     if sys.platform != "win32":
@@ -368,18 +448,22 @@ def main():
     os.environ["ROCK_PROXY_WORKERS"] = str(workers)
     logger.info(f"starting role={args.role} port={args.port} workers={workers}")
 
-    uvicorn.run(
-        "rock.admin.main:create_app",
-        factory=True,
-        host="0.0.0.0",
-        port=args.port,
-        workers=workers,
-        loop="uvloop",
-        http="httptools",
-        ws_ping_interval=None,
-        ws_ping_timeout=None,
-        timeout_keep_alive=30,
-    )
+    uvicorn_options = {
+        "app": "rock.admin.main:create_app",
+        "factory": True,
+        "host": "0.0.0.0",
+        "port": args.port,
+        "workers": workers,
+        "loop": "uvloop",
+        "http": "httptools",
+        "ws_ping_interval": None,
+        "ws_ping_timeout": None,
+        "timeout_keep_alive": 30,
+    }
+    if workers > 1:
+        _run_reuse_port_workers(uvicorn.Config(**uvicorn_options))
+    else:
+        uvicorn.run(**uvicorn_options)
 
 
 if __name__ == "__main__":
