@@ -1,4 +1,8 @@
+from urllib.parse import unquote, urlsplit, urlunsplit
+
 from fastapi import UploadFile
+from starlette.datastructures import Headers
+from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from rock.actions import (
     BashObservation,
@@ -21,6 +25,7 @@ from rock.admin.proto.request import SandboxWriteFileRequest as WriteFileRequest
 from rock.admin.proto.response import SandboxStatusResponse
 from rock.common.port_validation import validate_port_forward_port
 from rock.config import RockConfig
+from rock.deployments.constants import Port
 from rock.sandbox import __version__ as gateway_version
 from rock.sandbox.operator.opensandbox.client import OpenSandboxClient
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
@@ -42,6 +47,7 @@ class OpenSandboxProxyService(SandboxProxyService):
     ):
         super().__init__(rock_config=rock_config, meta_store=meta_store)
         self._opensandbox_backend = backend or OpenSandboxBackend(OpenSandboxClient(rock_config.opensandbox))
+        self._opensandbox_protocol = rock_config.opensandbox.protocol
 
     async def aclose(self) -> None:
         await self._opensandbox_backend.aclose()
@@ -108,6 +114,77 @@ class OpenSandboxProxyService(SandboxProxyService):
         await self._update_expire_time(command.sandbox_id)
         info = await self._get_runtime_info(command.sandbox_id)
         return await self._opensandbox_backend.execute(command.sandbox_id, info, command)
+
+    def _service_url(self, endpoint: str, target_path: str | None, query_string: str = "", *, websocket=False) -> str:
+        decoded_path = target_path or ""
+        while True:
+            next_path = unquote(decoded_path)
+            if next_path == decoded_path:
+                break
+            decoded_path = next_path
+        if any(segment in {".", ".."} for segment in decoded_path.replace("\\", "/").split("/")):
+            raise BadRequestRockError("invalid proxy path: relative path segments are not allowed")
+
+        if "://" not in endpoint:
+            endpoint = f"{self._opensandbox_protocol}://{endpoint}"
+        parsed = urlsplit(endpoint)
+        scheme = parsed.scheme
+        if websocket:
+            scheme = {"http": "ws", "https": "wss"}.get(scheme, scheme)
+        path = f"{parsed.path.rstrip('/')}/{(target_path or '').lstrip('/')}"
+        query = "&".join(part for part in (parsed.query, query_string) if part)
+        return urlunsplit((scheme, parsed.netloc, path, query, parsed.fragment))
+
+    async def http_proxy(
+        self,
+        sandbox_id: str,
+        target_path: str,
+        body: bytes | None,
+        headers: Headers,
+        method: str = "POST",
+        port: int | None = None,
+        proxy_prefix: str | None = None,
+        query_string: str = "",
+    ) -> JSONResponse | StreamingResponse | Response:
+        await self._update_expire_time(sandbox_id)
+        info = await self._get_runtime_info(sandbox_id)
+        endpoint = await self._opensandbox_backend.get_endpoint(
+            sandbox_id,
+            info,
+            Port.SERVER if port is None else port,
+        )
+        return await SandboxProxyService._http_proxy_to_target(
+            self,
+            self._service_url(endpoint.endpoint, target_path, query_string),
+            body,
+            headers,
+            method=method,
+            proxy_prefix=proxy_prefix,
+            endpoint_headers=endpoint.headers,
+        )
+
+    async def websocket_proxy(
+        self,
+        client_websocket,
+        sandbox_id: str,
+        target_path: str | None = None,
+        port: int | None = None,
+        forward_ws_headers: bool = True,
+    ):
+        await self._update_expire_time(sandbox_id)
+        info = await self._get_runtime_info(sandbox_id)
+        endpoint = await self._opensandbox_backend.get_endpoint(
+            sandbox_id,
+            info,
+            Port.SERVER if port is None else port,
+        )
+        return await SandboxProxyService._websocket_proxy_to_target(
+            self,
+            client_websocket,
+            self._service_url(endpoint.endpoint, target_path, websocket=True),
+            endpoint_headers=endpoint.headers,
+            forward_ws_headers=forward_ws_headers,
+        )
 
     async def websocket_to_tcp_proxy(
         self,

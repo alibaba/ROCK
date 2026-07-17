@@ -82,9 +82,13 @@ class OpenSandboxBackend:
             "Pausing": State.STOPPED,
             "Paused": State.STOPPED,
             "Stopping": State.STOPPED,
-            "Terminated": State.STOPPED,
+            "Terminated": State.DELETED,
             "Failed": State.STOPPED,
         }.get(remote_state, State.PENDING)
+
+    async def get_endpoint(self, sandbox_id: str, info: dict, port: int):
+        del sandbox_id
+        return await self._client.get_endpoint(self._opensandbox_id(info), port)
 
     async def read_file(self, sandbox_id: str, info: dict, request: SandboxReadFileRequest) -> ReadFileResponse:
         opensandbox_id = self._opensandbox_id(info)

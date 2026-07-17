@@ -49,11 +49,19 @@ class FakeRunCommandOpts:
 class FakeLifecycleService:
     def __init__(self):
         self.info_ids = []
+        self.endpoint_requests = []
         self.actions = []
 
     async def get_sandbox_info(self, sandbox_id):
         self.info_ids.append(sandbox_id)
         return SimpleNamespace(status=SimpleNamespace(state="Running"))
+
+    async def get_sandbox_endpoint(self, sandbox_id, port, use_server_proxy):
+        self.endpoint_requests.append((sandbox_id, port, use_server_proxy))
+        return SimpleNamespace(
+            endpoint=f"https://proxy.example/sandboxes/{sandbox_id}/ports/{port}",
+            headers={"X-Sandbox-Token": "required"},
+        )
 
     async def pause_sandbox(self, sandbox_id):
         self.actions.append(("pause", sandbox_id))
@@ -124,6 +132,25 @@ async def test_get_state_reads_lifecycle_service_without_resolving_endpoint(clie
     state = await client.get_state("osb-1")
     assert state == "Running"
     assert client._lifecycle_service.info_ids == ["osb-1"]
+
+
+@pytest.mark.asyncio
+async def test_get_endpoint_uses_lifecycle_service_and_proxy_setting(client):
+    client._config.use_server_proxy = True
+
+    endpoint = await client.get_endpoint("osb-1", 8080)
+
+    assert endpoint.endpoint == "https://proxy.example/sandboxes/osb-1/ports/8080"
+    assert endpoint.headers == {"X-Sandbox-Token": "required"}
+    assert client._lifecycle_service.endpoint_requests == [("osb-1", 8080, True)]
+
+
+@pytest.mark.asyncio
+async def test_get_endpoint_translates_errors(client):
+    client._lifecycle_service.get_sandbox_endpoint = AsyncMock(side_effect=RuntimeError("endpoint unavailable"))
+
+    with pytest.raises(InternalServerRockError, match="opensandbox get_endpoint failed for osb-1"):
+        await client.get_endpoint("osb-1", 9000)
 
 
 @pytest.mark.asyncio

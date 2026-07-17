@@ -145,6 +145,17 @@ class OpenSandboxClient:
             return None
         return info.status.state
 
+    async def get_endpoint(self, opensandbox_id: str, port: int):
+        """Resolve a sandbox service endpoint without connecting to execd."""
+        try:
+            return await self._get_lifecycle_service().get_sandbox_endpoint(
+                opensandbox_id,
+                port,
+                self._config.use_server_proxy,
+            )
+        except Exception as e:
+            raise InternalServerRockError(f"opensandbox get_endpoint failed for {opensandbox_id}: {e}") from e
+
     async def pause(self, opensandbox_id: str) -> None:
         try:
             await self._get_lifecycle_service().pause_sandbox(opensandbox_id)

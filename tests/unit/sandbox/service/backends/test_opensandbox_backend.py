@@ -245,10 +245,27 @@ async def test_upload_adapts_non_iobase_stream_without_buffering(client):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("remote_state", "expected"),
-    [("Pending", State.PENDING), ("Running", State.RUNNING), ("Paused", State.STOPPED), ("Failed", State.STOPPED)],
+    [
+        ("Pending", State.PENDING),
+        ("Running", State.RUNNING),
+        ("Paused", State.STOPPED),
+        ("Terminated", State.DELETED),
+        ("Failed", State.STOPPED),
+    ],
 )
 async def test_get_state_maps_opensandbox_lifecycle(client, remote_state, expected):
     client.get_state.return_value = remote_state
     backend = OpenSandboxBackend(client)
 
     assert await backend.get_state(_info()) == expected
+
+
+@pytest.mark.asyncio
+async def test_get_endpoint_uses_opensandbox_id(client):
+    client.get_endpoint.return_value = SimpleNamespace(endpoint="sandbox.example", headers={"X-Token": "required"})
+    backend = OpenSandboxBackend(client)
+
+    endpoint = await backend.get_endpoint("sbx-1", _info("osb-9"), 8080)
+
+    assert endpoint.endpoint == "sandbox.example"
+    client.get_endpoint.assert_awaited_once_with("osb-9", 8080)

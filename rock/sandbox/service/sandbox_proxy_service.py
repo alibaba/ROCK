@@ -41,7 +41,7 @@ from rock.deployments.status import ServiceStatus
 from rock.common.port_validation import validate_port_forward_port
 from rock.logger import init_logger
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
-from rock.sandbox.utils.proxy import build_upstream_ws_headers
+from rock.sandbox.utils.proxy import BLOCKED_WS_HEADER_NAMES, build_upstream_ws_headers
 from rock.sandbox.utils.rocklet_probe import check_alive_status, get_remote_status
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 from rock.sdk.common.exceptions import BadRequestRockError
@@ -255,7 +255,21 @@ class SandboxProxyService:
         forward_ws_headers: bool = True,
     ):
         target_url = await self.get_sandbox_websocket_url(sandbox_id, target_path, port=port)
+        return await SandboxProxyService._websocket_proxy_to_target(
+            self,
+            client_websocket,
+            target_url,
+            forward_ws_headers=forward_ws_headers,
+        )
 
+    async def _websocket_proxy_to_target(
+        self,
+        client_websocket,
+        target_url: str,
+        *,
+        endpoint_headers: dict[str, str] | None = None,
+        forward_ws_headers: bool = True,
+    ):
         client_subprotocols = getattr(client_websocket, "subprotocols", []) or []
         upstream_subprotocols = client_subprotocols if client_subprotocols else ["binary", "base64"]
         if forward_ws_headers:
@@ -263,6 +277,15 @@ class SandboxProxyService:
             logger.info(f"origin for upstream WebSocket: {origin}, additional_headers: {additional_headers}")
         else:
             origin, additional_headers = None, None
+
+        additional_by_name = {key.lower(): (key, value) for key, value in (additional_headers or [])}
+        for key, value in (endpoint_headers or {}).items():
+            lower_key = key.lower()
+            if lower_key == "origin":
+                origin = value
+            elif lower_key not in BLOCKED_WS_HEADER_NAMES:
+                additional_by_name[lower_key] = (key, value)
+        additional_headers = list(additional_by_name.values()) or None
 
         try:
             async with websockets.connect(
@@ -919,6 +942,32 @@ class SandboxProxyService:
         """HTTP proxy that supports all methods and streaming (SSE) responses."""
         await self._update_expire_time(sandbox_id)
 
+        status_list = await self.get_service_status(sandbox_id)
+        host_ip = status_list[0].get("host_ip")
+        if port is None:
+            service_status = ServiceStatus.from_dict(status_list[0])
+            port = service_status.get_mapped_port(Port.SERVER)
+        qs = f"?{query_string}" if query_string else ""
+        target_url = f"http://{host_ip}:{port}/{target_path}{qs}"
+        return await SandboxProxyService._http_proxy_to_target(
+            self,
+            target_url,
+            body,
+            headers,
+            method=method,
+            proxy_prefix=proxy_prefix,
+        )
+
+    async def _http_proxy_to_target(
+        self,
+        target_url: str,
+        body: bytes | None,
+        headers: Headers,
+        *,
+        method: str = "POST",
+        proxy_prefix: str | None = None,
+        endpoint_headers: dict[str, str] | None = None,
+    ) -> JSONResponse | StreamingResponse | Response:
         # content-encoding is excluded because httpx decompresses the body automatically;
         # forwarding it would cause ERR_CONTENT_DECODING_FAILED in the browser.
         EXCLUDED_HEADERS = {"host", "content-length", "transfer-encoding", "content-encoding"}
@@ -943,16 +992,11 @@ class SandboxProxyService:
             # proxy_prefix is always a path (e.g. /sandboxes/sb1/proxy/port/8006)
             return f"{proxy_prefix.rstrip('/')}{location}"
 
-        status_list = await self.get_service_status(sandbox_id)
-
-        host_ip = status_list[0].get("host_ip")
-        if port is None:
-            service_status = ServiceStatus.from_dict(status_list[0])
-            port = service_status.get_mapped_port(Port.SERVER)
-        qs = f"?{query_string}" if query_string else ""
-        target_url = f"http://{host_ip}:{port}/{target_path}{qs}"
-
         request_headers = filter_headers(headers)
+        request_headers_by_name = {key.lower(): (key, value) for key, value in request_headers.items()}
+        for key, value in (endpoint_headers or {}).items():
+            request_headers_by_name[key.lower()] = (key, value)
+        request_headers = dict(request_headers_by_name.values())
         request_kwargs: dict = {"content": body} if body else {}
 
         resp = await self._proxy_client.send(
