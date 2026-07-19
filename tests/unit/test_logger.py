@@ -1,8 +1,10 @@
 import io
 import logging
 import re
+import sys
 from datetime import datetime
 
+import httpx
 import pytest
 
 import rock.logger as logger_module
@@ -41,6 +43,93 @@ def test_environment_overrides_runtime_logging_config(monkeypatch, configured, e
     logger_module.configure_logging(exception_traceback_enabled=configured)
 
     assert logger_module.is_exception_traceback_enabled() is expected
+
+
+def _make_exception_record(exc: Exception) -> logging.LogRecord:
+    try:
+        raise exc
+    except Exception:
+        return logging.LogRecord(
+            name="rock.common.exception",
+            level=logging.ERROR,
+            pathname="/tmp/exception.py",
+            lineno=61,
+            msg="Error in http_proxy: %s",
+            args=(str(exc),),
+            exc_info=sys.exc_info(),
+        )
+
+
+@pytest.mark.parametrize("log_color_enable", [True, False])
+def test_formatter_includes_empty_exception_type_and_traceback_once(log_color_enable):
+    formatter = logger_module.TimezoneFormatter(log_color_enable=log_color_enable, tz_string="Asia/Shanghai")
+    record = _make_exception_record(httpx.PoolTimeout(""))
+
+    output = formatter.format(record)
+
+    assert output.count("[exception_type=httpx.PoolTimeout]") == 1
+    assert output.count("Traceback (most recent call last):") == 1
+    assert "Error in http_proxy: [exception_type=httpx.PoolTimeout]\nTraceback" in output
+    assert output.rstrip().endswith("httpx.PoolTimeout")
+
+
+def test_formatter_disabled_preserves_current_single_line_output():
+    logger_module.configure_logging(exception_traceback_enabled=False)
+    formatter = logger_module.TimezoneFormatter(log_color_enable=False, tz_string="Asia/Shanghai")
+    record = _make_exception_record(httpx.PoolTimeout(""))
+
+    output = formatter.format(record)
+
+    assert output.endswith("-- Error in http_proxy: ")
+    assert "exception_type=" not in output
+    assert "Traceback (most recent call last):" not in output
+
+
+def test_formatter_does_not_change_records_without_exc_info():
+    formatter = logger_module.TimezoneFormatter(log_color_enable=False, tz_string="Asia/Shanghai")
+    record = logging.LogRecord(
+        name="rock.test",
+        level=logging.ERROR,
+        pathname="/tmp/test.py",
+        lineno=10,
+        msg="ordinary error",
+        args=(),
+        exc_info=None,
+    )
+
+    logger_module.configure_logging(exception_traceback_enabled=True)
+    enabled_output = formatter.format(record)
+    logger_module.configure_logging(exception_traceback_enabled=False)
+    disabled_output = formatter.format(record)
+
+    assert enabled_output == disabled_output
+    assert enabled_output.endswith("-- ordinary error")
+
+
+def test_formatter_preserves_standard_exception_chain():
+    formatter = logger_module.TimezoneFormatter(log_color_enable=False, tz_string="Asia/Shanghai")
+    try:
+        try:
+            raise ValueError("inner")
+        except ValueError as exc:
+            raise RuntimeError("outer") from exc
+    except RuntimeError:
+        record = logging.LogRecord(
+            name="rock.common.exception",
+            level=logging.ERROR,
+            pathname="/tmp/exception.py",
+            lineno=61,
+            msg="chained failure",
+            args=(),
+            exc_info=sys.exc_info(),
+        )
+
+    output = formatter.format(record)
+
+    assert "[exception_type=builtins.RuntimeError]" in output
+    assert "ValueError: inner" in output
+    assert "The above exception was the direct cause" in output
+    assert output.rstrip().endswith("RuntimeError: outer")
 
 
 def test_init_logger_iso8601_format():

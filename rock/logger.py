@@ -59,10 +59,16 @@ class StandardFormatter(logging.Formatter):
         # Build header part
         header_str = f"{time_str} {level_str}:{file_str} [{logger_str}] [{sandbox_id}] [{trace_id}] --"
 
+        message = record.getMessage()
+        if is_exception_traceback_enabled() and record.exc_info and record.exc_info[0] is not None:
+            exception_class = record.exc_info[0]
+            exception_type = f"{exception_class.__module__}.{exception_class.__qualname__}"
+            message = f"{message.rstrip()} [exception_type={exception_type}]\n{self.formatException(record.exc_info)}"
+
         # Color the header part and keep message in default color
         if self.log_color_enable:
-            return f"{log_color}{header_str}{RESET} {record.getMessage()}"
-        return f"{header_str} {record.getMessage()}"
+            return f"{log_color}{header_str}{RESET} {message}"
+        return f"{header_str} {message}"
 
 
 class TimezoneFormatter(StandardFormatter):
