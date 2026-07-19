@@ -8,6 +8,19 @@ from zoneinfo import ZoneInfo
 from rock import env_vars
 from rock.utils import sandbox_id_ctx_var, trace_id_ctx_var
 
+_exception_traceback_enabled = True
+
+
+def configure_logging(*, exception_traceback_enabled: bool) -> None:
+    global _exception_traceback_enabled
+    _exception_traceback_enabled = exception_traceback_enabled
+
+
+def is_exception_traceback_enabled() -> bool:
+    if env_vars.is_set("ROCK_LOGGING_EXCEPTION_TRACEBACK_ENABLE"):
+        return env_vars.ROCK_LOGGING_EXCEPTION_TRACEBACK_ENABLE
+    return _exception_traceback_enabled
+
 
 # Define the formatter class at module level since it doesn't need configuration state
 class StandardFormatter(logging.Formatter):

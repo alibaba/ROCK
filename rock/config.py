@@ -55,6 +55,11 @@ class RedisConfig:
 
 
 @dataclass
+class LoggingConfig:
+    exception_traceback_enabled: bool = True
+
+
+@dataclass
 class SandboxLogConfig:
     """Policy for archiving stopped-sandbox log directories to OSS.
 
@@ -523,6 +528,7 @@ class RockConfig:
     warmup: WarmupConfig = field(default_factory=WarmupConfig)
     nacos: NacosConfig = field(default_factory=NacosConfig)
     redis: RedisConfig = field(default_factory=RedisConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
     sandbox_config: SandboxConfig = field(default_factory=SandboxConfig)
     oss: OssConfig = field(default_factory=OssConfig)
     lifecycle: SandboxLifecycleConfig = field(default_factory=SandboxLifecycleConfig)
@@ -584,6 +590,8 @@ class RockConfig:
             kwargs["nacos"] = NacosConfig(**config["nacos"])
         if "redis" in config:
             kwargs["redis"] = RedisConfig(**config["redis"])
+        if "logging" in config:
+            kwargs["logging"] = LoggingConfig(**config["logging"])
         if "sandbox_config" in config:
             kwargs["sandbox_config"] = SandboxConfig(**config["sandbox_config"])
         if "oss" in config:

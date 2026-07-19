@@ -3,10 +3,44 @@ import logging
 import re
 from datetime import datetime
 
+import pytest
+
+import rock.logger as logger_module
 from rock import env_vars
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.metrics.billing import log_billing_info
 from rock.logger import init_logger
+
+
+@pytest.fixture(autouse=True)
+def reset_exception_traceback_config(monkeypatch):
+    monkeypatch.delenv("ROCK_LOGGING_EXCEPTION_TRACEBACK_ENABLE", raising=False)
+    logger_module.configure_logging(exception_traceback_enabled=True)
+    yield
+    logger_module.configure_logging(exception_traceback_enabled=True)
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_runtime_logging_config_used_when_environment_is_unset(enabled):
+    logger_module.configure_logging(exception_traceback_enabled=enabled)
+
+    assert logger_module.is_exception_traceback_enabled() is enabled
+
+
+@pytest.mark.parametrize(
+    ("configured", "environment_value", "expected"),
+    [
+        (False, "true", True),
+        (True, "false", False),
+        (False, "TRUE", True),
+        (True, "FALSE", False),
+    ],
+)
+def test_environment_overrides_runtime_logging_config(monkeypatch, configured, environment_value, expected):
+    monkeypatch.setenv("ROCK_LOGGING_EXCEPTION_TRACEBACK_ENABLE", environment_value)
+    logger_module.configure_logging(exception_traceback_enabled=configured)
+
+    assert logger_module.is_exception_traceback_enabled() is expected
 
 
 def test_init_logger_iso8601_format():
