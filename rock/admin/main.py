@@ -43,7 +43,7 @@ from rock.admin.scheduler.tasks.sandbox_log_archive_task import (
 from rock.admin.service.ops_service import OpsService
 from rock.common.exception import request_validation_exception_handler
 from rock.config import DatabaseConfig, RockConfig, SchedulerConfig
-from rock.logger import init_logger, reset_log_file
+from rock.logger import configure_logging, init_logger, reset_log_file
 from rock.sandbox.gem_manager import GemManager
 from rock.sandbox.operator.factory import OperatorContext, OperatorFactory, operator_requires_ray
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
@@ -69,6 +69,10 @@ logger = init_logger("admin")
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 _SCHEDULER_METRICS_EXPORT_INTERVAL_MILLIS = 1_800_000
+
+
+def _apply_logging_config(rock_config: RockConfig) -> None:
+    configure_logging(exception_traceback_enabled=rock_config.logging.exception_traceback_enabled)
 
 
 def _init_scheduler_metrics(rock_config: RockConfig) -> tuple[MetricsMonitor, SchedulerMetrics]:
@@ -114,6 +118,7 @@ async def lifespan(app: FastAPI):
         else env_vars.ROCK_CONFIG
     )
     rock_config = RockConfig.from_env(config_file_path)
+    _apply_logging_config(rock_config)
 
     # Override config from Nacos if available (sandbox_config, proxy_service, lifecycle via update(); scheduler separately)
     if rock_config.nacos_provider:

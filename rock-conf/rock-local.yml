@@ -1,3 +1,6 @@
+logging:
+  exception_traceback_enabled: true
+
 ray:
     runtime_env:
         working_dir: ./
