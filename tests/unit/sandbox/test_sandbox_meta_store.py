@@ -11,6 +11,7 @@ from rock.actions.sandbox.response import State
 from rock.admin.core.db_provider import DatabaseProvider
 from rock.admin.core.redis_key import ALIVE_PREFIX, alive_sandbox_key, timeout_sandbox_key
 from rock.admin.core.sandbox_table import SandboxTable
+from rock.admin.core.schema import SandboxRecord
 from rock.config import DatabaseConfig
 from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
@@ -96,8 +97,27 @@ class TestSave:
         assert result is not None
         assert result[0]["auto_clear_time"] == "30"
 
-    async def test_db_get_restores_auto_seconds_from_spec(self, db):
-        """Old status snapshots may miss auto_*_seconds; recover them from spec."""
+    async def test_create_filters_db_only_fields_from_redis_and_db_status(self, repo, redis, db):
+        config = DockerDeploymentConfig(container_name=SANDBOX_ID, auto_delete_seconds=1200)
+        info = {
+            **SANDBOX_INFO,
+            "spec": {"auto_delete_seconds": 600},
+            "status": {"state": "stale"},
+        }
+
+        await repo.create(SANDBOX_ID, info, deployment_config=config)
+
+        redis_result = await redis.json_get(alive_sandbox_key(SANDBOX_ID), "$")
+        assert "spec" not in redis_result[0]
+        assert "status" not in redis_result[0]
+        with db._db.session_factory() as session:
+            record = session.get(SandboxRecord, SANDBOX_ID)
+            assert record.spec["auto_delete_seconds"] == 1200
+            assert "spec" not in record.status
+            assert "status" not in record.status
+
+    async def test_db_get_keeps_requested_auto_seconds_in_spec(self, db):
+        """Requested values stay in spec when the status snapshot omits them."""
         config = DockerDeploymentConfig(
             container_name=SANDBOX_ID,
             auto_archive_seconds=600,
@@ -107,8 +127,10 @@ class TestSave:
 
         db_record = await db.get(SANDBOX_ID)
 
-        assert db_record["auto_archive_seconds"] == 600
-        assert db_record["auto_delete_seconds"] == 1200
+        assert "auto_archive_seconds" not in db_record
+        assert "auto_delete_seconds" not in db_record
+        assert db_record["spec"]["auto_archive_seconds"] == 600
+        assert db_record["spec"]["auto_delete_seconds"] == 1200
 
 
 class TestUpdate:
@@ -182,6 +204,23 @@ class TestArchive:
         assert db_record["state"] == "stopped"
         assert db_record["stop_time"] == "2025-06-01T00:00:00Z"
         assert db_record["user_id"] == "user-1"  # original fields preserved
+
+    async def test_archive_filters_db_only_fields_from_db_fallback_info(self, repo, redis, db):
+        config = DockerDeploymentConfig(container_name=SANDBOX_ID, auto_archive_seconds=600)
+        await repo.create(SANDBOX_ID, SANDBOX_INFO, deployment_config=config)
+        await redis.json_delete(alive_sandbox_key(SANDBOX_ID))
+        db_fallback_info = await db.get(SANDBOX_ID)
+        assert "spec" in db_fallback_info
+
+        db_fallback_info["state"] = "archiving"
+        await repo.archive(SANDBOX_ID, db_fallback_info)
+
+        with db._db.session_factory() as session:
+            record = session.get(SandboxRecord, SANDBOX_ID)
+            assert record.spec["auto_archive_seconds"] == 600
+            assert record.status["state"] == "archiving"
+            assert "spec" not in record.status
+            assert "status" not in record.status
 
     async def test_archive_db_written_before_redis_deleted(self, repo, redis, db):
         """DB must be durably updated before the Redis alive key is evicted."""

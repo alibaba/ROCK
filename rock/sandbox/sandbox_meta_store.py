@@ -73,16 +73,16 @@ class SandboxMetaStore:
             ``DockerDeploymentConfig`` snapshot written once to the ``spec`` DB column.
             Redis does not store this.
 
-        The Redis payload is filtered to keys declared in ``SandboxInfo`` so any
-        DB-only fields the caller may carry (e.g. ``spec`` / ``status`` from a
-        prior DB-fallback read) cannot leak into the alive key.
+        The shared status payload is filtered to keys declared in ``SandboxInfo``
+        so DB-only fields the caller may carry (e.g. ``spec`` / ``status`` from
+        a prior DB-fallback read) cannot leak into either Redis or DB ``status``.
         """
         redis_payload = pick_sandbox_info_fields(sandbox_info)
         await self._redis.json_set(alive_sandbox_key(sandbox_id), "$", redis_payload)
         if timeout_info is not None:
             await self._redis.json_set(timeout_sandbox_key(sandbox_id), "$", timeout_info)
 
-        await self._db.create(sandbox_id, sandbox_info, deployment_config)
+        await self._db.create(sandbox_id, redis_payload, deployment_config)
 
     @monitor_metastore_operation
     async def update(self, sandbox_id: str, sandbox_info: SandboxInfo) -> None:
@@ -113,14 +113,15 @@ class SandboxMetaStore:
         """Snapshot Redis state to DB, then evict Redis keys.
 
         Reads the current alive-key from Redis, merges *final_info* on top
-        (e.g. ``stop_time``, ``state``), persists the result to the DB, and
-        then deletes the Redis alive + timeout keys.
+        (e.g. ``stop_time``, ``state``), filters the snapshot to ``SandboxInfo``
+        fields, persists it to the DB, and then deletes the Redis alive +
+        timeout keys.
 
         The DB write is awaited before the Redis keys are deleted so that
         the snapshot is always durably stored before the cache disappears.
         """
         current = await self._redis.json_get(alive_sandbox_key(sandbox_id), "$")
-        merged: dict[str, Any] = {**(current[0] if current else {}), **(final_info or {})}
+        merged = pick_sandbox_info_fields({**(current[0] if current else {}), **(final_info or {})})
         if merged:
             await self._db.update(sandbox_id, merged)
 
