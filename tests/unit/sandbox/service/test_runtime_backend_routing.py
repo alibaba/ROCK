@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from rock.actions import CommandResponse
+from rock.actions import CommandResponse, CreateBashSessionResponse
 from rock.actions.sandbox.response import State
 from rock.admin.proto.request import SandboxCommand, SandboxCreateBashSessionRequest
 from rock.sandbox.service.opensandbox_proxy_service import OPENSANDBOX_BACKEND, OpenSandboxProxyService
@@ -122,14 +122,15 @@ async def test_opensandbox_is_alive_uses_backend_state(opensandbox_proxy_service
 
 
 @pytest.mark.asyncio
-async def test_opensandbox_session_is_rejected(opensandbox_proxy_service):
+async def test_opensandbox_session_routes_to_backend(opensandbox_proxy_service):
     service, backend = opensandbox_proxy_service
     service._meta_store.get = AsyncMock(return_value=_info(backend=OPENSANDBOX_BACKEND, opensandbox_id="osb-1"))
+    backend.create_session.return_value = ("os-session-1", CreateBashSessionResponse(output="ready"))
 
-    with pytest.raises(BadRequestRockError, match="does not support sessions"):
-        await service.create_session(SandboxCreateBashSessionRequest(session="test", sandbox_id="sbx-1"))
+    response = await service.create_session(SandboxCreateBashSessionRequest(session="test", sandbox_id="sbx-1"))
 
-    backend.execute.assert_not_awaited()
+    assert response.output == "ready"
+    backend.create_session.assert_awaited_once()
 
 
 @pytest.mark.asyncio

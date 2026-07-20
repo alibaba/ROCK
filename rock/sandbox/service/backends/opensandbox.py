@@ -1,12 +1,27 @@
+import re
 import shlex
 from io import IOBase
 from pathlib import Path
 
 from fastapi import UploadFile
 
-from rock.actions import CommandResponse, ReadFileResponse, UploadResponse, WriteFileResponse
+from rock.actions import (
+    BashObservation,
+    CloseBashSessionResponse,
+    CommandResponse,
+    CreateBashSessionResponse,
+    ReadFileResponse,
+    UploadResponse,
+    WriteFileResponse,
+)
 from rock.actions.sandbox.response import State
-from rock.admin.proto.request import SandboxCommand, SandboxReadFileRequest, SandboxWriteFileRequest
+from rock.admin.proto.request import (
+    SandboxBashAction,
+    SandboxCommand,
+    SandboxCreateBashSessionRequest,
+    SandboxReadFileRequest,
+    SandboxWriteFileRequest,
+)
 from rock.logger import init_logger
 from rock.rocklet.exceptions import CommandTimeoutError, NonZeroExitCodeError
 from rock.sandbox.operator.opensandbox.client import OpenSandboxClient
@@ -73,6 +88,110 @@ class OpenSandboxBackend:
                 message = f"{command.error_msg}: {message}"
             raise NonZeroExitCodeError(message)
         return response
+
+    @staticmethod
+    def _execution_output(execution) -> tuple[str, str]:
+        stdout = "".join(message.text for message in execution.logs.stdout)
+        stderr = "".join(message.text for message in execution.logs.stderr)
+        if execution.error:
+            stderr = f"{stderr}\n{execution.error}" if stderr else str(execution.error)
+        return stdout, stderr
+
+    async def create_session(
+        self,
+        sandbox_id: str,
+        info: dict,
+        request: SandboxCreateBashSessionRequest,
+    ) -> tuple[str, CreateBashSessionResponse]:
+        opensandbox_id = self._opensandbox_id(info)
+        if request.remote_user is not None:
+            execution = await self._client.execute(opensandbox_id, "id -un")
+            stdout, stderr = self._execution_output(execution)
+            effective_user = stdout.strip()
+            if execution.exit_code != 0 or not effective_user:
+                detail = stderr.strip() or f"exit code {execution.exit_code}"
+                raise BadRequestRockError(f"Cannot determine OpenSandbox effective user: {detail}")
+            if request.remote_user != effective_user:
+                raise BadRequestRockError(
+                    f"OpenSandbox does not support remote_user={request.remote_user}; "
+                    f"the sandbox effective user is {effective_user}"
+                )
+
+        # Execd sessions inherit the sandbox/container environment. `env_enable`
+        # must not copy the Admin process environment across the trust boundary.
+        init_commands = []
+        for key, value in (request.env or {}).items():
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) is None:
+                raise BadRequestRockError(f"Invalid environment variable name: {key!r}")
+            init_commands.append(f"export {key}={shlex.quote(value)}")
+        init_commands.extend(f"source {shlex.quote(path)}" for path in request.startup_source)
+
+        session_id = await self._client.create_session(opensandbox_id)
+        if not init_commands:
+            return session_id, CreateBashSessionResponse()
+
+        try:
+            execution = await self._client.run_in_session(
+                opensandbox_id,
+                session_id,
+                " && ".join(init_commands),
+                timeout=request.startup_timeout,
+            )
+            stdout, stderr = self._execution_output(execution)
+            if execution.error and "timeout" in execution.error.name.lower():
+                raise CommandTimeoutError(
+                    f"Timeout ({request.startup_timeout}s) exceeded while initializing OpenSandbox session"
+                )
+            if execution.exit_code != 0:
+                raise NonZeroExitCodeError(
+                    f"Failed to initialize OpenSandbox session with exit code {execution.exit_code}: "
+                    f"{(stderr or stdout)!r}"
+                )
+            return session_id, CreateBashSessionResponse(output=stdout + stderr)
+        except Exception:
+            try:
+                await self._client.delete_session(opensandbox_id, session_id)
+            except Exception as cleanup_error:
+                logger.warning(
+                    "[%s] failed to clean up OpenSandbox session after initialization: %s", sandbox_id, cleanup_error
+                )
+            raise
+
+    async def run_session(
+        self,
+        sandbox_id: str,
+        info: dict,
+        session_id: str,
+        action: SandboxBashAction,
+    ) -> BashObservation:
+        if action.is_interactive_command or action.is_interactive_quit or action.expect:
+            raise BadRequestRockError("OpenSandbox sessions do not support interactive commands")
+        execution = await self._client.run_in_session(
+            self._opensandbox_id(info),
+            session_id,
+            action.command,
+            timeout=action.timeout,
+        )
+        stdout, stderr = self._execution_output(execution)
+        if execution.error and "timeout" in execution.error.name.lower():
+            raise CommandTimeoutError(f"Timeout ({action.timeout}s) exceeded while running session command")
+        if action.check == "raise" and execution.exit_code != 0:
+            message = (
+                f"Command {action.command!r} failed with exit code {execution.exit_code}. "
+                f"Here is the output:\n{(stdout + stderr)!r}"
+            )
+            if action.error_msg:
+                message = f"{action.error_msg}: {message}"
+            raise NonZeroExitCodeError(message)
+        return BashObservation(
+            output=stdout + stderr,
+            exit_code=None if action.check == "ignore" else execution.exit_code,
+        )
+
+    async def close_session(self, sandbox_id: str, info: dict, session_id: str) -> CloseBashSessionResponse:
+        del sandbox_id
+        await self._client.delete_session(self._opensandbox_id(info), session_id)
+        return CloseBashSessionResponse()
 
     async def get_state(self, info: dict) -> State:
         remote_state = await self._client.get_state(self._opensandbox_id(info))

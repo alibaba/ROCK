@@ -26,14 +26,18 @@ from rock.admin.proto.response import SandboxStatusResponse
 from rock.common.port_validation import validate_port_forward_port
 from rock.config import RockConfig
 from rock.deployments.constants import Port
+from rock.logger import init_logger
+from rock.rocklet.exceptions import SessionDoesNotExistError, SessionExistsError
 from rock.sandbox import __version__ as gateway_version
 from rock.sandbox.operator.opensandbox.client import OpenSandboxClient
+from rock.sandbox.operator.opensandbox.session_registry import OpenSandboxSessionRegistry
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.service.backends.opensandbox import OpenSandboxBackend
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sdk.common.exceptions import BadRequestRockError
 
 OPENSANDBOX_BACKEND = "opensandbox"
+logger = init_logger(__name__)
 
 
 class OpenSandboxProxyService(SandboxProxyService):
@@ -44,9 +48,11 @@ class OpenSandboxProxyService(SandboxProxyService):
         rock_config: RockConfig,
         meta_store: SandboxMetaStore,
         backend: OpenSandboxBackend | None = None,
+        session_registry: OpenSandboxSessionRegistry | None = None,
     ):
         super().__init__(rock_config=rock_config, meta_store=meta_store)
         self._opensandbox_backend = backend or OpenSandboxBackend(OpenSandboxClient(rock_config.opensandbox))
+        self._session_registry = session_registry or OpenSandboxSessionRegistry(meta_store.redis_provider)
         self._opensandbox_protocol = rock_config.opensandbox.protocol
 
     async def aclose(self) -> None:
@@ -76,15 +82,60 @@ class OpenSandboxProxyService(SandboxProxyService):
 
     @monitor_sandbox_operation()
     async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
-        await self._unsupported(request.sandbox_id, "sessions")
+        await self._update_expire_time(request.sandbox_id)
+        info = await self._get_runtime_info(request.sandbox_id)
+        reservation = await self._session_registry.reserve(request.sandbox_id, request.session)
+        if reservation is None:
+            raise SessionExistsError(f"session {request.session!r} already exists")
+        session_id = None
+        try:
+            session_id, response = await self._opensandbox_backend.create_session(request.sandbox_id, info, request)
+            committed = await self._session_registry.commit(
+                request.sandbox_id,
+                request.session,
+                reservation,
+                session_id,
+            )
+            if not committed:
+                raise RuntimeError("OpenSandbox session reservation expired before commit")
+            return response
+        except Exception:
+            if session_id is not None:
+                try:
+                    await self._opensandbox_backend.close_session(request.sandbox_id, info, session_id)
+                except Exception as cleanup_error:
+                    logger.warning(
+                        "[%s] failed to clean up unregistered OpenSandbox session: %s",
+                        request.sandbox_id,
+                        cleanup_error,
+                    )
+            try:
+                await self._session_registry.rollback(request.sandbox_id, request.session, reservation)
+            except Exception as cleanup_error:
+                logger.warning(
+                    "[%s] failed to roll back OpenSandbox session reservation: %s", request.sandbox_id, cleanup_error
+                )
+            raise
 
     @monitor_sandbox_operation()
     async def run_in_session(self, action: BashAction) -> BashObservation:
-        await self._unsupported(action.sandbox_id, "sessions")
+        await self._update_expire_time(action.sandbox_id)
+        info = await self._get_runtime_info(action.sandbox_id)
+        session_id = await self._session_registry.get(action.sandbox_id, action.session)
+        if session_id is None:
+            raise SessionDoesNotExistError(f"session {action.session!r} does not exist")
+        return await self._opensandbox_backend.run_session(action.sandbox_id, info, session_id, action)
 
     @monitor_sandbox_operation()
     async def close_session(self, request: CloseBashSessionRequest) -> CloseBashSessionResponse:
-        await self._unsupported(request.sandbox_id, "sessions")
+        await self._update_expire_time(request.sandbox_id)
+        info = await self._get_runtime_info(request.sandbox_id)
+        session_id = await self._session_registry.get(request.sandbox_id, request.session)
+        if session_id is None:
+            raise SessionDoesNotExistError(f"session {request.session!r} does not exist")
+        response = await self._opensandbox_backend.close_session(request.sandbox_id, info, session_id)
+        await self._session_registry.remove(request.sandbox_id, request.session, session_id)
+        return response
 
     @monitor_sandbox_operation()
     async def is_alive(self, sandbox_id: str) -> IsAliveResponse:

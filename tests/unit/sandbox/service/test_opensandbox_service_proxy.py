@@ -5,6 +5,12 @@ import pytest
 from starlette.datastructures import Headers
 
 from rock.actions.sandbox.response import State
+from rock.admin.proto.request import (
+    SandboxBashAction,
+    SandboxCloseBashSessionRequest,
+    SandboxCreateBashSessionRequest,
+)
+from rock.rocklet.exceptions import SessionDoesNotExistError, SessionExistsError
 from rock.sandbox.service.opensandbox_proxy_service import OPENSANDBOX_BACKEND, OpenSandboxProxyService
 from rock.sdk.common.exceptions import BadRequestRockError
 
@@ -20,12 +26,128 @@ def _info():
 @pytest.fixture
 def service():
     backend = AsyncMock()
+    registry = AsyncMock()
+    registry.reserve.return_value = "reservation-1"
+    registry.commit.return_value = True
     result = OpenSandboxProxyService.__new__(OpenSandboxProxyService)
     result._opensandbox_backend = backend
+    result._session_registry = registry
     result._opensandbox_protocol = "https"
     result._meta_store = SimpleNamespace(get=AsyncMock(return_value=_info()), update=AsyncMock())
     result._update_expire_time = AsyncMock()
     return result, backend
+
+
+@pytest.mark.asyncio
+async def test_create_session_reserves_and_commits_mapping(service):
+    proxy, backend = service
+    backend.create_session.return_value = ("os-session-1", SimpleNamespace(output="ready", session_type="bash"))
+    request = SandboxCreateBashSessionRequest(session="worker", sandbox_id="sbx-1")
+
+    response = await proxy.create_session(request)
+
+    assert response.output == "ready"
+    proxy._session_registry.reserve.assert_awaited_once_with("sbx-1", "worker")
+    backend.create_session.assert_awaited_once_with("sbx-1", _info(), request)
+    proxy._session_registry.commit.assert_awaited_once_with("sbx-1", "worker", "reservation-1", "os-session-1")
+
+
+@pytest.mark.asyncio
+async def test_create_session_rejects_duplicate_before_backend_call(service):
+    proxy, backend = service
+    proxy._session_registry.reserve.return_value = None
+
+    with pytest.raises(SessionExistsError, match="worker"):
+        await proxy.create_session(SandboxCreateBashSessionRequest(session="worker", sandbox_id="sbx-1"))
+
+    backend.create_session.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_session_releases_reservation_when_backend_fails(service):
+    proxy, backend = service
+    backend.create_session.side_effect = RuntimeError("create failed")
+
+    with pytest.raises(RuntimeError, match="create failed"):
+        await proxy.create_session(SandboxCreateBashSessionRequest(session="worker", sandbox_id="sbx-1"))
+
+    proxy._session_registry.rollback.assert_awaited_once_with("sbx-1", "worker", "reservation-1")
+
+
+@pytest.mark.asyncio
+async def test_create_session_preserves_commit_error_when_cleanup_also_fails(service):
+    proxy, backend = service
+    backend.create_session.return_value = ("os-session-1", SimpleNamespace(output="", session_type="bash"))
+    proxy._session_registry.commit.side_effect = RuntimeError("commit failed")
+    backend.close_session.side_effect = RuntimeError("cleanup failed")
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        await proxy.create_session(SandboxCreateBashSessionRequest(session="worker", sandbox_id="sbx-1"))
+
+    proxy._session_registry.rollback.assert_awaited_once_with("sbx-1", "worker", "reservation-1")
+
+
+@pytest.mark.asyncio
+async def test_create_session_closes_remote_session_when_reservation_expires(service):
+    proxy, backend = service
+    backend.create_session.return_value = ("os-session-1", SimpleNamespace(output="", session_type="bash"))
+    proxy._session_registry.commit.return_value = False
+
+    with pytest.raises(RuntimeError, match="reservation expired"):
+        await proxy.create_session(SandboxCreateBashSessionRequest(session="worker", sandbox_id="sbx-1"))
+
+    backend.close_session.assert_awaited_once_with("sbx-1", _info(), "os-session-1")
+    proxy._session_registry.rollback.assert_awaited_once_with("sbx-1", "worker", "reservation-1")
+
+
+@pytest.mark.asyncio
+async def test_run_session_resolves_persisted_mapping(service):
+    proxy, backend = service
+    proxy._session_registry.get.return_value = "os-session-1"
+    backend.run_session.return_value = SimpleNamespace(output="ok", exit_code=0)
+    action = SandboxBashAction(command="pwd", session="worker", sandbox_id="sbx-1")
+
+    response = await proxy.run_in_session(action)
+
+    assert response.output == "ok"
+    backend.run_session.assert_awaited_once_with("sbx-1", _info(), "os-session-1", action)
+
+
+@pytest.mark.asyncio
+async def test_run_session_preserves_missing_session_error(service):
+    proxy, backend = service
+    proxy._session_registry.get.return_value = None
+
+    with pytest.raises(SessionDoesNotExistError, match="worker"):
+        await proxy.run_in_session(SandboxBashAction(command="pwd", session="worker", sandbox_id="sbx-1"))
+
+    backend.run_session.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_close_session_releases_mapping_only_after_remote_delete(service):
+    proxy, backend = service
+    proxy._session_registry.get.return_value = "os-session-1"
+    backend.close_session.return_value = SimpleNamespace(session_type="bash")
+    request = SandboxCloseBashSessionRequest(session="worker", sandbox_id="sbx-1")
+
+    response = await proxy.close_session(request)
+
+    assert response.session_type == "bash"
+    backend.close_session.assert_awaited_once_with("sbx-1", _info(), "os-session-1")
+    proxy._session_registry.remove.assert_awaited_once_with("sbx-1", "worker", "os-session-1")
+
+
+@pytest.mark.asyncio
+async def test_close_session_keeps_mapping_when_remote_delete_fails(service):
+    proxy, backend = service
+    proxy._session_registry.get.return_value = "os-session-1"
+    backend.close_session.side_effect = RuntimeError("delete failed")
+
+    with pytest.raises(RuntimeError, match="delete failed"):
+        await proxy.close_session(SandboxCloseBashSessionRequest(session="worker", sandbox_id="sbx-1"))
+
+    proxy._session_registry.remove.assert_not_awaited()
 
 
 class FakeHTTPResponse:

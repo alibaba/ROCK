@@ -6,7 +6,13 @@ import pytest
 from fastapi import UploadFile
 
 from rock.actions.sandbox.response import State
-from rock.admin.proto.request import SandboxCommand, SandboxReadFileRequest, SandboxWriteFileRequest
+from rock.admin.proto.request import (
+    SandboxBashAction,
+    SandboxCommand,
+    SandboxCreateBashSessionRequest,
+    SandboxReadFileRequest,
+    SandboxWriteFileRequest,
+)
 from rock.rocklet.exceptions import CommandTimeoutError, NonZeroExitCodeError
 from rock.sandbox.service.backends.opensandbox import OpenSandboxBackend
 from rock.sdk.common.exceptions import BadRequestRockError
@@ -258,6 +264,204 @@ async def test_get_state_maps_opensandbox_lifecycle(client, remote_state, expect
     backend = OpenSandboxBackend(client)
 
     assert await backend.get_state(_info()) == expected
+
+
+@pytest.mark.asyncio
+async def test_create_session_uses_container_user_and_does_not_copy_admin_env(client):
+    client.create_session.return_value = "session-1"
+    backend = OpenSandboxBackend(client)
+
+    session_id, response = await backend.create_session(
+        "sbx-1",
+        _info(),
+        SandboxCreateBashSessionRequest(session="default", env_enable=True, sandbox_id="sbx-1"),
+    )
+
+    assert session_id == "session-1"
+    assert response.output == ""
+    client.create_session.assert_awaited_once_with("osb-1")
+    client.execute.assert_not_awaited()
+    client.run_in_session.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_session_initializes_explicit_env_and_startup_sources(client):
+    client.create_session.return_value = "session-1"
+    client.run_in_session.return_value = _execution(stdout="ready\n")
+    backend = OpenSandboxBackend(client)
+
+    _, response = await backend.create_session(
+        "sbx-1",
+        _info(),
+        SandboxCreateBashSessionRequest(
+            session="default",
+            env={"GREETING": "hello world"},
+            startup_source=["/work/profile with spaces.sh"],
+            startup_timeout=3,
+            sandbox_id="sbx-1",
+        ),
+    )
+
+    assert response.output == "ready\n"
+    assert client.run_in_session.await_args.args == (
+        "osb-1",
+        "session-1",
+        "export GREETING='hello world' && source '/work/profile with spaces.sh'",
+    )
+    assert client.run_in_session.await_args.kwargs == {"timeout": 3.0}
+
+
+@pytest.mark.asyncio
+async def test_create_session_allows_explicit_effective_user(client):
+    client.execute.return_value = _execution(stdout="sandbox\n")
+    client.create_session.return_value = "session-1"
+    backend = OpenSandboxBackend(client)
+
+    await backend.create_session(
+        "sbx-1",
+        _info(),
+        SandboxCreateBashSessionRequest(session="default", remote_user="sandbox", sandbox_id="sbx-1"),
+    )
+
+    client.execute.assert_awaited_once_with("osb-1", "id -un")
+    client.create_session.assert_awaited_once_with("osb-1")
+
+
+@pytest.mark.asyncio
+async def test_create_session_rejects_different_remote_user_before_creation(client):
+    client.execute.return_value = _execution(stdout="sandbox\n")
+    backend = OpenSandboxBackend(client)
+
+    with pytest.raises(BadRequestRockError, match="remote_user=root.*effective user is sandbox"):
+        await backend.create_session(
+            "sbx-1",
+            _info(),
+            SandboxCreateBashSessionRequest(session="default", remote_user="root", sandbox_id="sbx-1"),
+        )
+
+    client.create_session.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_session_deletes_remote_session_when_initialization_fails(client):
+    client.create_session.return_value = "session-1"
+    client.run_in_session.return_value = _execution(stderr="missing", exit_code=1)
+    backend = OpenSandboxBackend(client)
+
+    with pytest.raises(NonZeroExitCodeError, match="initialize"):
+        await backend.create_session(
+            "sbx-1",
+            _info(),
+            SandboxCreateBashSessionRequest(
+                session="default",
+                startup_source=["/missing"],
+                sandbox_id="sbx-1",
+            ),
+        )
+
+    client.delete_session.assert_awaited_once_with("osb-1", "session-1")
+
+
+@pytest.mark.asyncio
+async def test_create_session_maps_initialization_timeout_and_cleans_up(client):
+    client.create_session.return_value = "session-1"
+    client.run_in_session.return_value = _execution(
+        exit_code=None,
+        error=SimpleNamespace(name="TimeoutError", value="deadline exceeded"),
+    )
+    backend = OpenSandboxBackend(client)
+
+    with pytest.raises(CommandTimeoutError, match=r"Timeout \(3.0s\)"):
+        await backend.create_session(
+            "sbx-1",
+            _info(),
+            SandboxCreateBashSessionRequest(
+                session="default",
+                startup_source=["/slow"],
+                startup_timeout=3,
+                sandbox_id="sbx-1",
+            ),
+        )
+
+    client.delete_session.assert_awaited_once_with("osb-1", "session-1")
+
+
+@pytest.mark.asyncio
+async def test_run_session_maps_output_and_check_policy(client):
+    client.run_in_session.return_value = _execution(stdout="out", stderr="err", exit_code=2)
+    backend = OpenSandboxBackend(client)
+    action = SandboxBashAction(command="false", session="default", check="silent", sandbox_id="sbx-1")
+
+    response = await backend.run_session("sbx-1", _info(), "session-1", action)
+
+    assert response.output == "outerr"
+    assert response.exit_code == 2
+    assert response.failure_reason == ""
+    client.run_in_session.assert_awaited_once_with("osb-1", "session-1", "false", timeout=None)
+
+
+@pytest.mark.asyncio
+async def test_run_session_check_raise_uses_existing_error(client):
+    client.run_in_session.return_value = _execution(stderr="failed", exit_code=2)
+    backend = OpenSandboxBackend(client)
+
+    with pytest.raises(NonZeroExitCodeError, match="prefix"):
+        await backend.run_session(
+            "sbx-1",
+            _info(),
+            "session-1",
+            SandboxBashAction(
+                command="false",
+                session="default",
+                check="raise",
+                error_msg="prefix",
+                sandbox_id="sbx-1",
+            ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_run_session_check_ignore_omits_exit_code(client):
+    client.run_in_session.return_value = _execution(stderr="failed", exit_code=2)
+    backend = OpenSandboxBackend(client)
+
+    response = await backend.run_session(
+        "sbx-1",
+        _info(),
+        "session-1",
+        SandboxBashAction(command="false", session="default", check="ignore", sandbox_id="sbx-1"),
+    )
+
+    assert response.exit_code is None
+    assert response.output == "failed"
+
+
+@pytest.mark.asyncio
+async def test_run_session_rejects_interactive_mode(client):
+    backend = OpenSandboxBackend(client)
+
+    with pytest.raises(BadRequestRockError, match="interactive"):
+        await backend.run_session(
+            "sbx-1",
+            _info(),
+            "session-1",
+            SandboxBashAction(
+                command="python",
+                session="default",
+                is_interactive_command=True,
+                sandbox_id="sbx-1",
+            ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_close_session_deletes_remote_session(client):
+    backend = OpenSandboxBackend(client)
+
+    response = await backend.close_session("sbx-1", _info(), "session-1")
+
+    assert response.session_type == "bash"
+    client.delete_session.assert_awaited_once_with("osb-1", "session-1")
 
 
 @pytest.mark.asyncio

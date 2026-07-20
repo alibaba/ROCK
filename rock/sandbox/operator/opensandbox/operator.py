@@ -22,6 +22,7 @@ from rock.deployments.config import DockerDeploymentConfig
 from rock.logger import init_logger
 from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.operator.opensandbox.client import OpenSandboxClient
+from rock.sandbox.operator.opensandbox.session_registry import OpenSandboxSessionRegistry
 from rock.sdk.common.exceptions import BadRequestRockError
 
 logger = init_logger(__name__)
@@ -171,4 +172,11 @@ class OpenSandboxOperator(AbstractOperator):
             raise BadRequestRockError(f"cannot resolve opensandbox_id for sandbox {sandbox_id}")
         logger.info("[%s] opensandbox delete -> kill", sandbox_id)
         await self._client.kill(opensandbox_id)
+        if self._redis_provider is not None:
+            try:
+                await OpenSandboxSessionRegistry(self._redis_provider).clear(sandbox_id)
+            except Exception as error:
+                # The remote sandbox is already irreversibly deleted. Do not turn
+                # best-effort local metadata cleanup into a false delete failure.
+                logger.warning("[%s] failed to clear OpenSandbox session mappings: %s", sandbox_id, error)
         return True

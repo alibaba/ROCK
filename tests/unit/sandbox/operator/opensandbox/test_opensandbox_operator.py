@@ -13,6 +13,7 @@ from rock.sandbox.operator.opensandbox.operator import (
     _docker_mem_to_k8s,
     _map_state,
 )
+from rock.sandbox.operator.opensandbox.session_registry import OpenSandboxSessionRegistry
 from rock.sdk.common.exceptions import BadRequestRockError
 
 
@@ -216,3 +217,29 @@ async def test_delete_kills(operator, client):
     ok = await operator.delete(config)
     assert ok is True
     assert ("kill", "osb-1") in client.calls
+
+
+@pytest.mark.asyncio
+async def test_delete_clears_persisted_session_mappings(os_config, client, redis_provider):
+    registry = OpenSandboxSessionRegistry(redis_provider)
+    reservation = await registry.reserve("sbx-1", "worker")
+    assert reservation is not None
+    assert await registry.commit("sbx-1", "worker", reservation, "os-session-1") is True
+    operator = OpenSandboxOperator(os_config=os_config, redis_provider=redis_provider, client=client)
+
+    await operator.delete(_deployment_config(sandbox_id="sbx-1", extended_params={"opensandbox_id": "osb-1"}))
+
+    assert await registry.get("sbx-1", "worker") is None
+
+
+@pytest.mark.asyncio
+async def test_delete_succeeds_when_session_mapping_cleanup_fails(os_config, client, redis_provider, monkeypatch):
+    clear = AsyncMock(side_effect=RuntimeError("redis unavailable"))
+    monkeypatch.setattr(OpenSandboxSessionRegistry, "clear", clear)
+    operator = OpenSandboxOperator(os_config=os_config, redis_provider=redis_provider, client=client)
+
+    ok = await operator.delete(_deployment_config(sandbox_id="sbx-1", extended_params={"opensandbox_id": "osb-1"}))
+
+    assert ok is True
+    assert ("kill", "osb-1") in client.calls
+    clear.assert_awaited_once_with("sbx-1")

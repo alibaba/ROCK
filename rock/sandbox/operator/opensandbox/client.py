@@ -192,6 +192,31 @@ class OpenSandboxClient:
         async with self._runtime_handle(opensandbox_id, "execute") as handle:
             return await handle.commands.run(command, opts=opts)
 
+    async def create_session(self, opensandbox_id: str, *, cwd: str | None = None) -> str:
+        async with self._runtime_handle(opensandbox_id, "create_session") as handle:
+            return await handle.commands.create_session(working_directory=cwd)
+
+    async def run_in_session(
+        self,
+        opensandbox_id: str,
+        session_id: str,
+        command: str,
+        *,
+        timeout: float | None = None,
+        cwd: str | None = None,
+    ):
+        async with self._runtime_handle(opensandbox_id, "run_in_session") as handle:
+            return await handle.commands.run_in_session(
+                session_id,
+                command,
+                timeout=timedelta(seconds=timeout) if timeout is not None else None,
+                working_directory=cwd,
+            )
+
+    async def delete_session(self, opensandbox_id: str, session_id: str) -> None:
+        async with self._runtime_handle(opensandbox_id, "delete_session") as handle:
+            await handle.commands.delete_session(session_id)
+
     async def read_bytes(self, opensandbox_id: str, path: str) -> bytes:
         async with self._runtime_handle(opensandbox_id, "read_bytes") as handle:
             return await handle.files.read_bytes(path)

@@ -186,7 +186,12 @@ async def test_connection_config_built_from_rock_config(client):
 
 class FakeRuntimeHandle:
     def __init__(self):
-        self.commands = SimpleNamespace(run=AsyncMock(return_value=SimpleNamespace(exit_code=0)))
+        self.commands = SimpleNamespace(
+            run=AsyncMock(return_value=SimpleNamespace(exit_code=0)),
+            create_session=AsyncMock(return_value="session-1"),
+            run_in_session=AsyncMock(return_value=SimpleNamespace(exit_code=0)),
+            delete_session=AsyncMock(),
+        )
         self.files = SimpleNamespace(
             read_bytes=AsyncMock(return_value=b"hello"),
             get_file_info=AsyncMock(return_value={}),
@@ -267,6 +272,51 @@ async def test_runtime_primitives_delegate_to_handle(runtime_client):
     handle.files.get_file_info.assert_awaited_once_with(["/tmp/a"])
     handle.files.write_file.assert_awaited_once_with("/tmp/a", stream, mode=644)
     assert handle.close.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_session_primitives_delegate_to_handle(runtime_client):
+    client, _ = runtime_client
+    handle = FakeRuntimeHandle()
+    FakeSandbox.connected_handle = handle
+
+    session_id = await client.create_session("osb-1", cwd="/workspace")
+    execution = await client.run_in_session(
+        "osb-1",
+        session_id,
+        "pwd",
+        timeout=3,
+        cwd="/tmp",
+    )
+    await client.delete_session("osb-1", session_id)
+
+    assert session_id == "session-1"
+    assert execution.exit_code == 0
+    handle.commands.create_session.assert_awaited_once_with(working_directory="/workspace")
+    handle.commands.run_in_session.assert_awaited_once_with(
+        "session-1",
+        "pwd",
+        timeout=timedelta(seconds=3),
+        working_directory="/tmp",
+    )
+    handle.commands.delete_session.assert_awaited_once_with("session-1")
+    assert handle.close.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_run_in_session_preserves_unset_timeout_and_cwd(runtime_client):
+    client, _ = runtime_client
+    handle = FakeRuntimeHandle()
+    FakeSandbox.connected_handle = handle
+
+    await client.run_in_session("osb-1", "session-1", "echo ok")
+
+    handle.commands.run_in_session.assert_awaited_once_with(
+        "session-1",
+        "echo ok",
+        timeout=None,
+        working_directory=None,
+    )
 
 
 @pytest.mark.asyncio
