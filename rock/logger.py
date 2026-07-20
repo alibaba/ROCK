@@ -8,6 +8,19 @@ from zoneinfo import ZoneInfo
 from rock import env_vars
 from rock.utils import sandbox_id_ctx_var, trace_id_ctx_var
 
+_exception_traceback_enabled = True
+
+
+def configure_logging(*, exception_traceback_enabled: bool) -> None:
+    global _exception_traceback_enabled
+    _exception_traceback_enabled = exception_traceback_enabled
+
+
+def is_exception_traceback_enabled() -> bool:
+    if env_vars.is_set("ROCK_LOGGING_EXCEPTION_TRACEBACK_ENABLE"):
+        return env_vars.ROCK_LOGGING_EXCEPTION_TRACEBACK_ENABLE
+    return _exception_traceback_enabled
+
 
 # Define the formatter class at module level since it doesn't need configuration state
 class StandardFormatter(logging.Formatter):
@@ -46,10 +59,16 @@ class StandardFormatter(logging.Formatter):
         # Build header part
         header_str = f"{time_str} {level_str}:{file_str} [{logger_str}] [{sandbox_id}] [{trace_id}] --"
 
+        message = record.getMessage()
+        if is_exception_traceback_enabled() and record.exc_info and record.exc_info[0] is not None:
+            exception_class = record.exc_info[0]
+            exception_type = f"{exception_class.__module__}.{exception_class.__qualname__}"
+            message = f"{message.rstrip()} [exception_type={exception_type}]\n{self.formatException(record.exc_info)}"
+
         # Color the header part and keep message in default color
         if self.log_color_enable:
-            return f"{log_color}{header_str}{RESET} {record.getMessage()}"
-        return f"{header_str} {record.getMessage()}"
+            return f"{log_color}{header_str}{RESET} {message}"
+        return f"{header_str} {message}"
 
 
 class TimezoneFormatter(StandardFormatter):

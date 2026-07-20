@@ -1,3 +1,6 @@
+logging:
+  exception_traceback_enabled: true
+
 # K8S deployment configuration
 k8s:
   # Kubeconfig path (None for in-cluster config)

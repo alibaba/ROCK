@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import yaml
 
+import rock.config as config_module
 from rock.config import ImageRegistryMirror, RockConfig, RuntimeConfig, _resolve_k8s_template_includes
 
 
@@ -13,6 +14,25 @@ from rock.config import ImageRegistryMirror, RockConfig, RuntimeConfig, _resolve
 async def test_rock_config():
     rock_config: RockConfig = RockConfig.from_env()
     assert rock_config
+
+
+def test_logging_config_defaults_to_exception_tracebacks_enabled():
+    config = config_module.LoggingConfig()
+
+    assert config.exception_traceback_enabled is True
+    assert RockConfig().logging.exception_traceback_enabled is True
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_logging_config_from_yaml(tmp_path, monkeypatch, enabled):
+    yaml_path = tmp_path / "rock-test.yml"
+    yaml_path.write_text(yaml.safe_dump({"logging": {"exception_traceback_enabled": enabled}}))
+    monkeypatch.setenv("ROCK_PYTHON_ENV_PATH", "/usr")
+    monkeypatch.setenv("ROCK_ENVHUB_DB_URL", "sqlite:////tmp/test.db")
+
+    rock_config = RockConfig.from_env(str(yaml_path))
+
+    assert rock_config.logging.exception_traceback_enabled is enabled
 
 
 @pytest.mark.asyncio
