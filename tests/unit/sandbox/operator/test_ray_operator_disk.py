@@ -14,11 +14,14 @@ class TestRayOperatorDiskResource:
     """Tests for RayOperator._generate_actor_options disk handling."""
 
     def _make_operator(self):
-        from unittest.mock import MagicMock
+        from unittest.mock import MagicMock, patch
 
         from rock.config import RuntimeConfig
 
-        return RayOperator(ray_service=MagicMock(), runtime_config=RuntimeConfig())
+        with patch("ray.is_initialized", return_value=True), patch(
+            "ray.cluster_resources", return_value={"disk": 500_000_000_000}
+        ):
+            return RayOperator(ray_service=MagicMock(), runtime_config=RuntimeConfig())
 
     def test_no_disk_resource_when_disk_limit_is_none(self):
         operator = self._make_operator()

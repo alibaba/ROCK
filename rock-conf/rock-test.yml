@@ -6,6 +6,8 @@ ray:
         working_dir: ./
         pip: ./requirements_sandbox_actor.txt
     namespace: "rock-sandbox-test"
+    resources:
+        disk: 500000000000  # 500 GB in bytes; required for sandbox actors that request disk as a custom Ray resource
 
 warmup:
     images:

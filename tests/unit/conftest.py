@@ -145,10 +145,15 @@ def ray_init_shutdown(rock_config: RockConfig):
     ray_config = rock_config.ray
     ray_namespace = ray_config.namespace
 
-    # if not ray is initialized
     if not ray.is_initialized():
+        address = ray_config.address
+        # ray.init(address=None) auto-connects to any existing local cluster and
+        # silently ignores the `resources` parameter. Use address="local" to force
+        # a fresh cluster so that custom resources (e.g. disk) are actually registered.
+        if address is None and ray_config.resources:
+            address = "local"
         ray.init(
-            address=ray_config.address,
+            address=address,
             namespace=ray_namespace,
             runtime_env=ray_config.runtime_env,
             resources=ray_config.resources,

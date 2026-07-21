@@ -24,6 +24,7 @@ class RayOperator(AbstractOperator):
     def __init__(self, ray_service: RayService, runtime_config: RuntimeConfig):
         self._ray_service = ray_service
         self._runtime_config = runtime_config
+        self._disk_scheduling_enabled = ray.is_initialized() and "disk" in ray.cluster_resources()
 
     def _get_actor_name(self, sandbox_id: str) -> str:
         return f"sandbox-{sandbox_id}"
@@ -50,7 +51,7 @@ class RayOperator(AbstractOperator):
             actor_options["num_cpus"] = config.cpus
             actor_options["memory"] = memory
             custom_resources: dict[str, float] = {}
-            if config.disk is not None:
+            if config.disk is not None and self._disk_scheduling_enabled:
                 disk_bytes = parse_size_to_bytes(config.disk)
                 if config.disk_overcommit_ratio and config.disk_overcommit_ratio > 1.0:
                     disk_bytes = int(disk_bytes / config.disk_overcommit_ratio)

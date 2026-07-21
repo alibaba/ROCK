@@ -177,6 +177,7 @@ class TestRaySchedulingOvercommit:
 
         config = DockerDeploymentConfig(disk="40g", disk_overcommit_ratio=2.0, container_name="test-sb")
         operator = RayOperator.__new__(RayOperator)
+        operator._disk_scheduling_enabled = True
         options = operator._generate_actor_options(config)
 
         expected_bytes = int(parse_size_to_bytes("40g") / 2.0)
@@ -187,6 +188,7 @@ class TestRaySchedulingOvercommit:
 
         config = DockerDeploymentConfig(disk="40g", container_name="test-sb")
         operator = RayOperator.__new__(RayOperator)
+        operator._disk_scheduling_enabled = True
         options = operator._generate_actor_options(config)
 
         assert options["resources"]["disk"] == parse_size_to_bytes("40g")
@@ -196,6 +198,7 @@ class TestRaySchedulingOvercommit:
 
         config = DockerDeploymentConfig(disk="40g", disk_overcommit_ratio=0.5, container_name="test-sb")
         operator = RayOperator.__new__(RayOperator)
+        operator._disk_scheduling_enabled = True
         options = operator._generate_actor_options(config)
 
         assert options["resources"]["disk"] == parse_size_to_bytes("40g")
