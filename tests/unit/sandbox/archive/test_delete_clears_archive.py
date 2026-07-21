@@ -15,6 +15,7 @@ def manager():
     m = MagicMock(spec=SandboxManager)
     m._meta_store = AsyncMock()
     m._operator = MagicMock()
+    m._operator.supports_running_delete = False
     m._dir_storage = AsyncMock()
     m._dir_storage.client_config = {"endpoint": "e", "bucket": "b", "access_key": "a", "secret_key": "s", "region": "r"}
     m._dir_storage.delete = AsyncMock(return_value=True)
