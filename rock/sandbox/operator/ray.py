@@ -104,8 +104,21 @@ class RayOperator(AbstractOperator):
         remote_status = await get_remote_status(sandbox_id, host_ip)
         is_alive = await check_alive_status(sandbox_id, host_ip, remote_status)
         # TODO: sink update state according to is_alive logic into SandboxInfo
+        was_pending = sandbox_info.get("state") == State.PENDING
         if is_alive:
             sandbox_info["state"] = State.RUNNING
+            if was_pending:
+                # In submit(), sandbox_info.remote() races with start.remote() on async
+                # actors, so the initial Redis write captures the pre-startup disk value.
+                # When the rocklet is responding, start() is guaranteed complete; query
+                # the actor to get the effective disk (None when storage-opt unsupported).
+                # on_alive will persist this value to Redis so subsequent calls skip here.
+                try:
+                    actor = await self._ray_service.async_ray_get_actor(self._get_actor_name(sandbox_id))
+                    actor_info = await self._ray_service.async_ray_get(actor.sandbox_info.remote(), timeout=5)
+                    sandbox_info["disk"] = actor_info.get("disk")
+                except Exception:
+                    pass
         sandbox_info.update(remote_status.to_dict())
         return sandbox_info
 
