@@ -27,6 +27,7 @@ def rock_config_min():
 @pytest.fixture
 def manager(rock_config_min):
     operator = AsyncMock()
+    operator.supports_running_delete = False
     meta_store = AsyncMock()
     meta_store.get = AsyncMock(return_value=None)
     # Patch BaseManager scheduler setup so tests don't spawn APScheduler.
@@ -70,8 +71,40 @@ class TestDelete:
         manager._operator.delete.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_opensandbox_delete_from_running_kills_and_archives(self, manager):
+    async def test_running_delete_uses_operator_capability_not_backend_name(self, manager):
+        manager._operator.supports_running_delete = True
+        manager._meta_store.get = AsyncMock(
+            return_value={
+                "sandbox_id": "sb-1",
+                "state": State.RUNNING,
+                "host_ip": "remote.local",
+                "image": "python:3.11",
+                "memory": "2g",
+                "cpus": 1,
+                "extended_params": {"remote_id": "remote-1"},
+            }
+        )
+
+        await manager.delete("sb-1")
+
+        manager._operator.delete.assert_awaited_once()
+        manager._meta_store.archive.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_backend_name_does_not_enable_running_delete_without_operator_capability(self, manager):
         manager.rock_config.runtime.operator_type = "opensandbox"
+        manager._meta_store.get = AsyncMock(
+            return_value={"sandbox_id": "sb-1", "state": State.RUNNING, "host_ip": "remote.local"}
+        )
+
+        with pytest.raises(BadRequestRockError):
+            await manager.delete("sb-1")
+
+        manager._operator.delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_capable_operator_delete_from_running_kills_and_archives(self, manager):
+        manager._operator.supports_running_delete = True
         manager._meta_store.get = AsyncMock(
             return_value={
                 "sandbox_id": "sb-1",
@@ -96,8 +129,8 @@ class TestDelete:
         assert manager._meta_store.archive.call_args[0][1]["state"] == State.DELETED
 
     @pytest.mark.asyncio
-    async def test_opensandbox_delete_from_running_kill_failure_preserves_running(self, manager):
-        manager.rock_config.runtime.operator_type = "opensandbox"
+    async def test_capable_operator_delete_from_running_failure_preserves_running(self, manager):
+        manager._operator.supports_running_delete = True
         manager._meta_store.get = AsyncMock(
             return_value={
                 "sandbox_id": "sb-1",

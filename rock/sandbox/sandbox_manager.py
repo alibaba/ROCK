@@ -270,21 +270,18 @@ class SandboxManager(BaseManager):
             logger.info(f"delete: sandbox {sandbox_id} already deleted, noop")
             return
         deletable_states = {State.STOPPED, State.ARCHIVED}
-        is_opensandbox = self.rock_config.runtime.operator_type.lower() == "opensandbox"
-        if is_opensandbox:
-            # OpenSandbox exposes kill/delete rather than ROCK's stop contract,
-            # so a live remote sandbox must be directly deletable.
+        supports_running_delete = self._operator.supports_running_delete
+        if supports_running_delete:
             deletable_states.add(State.RUNNING)
         if state not in deletable_states:
             raise BadRequestRockError(
                 f"Sandbox {sandbox_id} cannot be deleted: current state is '{state.value}', must be stopped or archived first"
             )
 
-        if is_opensandbox and state == State.RUNNING:
+        if supports_running_delete and state == State.RUNNING:
             # Active metadata is served from Redis, while the deployment spec
-            # is stored only in the DB. Rebuild the small subset required by
-            # OpenSandboxOperator.delete so the remote sandbox is actually
-            # killed instead of merely soft-deleting ROCK's metadata.
+            # is stored only in the DB. Rebuild the generic deployment fields
+            # required by operators that support deleting a live sandbox.
             sandbox_info = sm.sandbox_info or {}
             if not sandbox_info.get("spec"):
                 sandbox_info["spec"] = {
@@ -296,7 +293,7 @@ class SandboxManager(BaseManager):
                 }
                 sm.sandbox_info = sandbox_info
 
-        delete_event = "delete_running" if is_opensandbox and state == State.RUNNING else "delete"
+        delete_event = "delete_running" if supports_running_delete and state == State.RUNNING else "delete"
         await sm.send(
             delete_event,
             sandbox_id=sandbox_id,

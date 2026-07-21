@@ -90,6 +90,8 @@ def _qualify_image_registry(image: str, prefix: str | None) -> str:
 class OpenSandboxOperator(AbstractOperator):
     """Operator that manages sandboxes on an OpenSandbox backend."""
 
+    supports_running_delete = True
+
     def __init__(self, os_config: OpenSandboxConfig, redis_provider=None, *, client: OpenSandboxClient | None = None):
         self._os_config = os_config
         self._redis_provider = redis_provider

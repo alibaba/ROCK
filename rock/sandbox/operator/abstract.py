@@ -10,13 +10,15 @@ from rock.utils.providers.redis_provider import RedisProvider
 
 
 class AbstractOperator(ABC):
+    supports_running_delete: bool = False
+    """Whether this operator can delete a sandbox directly from RUNNING."""
+
     _redis_provider: RedisProvider | None = None
     _nacos_provider: NacosConfigProvider | None = None
     _runtime_config: RuntimeConfig | None = None
 
     @abstractmethod
-    async def submit(self, config: DeploymentConfig, user_info: dict = {}) -> SandboxInfo:
-        ...
+    async def submit(self, config: DeploymentConfig, user_info: dict = {}) -> SandboxInfo: ...
 
     @abstractmethod
     async def restart(self, config: DeploymentConfig, host_ip: str | None = None) -> SandboxInfo:
@@ -29,16 +31,13 @@ class AbstractOperator(ABC):
         ...
 
     @abstractmethod
-    async def get_status(self, sandbox_id: str) -> SandboxInfo | None:
-        ...
+    async def get_status(self, sandbox_id: str) -> SandboxInfo | None: ...
 
     @abstractmethod
-    async def stop(self, sandbox_id: str, reason: StopReason = StopReason.MANUAL) -> bool:
-        ...
+    async def stop(self, sandbox_id: str, reason: StopReason = StopReason.MANUAL) -> bool: ...
 
     @abstractmethod
-    async def delete(self, config: DeploymentConfig, host_ip: str | None = None) -> bool:
-        ...
+    async def delete(self, config: DeploymentConfig, host_ip: str | None = None) -> bool: ...
 
     async def start_archive(
         self,

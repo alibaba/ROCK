@@ -1,4 +1,5 @@
 import time
+from collections.abc import Callable
 from uuid import uuid4
 
 from redis.exceptions import WatchError
@@ -36,72 +37,66 @@ class OpenSandboxSessionRegistry:
             return False
         return deadline <= now
 
-    async def reserve(self, sandbox_id: str, session_name: str) -> str | None:
+    async def _update_if(
+        self,
+        sandbox_id: str,
+        session_name: str,
+        condition: Callable[[str | None], bool],
+        value: str | None,
+    ) -> bool:
         key = opensandbox_sessions_key(sandbox_id)
         while True:
-            now = time.time()
-            reservation = f"{_RESERVATION_PREFIX}{now + self._reservation_ttl_seconds}:{uuid4().hex}"
             try:
                 async with self._client().pipeline(transaction=True) as pipe:
                     await pipe.watch(key)
                     current = await pipe.hget(key, session_name)
-                    if not self._is_expired_reservation(current, now):
+                    if not condition(current):
                         await pipe.unwatch()
-                        return None
+                        return False
                     pipe.multi()
-                    pipe.hset(key, session_name, reservation)
+                    if value is None:
+                        pipe.hdel(key, session_name)
+                    else:
+                        pipe.hset(key, session_name, value)
                     await pipe.execute()
-                    return reservation
+                    return True
             except WatchError:
                 continue
+
+    async def reserve(self, sandbox_id: str, session_name: str) -> str | None:
+        now = time.time()
+        reservation = f"{_RESERVATION_PREFIX}{now + self._reservation_ttl_seconds}:{uuid4().hex}"
+        updated = await self._update_if(
+            sandbox_id,
+            session_name,
+            lambda current: self._is_expired_reservation(current, now),
+            reservation,
+        )
+        return reservation if updated else None
 
     async def commit(self, sandbox_id: str, session_name: str, reservation: str, session_id: str) -> bool:
-        key = opensandbox_sessions_key(sandbox_id)
-        while True:
-            try:
-                async with self._client().pipeline(transaction=True) as pipe:
-                    await pipe.watch(key)
-                    if await pipe.hget(key, session_name) != reservation:
-                        await pipe.unwatch()
-                        return False
-                    pipe.multi()
-                    pipe.hset(key, session_name, session_id)
-                    await pipe.execute()
-                    return True
-            except WatchError:
-                continue
+        return await self._update_if(
+            sandbox_id,
+            session_name,
+            lambda current: current == reservation,
+            session_id,
+        )
 
     async def rollback(self, sandbox_id: str, session_name: str, reservation: str) -> bool:
-        key = opensandbox_sessions_key(sandbox_id)
-        while True:
-            try:
-                async with self._client().pipeline(transaction=True) as pipe:
-                    await pipe.watch(key)
-                    if await pipe.hget(key, session_name) != reservation:
-                        await pipe.unwatch()
-                        return False
-                    pipe.multi()
-                    pipe.hdel(key, session_name)
-                    await pipe.execute()
-                    return True
-            except WatchError:
-                continue
+        return await self._update_if(
+            sandbox_id,
+            session_name,
+            lambda current: current == reservation,
+            None,
+        )
 
     async def remove(self, sandbox_id: str, session_name: str, session_id: str) -> bool:
-        key = opensandbox_sessions_key(sandbox_id)
-        while True:
-            try:
-                async with self._client().pipeline(transaction=True) as pipe:
-                    await pipe.watch(key)
-                    if await pipe.hget(key, session_name) != session_id:
-                        await pipe.unwatch()
-                        return False
-                    pipe.multi()
-                    pipe.hdel(key, session_name)
-                    await pipe.execute()
-                    return True
-            except WatchError:
-                continue
+        return await self._update_if(
+            sandbox_id,
+            session_name,
+            lambda current: current == session_id,
+            None,
+        )
 
     async def get(self, sandbox_id: str, session_name: str) -> str | None:
         session_id = await self._client().hget(opensandbox_sessions_key(sandbox_id), session_name)

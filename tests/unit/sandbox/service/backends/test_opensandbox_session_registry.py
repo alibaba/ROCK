@@ -106,3 +106,19 @@ async def test_stale_owner_cannot_commit_or_rollback_new_reservation(redis_provi
     assert await registry.rollback("sbx-1", "default", first) is False
     assert await registry.commit("sbx-1", "default", second, "current-session") is True
     assert await registry.get("sbx-1", "default") == "current-session"
+
+
+@pytest.mark.asyncio
+async def test_update_if_applies_conditional_set_and_delete(registry):
+    def is_empty(current):
+        return current is None
+
+    def is_session(current):
+        return current == "os-session-1"
+
+    assert await registry._update_if("sbx-1", "default", is_empty, "os-session-1") is True
+    assert await registry._update_if("sbx-1", "default", is_empty, "replacement") is False
+    assert await registry.get("sbx-1", "default") == "os-session-1"
+
+    assert await registry._update_if("sbx-1", "default", is_session, None) is True
+    assert await registry.get("sbx-1", "default") is None

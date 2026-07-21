@@ -65,6 +65,10 @@ def _deployment_config(sandbox_id="sbx-1", *, memory="8g", cpus=2, **kwargs):
 # ---- helpers ---------------------------------------------------------------
 
 
+def test_supports_running_delete(operator):
+    assert operator.supports_running_delete is True
+
+
 def test_docker_mem_to_k8s():
     assert _docker_mem_to_k8s("8g") == "8Gi"
     assert _docker_mem_to_k8s("8G") == "8Gi"
