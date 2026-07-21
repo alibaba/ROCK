@@ -130,7 +130,10 @@ def _get_docker_used_host_ports() -> set[int]:
         )
         if inspect.returncode != 0:
             logger.debug(f"docker inspect failed ({inspect.returncode}): {inspect.stderr.strip()}")
-            return used
+            # Containers can disappear after ``docker ps`` and before this
+            # command runs. Docker still writes the successfully inspected
+            # containers to stdout, so retain that partial snapshot instead
+            # of discarding every port because one stale ID failed.
         for line in inspect.stdout.splitlines():
             line = line.strip()
             if not line or line == "null":
