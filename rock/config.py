@@ -341,6 +341,28 @@ class PoolConfig:
 
 
 @dataclass
+class TemplateSelectorRule:
+    """Template selector rule for matching sandbox config to a K8s template.
+
+    Rules are loaded from Nacos (key ``template_rules``) as a mapping where
+    the key is the template name and the value is the rule conditions.
+    All matching conditions are optional; a rule matches only when every
+    specified condition is satisfied.
+
+    ``image`` supports shell-style wildcards (``*``, ``?``) and may be a
+    single pattern or a list of patterns. ``image_os`` and
+    ``accelerator_types`` are lists of allowed values. ``min_num_gpus``/
+    ``max_num_gpus`` define an inclusive GPU count range.
+    """
+
+    image: str | list[str] | None = None
+    image_os: list[str] | None = None
+    min_num_gpus: float | None = None
+    max_num_gpus: float | None = None
+    accelerator_types: list[str] | None = None
+
+
+@dataclass
 class K8sConfig:
     """Kubernetes configuration for K8s operator."""
 
@@ -354,9 +376,6 @@ class K8sConfig:
     # conflict) then lets the inline `templates` block override. After loading
     # the field is consumed (cleared) so K8sConfig only carries `templates`.
     template_includes: list[str] = field(default_factory=list)
-
-    # Template mapping: image_os -> template_name, e.g., {"windows": "windows_template", "linux": "default"}
-    template_map: dict[str, str] = field(default_factory=dict)
 
     # API client rate limiting
     api_qps: float = 20.0  # Queries per second

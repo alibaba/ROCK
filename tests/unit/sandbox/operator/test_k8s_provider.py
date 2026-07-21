@@ -2,11 +2,15 @@
 
 import pytest
 
-from rock.config import K8sConfig, PoolConfig
+from rock.config import K8sConfig, PoolConfig, TemplateSelectorRule
 from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Port
 from rock.sandbox.operator.k8s.constants import K8sConstants
-from rock.sandbox.operator.k8s.provider import BatchSandboxProvider, ResourceMatchingPoolSelector
+from rock.sandbox.operator.k8s.provider import (
+    BatchSandboxProvider,
+    DefaultTemplateSelector,
+    ResourceMatchingPoolSelector,
+)
 
 BASIC_TEMPLATES = {
     "default": {
@@ -20,12 +24,11 @@ BASIC_TEMPLATES = {
 }
 
 
-def make_provider(template_map: dict = None) -> BatchSandboxProvider:
+def make_provider() -> BatchSandboxProvider:
     return BatchSandboxProvider(
         k8s_config=K8sConfig(
             kubeconfig_path=None,
             templates=BASIC_TEMPLATES,
-            template_map=template_map or {},
         )
     )
 
@@ -37,6 +40,7 @@ def make_config(
     extended_params: dict = None,
     image_os: str = "linux",
     num_gpus: float | None = None,
+    accelerator_type: str | None = None,
     disk: str | None = None,
     limit_cpus: float | None = None,
 ) -> DockerDeploymentConfig:
@@ -48,6 +52,7 @@ def make_config(
         extended_params=extended_params or {},
         image_os=image_os,
         num_gpus=num_gpus,
+        accelerator_type=accelerator_type,
         disk=disk,
         limit_cpus=limit_cpus,
     )
@@ -220,71 +225,257 @@ class TestGetPoolName:
 
 
 class TestGetTemplateName:
-    def test_returns_template_from_extended_params(self):
-        """Return template directly from extended_params without using template_map."""
+    async def test_returns_template_from_extended_params(self):
+        """Return template directly from extended_params without using selector."""
         provider = make_provider()
         config = make_config(extended_params={"template_name": "gpu_template"})
-        assert provider._get_template_name(config) == "gpu_template"
+        assert await provider._get_template_name(config) == "gpu_template"
 
-    def test_extended_params_takes_priority_over_template_map(self):
-        """extended_params takes priority over template_map."""
-        provider = make_provider(template_map={"linux": "map_template"})
-        config = make_config(extended_params={"template_name": "ext_template"}, image_os="linux")
-        assert provider._get_template_name(config) == "ext_template"
-
-    def test_returns_template_from_template_map_by_image_os(self):
-        """Priority 2: Look up template_map by image_os when extended_params is empty."""
-        provider = make_provider(template_map={"windows": "windows_template"})
-        config = make_config(image_os="windows")
-        assert provider._get_template_name(config) == "windows_template"
-
-    def test_returns_default_when_image_os_not_in_template_map(self):
-        """Return 'default' when image_os is not in template_map."""
-        provider = make_provider(template_map={"windows": "windows_template"})
-        config = make_config(image_os="linux")
-        assert provider._get_template_name(config) == "default"
-
-    def test_returns_default_when_no_image_os(self):
-        """Skip template_map lookup when image_os is empty, return 'default'."""
-        provider = make_provider(template_map={"windows": "windows_template"})
-        config = make_config(image_os="")
-        assert provider._get_template_name(config) == "default"
-
-    def test_returns_default_when_template_map_empty(self):
-        """Return 'default' when template_map is empty."""
-        provider = make_provider(template_map={})
-        config = make_config(image_os="windows")
-        assert provider._get_template_name(config) == "default"
-
-    def test_returns_default_when_no_params_and_no_template_map(self):
-        """Return 'default' when both extended_params and template_map are empty."""
+    async def test_returns_default_when_no_params_and_no_rules(self):
+        """Return 'default' when extended_params and Nacos rules are empty."""
         provider = make_provider()
         config = make_config()
-        assert provider._get_template_name(config) == "default"
+        assert await provider._get_template_name(config) == "default"
 
-    def test_returns_gpu_single_when_num_gpus_is_one(self):
-        """num_gpus == 1 (single full card) routes to 'gpu-single'."""
+    async def test_returns_template_from_nacos_rules(self):
+        """Return template selected by Nacos template_rules."""
         provider = make_provider()
+        provider.set_nacos_provider(
+            MockNacosProvider(
+                {
+                    K8sConstants.NACOS_TEMPLATE_RULES_KEY: {
+                        "gpu-a100-single": {
+                            "min_num_gpus": 1,
+                            "max_num_gpus": 1,
+                            "accelerator_types": ["A100"],
+                        }
+                    }
+                }
+            )
+        )
+        config = make_config(num_gpus=1, accelerator_type="A100")
+        assert await provider._get_template_name(config) == "gpu-a100-single"
+
+    async def test_extended_params_takes_priority_over_nacos_rules(self):
+        """extended_params template_name beats Nacos template_rules."""
+        provider = make_provider()
+        provider.set_nacos_provider(
+            MockNacosProvider(
+                {
+                    K8sConstants.NACOS_TEMPLATE_RULES_KEY: {
+                        "gpu-a100-single": {
+                            "min_num_gpus": 1,
+                            "max_num_gpus": 1,
+                            "accelerator_types": ["A100"],
+                        }
+                    }
+                }
+            )
+        )
+        config = make_config(
+            extended_params={"template_name": "custom"},
+            num_gpus=1,
+            accelerator_type="A100",
+        )
+        assert await provider._get_template_name(config) == "custom"
+
+    async def test_returns_default_when_nacos_rules_do_not_match(self):
+        """Return 'default' when Nacos rules do not match the config."""
+        provider = make_provider()
+        provider.set_nacos_provider(
+            MockNacosProvider(
+                {
+                    K8sConstants.NACOS_TEMPLATE_RULES_KEY: {
+                        "gpu-a100-single": {
+                            "min_num_gpus": 1,
+                            "max_num_gpus": 1,
+                            "accelerator_types": ["A100"],
+                        }
+                    }
+                }
+            )
+        )
         config = make_config(num_gpus=1)
-        assert provider._get_template_name(config) == K8sConstants.TEMPLATE_GPU_SINGLE
+        # No accelerator_type, so A100-only rule does not match
+        assert await provider._get_template_name(config) == "default"
 
-    def test_returns_gpu_multi_when_fractional_lt_one(self):
-        """Fractional GPU (0 < num_gpus < 1) routes to 'gpu-multi'."""
-        provider = make_provider()
-        config = make_config(num_gpus=0.5)
-        assert provider._get_template_name(config) == K8sConstants.TEMPLATE_GPU_MULTI
 
-    def test_returns_gpu_multi_when_num_gpus_gt_one(self):
-        """Multi-GPU (num_gpus > 1) routes to 'gpu-multi'."""
-        provider = make_provider()
-        config = make_config(num_gpus=2)
-        assert provider._get_template_name(config) == K8sConstants.TEMPLATE_GPU_MULTI
+# ========== DefaultTemplateSelector ==========
 
-    def test_extended_params_takes_priority_over_gpu_routing(self):
-        """extended_params template_name beats the GPU auto-selection."""
+
+class TestDefaultTemplateSelector:
+    def test_select_by_gpu_count_range_and_type(self):
+        """Select template by num_gpus range and accelerator_type."""
+        selector = DefaultTemplateSelector()
+        rules = {
+            "gpu-a100-single": TemplateSelectorRule(
+                min_num_gpus=1,
+                max_num_gpus=1,
+                accelerator_types=["A100"],
+            ),
+            "gpu-a100-multi": TemplateSelectorRule(
+                min_num_gpus=2,
+                accelerator_types=["A100"],
+            ),
+        }
+        config = make_config(num_gpus=1, accelerator_type="A100")
+        assert selector.select_template(config, rules) == "gpu-a100-single"
+
+    def test_select_multi_gpu_by_type(self):
+        """Select multi-GPU template by accelerator_type."""
+        selector = DefaultTemplateSelector()
+        rules = {
+            "gpu-a100-single": TemplateSelectorRule(
+                min_num_gpus=1,
+                max_num_gpus=1,
+                accelerator_types=["A100"],
+            ),
+            "gpu-a100-multi": TemplateSelectorRule(
+                min_num_gpus=2,
+                accelerator_types=["A100"],
+            ),
+        }
+        config = make_config(num_gpus=4, accelerator_type="A100")
+        assert selector.select_template(config, rules) == "gpu-a100-multi"
+
+    def test_select_cpu_when_no_gpu(self):
+        """Select CPU template when num_gpus is 0/None."""
+        selector = DefaultTemplateSelector()
+        rules = {
+            "default": TemplateSelectorRule(image_os=["linux"], max_num_gpus=0),
+            "gpu-a100-single": TemplateSelectorRule(
+                min_num_gpus=1,
+                max_num_gpus=1,
+                accelerator_types=["A100"],
+            ),
+        }
+        config = make_config(num_gpus=None, image_os="linux")
+        assert selector.select_template(config, rules) == "default"
+
+    def test_first_matching_rule_wins(self):
+        """Rules are evaluated in declaration order; first match wins."""
+        selector = DefaultTemplateSelector()
+        rules = {
+            "template-first": TemplateSelectorRule(image_os=["linux"]),
+            "template-second": TemplateSelectorRule(image_os=["linux"]),
+        }
+        config = make_config(image_os="linux")
+        assert selector.select_template(config, rules) == "template-first"
+
+    def test_image_filter(self):
+        """image condition filters out non-matching rules."""
+        selector = DefaultTemplateSelector()
+        rules = {
+            "py311-template": TemplateSelectorRule(image="python:3.11"),
+            "py312-template": TemplateSelectorRule(image="python:3.12"),
+        }
+        config = make_config(image="python:3.12")
+        assert selector.select_template(config, rules) == "py312-template"
+
+    def test_image_wildcard_match(self):
+        """image supports shell-style wildcards."""
+        selector = DefaultTemplateSelector()
+        rules = {
+            "py-template": TemplateSelectorRule(image="python:*"),
+            "other-template": TemplateSelectorRule(image="*"),
+        }
+        config = make_config(image="python:3.12")
+        assert selector.select_template(config, rules) == "py-template"
+
+    def test_image_list_match(self):
+        """image supports a list of patterns."""
+        selector = DefaultTemplateSelector()
+        rules = {
+            "py-template": TemplateSelectorRule(image=["python:3.11", "python:3.12"]),
+        }
+        config = make_config(image="python:3.11")
+        assert selector.select_template(config, rules) == "py-template"
+
+    def test_image_os_list_match(self):
+        """image_os supports a list of values."""
+        selector = DefaultTemplateSelector()
+        rules = {
+            "non-linux-template": TemplateSelectorRule(image_os=["windows", "android"]),
+        }
+        config = make_config(image_os="android")
+        assert selector.select_template(config, rules) == "non-linux-template"
+
+    def test_accelerator_types_list_match(self):
+        """accelerator_types supports multiple accelerator types."""
+        selector = DefaultTemplateSelector()
+        rules = {
+            "gpu-template": TemplateSelectorRule(accelerator_types=["A100", "H20"]),
+        }
+        config = make_config(num_gpus=1, accelerator_type="H20")
+        assert selector.select_template(config, rules) == "gpu-template"
+
+    def test_fractional_gpu_in_range(self):
+        """Fractional num_gpus falls within min/max range."""
+        selector = DefaultTemplateSelector()
+        rules = {
+            "gpu-shared": TemplateSelectorRule(
+                min_num_gpus=0.1,
+                max_num_gpus=0.9,
+                accelerator_types=["A100"],
+            ),
+        }
+        config = make_config(num_gpus=0.5, accelerator_type="A100")
+        assert selector.select_template(config, rules) == "gpu-shared"
+
+    def test_returns_none_when_no_match(self):
+        """Return None when no rule matches."""
+        selector = DefaultTemplateSelector()
+        rules = {
+            "gpu-a100": TemplateSelectorRule(accelerator_types=["A100"]),
+        }
+        config = make_config(num_gpus=1, accelerator_type="H20")
+        assert selector.select_template(config, rules) is None
+
+    def test_returns_none_when_rules_empty(self):
+        """Return None when rules dict is empty."""
+        selector = DefaultTemplateSelector()
+        config = make_config()
+        assert selector.select_template(config, {}) is None
+
+
+# ========== _get_template_rules from nacos ==========
+
+
+class TestGetTemplateRulesFromNacos:
+    async def test_get_template_rules_from_nacos(self):
+        """Get template rules from Nacos."""
+        nacos_config = {
+            K8sConstants.NACOS_TEMPLATE_RULES_KEY: {
+                "gpu-a100-single": {
+                    "min_num_gpus": 1,
+                    "max_num_gpus": 1,
+                    "accelerator_types": ["A100"],
+                }
+            }
+        }
         provider = make_provider()
-        config = make_config(extended_params={"template_name": "custom"}, num_gpus=4)
-        assert provider._get_template_name(config) == "custom"
+        provider.set_nacos_provider(MockNacosProvider(nacos_config))
+
+        rules = await provider._get_template_rules()
+        assert len(rules) == 1
+        assert "gpu-a100-single" in rules
+        assert rules["gpu-a100-single"].min_num_gpus == 1
+        assert rules["gpu-a100-single"].max_num_gpus == 1
+        assert rules["gpu-a100-single"].accelerator_types == ["A100"]
+
+    async def test_returns_empty_when_no_nacos_provider(self):
+        """Return empty dict when no nacos provider."""
+        provider = make_provider()
+        rules = await provider._get_template_rules()
+        assert rules == {}
+
+    async def test_returns_empty_when_nacos_has_no_rules(self):
+        """Return empty dict when Nacos has no template_rules config."""
+        provider = make_provider()
+        provider.set_nacos_provider(MockNacosProvider({"other_key": "value"}))
+
+        rules = await provider._get_template_rules()
+        assert rules == {}
 
 
 # ========== _get_pool_ports ==========
@@ -503,7 +694,6 @@ def make_resource_provider() -> BatchSandboxProvider:
         k8s_config=K8sConfig(
             kubeconfig_path=None,
             templates=RESOURCE_TEMPLATES,
-            template_map={},
         )
     )
 
@@ -560,7 +750,6 @@ def _make_provider_with_templates(templates: dict) -> BatchSandboxProvider:
         k8s_config=K8sConfig(
             kubeconfig_path=None,
             templates=templates,
-            template_map={},
         )
     )
 

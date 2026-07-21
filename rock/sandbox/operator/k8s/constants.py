@@ -27,8 +27,7 @@ class K8sConstants:
 
     # Built-in template names
     TEMPLATE_DEFAULT = "default"
-    TEMPLATE_GPU_SINGLE = "gpu-single"
-    TEMPLATE_GPU_MULTI = "gpu-multi"
 
     # Nacos config keys
     NACOS_POOLS_KEY = "pools"
+    NACOS_TEMPLATE_RULES_KEY = "template_rules"

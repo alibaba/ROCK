@@ -1,6 +1,7 @@
 """K8s provider implementations for managing sandbox resources."""
 
 import base64
+import fnmatch
 import json
 import os
 import re
@@ -14,7 +15,7 @@ from kubernetes import config as k8s_config
 
 from rock.actions.sandbox.config import RemoteSandboxRuntimeConfig
 from rock.actions.sandbox.sandbox_info import SandboxInfo
-from rock.config import K8sConfig, PoolConfig
+from rock.config import K8sConfig, PoolConfig, TemplateSelectorRule
 from rock.deployments.config import DockerDeploymentConfig
 from rock.deployments.constants import Port
 from rock.logger import init_logger
@@ -129,6 +130,83 @@ class ResourceMatchingPoolSelector(PoolSelector):
         matching_pools.sort(key=lambda x: x[2])
         best_pool_name, _, _ = matching_pools[0]
         return best_pool_name
+
+
+class TemplateSelector(ABC):
+    """Abstract base class for template selection strategy."""
+
+    @abstractmethod
+    def select_template(
+        self,
+        config: DockerDeploymentConfig,
+        rules: dict[str, TemplateSelectorRule],
+    ) -> str | None:
+        """Select a template for the given deployment config.
+
+        Args:
+            config: Docker deployment configuration
+            rules: Available template selector rules
+
+        Returns:
+            Selected template name or None if no rule matches
+        """
+        pass
+
+
+class DefaultTemplateSelector(TemplateSelector):
+    """Template selector that matches by optional image/image_os/gpu criteria.
+
+    Selection criteria:
+    1. ``template_rules`` is a mapping from template name to rule conditions.
+    2. All specified conditions in a rule must match the config.
+    3. Rules are evaluated in declaration order; the first matching rule wins.
+    """
+
+    def select_template(
+        self,
+        config: DockerDeploymentConfig,
+        rules: dict[str, TemplateSelectorRule],
+    ) -> str | None:
+        """Select best matching template based on rules."""
+        if not rules:
+            return None
+
+        for template_name, rule in rules.items():
+            if self._matches(config, rule):
+                return template_name
+
+        return None
+
+    def _matches(
+        self,
+        config: DockerDeploymentConfig,
+        rule: TemplateSelectorRule,
+    ) -> bool:
+        """Check whether a rule matches the sandbox config."""
+        # image: "python:3.11" / "python:*" / ["python:3.11", "custom:*"]
+        if rule.image is not None:
+            image_patterns = [rule.image] if isinstance(rule.image, str) else rule.image
+            if not any(fnmatch.fnmatch(config.image, pattern) for pattern in image_patterns):
+                return False
+
+        # image_os: ["linux", "windows"]
+        if rule.image_os is not None:
+            if config.image_os not in rule.image_os:
+                return False
+
+        # num_gpus range: min_num_gpus / max_num_gpus, e.g. 0, 0.5, 1, 8
+        config_num_gpus = config.num_gpus or 0
+        if rule.min_num_gpus is not None and config_num_gpus < rule.min_num_gpus:
+            return False
+        if rule.max_num_gpus is not None and config_num_gpus > rule.max_num_gpus:
+            return False
+
+        # accelerator_types: ["A100", "H20"]
+        if rule.accelerator_types is not None:
+            if config.accelerator_type not in rule.accelerator_types:
+                return False
+
+        return True
 
 
 class K8sProvider(Protocol):
@@ -255,6 +333,27 @@ class BatchSandboxProvider(K8sProvider):
                         pools[name] = config
                 logger.debug(f"Loaded {len(pools)} pools from Nacos")
                 return pools
+
+        return {}
+
+    async def _get_template_rules(self) -> dict[str, TemplateSelectorRule]:
+        """Get template selector rules from Nacos.
+
+        Returns:
+            Mapping from template name to TemplateSelectorRule
+        """
+        if self._nacos_provider:
+            nacos_config = await self._nacos_provider.get_config()
+            if nacos_config and K8sConstants.NACOS_TEMPLATE_RULES_KEY in nacos_config:
+                rules_data = nacos_config[K8sConstants.NACOS_TEMPLATE_RULES_KEY]
+                rules: dict[str, TemplateSelectorRule] = {}
+                for template_name, rule_data in rules_data.items():
+                    if isinstance(rule_data, dict):
+                        rules[template_name] = TemplateSelectorRule(**rule_data)
+                    else:
+                        rules[template_name] = TemplateSelectorRule()
+                logger.debug(f"Loaded {len(rules)} template rules from Nacos")
+                return rules
 
         return {}
 
@@ -444,16 +543,13 @@ class BatchSandboxProvider(K8sProvider):
         logger.info(f"Available pools from Nacos: {list(pools.keys())}")
         return ResourceMatchingPoolSelector().select_pool(config, pools)
 
-    def _get_template_name(self, config: DockerDeploymentConfig) -> str:
-        """Get template name from extended_params, GPU detection, or template_map.
+    async def _get_template_name(self, config: DockerDeploymentConfig) -> str:
+        """Get template name from extended_params or Nacos template_rules.
 
         Priority:
         1. Check extended_params for explicit template name
-        2. If config.num_gpus == 1, auto-select 'gpu-single' (single full card)
-        3. If config.num_gpus > 0 and != 1, auto-select 'gpu-multi'
-           (covers fractional shares <1 and multi-card >1)
-        4. Fallback to template_map based on image_os matching
-        5. Return 'default' if not found
+        2. Use Nacos template_rules selector (DefaultTemplateSelector)
+        3. Return 'default' if not found
 
         Args:
             config: Docker deployment configuration
@@ -466,22 +562,13 @@ class BatchSandboxProvider(K8sProvider):
         if template_name:
             return template_name
 
-        # Priority 2: Single full GPU goes to the single-card template
-        if config.num_gpus is not None and config.num_gpus == 1:
-            return K8sConstants.TEMPLATE_GPU_SINGLE
+        # Priority 2: Use Nacos template_rules selector
+        rules = await self._get_template_rules()
+        selected_template = DefaultTemplateSelector().select_template(config, rules)
+        if selected_template:
+            return selected_template
 
-        # Priority 3: Any other positive num_gpus (fractional <1 or multi >1)
-        # routes to the multi-GPU template
-        if config.num_gpus is not None and config.num_gpus > 0:
-            return K8sConstants.TEMPLATE_GPU_MULTI
-
-        # Priority 4: Check template_map based on image_os
-        if config.image_os and self._k8s_config.template_map:
-            mapped_template = self._k8s_config.template_map.get(config.image_os)
-            if mapped_template:
-                return mapped_template
-
-        # Priority 5: Return default
+        # Priority 3: Return default
         return K8sConstants.TEMPLATE_DEFAULT
 
     def _normalize_memory(self, memory: str) -> str:
@@ -595,7 +682,7 @@ class BatchSandboxProvider(K8sProvider):
             return manifest
 
         # Template mode: build from template
-        template_name = self._get_template_name(config)
+        template_name = await self._get_template_name(config)
 
         # Build manifest using template loader. Auth info is passed to the
         # template so the template itself decides where to render it.
