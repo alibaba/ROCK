@@ -1,4 +1,5 @@
 import pytest
+from redis.exceptions import WatchError
 
 from rock.admin.core.redis_key import opensandbox_sessions_key
 from rock.sandbox.operator.opensandbox.session_registry import OpenSandboxSessionRegistry
@@ -122,3 +123,47 @@ async def test_update_if_applies_conditional_set_and_delete(registry):
 
     assert await registry._update_if("sbx-1", "default", is_session, None) is True
     assert await registry.get("sbx-1", "default") is None
+
+
+@pytest.mark.asyncio
+async def test_update_if_stops_after_repeated_watch_conflicts(registry, monkeypatch):
+    attempts = 0
+    max_attempts = 5
+
+    class ConflictingPipeline:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def watch(self, _key):
+            return None
+
+        async def hget(self, _key, _field):
+            return None
+
+        def multi(self):
+            return None
+
+        def hset(self, _key, _field, _value):
+            return None
+
+        async def execute(self):
+            nonlocal attempts
+            attempts += 1
+            if attempts > max_attempts:
+                raise AssertionError("transaction retry limit was exceeded")
+            raise WatchError
+
+    class ConflictingClient:
+        def pipeline(self, *, transaction):
+            assert transaction is True
+            return ConflictingPipeline()
+
+    monkeypatch.setattr(registry, "_client", lambda: ConflictingClient())
+
+    with pytest.raises(WatchError):
+        await registry._update_if("sbx-1", "default", lambda current: current is None, "os-session-1")
+
+    assert attempts == max_attempts

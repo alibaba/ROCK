@@ -9,6 +9,7 @@ from rock.utils.providers import RedisProvider
 
 _RESERVATION_PREFIX = "__rock_session_creating__:"
 _DEFAULT_RESERVATION_TTL_SECONDS = 120
+_MAX_TRANSACTION_ATTEMPTS = 5
 
 
 class OpenSandboxSessionRegistry:
@@ -45,7 +46,7 @@ class OpenSandboxSessionRegistry:
         value: str | None,
     ) -> bool:
         key = opensandbox_sessions_key(sandbox_id)
-        while True:
+        for attempt in range(_MAX_TRANSACTION_ATTEMPTS):
             try:
                 async with self._client().pipeline(transaction=True) as pipe:
                     await pipe.watch(key)
@@ -61,7 +62,10 @@ class OpenSandboxSessionRegistry:
                     await pipe.execute()
                     return True
             except WatchError:
-                continue
+                if attempt == _MAX_TRANSACTION_ATTEMPTS - 1:
+                    raise
+
+        raise AssertionError("unreachable")
 
     async def reserve(self, sandbox_id: str, session_name: str) -> str | None:
         now = time.time()
