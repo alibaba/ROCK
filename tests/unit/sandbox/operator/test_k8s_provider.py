@@ -477,6 +477,31 @@ class TestGetTemplateRulesFromNacos:
         rules = await provider._get_template_rules()
         assert rules == {}
 
+    async def test_returns_empty_when_template_rules_is_not_dict(self):
+        """Return empty dict when template_rules value is not a dict."""
+        provider = make_provider()
+        provider.set_nacos_provider(
+            MockNacosProvider({K8sConstants.NACOS_TEMPLATE_RULES_KEY: ["not-a-dict"]})
+        )
+
+        rules = await provider._get_template_rules()
+        assert rules == {}
+
+    async def test_skips_invalid_rule_entries(self):
+        """Skip rule entries that are not dicts and keep valid ones."""
+        nacos_config = {
+            K8sConstants.NACOS_TEMPLATE_RULES_KEY: {
+                "valid-rule": {"image_os": ["linux"]},
+                "invalid-rule": "not-a-dict",
+            }
+        }
+        provider = make_provider()
+        provider.set_nacos_provider(MockNacosProvider(nacos_config))
+
+        rules = await provider._get_template_rules()
+        assert list(rules.keys()) == ["valid-rule"]
+        assert rules["valid-rule"].image_os == ["linux"]
+
 
 # ========== _get_pool_ports ==========
 

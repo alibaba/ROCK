@@ -346,12 +346,21 @@ class BatchSandboxProvider(K8sProvider):
             nacos_config = await self._nacos_provider.get_config()
             if nacos_config and K8sConstants.NACOS_TEMPLATE_RULES_KEY in nacos_config:
                 rules_data = nacos_config[K8sConstants.NACOS_TEMPLATE_RULES_KEY]
+                if not isinstance(rules_data, dict):
+                    logger.warning(
+                        f"Invalid template_rules config: expected dict, got {type(rules_data).__name__}"
+                    )
+                    return {}
+
                 rules: dict[str, TemplateSelectorRule] = {}
                 for template_name, rule_data in rules_data.items():
                     if isinstance(rule_data, dict):
                         rules[template_name] = TemplateSelectorRule(**rule_data)
                     else:
-                        rules[template_name] = TemplateSelectorRule()
+                        logger.warning(
+                            f"Skipping invalid template rule {template_name!r}: "
+                            f"expected dict, got {type(rule_data).__name__}"
+                        )
                 logger.debug(f"Loaded {len(rules)} template rules from Nacos")
                 return rules
 
