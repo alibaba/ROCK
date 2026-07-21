@@ -8,7 +8,7 @@ from statemachine.exceptions import TransitionNotAllowed
 
 from rock.actions.sandbox.response import State
 from rock.config import AutoTransitionConfig
-from rock.sandbox.sandbox_statemachine import SandboxStateMachine, parse_iso8601_timestamp
+from rock.sandbox.sandbox_statemachine import SandboxLifecycleHelper, SandboxStateMachine
 
 
 @pytest.fixture
@@ -200,8 +200,8 @@ class TestArchiveHookSideEffects:
             auto_transition=AutoTransitionConfig(auto_delete_seconds=3600, auto_delete_archived_seconds=7200),
         )
         info = sm.sandbox_info
-        archive_time = parse_iso8601_timestamp(info["archive_time"])
-        archived_delete_time = parse_iso8601_timestamp(info["auto_transition_time"])
+        archive_time = SandboxLifecycleHelper.parse_iso8601_timestamp(info["archive_time"])
+        archived_delete_time = SandboxLifecycleHelper.parse_iso8601_timestamp(info["auto_transition_time"])
         assert info["auto_transition_state"] == State.DELETED
         assert (archived_delete_time - archive_time).total_seconds() == 7200
 
@@ -221,8 +221,8 @@ class TestArchiveHookSideEffects:
             auto_transition=AutoTransitionConfig(auto_delete_seconds=3600, auto_delete_archived_seconds=0),
         )
         info = sm.sandbox_info
-        archive_time = parse_iso8601_timestamp(info["archive_time"])
-        archived_delete_time = parse_iso8601_timestamp(info["auto_transition_time"])
+        archive_time = SandboxLifecycleHelper.parse_iso8601_timestamp(info["archive_time"])
+        archived_delete_time = SandboxLifecycleHelper.parse_iso8601_timestamp(info["auto_transition_time"])
         assert info["auto_transition_state"] == State.DELETED
         assert archived_delete_time == archive_time
 
@@ -253,7 +253,7 @@ class TestArchiveHookSideEffects:
         )
         after_failure = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).replace(microsecond=0)
         info = sm.sandbox_info
-        auto_delete_time = parse_iso8601_timestamp(info["auto_transition_time"])
+        auto_delete_time = SandboxLifecycleHelper.parse_iso8601_timestamp(info["auto_transition_time"])
         assert info["state"] == State.STOPPED
         assert info["auto_transition_state"] == State.DELETED
         assert auto_delete_time.tzinfo is not None
@@ -299,7 +299,7 @@ class TestArchiveHookSideEffects:
         )
         after_failure = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).replace(microsecond=0)
         info = sm.sandbox_info
-        auto_delete_time = parse_iso8601_timestamp(info["auto_transition_time"])
+        auto_delete_time = SandboxLifecycleHelper.parse_iso8601_timestamp(info["auto_transition_time"])
         assert info["state"] == State.ARCHIVED
         assert info["auto_transition_state"] == State.DELETED
         assert info["auto_transition_time"] != old_deadline
@@ -325,7 +325,7 @@ class TestArchiveHookSideEffects:
         )
         after_failure = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).replace(microsecond=0)
         info = sm.sandbox_info
-        auto_delete_time = parse_iso8601_timestamp(info["auto_transition_time"])
+        auto_delete_time = SandboxLifecycleHelper.parse_iso8601_timestamp(info["auto_transition_time"])
         assert info["state"] == State.ARCHIVED
         assert info["auto_transition_state"] == State.DELETED
         assert before_failure <= auto_delete_time <= after_failure

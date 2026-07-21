@@ -16,7 +16,7 @@ from statemachine.exceptions import TransitionNotAllowed
 from rock.actions.sandbox.response import State
 from rock.common.constants import StopReason
 from rock.config import AutoTransitionConfig
-from rock.sandbox.sandbox_statemachine import SandboxStateMachine, parse_iso8601_timestamp
+from rock.sandbox.sandbox_statemachine import SandboxLifecycleHelper, SandboxStateMachine
 
 # ---------------------------------------------------------------------------
 # Transitions
@@ -253,8 +253,8 @@ class TestOnStop:
         )
 
         archived = mock_meta_store.archive.call_args[0][1]
-        stop_time = parse_iso8601_timestamp(archived["stop_time"])
-        auto_archive_time = parse_iso8601_timestamp(archived["auto_transition_time"])
+        stop_time = SandboxLifecycleHelper.parse_iso8601_timestamp(archived["stop_time"])
+        auto_archive_time = SandboxLifecycleHelper.parse_iso8601_timestamp(archived["auto_transition_time"])
         assert archived["stop_time"].endswith("+08:00")
         assert archived["auto_transition_state"] == State.ARCHIVED
         assert archived["auto_transition_time"].endswith("+08:00")
@@ -293,8 +293,8 @@ class TestOnStop:
         )
 
         archived = mock_meta_store.archive.call_args[0][1]
-        stop_time = parse_iso8601_timestamp(archived["stop_time"])
-        auto_delete_time = parse_iso8601_timestamp(archived["auto_transition_time"])
+        stop_time = SandboxLifecycleHelper.parse_iso8601_timestamp(archived["stop_time"])
+        auto_delete_time = SandboxLifecycleHelper.parse_iso8601_timestamp(archived["auto_transition_time"])
         assert archived["auto_transition_state"] == State.DELETED
         assert archived["auto_transition_time"].endswith("+08:00")
         assert (auto_delete_time - stop_time).total_seconds() == 1200
@@ -319,8 +319,8 @@ class TestOnStop:
         )
 
         archived = mock_meta_store.archive.call_args.args[1]
-        stop_time = parse_iso8601_timestamp(archived["stop_time"])
-        auto_delete_time = parse_iso8601_timestamp(archived["auto_transition_time"])
+        stop_time = SandboxLifecycleHelper.parse_iso8601_timestamp(archived["stop_time"])
+        auto_delete_time = SandboxLifecycleHelper.parse_iso8601_timestamp(archived["auto_transition_time"])
         assert (auto_delete_time - stop_time).total_seconds() == 3600
 
     @pytest.mark.asyncio
@@ -342,8 +342,8 @@ class TestOnStop:
         )
 
         archived = mock_meta_store.archive.call_args[0][1]
-        stop_time = parse_iso8601_timestamp(archived["stop_time"])
-        auto_archive_time = parse_iso8601_timestamp(archived["auto_transition_time"])
+        stop_time = SandboxLifecycleHelper.parse_iso8601_timestamp(archived["stop_time"])
+        auto_archive_time = SandboxLifecycleHelper.parse_iso8601_timestamp(archived["auto_transition_time"])
         assert archived["auto_transition_state"] == State.ARCHIVED
         assert auto_archive_time == stop_time
 

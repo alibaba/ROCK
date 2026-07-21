@@ -29,63 +29,67 @@ from rock.utils.system import get_iso8601_timestamp
 logger = init_logger(__name__)
 
 
-def parse_iso8601_timestamp(value: str | None) -> datetime.datetime | None:
-    if not value:
-        return None
-    try:
-        parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except (TypeError, ValueError):
-        return None
-    if parsed.tzinfo is None:
-        return None
-    return parsed
+class SandboxLifecycleHelper:
+    """Stateless helpers for sandbox lifecycle policies and timestamps."""
 
+    @staticmethod
+    def parse_iso8601_timestamp(value: str | None) -> datetime.datetime | None:
+        if not value:
+            return None
+        try:
+            parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+        if parsed.tzinfo is None:
+            return None
+        return parsed
 
-def resolve_auto_archive_seconds(info: dict[str, Any]) -> int | None:
-    return _resolve_user_seconds(info, "auto_archive_seconds")
+    @staticmethod
+    def resolve_auto_archive_seconds(info: dict[str, Any]) -> int | None:
+        return SandboxLifecycleHelper._resolve_user_seconds(info, "auto_archive_seconds")
 
+    @staticmethod
+    def resolve_auto_delete_seconds(info: dict[str, Any]) -> int | None:
+        return SandboxLifecycleHelper._resolve_user_seconds(info, "auto_delete_seconds")
 
-def resolve_auto_delete_seconds(info: dict[str, Any]) -> int | None:
-    return _resolve_user_seconds(info, "auto_delete_seconds")
+    @staticmethod
+    def apply_effective_auto_transition_policy(info: dict[str, Any], config: DockerDeploymentConfig) -> None:
+        archive_seconds = SandboxLifecycleHelper.resolve_auto_archive_seconds(info)
+        delete_seconds = SandboxLifecycleHelper.resolve_auto_delete_seconds(info)
+        if archive_seconds is not None:
+            config.auto_archive_seconds = archive_seconds
+            config.auto_delete_seconds = None
+            config.remove_container = False
+        elif delete_seconds is not None:
+            config.auto_archive_seconds = None
+            config.auto_delete_seconds = delete_seconds
+            config.remove_container = delete_seconds == 0
 
+    @staticmethod
+    def _resolve_user_seconds(info: dict[str, Any], field: str) -> int | None:
+        raw = info.get(field)
+        if raw is None:
+            spec = info.get("spec") or {}
+            raw = spec.get(field)
+        return SandboxLifecycleHelper._coerce_seconds(raw)
 
-def apply_effective_auto_transition_policy(info: dict[str, Any], config: DockerDeploymentConfig) -> None:
-    archive_seconds = resolve_auto_archive_seconds(info)
-    delete_seconds = resolve_auto_delete_seconds(info)
-    if archive_seconds is not None:
-        config.auto_archive_seconds = archive_seconds
-        config.auto_delete_seconds = None
-        config.remove_container = False
-    elif delete_seconds is not None:
-        config.auto_archive_seconds = None
-        config.auto_delete_seconds = delete_seconds
-        config.remove_container = delete_seconds == 0
+    @staticmethod
+    def _coerce_seconds(raw: Any) -> int | None:
+        if raw is None:
+            return None
+        if not isinstance(raw, int | str):
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return -1
 
-
-def _resolve_user_seconds(info: dict[str, Any], field: str) -> int | None:
-    raw = info.get(field)
-    if raw is None:
-        spec = info.get("spec") or {}
-        raw = spec.get(field)
-    return _coerce_seconds(raw)
-
-
-def _coerce_seconds(raw: Any) -> int | None:
-    if raw is None:
-        return None
-    if not isinstance(raw, int | str):
-        return None
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return -1
-
-
-def get_current_state_started_at(state_history: list[dict[str, str]], target_state: str) -> str:
-    for record in reversed(state_history):
-        if record.get("to_state") == target_state:
-            return record.get("timestamp", "")
-    return ""
+    @staticmethod
+    def get_current_state_started_at(state_history: list[dict[str, str]], target_state: str) -> str:
+        for record in reversed(state_history):
+            if record.get("to_state") == target_state:
+                return record.get("timestamp", "")
+        return ""
 
 
 class SandboxStateMachine(StateChart):
@@ -175,12 +179,12 @@ class SandboxStateMachine(StateChart):
         sandbox_info["auto_transition_state"] = None
         sandbox_info["auto_transition_time"] = None
         if auto_transition:
-            archive_seconds = resolve_auto_archive_seconds(sandbox_info)
+            archive_seconds = SandboxLifecycleHelper.resolve_auto_archive_seconds(sandbox_info)
             transition_state = RockState.ARCHIVED
             transition_seconds = archive_seconds
             if archive_seconds is None:
                 transition_state = RockState.DELETED
-                transition_seconds = resolve_auto_delete_seconds(sandbox_info)
+                transition_seconds = SandboxLifecycleHelper.resolve_auto_delete_seconds(sandbox_info)
             if transition_seconds is not None and transition_seconds >= 0:
                 sandbox_info["auto_transition_state"] = transition_state
                 sandbox_info["auto_transition_time"] = (now + datetime.timedelta(seconds=transition_seconds)).isoformat(
@@ -236,7 +240,7 @@ class SandboxStateMachine(StateChart):
         spec = info.get("spec") or {}
         if spec:
             restart_config = DockerDeploymentConfig(**spec)
-            apply_effective_auto_transition_policy(info, restart_config)
+            SandboxLifecycleHelper.apply_effective_auto_transition_policy(info, restart_config)
         else:
             logger.warning(
                 f"sandbox {sandbox_id} has no spec snapshot; rebuilding config from flat fields with model defaults"
@@ -414,7 +418,7 @@ class SandboxStateMachine(StateChart):
         spec = sandbox_info.get("spec") or {}
         if spec:
             config = DockerDeploymentConfig(**spec)
-            apply_effective_auto_transition_policy(sandbox_info, config)
+            SandboxLifecycleHelper.apply_effective_auto_transition_policy(sandbox_info, config)
             timeout_info = SandboxTimeoutHelper.make_timeout_info(config.auto_clear_time)
             if timeout_info:
                 await meta_store.update_timeout(sandbox_id, timeout_info)
@@ -428,7 +432,7 @@ class SandboxStateMachine(StateChart):
             if restore_timeout_seconds:
                 archive_params["timeout_seconds"] = restore_timeout_seconds
             config = DockerDeploymentConfig(**spec)
-            apply_effective_auto_transition_policy(sandbox_info, config)
+            SandboxLifecycleHelper.apply_effective_auto_transition_policy(sandbox_info, config)
             new_host_ip = await operator.start_restore(
                 config=config,
                 dir_storage_config=dir_storage.client_config,

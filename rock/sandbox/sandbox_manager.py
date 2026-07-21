@@ -40,11 +40,8 @@ from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.sandbox_statemachine import (
+    SandboxLifecycleHelper,
     SandboxStateMachine,
-    get_current_state_started_at,
-    parse_iso8601_timestamp,
-    resolve_auto_archive_seconds,
-    resolve_auto_delete_seconds,
 )
 from rock.sandbox.service.factory import create_sandbox_proxy_service
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
@@ -313,8 +310,8 @@ class SandboxManager(BaseManager):
             # from DB status, falling back to the legacy spec for old records.
             sm = await self._get_current_statemachine(sandbox_id)
             stopped_info = (sm.sandbox_info or {}) if sm else {}
-            archive_seconds = resolve_auto_archive_seconds(stopped_info)
-            delete_seconds = resolve_auto_delete_seconds(stopped_info)
+            archive_seconds = SandboxLifecycleHelper.resolve_auto_archive_seconds(stopped_info)
+            delete_seconds = SandboxLifecycleHelper.resolve_auto_delete_seconds(stopped_info)
             spec = stopped_info.get("spec") or {}
             remove_container = archive_seconds is None and (
                 delete_seconds == 0 or (delete_seconds is None and spec.get("remove_container"))
@@ -578,7 +575,7 @@ class SandboxManager(BaseManager):
             if not sandbox_id:
                 continue
 
-            due_time = parse_iso8601_timestamp(info.get("auto_transition_time"))
+            due_time = SandboxLifecycleHelper.parse_iso8601_timestamp(info.get("auto_transition_time"))
             if due_time is None:
                 continue
 
@@ -615,7 +612,7 @@ class SandboxManager(BaseManager):
             if not sandbox_id:
                 continue
 
-            due_time = parse_iso8601_timestamp(info.get("auto_transition_time"))
+            due_time = SandboxLifecycleHelper.parse_iso8601_timestamp(info.get("auto_transition_time"))
             if due_time is None:
                 continue
             if now < due_time:
@@ -656,7 +653,7 @@ class SandboxManager(BaseManager):
             if not sandbox_id:
                 continue
 
-            due_time = parse_iso8601_timestamp(info.get("auto_transition_time"))
+            due_time = SandboxLifecycleHelper.parse_iso8601_timestamp(info.get("auto_transition_time"))
             if due_time is None:
                 continue
 
@@ -810,7 +807,7 @@ class SandboxManager(BaseManager):
                 logger.info(f"[reconcile_archiving] {sandbox_id} advanced to {sm.current_state.value.value}")
                 continue
 
-            started_at = get_current_state_started_at(info.get("state_history", []), "archiving")
+            started_at = SandboxLifecycleHelper.get_current_state_started_at(info.get("state_history", []), "archiving")
             if not started_at:
                 continue
             try:
@@ -853,7 +850,9 @@ class SandboxManager(BaseManager):
                 continue
             try:
                 # 1. Restore timeout (archive_time present = restoring from ARCHIVED)
-                started_at = get_current_state_started_at(info.get("state_history", []), "pending")
+                started_at = SandboxLifecycleHelper.get_current_state_started_at(
+                    info.get("state_history", []), "pending"
+                )
                 if info.get("archive_time") and started_at:
                     try:
                         started = datetime.datetime.fromisoformat(started_at.replace("Z", "+00:00"))
