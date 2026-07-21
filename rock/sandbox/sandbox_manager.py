@@ -269,10 +269,32 @@ class SandboxManager(BaseManager):
         if state == State.DELETED:
             logger.info(f"delete: sandbox {sandbox_id} already deleted, noop")
             return
-        if state not in (State.STOPPED, State.ARCHIVED):
+        deletable_states = {State.STOPPED, State.ARCHIVED}
+        is_opensandbox = self.rock_config.runtime.operator_type.lower() == "opensandbox"
+        if is_opensandbox:
+            # OpenSandbox exposes kill/delete rather than ROCK's stop contract,
+            # so a live remote sandbox must be directly deletable.
+            deletable_states.add(State.RUNNING)
+        if state not in deletable_states:
             raise BadRequestRockError(
                 f"Sandbox {sandbox_id} cannot be deleted: current state is '{state.value}', must be stopped or archived first"
             )
+
+        if is_opensandbox and state == State.RUNNING:
+            # Active metadata is served from Redis, while the deployment spec
+            # is stored only in the DB. Rebuild the small subset required by
+            # OpenSandboxOperator.delete so the remote sandbox is actually
+            # killed instead of merely soft-deleting ROCK's metadata.
+            sandbox_info = sm.sandbox_info or {}
+            if not sandbox_info.get("spec"):
+                sandbox_info["spec"] = {
+                    "container_name": sandbox_id,
+                    "image": sandbox_info.get("image") or DockerDeploymentConfig.model_fields["image"].default,
+                    "memory": sandbox_info.get("memory") or DockerDeploymentConfig.model_fields["memory"].default,
+                    "cpus": float(sandbox_info.get("cpus") or DockerDeploymentConfig.model_fields["cpus"].default),
+                    "extended_params": sandbox_info.get("extended_params") or {},
+                }
+                sm.sandbox_info = sandbox_info
 
         await sm.send(
             "delete",

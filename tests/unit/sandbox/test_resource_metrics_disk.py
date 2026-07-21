@@ -1,6 +1,6 @@
 """Unit tests for disk resource metrics collection and reporting."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -67,3 +67,15 @@ async def test_report_system_resource_metrics_records_disk(sandbox_manager):
     assert calls[MetricsConstants.AVAILABLE_DISK_RESOURCE] == 60.0
     assert calls[MetricsConstants.TOTAL_CPU_RESOURCE] == 8
     assert calls[MetricsConstants.AVAILABLE_CPU_RESOURCE] == 4
+
+
+@pytest.mark.asyncio
+async def test_opensandbox_metrics_skip_ray_system_resources(sandbox_manager, monkeypatch):
+    monkeypatch.setattr(sandbox_manager.rock_config.runtime, "operator_type", "opensandbox")
+    sandbox_manager._report_system_resource_metrics = AsyncMock()
+    sandbox_manager._collect_sandbox_meta = AsyncMock(return_value=(0, {}))
+
+    await sandbox_manager._collect_and_report_metrics_internal()
+
+    sandbox_manager._report_system_resource_metrics.assert_not_awaited()
+    sandbox_manager._collect_sandbox_meta.assert_awaited_once()

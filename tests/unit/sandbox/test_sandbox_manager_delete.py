@@ -70,6 +70,32 @@ class TestDelete:
         manager._operator.delete.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_opensandbox_delete_from_running_kills_and_archives(self, manager):
+        manager.rock_config.runtime.operator_type = "opensandbox"
+        manager._meta_store.get = AsyncMock(
+            return_value={
+                "sandbox_id": "sb-1",
+                "state": State.RUNNING,
+                "host_ip": "opensandbox.local",
+                # Active sandbox metadata comes from Redis, while ``spec`` is
+                # DB-only and is therefore absent on this path.
+                "image": "python:3.11",
+                "memory": "2g",
+                "cpus": 1,
+                "extended_params": {"opensandbox_id": "osb-1", "backend": "opensandbox"},
+            }
+        )
+
+        await manager.delete("sb-1")
+
+        manager._operator.delete.assert_awaited_once()
+        delete_config = manager._operator.delete.call_args.args[0]
+        assert delete_config.container_name == "sb-1"
+        assert delete_config.extended_params["opensandbox_id"] == "osb-1"
+        manager._meta_store.archive.assert_awaited_once()
+        assert manager._meta_store.archive.call_args[0][1]["state"] == State.DELETED
+
+    @pytest.mark.asyncio
     async def test_delete_from_stopped_archives_with_deleted_state(self, manager):
         manager._meta_store.get = AsyncMock(
             return_value={

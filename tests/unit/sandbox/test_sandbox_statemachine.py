@@ -345,10 +345,10 @@ class TestDeleteTransitions:
             await sm.send("delete", **self._kwargs())
 
     @pytest.mark.asyncio
-    async def test_delete_from_running_raises(self):
+    async def test_delete_from_running_transitions_to_deleted(self):
         sm = await SandboxStateMachine.from_state_value(State.RUNNING, sandbox_info={})
-        with pytest.raises(TransitionNotAllowed):
-            await sm.send("delete", **self._kwargs())
+        await sm.send("delete", **self._kwargs())
+        assert sm.deleted.is_active
 
     @pytest.mark.asyncio
     async def test_deleted_is_final_no_transitions_allowed(self):

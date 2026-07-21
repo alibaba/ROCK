@@ -55,6 +55,7 @@ def handle_exceptions(error_message: str = "error occurred"):
                 return RockResponse(
                     status=ResponseStatus.FAILED,
                     message=error_message,
+                    error=str(e),
                     result=from_rock_exception(e),
                 )
             except Exception as e:

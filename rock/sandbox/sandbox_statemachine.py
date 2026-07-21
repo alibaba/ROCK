@@ -45,7 +45,7 @@ class SandboxStateMachine(StateChart):
         - stop:      pending/running → stopped  (stops operator, archives meta)
         - stop_noop: stopped → stopped  (idempotent; logs and returns)
         - alive:     pending → running  (called from get_status on pending→running; also usable by reconciler)
-        - delete:    stopped → deleted  (operator removes docker container, soft-deletes meta)
+        - delete:    running/stopped/archived → deleted (running is used by backends without stop, e.g. OpenSandbox)
     """
 
     allow_event_without_transition = False  # raise TransitionNotAllowed instead of silently ignoring invalid events
@@ -64,7 +64,7 @@ class SandboxStateMachine(StateChart):
     stop_noop = stopped.to(stopped)
     alive = pending.to(running)
     restart = stopped.to(pending)
-    delete = stopped.to(deleted) | archived.to(deleted)
+    delete = running.to(deleted) | stopped.to(deleted) | archived.to(deleted)
     archive = stopped.to(archiving)
     archive_done = archiving.to(archived)
     archive_failed = archiving.to(stopped)

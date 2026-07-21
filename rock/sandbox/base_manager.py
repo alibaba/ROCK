@@ -101,7 +101,11 @@ class BaseManager(ABC):
     async def _collect_and_report_metrics_internal(self):
         """Collect and report metrics for all sandboxes"""
         overall_start = time.perf_counter()
-        await self._report_system_resource_metrics()
+        # CPU/memory/disk capacity is currently sourced from Ray. External
+        # orchestrators still report backend-independent sandbox counts below,
+        # but must not touch Ray when admin intentionally started without it.
+        if self.rock_config.runtime.operator_type.lower() == "ray":
+            await self._report_system_resource_metrics()
 
         sandbox_cnt, sandbox_meta = await self._collect_sandbox_meta()
         if sandbox_cnt == 0:
@@ -163,12 +167,10 @@ class BaseManager(ABC):
         return cnt, meta
 
     @abstractmethod
-    async def _auto_transition(self):
-        ...
+    async def _auto_transition(self): ...
 
     @abstractmethod
-    async def _reconcile(self):
-        ...
+    async def _reconcile(self): ...
 
     def stop_monitoring(self):
         if self.scheduler and self.scheduler.running:
