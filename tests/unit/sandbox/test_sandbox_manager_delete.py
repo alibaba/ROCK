@@ -96,6 +96,27 @@ class TestDelete:
         assert manager._meta_store.archive.call_args[0][1]["state"] == State.DELETED
 
     @pytest.mark.asyncio
+    async def test_opensandbox_delete_from_running_kill_failure_preserves_running(self, manager):
+        manager.rock_config.runtime.operator_type = "opensandbox"
+        manager._meta_store.get = AsyncMock(
+            return_value={
+                "sandbox_id": "sb-1",
+                "state": State.RUNNING,
+                "host_ip": "opensandbox.local",
+                "image": "python:3.11",
+                "memory": "2g",
+                "cpus": 1,
+                "extended_params": {"opensandbox_id": "osb-1", "backend": "opensandbox"},
+            }
+        )
+        manager._operator.delete.side_effect = RuntimeError("kill failed")
+
+        with pytest.raises(RuntimeError, match="kill failed"):
+            await manager.delete("sb-1")
+
+        manager._meta_store.archive.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_delete_from_stopped_archives_with_deleted_state(self, manager):
         manager._meta_store.get = AsyncMock(
             return_value={

@@ -345,15 +345,38 @@ class TestDeleteTransitions:
             await sm.send("delete", **self._kwargs())
 
     @pytest.mark.asyncio
-    async def test_delete_from_running_transitions_to_deleted(self):
+    async def test_delete_from_running_raises(self):
         sm = await SandboxStateMachine.from_state_value(State.RUNNING, sandbox_info={})
-        await sm.send("delete", **self._kwargs())
+        with pytest.raises(TransitionNotAllowed):
+            await sm.send("delete", **self._kwargs())
+
+    @pytest.mark.asyncio
+    async def test_delete_running_from_running_transitions_to_deleted(self):
+        sm = await SandboxStateMachine.from_state_value(State.RUNNING, sandbox_info=dict(_VALID_DELETE_INFO))
+        operator = AsyncMock()
+        meta_store = AsyncMock()
+        await sm.send("delete_running", **self._kwargs(operator=operator, meta_store=meta_store))
         assert sm.deleted.is_active
+        operator.delete.assert_awaited_once()
+        meta_store.archive.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_running_failure_preserves_running(self):
+        operator = AsyncMock()
+        operator.delete.side_effect = RuntimeError("kill failed")
+        meta_store = AsyncMock()
+        sm = await SandboxStateMachine.from_state_value(State.RUNNING, sandbox_info=dict(_VALID_DELETE_INFO))
+
+        with pytest.raises(RuntimeError, match="kill failed"):
+            await sm.send("delete_running", **self._kwargs(operator=operator, meta_store=meta_store))
+
+        assert sm.running.is_active
+        meta_store.archive.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_deleted_is_final_no_transitions_allowed(self):
         sm = await SandboxStateMachine.from_state_value(State.DELETED, sandbox_info={})
-        for event in ("stop", "stop_noop", "alive", "restart", "delete"):
+        for event in ("stop", "stop_noop", "alive", "restart", "delete", "delete_running"):
             with pytest.raises(TransitionNotAllowed):
                 await sm.send(event, **self._kwargs(), sandbox_info={})
 

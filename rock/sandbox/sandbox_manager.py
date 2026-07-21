@@ -296,8 +296,9 @@ class SandboxManager(BaseManager):
                 }
                 sm.sandbox_info = sandbox_info
 
+        delete_event = "delete_running" if is_opensandbox and state == State.RUNNING else "delete"
         await sm.send(
-            "delete",
+            delete_event,
             sandbox_id=sandbox_id,
             operator=self._operator,
             meta_store=self._meta_store,

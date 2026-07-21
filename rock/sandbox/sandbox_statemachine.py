@@ -45,7 +45,8 @@ class SandboxStateMachine(StateChart):
         - stop:      pending/running → stopped  (stops operator, archives meta)
         - stop_noop: stopped → stopped  (idempotent; logs and returns)
         - alive:     pending → running  (called from get_status on pending→running; also usable by reconciler)
-        - delete:    running/stopped/archived → deleted (running is used by backends without stop, e.g. OpenSandbox)
+        - delete:    stopped/archived → deleted
+        - delete_running: running → deleted (strict remote deletion for backends without stop, e.g. OpenSandbox)
     """
 
     allow_event_without_transition = False  # raise TransitionNotAllowed instead of silently ignoring invalid events
@@ -64,7 +65,8 @@ class SandboxStateMachine(StateChart):
     stop_noop = stopped.to(stopped)
     alive = pending.to(running)
     restart = stopped.to(pending)
-    delete = running.to(deleted) | stopped.to(deleted) | archived.to(deleted)
+    delete = stopped.to(deleted) | archived.to(deleted)
+    delete_running = running.to(deleted)
     archive = stopped.to(archiving)
     archive_done = archiving.to(archived)
     archive_failed = archiving.to(stopped)
@@ -227,6 +229,33 @@ class SandboxStateMachine(StateChart):
                 await image_storage.delete(ref)
             except Exception as e:
                 logger.warning(f"delete: cleanup archive image {ref} failed: {e}")
+
+        sandbox_info["state"] = RockState.DELETED
+        sandbox_info["delete_time"] = get_iso8601_timestamp()
+        await meta_store.archive(sandbox_id, sandbox_info)
+        self.sandbox_info = sandbox_info
+
+    async def on_delete_running(
+        self,
+        sandbox_id: str,
+        operator,
+        meta_store,
+        reason: DeleteReason = DeleteReason.MANUAL,
+        dir_storage=None,
+        image_storage=None,
+    ) -> None:
+        """Delete a live sandbox without hiding a failed remote kill."""
+        logger.info(f"delete running sandbox {sandbox_id} (reason={reason.value})")
+        sandbox_info = self.sandbox_info or {}
+        if "sandbox_id" not in sandbox_info:
+            sandbox_info["sandbox_id"] = sandbox_id
+
+        spec = sandbox_info.get("spec") or {}
+        if not spec:
+            raise BadRequestRockError(f"Sandbox {sandbox_id} has no spec snapshot; cannot delete a running sandbox")
+
+        delete_config = DockerDeploymentConfig(**spec)
+        await operator.delete(delete_config, host_ip=sandbox_info.get("host_ip"))
 
         sandbox_info["state"] = RockState.DELETED
         sandbox_info["delete_time"] = get_iso8601_timestamp()
