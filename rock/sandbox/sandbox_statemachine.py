@@ -263,6 +263,7 @@ class SandboxStateMachine(StateChart):
         # fields (spec/status) won't pollute the alive key.
         new_info = dict(info)
         new_info["state"] = RockState.PENDING
+        new_info["start_time"] = None
         new_info["stop_time"] = None
         new_info["auto_transition_state"] = None
         new_info["auto_transition_time"] = None
