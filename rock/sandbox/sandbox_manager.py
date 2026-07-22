@@ -45,7 +45,7 @@ from rock.sandbox.sandbox_statemachine import (
 )
 from rock.sandbox.service.factory import create_sandbox_proxy_service
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
-from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
+from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils import REQUEST_TIMEOUT_SECONDS, StageTimer
 from rock.utils.crypto_utils import AESEncryption
 from rock.utils.format import convert_to_gb, parse_size_to_bytes
@@ -77,7 +77,10 @@ class SandboxManager(BaseManager):
         self._dir_storage = None
         self._image_storage = None
         self._init_archive_storage(rock_config)
-        self._aes_encrypter = AESEncryption()
+        aes_encrypt_key = rock_config.aes_encrypt_key
+        if not aes_encrypt_key:
+            raise ValueError("aes_encrypt_key must be configured in YAML for the admin role")
+        self._aes_encrypter = AESEncryption(aes_encrypt_key)
         self._proxy_service = create_sandbox_proxy_service(rock_config=rock_config, meta_store=meta_store)
         logger.info("sandbox service init success")
 
@@ -106,15 +109,6 @@ class SandboxManager(BaseManager):
             return None
         return await SandboxStateMachine.from_state_value(info.get("state"), sandbox_info=info)
 
-    async def refresh_aes_key(self):
-        try:
-            await self.rock_config.update()
-            if aes_encrypt_key := self.rock_config.proxy_service.aes_encrypt_key:
-                self._aes_encrypter.key_update(aes_encrypt_key)
-        except Exception as e:
-            logger.error(f"update aes key failed, error: {e}")
-            raise InternalServerRockError(f"update aes key failed, {str(e)}")
-
     async def _check_sandbox_exists_in_redis(self, config: DeploymentConfig):
         if isinstance(config, DockerDeploymentConfig) and config.container_name:
             sandbox_id = config.container_name
@@ -139,7 +133,6 @@ class SandboxManager(BaseManager):
         sandbox_info["namespace"] = user_info.get("namespace", "default")
         sandbox_info["cluster_name"] = cluster_info.get("cluster_name", "default")
         rock_auth = user_info.get("rock_authorization", "default")
-        await self.refresh_aes_key()
         sandbox_info["rock_authorization_encrypted"] = self._aes_encrypter.encrypt(rock_auth)
         sandbox_info["state"] = State.PENDING
         sandbox_info["create_time"] = get_iso8601_timestamp()

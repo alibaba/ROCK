@@ -11,6 +11,8 @@ warmup:
     images:
       - "python:3.11"
 
+aes_encrypt_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
 # Image registry mirror — configured via Nacos (hot-reload supported).
 # Nacos YAML format:
 #

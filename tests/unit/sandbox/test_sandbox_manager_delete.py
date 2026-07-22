@@ -15,12 +15,16 @@ from rock.common.constants import DeleteReason
 from rock.config import RockConfig, SandboxConfig
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sdk.common.exceptions import BadRequestRockError
+from rock.utils.crypto_utils import AESEncryption
+
+TEST_AES_ENCRYPT_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
 
 @pytest.fixture
 def rock_config_min():
     cfg = RockConfig()
     cfg.sandbox_config = SandboxConfig()
+    cfg.aes_encrypt_key = TEST_AES_ENCRYPT_KEY
     return cfg
 
 
@@ -40,6 +44,26 @@ def manager(rock_config_min):
             operator=operator,
         )
     return m
+
+
+def test_init_requires_yaml_aes_encrypt_key():
+    config = RockConfig()
+    with (
+        patch("rock.sandbox.base_manager.BaseManager._setup_scheduler"),
+        pytest.raises(ValueError, match="aes_encrypt_key must be configured in YAML"),
+    ):
+        SandboxManager(
+            rock_config=config,
+            meta_store=AsyncMock(),
+            ray_namespace="test",
+            ray_service=MagicMock(),
+            operator=AsyncMock(),
+        )
+
+
+def test_init_uses_yaml_aes_encrypt_key(manager):
+    ciphertext = manager._aes_encrypter.encrypt("rock-authorization")
+    assert AESEncryption(TEST_AES_ENCRYPT_KEY).decrypt(ciphertext) == "rock-authorization"
 
 
 class TestDelete:

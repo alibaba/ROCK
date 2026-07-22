@@ -7,7 +7,12 @@ import pytest
 import yaml
 
 import rock.config as config_module
-from rock.config import ImageRegistryMirror, RockConfig, RuntimeConfig, _resolve_k8s_template_includes
+from rock.config import (
+    ImageRegistryMirror,
+    RockConfig,
+    RuntimeConfig,
+    _resolve_k8s_template_includes,
+)
 
 
 @pytest.mark.asyncio
@@ -33,6 +38,24 @@ def test_logging_config_from_yaml(tmp_path, monkeypatch, enabled):
     rock_config = RockConfig.from_env(str(yaml_path))
 
     assert rock_config.logging.exception_traceback_enabled is enabled
+
+
+def test_aes_encrypt_key_loads_from_yaml_top_level(tmp_path):
+    yaml_path = tmp_path / "rock-test.yml"
+    yaml_path.write_text(
+        yaml.safe_dump(
+            {
+                "aes_encrypt_key": "yaml-key",
+                "proxy_service": {"timeout": 42.0},
+            }
+        )
+    )
+
+    rock_config = RockConfig.from_env(str(yaml_path))
+
+    assert rock_config.aes_encrypt_key == "yaml-key"
+    assert not hasattr(rock_config.proxy_service, "aes_encrypt_key")
+    assert rock_config.proxy_service.timeout == 42.0
 
 
 @pytest.mark.asyncio
@@ -340,6 +363,28 @@ def test_sandbox_config_coerces_nested_dicts_from_yaml():
 
 
 # ===== Nacos hot-reload for image mirror config =====
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("yaml_key", [None, "yaml-key"])
+async def test_nacos_update_ignores_aes_encrypt_key(yaml_key):
+    rock_config = RockConfig(aes_encrypt_key=yaml_key)
+    rock_config.nacos_provider = MagicMock()
+    rock_config.nacos_provider.get_config = AsyncMock(
+        return_value={
+            "aes_encrypt_key": "nacos-top-level-key",
+            "proxy_service": {
+                "aes_encrypt_key": "nacos-proxy-key",
+                "timeout": 42.0,
+            },
+        }
+    )
+
+    await rock_config.update()
+
+    assert rock_config.aes_encrypt_key == yaml_key
+    assert not hasattr(rock_config.proxy_service, "aes_encrypt_key")
+    assert rock_config.proxy_service.timeout == 42.0
 
 
 @pytest.mark.asyncio
