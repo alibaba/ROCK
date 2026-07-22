@@ -495,6 +495,69 @@ async def test_nacos_update_without_runtime_key_preserves_instance_mirrors():
     assert rock_config.runtime.instance_registry_mirrors == ["keep.example.com/ns"]
 
 
+# ===== Nacos hot-reload for max_allowed_spec =====
+
+
+@pytest.mark.asyncio
+async def test_nacos_update_loads_max_allowed_spec():
+    rock_config = RockConfig()
+    rock_config.nacos_provider = MagicMock()
+    rock_config.nacos_provider.get_config = AsyncMock(
+        return_value={
+            "runtime": {
+                "max_allowed_spec": {
+                    "cpus": 32,
+                    "memory": "128g",
+                    "disk": "512g",
+                },
+            },
+        }
+    )
+
+    await rock_config.update()
+
+    assert rock_config.runtime.max_allowed_spec.cpus == 32
+    assert rock_config.runtime.max_allowed_spec.memory == "128g"
+    assert rock_config.runtime.max_allowed_spec.disk == "512g"
+
+
+@pytest.mark.asyncio
+async def test_nacos_max_allowed_spec_partial_update_preserves_yaml_values():
+    rock_config = RockConfig(
+        runtime=RuntimeConfig(
+            max_allowed_spec={
+                "cpus": 8,
+                "memory": "32g",
+                "disk": "128g",
+            }
+        )
+    )
+    rock_config.nacos_provider = MagicMock()
+    rock_config.nacos_provider.get_config = AsyncMock(
+        return_value={"runtime": {"max_allowed_spec": {"cpus": 12}}}
+    )
+
+    await rock_config.update()
+
+    assert rock_config.runtime.max_allowed_spec.cpus == 12
+    assert rock_config.runtime.max_allowed_spec.memory == "32g"
+    assert rock_config.runtime.max_allowed_spec.disk == "128g"
+
+
+@pytest.mark.asyncio
+async def test_nacos_without_max_allowed_spec_preserves_existing_limit():
+    rock_config = RockConfig()
+    rock_config.runtime.max_allowed_spec.cpus = 10
+    rock_config.nacos_provider = MagicMock()
+    rock_config.nacos_provider.get_config = AsyncMock(
+        return_value={"runtime": {"instance_registry_mirrors": ["reg.example.com/ns"]}}
+    )
+
+    await rock_config.update()
+
+    assert rock_config.runtime.max_allowed_spec.cpus == 10
+
+
 # ===== _resolve_k8s_template_includes =====
 
 

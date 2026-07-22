@@ -751,11 +751,15 @@ class RockConfig:
             runtime_overrides = nacos_result["runtime"]
             if "instance_registry_mirrors" in runtime_overrides:
                 self.runtime.instance_registry_mirrors = list(runtime_overrides["instance_registry_mirrors"] or [])
+            max_allowed_spec = runtime_overrides.get("max_allowed_spec")
+            if isinstance(max_allowed_spec, dict):
+                _merge_dataclass(self.runtime.max_allowed_spec, max_allowed_spec)
 
         logger.info(
             f"Updated config from Nacos: sandbox_config={self.sandbox_config}, proxy_service={self.proxy_service}"
             f", image_registry_mirrors={self.image_registry_mirrors}"
             f", image_mirror_lookup_allowlist={self.image_mirror_lookup_allowlist}"
             f", instance_registry_mirrors={self.runtime.instance_registry_mirrors}"
+            f", max_allowed_spec={self.runtime.max_allowed_spec}"
             f", lifecycle={self.lifecycle}"
         )
