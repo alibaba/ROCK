@@ -25,7 +25,6 @@ class SandboxInfo(TypedDict, total=False):
     create_time: str
     start_time: str
     stop_time: str
-    auto_stop_time: str
     delete_time: str
     archive_time: str
     auto_transition_state: State

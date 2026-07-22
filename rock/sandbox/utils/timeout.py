@@ -76,7 +76,7 @@ class SandboxTimeoutHelper:
 
         if normalized_state in (State.PENDING.value, State.RUNNING.value):
             return (
-                SandboxTimeoutHelper.auto_stop_time_from_timeout(timeout_info) or sandbox_info.get("auto_stop_time"),
+                SandboxTimeoutHelper.auto_stop_time_from_timeout(timeout_info),
                 None,
                 None,
             )

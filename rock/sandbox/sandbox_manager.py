@@ -166,9 +166,6 @@ class SandboxManager(BaseManager):
             sandbox_info["disk"] = docker_deployment_config.disk
         await self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)
         timeout_info = SandboxTimeoutHelper.make_timeout_info(docker_deployment_config.auto_clear_time)
-        auto_stop_time = SandboxTimeoutHelper.auto_stop_time_from_timeout(timeout_info)
-        if auto_stop_time is not None:
-            sandbox_info["auto_stop_time"] = auto_stop_time
         with StageTimer("startup_timing", f"[{sandbox_id}] Meta store create", logger):
             await self._meta_store.create(
                 sandbox_id,

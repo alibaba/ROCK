@@ -185,7 +185,6 @@ class TestManagerGetStatus:
             "state": State.RUNNING,
             "auto_archive_seconds": 600,
             "auto_delete_seconds": 1200,
-            "auto_stop_time": "2026-01-01T00:30:00+00:00",
             "auto_transition_state": State.ARCHIVED,
             "auto_transition_time": "2026-01-01T00:10:00+00:00",
         }
@@ -199,7 +198,7 @@ class TestManagerGetStatus:
 
         result = await mgr.get_status("sb-1")
 
-        assert result.auto_stop_time == "2026-01-01T00:30:00+00:00"
+        assert result.auto_stop_time is None
         assert result.auto_archive_time is None
         assert result.auto_delete_time is None
 

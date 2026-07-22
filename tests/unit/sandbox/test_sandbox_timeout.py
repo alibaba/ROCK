@@ -2,6 +2,7 @@
 
 import time
 
+from rock.actions.sandbox.response import State
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 
 
@@ -53,3 +54,22 @@ class TestIsExpired:
     def test_returns_true_when_expire_time_missing(self):
         # Missing key → defaults to 0, always in the past
         assert SandboxTimeoutHelper.is_expired({}) is True
+
+
+class TestAutoTransitionTimesForStatus:
+    def test_active_sandbox_uses_timeout_info(self):
+        result = SandboxTimeoutHelper.auto_transition_times_for_status(
+            State.RUNNING,
+            {},
+            {"auto_clear_time": "30", "expire_time": "9999999999"},
+        )
+
+        assert result == ("2286-11-21T01:46:39+08:00", None, None)
+
+    def test_active_sandbox_does_not_fallback_to_persisted_auto_stop_time(self):
+        result = SandboxTimeoutHelper.auto_transition_times_for_status(
+            State.RUNNING,
+            {"auto_stop_time": "2026-01-01T00:30:00+00:00"},
+        )
+
+        assert result == (None, None, None)
