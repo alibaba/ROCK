@@ -3,7 +3,6 @@ import base64
 import re
 import shlex
 import time
-from collections.abc import Callable
 from datetime import datetime
 
 from pydantic import BaseModel
@@ -13,6 +12,7 @@ from rock.actions import CommandResponse, CommitErrorCode, CommitPhase, CommitSt
 from rock.admin.proto.request import CommitRequest, SandboxCommand
 from rock.deployments.constants import Port
 from rock.sandbox.remote_sandbox import RemoteSandboxRuntime
+from rock.sdk.common.exceptions import WorkerCommitError
 from rock.utils import ImageUtil, extract_nohup_pid
 
 COMMIT_TIMEOUT_SECONDS = 7200
@@ -37,12 +37,6 @@ _PROTOCOL_KEYS = {
 _REQUIRED_STATE_KEYS = {"phase", "image_tag", "pid", "pid_start_ticks", "run_started_at", "started_at"}
 _PID_MARKER = re.compile(r"PIDSTART[0-9]+PIDEND")
 _TEMPLATE_PLACEHOLDER = re.compile(r"__([A-Z_]+)__")
-
-
-class WorkerCommitError(Exception):
-    def __init__(self, code: CommitErrorCode, message: str):
-        super().__init__(message)
-        self.code = code
 
 
 class WorkerCommitState(BaseModel):
@@ -501,13 +495,6 @@ class CommitShellBuilder:
         )
 
 
-RuntimeFactory = Callable[[str], RemoteSandboxRuntime]
-
-
-def _default_runtime_factory(host_ip: str) -> RemoteSandboxRuntime:
-    return RemoteSandboxRuntime(host=host_ip, port=Port.PROXY.value)
-
-
 def _response_error(response: CommandResponse) -> WorkerCommitError | None:
     error_codes = []
     for line in response.stdout.split("\n"):
@@ -525,15 +512,13 @@ def _response_error(response: CommandResponse) -> WorkerCommitError | None:
 class CommitWorkerExecutor:
     def __init__(
         self,
-        runtime_factory: RuntimeFactory = _default_runtime_factory,
         *,
         _shell_builder: CommitShellBuilder | None = None,
     ):
-        self._runtime_factory = runtime_factory
         self._shell_builder = _shell_builder or CommitShellBuilder(status_dir=WORKER_STATUS_DIR)
 
     async def _execute(self, host_ip: str, sandbox_id: str, command: str) -> CommandResponse:
-        runtime = self._runtime_factory(host_ip)
+        runtime = RemoteSandboxRuntime(host=host_ip, port=Port.PROXY.value)
         request = SandboxCommand(
             sandbox_id=sandbox_id,
             command=["bash", "-c", command],

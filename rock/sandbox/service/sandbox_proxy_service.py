@@ -45,11 +45,11 @@ from rock.deployments.status import ServiceStatus
 from rock.common.port_validation import validate_port_forward_port
 from rock.logger import init_logger
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
-from rock.sandbox.service.commit_worker import CommitWorkerExecutor, WorkerCommitError
+from rock.sandbox.service.commit_worker import CommitWorkerExecutor
 from rock.sandbox.utils.proxy import BLOCKED_WS_HEADER_NAMES, build_upstream_ws_headers
 from rock.sandbox.utils.rocklet_probe import check_alive_status, get_remote_status
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
-from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
+from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError, WorkerCommitError
 from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
 from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var

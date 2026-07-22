@@ -2,21 +2,21 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+import rock.sandbox.service.commit_worker as commit_worker
 from rock import env_vars
 from rock.actions import CommandResponse, CommitErrorCode, CommitPhase, CommitStatusResponse
 from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_sandbox_proxy_service
 from rock.admin.proto.request import CommitRequest
-from rock.sandbox.remote_sandbox import RemoteSandboxRuntime
+from rock.deployments.constants import Port
 from rock.sandbox.service.commit_worker import (
     DISPATCH_TIMEOUT_SECONDS,
     WORKER_STATUS_DIR,
     CommitShellBuilder,
     CommitWorkerExecutor,
-    WorkerCommitError,
     WorkerCommitState,
-    _default_runtime_factory,
 )
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+from rock.sdk.common.exceptions import WorkerCommitError
 from rock.sdk.sandbox.client import Sandbox
 from rock.utils import HttpUtils
 
@@ -146,7 +146,6 @@ async def test_commit_post_running_then_get_succeeded(monkeypatch: pytest.Monkey
 @pytest.mark.asyncio
 async def test_commit_rejects_protocol_delimiters_and_maps_worker_errors():
     assert WORKER_STATUS_DIR == f"{env_vars.ROCK_SERVICE_STATUS_DIR}/commit"
-    assert type(_default_runtime_factory("10.0.0.8")) is RemoteSandboxRuntime
     status_paths = CommitShellBuilder(WORKER_STATUS_DIR)
     for sandbox_id in ("contains/slash", "contains\x00nul"):
         with pytest.raises(ValueError):
@@ -193,8 +192,16 @@ async def test_commit_rejects_protocol_delimiters_and_maps_worker_errors():
 @pytest.mark.asyncio
 async def test_commit_uses_database_metadata_and_returns_not_found_and_process_lost(monkeypatch: pytest.MonkeyPatch):
     runtime = _CapturingRuntime()
-    executor = CommitWorkerExecutor(runtime_factory=lambda _host_ip: runtime)
+    runtime_arguments = []
+
+    def capturing_runtime(*, host: str, port: int):
+        runtime_arguments.append((host, port))
+        return runtime
+
+    monkeypatch.setattr(commit_worker, "RemoteSandboxRuntime", capturing_runtime)
+    executor = CommitWorkerExecutor()
     await executor._execute("10.0.0.8", "sandbox-1", "echo committed")
+    assert runtime_arguments == [("10.0.0.8", Port.PROXY.value)]
     transport_request = runtime.requests[0]
     assert transport_request.command == ["bash", "-c", "echo committed"]
     assert transport_request.shell is False
