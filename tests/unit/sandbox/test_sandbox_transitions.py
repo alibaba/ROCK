@@ -8,11 +8,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from rock import InternalServerRockError
 from rock.actions.sandbox.response import State
 from rock.admin.proto.response import SandboxStartResponse
 from rock.common.constants import StopReason
 from rock.config import AutoTransitionConfig, SandboxLifecycleConfig
 from rock.sandbox.sandbox_manager import SandboxManager
+from rock.sandbox.sandbox_statemachine import SandboxLifecycleHelper
 from rock.sdk.common.exceptions import BadRequestRockError
 
 
@@ -428,22 +430,31 @@ class TestManagerStart:
         assert mock_meta_store.update.await_count == 2
 
     @pytest.mark.asyncio
-    async def test_submit_failure_keeps_pending_record_with_spec_timeout_and_effective_policy(
+    async def test_submit_failure_marks_pending_record_for_immediate_deletion(
         self, mgr_start, mock_meta_store, mock_operator, mock_docker_config
     ):
-        mock_docker_config.auto_delete_seconds = 7200
+        mock_docker_config.auto_archive_seconds = 600
         mock_operator.submit.side_effect = RuntimeError("ray submit failed")
 
-        with pytest.raises(RuntimeError, match="ray submit failed"):
+        with pytest.raises(
+            InternalServerRockError,
+            match="Sandbox sb-1 submission failed and has been marked for immediate deletion: ray submit failed",
+        ):
             await mgr_start.start_async(MagicMock(image="python:3.11"))
 
         mock_meta_store.create.assert_awaited_once()
         assert mock_meta_store.create.await_args.kwargs["timeout_info"]
-        assert mgr_start.created_spec["auto_delete_seconds"] == 7200
-        mock_meta_store.update.assert_awaited_once()
-        pending_info = mock_meta_store.update.await_args.args[1]
+        assert mgr_start.created_spec["auto_archive_seconds"] == 600
+        assert mock_meta_store.update.await_count == 2
+        pending_info = mock_meta_store.update.await_args_list[-1].args[1]
         assert pending_info["state"] == State.PENDING
-        assert pending_info["auto_delete_seconds"] == 3600
+        assert pending_info["auto_delete_seconds"] == 0
+        assert pending_info["auto_archive_seconds"] is None
+        assert SandboxLifecycleHelper.resolve_auto_archive_seconds(pending_info) is None
+        assert SandboxLifecycleHelper.resolve_auto_delete_seconds(pending_info) == 0
+        mock_meta_store.update_timeout.assert_awaited_once()
+        timeout_info = mock_meta_store.update_timeout.await_args.args[1]
+        assert timeout_info["auto_clear_time"] == "0"
 
     @pytest.mark.asyncio
     async def test_uses_cluster_auto_delete_when_user_policy_is_unspecified(

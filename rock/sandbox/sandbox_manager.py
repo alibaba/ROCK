@@ -6,7 +6,7 @@ from datetime import timezone
 
 from fastapi import UploadFile
 
-from rock import env_vars
+from rock import InternalServerRockError, env_vars
 from rock.actions import (
     BashObservation,
     CloseBashSessionResponse,
@@ -182,8 +182,21 @@ class SandboxManager(BaseManager):
         with StageTimer("startup_timing", f"[{sandbox_id}] Meta store policy update", logger):
             await self._meta_store.update(sandbox_id, sandbox_info)
 
-        with StageTimer("startup_timing", f"[{sandbox_id}] Operator submit", logger):
-            submitted_info = await self._operator.submit(docker_deployment_config, user_info)
+        try:
+            with StageTimer("startup_timing", f"[{sandbox_id}] Operator submit", logger):
+                submitted_info = await self._operator.submit(docker_deployment_config, user_info)
+        except Exception as e:
+            immediate_timeout_info = SandboxTimeoutHelper.make_timeout_info(0)
+            sandbox_info["auto_archive_seconds"] = None
+            sandbox_info["auto_delete_seconds"] = 0
+            try:
+                await self._meta_store.update(sandbox_id, sandbox_info)
+                await self._meta_store.update_timeout(sandbox_id, immediate_timeout_info)
+            except Exception:
+                logger.exception("[%s] failed to update immediate cleanup metadata", sandbox_id)
+            raise InternalServerRockError(
+                f"Sandbox {sandbox_id} submission failed and has been marked for immediate deletion: {e}"
+            ) from e
         create_time = sandbox_info.get("create_time")
         sandbox_info.update(submitted_info)
         await self._build_sandbox_info_metadata(sandbox_info, user_info, cluster_info)

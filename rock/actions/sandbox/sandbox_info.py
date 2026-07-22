@@ -29,8 +29,8 @@ class SandboxInfo(TypedDict, total=False):
     archive_time: str
     auto_transition_state: State
     auto_transition_time: str
-    auto_archive_seconds: int
-    auto_delete_seconds: int
+    auto_archive_seconds: int | None
+    auto_delete_seconds: int | None
     archive_prefix: str
     registry_namespace: str
     extended_params: dict[str, str]

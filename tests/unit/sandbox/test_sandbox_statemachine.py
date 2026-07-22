@@ -18,6 +18,25 @@ from rock.common.constants import StopReason
 from rock.config import AutoTransitionConfig
 from rock.sandbox.sandbox_statemachine import SandboxLifecycleHelper, SandboxStateMachine
 
+
+class TestLifecyclePolicyResolution:
+    def test_missing_metadata_field_falls_back_to_spec(self):
+        info = {"spec": {"auto_archive_seconds": 600, "auto_delete_seconds": 1200}}
+
+        assert SandboxLifecycleHelper.resolve_auto_archive_seconds(info) == 600
+        assert SandboxLifecycleHelper.resolve_auto_delete_seconds(info) == 1200
+
+    def test_explicit_none_disables_spec_policy(self):
+        info = {
+            "auto_archive_seconds": None,
+            "auto_delete_seconds": None,
+            "spec": {"auto_archive_seconds": 600, "auto_delete_seconds": 1200},
+        }
+
+        assert SandboxLifecycleHelper.resolve_auto_archive_seconds(info) is None
+        assert SandboxLifecycleHelper.resolve_auto_delete_seconds(info) is None
+
+
 # ---------------------------------------------------------------------------
 # Transitions
 # ---------------------------------------------------------------------------

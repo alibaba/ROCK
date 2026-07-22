@@ -67,8 +67,9 @@ class SandboxLifecycleHelper:
 
     @staticmethod
     def _resolve_user_seconds(info: dict[str, Any], field: str) -> int | None:
-        raw = info.get(field)
-        if raw is None:
+        if field in info:
+            raw = info[field]
+        else:
             spec = info.get("spec") or {}
             raw = spec.get(field)
         return SandboxLifecycleHelper._coerce_seconds(raw)
