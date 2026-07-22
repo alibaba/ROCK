@@ -84,7 +84,15 @@ class RayOperator(AbstractOperator):
             sandbox_actor.set_user_id.remote(user_id)
             sandbox_actor.set_experiment_id.remote(experiment_id)
             sandbox_actor.set_namespace.remote(namespace)
-            sandbox_info: SandboxInfo = await self._ray_service.async_ray_get(sandbox_actor.sandbox_info.remote())
+            try:
+                sandbox_info: SandboxInfo = await self._ray_service.async_ray_get(sandbox_actor.sandbox_info.remote())
+            except Exception:
+                try:
+                    ray.kill(sandbox_actor, no_restart=True)
+                    logger.info("[%s] force-killed actor after sandbox info failure", sandbox_id)
+                except Exception:
+                    logger.exception("[%s] failed to force-kill actor after sandbox info failure", sandbox_id)
+                raise
             sandbox_info["user_id"] = user_id
             sandbox_info["experiment_id"] = experiment_id
             sandbox_info["namespace"] = namespace
