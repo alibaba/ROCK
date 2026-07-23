@@ -8,6 +8,7 @@ from rock.sdk.job.executor import JobClient, JobExecutor, TrialClient
 from rock.sdk.job.operator import Operator, ScatterOperator
 from rock.sdk.job.result import ExceptionInfo, JobResult, JobStatus, TrialResult
 from rock.sdk.job.trial import AbstractTrial, register_trial
+from rock.sdk.reward.result import RewardTrialResult
 
 __all__ = [
     "Job",
@@ -16,6 +17,7 @@ __all__ = [
     "JobResult",
     "JobStatus",
     "TrialResult",
+    "RewardTrialResult",
     "ExceptionInfo",
     "JobExecutor",
     "JobClient",

@@ -15,10 +15,11 @@ class TestPublicImports:
         assert issubclass(BashJobConfig, JobConfig)
 
     def test_import_results(self):
-        from rock.sdk.job import JobStatus, TrialResult
+        from rock.sdk.job import JobStatus, RewardTrialResult, TrialResult
 
         assert JobStatus.COMPLETED == "completed"
         assert TrialResult is not None
+        assert RewardTrialResult is not None
 
     def test_import_operator(self):
         from rock.sdk.job import Operator, ScatterOperator

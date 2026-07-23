@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from rock.sdk.job.result import JobResult, JobStatus
+from rock.sdk.job.result import JobResult, JobStatus, RewardTrialResult
 
 
 class _Item(BaseModel):
@@ -68,3 +68,27 @@ class TestJobResult:
         r = JobResult(raw_output="output", exit_code=1)
         assert r.raw_output == "output"
         assert r.exit_code == 1
+
+
+class TestRewardTrialResult:
+    def test_reward_protocol_models_are_shared_with_harbor(self):
+        from rock.sdk.bench.models.trial.result import VerifierResult as HarborVerifierResult
+        from rock.sdk.job.result import VerifierResult as JobVerifierResult
+        from rock.sdk.reward.result import VerifierResult as SharedVerifierResult
+
+        assert JobVerifierResult is SharedVerifierResult
+        assert HarborVerifierResult is SharedVerifierResult
+
+    def test_score_comes_from_verifier_reward(self):
+        result = RewardTrialResult.from_reward_json(
+            {
+                "task_name": "task-1",
+                "trial_name": "task-1__abc",
+                "verifier_result": {"rewards": {"reward": 0.85, "task_score": 0.85}},
+                "exception_info": None,
+            }
+        )
+
+        assert result.task_name == "task-1"
+        assert result.trial_name == "task-1__abc"
+        assert result.score == pytest.approx(0.85)
