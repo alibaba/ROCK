@@ -161,6 +161,8 @@ class SandboxManager(BaseManager):
             "image": docker_deployment_config.image,
             "cpus": docker_deployment_config.cpus,
             "memory": docker_deployment_config.memory,
+            "num_gpus": docker_deployment_config.num_gpus,
+            "accelerator_type": docker_deployment_config.accelerator_type,
         }
         if docker_deployment_config.disk is not None:
             sandbox_info["disk"] = docker_deployment_config.disk
@@ -450,6 +452,8 @@ class SandboxManager(BaseManager):
             namespace=sandbox_info.get("namespace"),
             cpus=sandbox_info.get("cpus"),
             memory=sandbox_info.get("memory"),
+            num_gpus=sandbox_info.get("num_gpus"),
+            accelerator_type=sandbox_info.get("accelerator_type"),
             disk=sandbox_info.get("disk"),
             disk_limit_rootfs=sandbox_info.get("disk"),
             start_time=sandbox_info.get("start_time"),

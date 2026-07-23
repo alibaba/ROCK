@@ -44,6 +44,8 @@ class TestGetStatusRoute:
             state=State.RUNNING,
             is_alive=True,
             host_ip="10.0.0.1",
+            num_gpus=2,
+            accelerator_type="H20",
         )
 
         resp = await client.get("/get_status", params={"sandbox_id": "sandbox-1"})
@@ -53,6 +55,8 @@ class TestGetStatusRoute:
         assert body["result"]["sandbox_id"] == "sandbox-1"
         assert body["result"]["state"] == State.RUNNING
         assert body["result"]["is_alive"] is True
+        assert body["result"]["num_gpus"] == 2
+        assert body["result"]["accelerator_type"] == "H20"
         mock_service.get_status.assert_awaited_once_with("sandbox-1", False)
 
     async def test_get_status_passes_include_all_states(self, client, mock_service):

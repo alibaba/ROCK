@@ -134,6 +134,18 @@ class TestProxyGetStatus:
         }
         assert result.port_mapping == {22555: 22555, 8080: 8080}
 
+    async def test_get_status_returns_gpu_info(self, proxy_service, mock_meta_store, mock_rpc_client):
+        info = _make_meta_info(state=State.RUNNING)
+        info.update(num_gpus=2, accelerator_type="H20")
+        mock_meta_store.get.return_value = info
+        mock_rpc_client.post.side_effect = Exception("connection refused")
+        mock_rpc_client.get.side_effect = Exception("connection refused")
+
+        result = await proxy_service.get_status("sandbox-1")
+
+        assert result.num_gpus == 2
+        assert result.accelerator_type == "H20"
+
     async def test_pending_to_running_triggers_meta_update(self, proxy_service, mock_meta_store, mock_rpc_client):
         mock_meta_store.get.return_value = _make_meta_info(state=State.PENDING, host_ip="10.0.0.1")
         mock_rpc_client.post.side_effect = [

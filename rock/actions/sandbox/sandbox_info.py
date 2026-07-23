@@ -21,6 +21,8 @@ class SandboxInfo(TypedDict, total=False):
     create_user_gray_flag: bool
     cpus: float
     memory: str
+    num_gpus: float
+    accelerator_type: str
     disk: str
     create_time: str
     start_time: str

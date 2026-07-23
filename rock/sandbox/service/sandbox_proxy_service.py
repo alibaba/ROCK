@@ -1182,6 +1182,8 @@ class SandboxProxyService:
             namespace=info.get("namespace"),
             cpus=info.get("cpus"),
             memory=info.get("memory"),
+            num_gpus=info.get("num_gpus"),
+            accelerator_type=info.get("accelerator_type"),
             disk=info.get("disk"),
             disk_limit_rootfs=info.get("disk"),
             start_time=info.get("start_time"),

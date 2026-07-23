@@ -117,6 +117,18 @@ class TestSandboxStatusResponseDiskLimit:
         response = SandboxStatusResponse.from_sandbox_info(sandbox_info)
         assert response.disk is None
 
+    def test_from_sandbox_info_with_gpu(self):
+        sandbox_info = {
+            "sandbox_id": "test-sandbox",
+            "num_gpus": 0.5,
+            "accelerator_type": "A100",
+        }
+
+        response = SandboxStatusResponse.from_sandbox_info(sandbox_info)
+
+        assert response.num_gpus == 0.5
+        assert response.accelerator_type == "A100"
+
 
 # ---- actions/sandbox/response.SandboxStatusResponse tests ----
 
@@ -147,3 +159,11 @@ class TestActionsSandboxStatusResponseDiskLimit:
 
         assert response.auto_archive_time == "2026-01-01T00:10:00+00:00"
         assert response.auto_delete_time == "2026-01-01T00:20:00+00:00"
+
+    def test_actions_status_response_gpu_fields(self):
+        from rock.actions.sandbox.response import SandboxStatusResponse as ActionStatusResponse
+
+        response = ActionStatusResponse(num_gpus=2, accelerator_type="H20")
+
+        assert response.num_gpus == 2
+        assert response.accelerator_type == "H20"

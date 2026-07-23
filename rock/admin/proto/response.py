@@ -34,6 +34,8 @@ class SandboxStatusResponse(BaseModel):
     namespace: str | None = None
     cpus: float | None = None
     memory: str | None = None
+    num_gpus: float | None = None
+    accelerator_type: str | None = None
     disk: str | None = None
     disk_limit_rootfs: str | None = Field(default=None, deprecated="Use 'disk' instead")
     start_time: str | None = None
@@ -64,6 +66,8 @@ class SandboxStatusResponse(BaseModel):
             namespace=sandbox_info.get("namespace"),
             cpus=sandbox_info.get("cpus"),
             memory=sandbox_info.get("memory"),
+            num_gpus=sandbox_info.get("num_gpus"),
+            accelerator_type=sandbox_info.get("accelerator_type"),
             disk=sandbox_info.get("disk"),
             disk_limit_rootfs=sandbox_info.get("disk"),
             start_time=sandbox_info.get("start_time"),
