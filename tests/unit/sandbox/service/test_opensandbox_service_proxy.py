@@ -202,3 +202,18 @@ async def test_pending_to_running_uses_rock_state_machine(service):
     assert updated["state_history"][-1]["from_state"] == State.PENDING
     assert updated["state_history"][-1]["to_state"] == State.RUNNING
     assert updated["state_history"][-1]["event"] == "alive"
+
+
+@pytest.mark.asyncio
+async def test_deleted_status_returns_delete_time(service):
+    proxy, backend = service
+    deleted = _info()
+    deleted["state"] = State.DELETED
+    deleted["delete_time"] = "2026-01-01T00:30:00+00:00"
+    proxy._meta_store.get = AsyncMock(return_value=deleted)
+
+    response = await proxy.get_status("sbx-1", include_all_states=True)
+
+    assert response.state == State.DELETED
+    assert response.delete_time == "2026-01-01T00:30:00+00:00"
+    backend.get_state.assert_not_awaited()

@@ -1190,6 +1190,7 @@ class SandboxProxyService:
             stop_time=info.get("stop_time"),
             create_time=info.get("create_time"),
             archive_time=info.get("archive_time"),
+            delete_time=info.get("delete_time"),
             auto_stop_time=auto_stop_time,
             auto_archive_time=auto_archive_time,
             auto_delete_time=auto_delete_time,

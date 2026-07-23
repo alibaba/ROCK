@@ -257,5 +257,6 @@ class OpenSandboxProxyService(SandboxProxyService):
             start_time=info.get("start_time"),
             stop_time=info.get("stop_time"),
             create_time=info.get("create_time"),
+            delete_time=info.get("delete_time"),
             state_history=sandbox_info.get("state_history", []),
         )

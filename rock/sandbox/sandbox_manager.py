@@ -462,6 +462,7 @@ class SandboxManager(BaseManager):
             stop_time=sandbox_info.get("stop_time"),
             create_time=sandbox_info.get("create_time"),
             archive_time=sandbox_info.get("archive_time"),
+            delete_time=sandbox_info.get("delete_time"),
             auto_stop_time=auto_stop_time,
             auto_archive_time=auto_archive_time,
             auto_delete_time=auto_delete_time,
