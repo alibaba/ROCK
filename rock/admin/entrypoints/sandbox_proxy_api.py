@@ -8,15 +8,18 @@ from rock.actions import (
     BashObservation,
     CloseBashSessionResponse,
     CommandResponse,
+    CommitStatusResponse,
     CreateBashSessionResponse,
     ReadFileResponse,
     ResponseStatus,
     RockResponse,
+    SandboxResponse,
     UploadResponse,
     WriteFileResponse,
 )
 from rock.admin.proto.request import (
     BatchSandboxStatusRequest,
+    CommitRequest,
     SandboxBashAction,
     SandboxCloseBashSessionRequest,
     SandboxCommand,
@@ -113,6 +116,18 @@ def resolve_target_port(request: Request, query_port: int | None, path: str) -> 
 @handle_exceptions(error_message="execute command failed")
 async def execute(command: SandboxCommand) -> RockResponse[CommandResponse]:
     return RockResponse(result=await sandbox_proxy_service.execute(command))
+
+
+@sandbox_proxy_router.post("/commit")
+@handle_exceptions(error_message="commit sandbox failed")
+async def commit(request: CommitRequest) -> RockResponse[CommitStatusResponse | SandboxResponse]:
+    return RockResponse(result=await sandbox_proxy_service.commit(request))
+
+
+@sandbox_proxy_router.get("/commit/{sandbox_id}")
+@handle_exceptions(error_message="get commit status failed")
+async def get_commit_status(sandbox_id: NonBlankStr) -> RockResponse[CommitStatusResponse | SandboxResponse]:
+    return RockResponse(result=await sandbox_proxy_service.get_commit_status(sandbox_id))
 
 
 @sandbox_proxy_router.post("/create_session")

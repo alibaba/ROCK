@@ -15,7 +15,11 @@ def test_proxy_role_mounts_proxy_router():
     app = FastAPI()
     _include_routers(app, role="proxy")
     paths = _paths(app)
+    commit_path = "/apis/envs/sandbox/v1/commit"
+    commit_status_path = "/apis/envs/sandbox/v1/commit/{sandbox_id}"
     assert any(p.endswith("/get_token") for p in paths)
+    assert commit_path in paths
+    assert commit_status_path in paths
 
 
 def test_proxy_role_excludes_admin_router():
@@ -29,7 +33,11 @@ def test_admin_role_mounts_admin_routers():
     app = FastAPI()
     _include_routers(app, role="admin")
     paths = _paths(app)
+    commit_path = "/apis/envs/sandbox/v1/commit"
+    commit_status_path = "/apis/envs/sandbox/v1/commit/{sandbox_id}"
     assert any("/ops" in p for p in paths)
+    assert commit_path in paths
+    assert commit_status_path not in paths
 
 
 @pytest.mark.skipif(not hasattr(socket, "SO_REUSEPORT"), reason="SO_REUSEPORT unavailable")

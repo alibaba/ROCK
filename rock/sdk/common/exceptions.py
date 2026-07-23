@@ -1,6 +1,12 @@
 from rock._codes import codes
-from rock.actions import SandboxResponse
+from rock.actions import CommitErrorCode, SandboxResponse
 from rock.utils.deprecated import deprecated
+
+
+class WorkerCommitError(Exception):
+    def __init__(self, code: CommitErrorCode, message: str):
+        super().__init__(message)
+        self.code = code
 
 
 class RockException(Exception):

@@ -88,6 +88,34 @@ export const SandboxStatusResponseSchema = z.object({
 export type SandboxStatusResponse = z.infer<typeof SandboxStatusResponseSchema>;
 
 /**
+ * Commit task phase
+ */
+export const CommitPhase = {
+  RUNNING: 'RUNNING',
+  SUCCEEDED: 'SUCCEEDED',
+  FAILED: 'FAILED',
+} as const;
+
+export type CommitPhase = (typeof CommitPhase)[keyof typeof CommitPhase];
+
+/**
+ * Commit task status response
+ */
+export const CommitStatusResponseSchema = z.object({
+  sandboxId: z.string(),
+  imageTag: z.string(),
+  phase: z.enum(['RUNNING', 'SUCCEEDED', 'FAILED']),
+  startedAt: z.string(),
+  completedAt: z.string().nullable().default(null),
+  exitCode: z.number().nullable().default(null),
+  failedStage: z.string().nullable().default(null),
+  errorCode: z.string().nullable().default(null),
+  errorMessage: z.string().nullable().default(null),
+});
+
+export type CommitStatusResponse = z.infer<typeof CommitStatusResponseSchema>;
+
+/**
  * Command execution response
  */
 export const CommandResponseSchema = z.object({

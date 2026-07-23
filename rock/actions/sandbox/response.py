@@ -71,6 +71,40 @@ class SandboxStatusResponse(BaseModel):
     state_history: list[StateTransitionRecord] = []
 
 
+class CommitPhase(str, Enum):
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+class CommitErrorCode(str, Enum):
+    SANDBOX_NOT_FOUND = "SANDBOX_NOT_FOUND"
+    WORKER_NOT_FOUND = "WORKER_NOT_FOUND"
+    WORKER_UNREACHABLE = "WORKER_UNREACHABLE"
+    SANDBOX_CONTAINER_NOT_FOUND = "SANDBOX_CONTAINER_NOT_FOUND"
+    COMMIT_CONFLICT = "COMMIT_CONFLICT"
+    DISPATCH_FAILED = "DISPATCH_FAILED"
+    LOGIN_FAILED = "LOGIN_FAILED"
+    COMMIT_FAILED = "COMMIT_FAILED"
+    PUSH_FAILED = "PUSH_FAILED"
+    TIMEOUT = "TIMEOUT"
+    PROCESS_LOST = "PROCESS_LOST"
+    STATUS_NOT_FOUND = "STATUS_NOT_FOUND"
+    STATUS_CORRUPTED = "STATUS_CORRUPTED"
+
+
+class CommitStatusResponse(BaseModel):
+    sandbox_id: str
+    image_tag: str
+    phase: CommitPhase
+    started_at: str
+    completed_at: str | None = None
+    exit_code: int | None = None
+    failed_stage: str | None = None
+    error_code: CommitErrorCode | None = None
+    error_message: str | None = None
+
+
 class CommandResponse(BaseModel):
     stdout: str = ""
     stderr: str = ""

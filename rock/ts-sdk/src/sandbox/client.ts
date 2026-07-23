@@ -26,6 +26,7 @@ export { RunModeEnum as RunMode };
 import {
   ObservationSchema,
   CommandResponseSchema,
+  CommitStatusResponseSchema,
   IsAliveResponseSchema,
   SandboxStatusResponseSchema,
   CreateSessionResponseSchema,
@@ -37,6 +38,7 @@ import {
 import type {
   Observation,
   CommandResponse,
+  CommitStatusResponse,
   IsAliveResponse,
   SandboxResponse,
   SandboxStatusResponse,
@@ -118,7 +120,15 @@ export abstract class AbstractSandbox {
   abstract delete(): Promise<void>;
   abstract restart(): Promise<void>;
   abstract archive(): Promise<void>;
-  abstract commit(imageTag: string, username: string, password: string): Promise<CommandResponse | undefined>;
+  abstract commit(
+    imageTag: string,
+    username: string,
+    password: string,
+    timeout?: number,
+    interval?: number
+  ): Promise<CommitStatusResponse | undefined>;
+  abstract commitAsync(imageTag: string, username: string, password: string): Promise<CommitStatusResponse | undefined>;
+  abstract getCommitStatus(): Promise<CommitStatusResponse | undefined>;
   abstract attach(sandboxId: string): Promise<void>;
   abstract arun(
     cmd: string,
@@ -507,15 +517,68 @@ export class Sandbox extends AbstractSandbox {
   }
 
   /**
-   * Commit the sandbox container as a new Docker image.
+   * Commit the sandbox container as a new Docker image and wait for completion.
    *
    * @param imageTag - Tag for the new image (e.g., "my-image:v1")
    * @param username - Registry username for authentication
    * @param password - Registry password for authentication
-   * @returns CommandResponse with stdout, stderr, and exit_code from the commit operation,
+   * @param timeout - Maximum total wait time in seconds
+   * @param interval - Delay between status queries in seconds
+   * @returns Final task status, or undefined if sandbox_id is not set.
+   */
+  async commit(
+    imageTag: string,
+    username: string,
+    password: string,
+    timeout: number = 180,
+    interval: number = 2
+  ): Promise<CommitStatusResponse | undefined> {
+    const deadline = Date.now() + timeout * 1000;
+    const timeoutError = (): Error => new Error(`Commit timed out after ${timeout} seconds`);
+    const waitWithTimeout = async <T>(operation: Promise<T>): Promise<T> => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        throw timeoutError();
+      }
+
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          operation,
+          new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => reject(timeoutError()), remaining);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    };
+
+    let status = await waitWithTimeout(this.commitAsync(imageTag, username, password));
+    while (status?.phase === 'RUNNING') {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        throw timeoutError();
+      }
+      await sleep(Math.min(interval * 1000, remaining));
+      if (Date.now() >= deadline) {
+        throw timeoutError();
+      }
+      status = await waitWithTimeout(this.getCommitStatus());
+    }
+    return status;
+  }
+
+  /**
+   * Start committing the sandbox container as a background task.
+   *
+   * @param imageTag - Tag for the new image (e.g., "my-image:v1")
+   * @param username - Registry username for authentication
+   * @param password - Registry password for authentication
+   * @returns RUNNING task status, which callers can poll with getCommitStatus(),
    *          or undefined if sandbox_id is not set.
    */
-  async commit(imageTag: string, username: string, password: string): Promise<CommandResponse | undefined> {
+  async commitAsync(imageTag: string, username: string, password: string): Promise<CommitStatusResponse | undefined> {
     if (!this.sandboxId) {
       return;
     }
@@ -527,12 +590,30 @@ export class Sandbox extends AbstractSandbox {
       username,
       password,
     };
-    const response = await HttpUtils.post<CommandResponse & { code?: number }>(url, headers, data);
+    const response = await HttpUtils.post<CommitStatusResponse & { code?: number }>(url, headers, data);
     logger.debug(`Commit sandbox response: ${JSON.stringify(response)}`);
     if (response.status !== 'Success') {
       throw new Error(`Failed to execute command: ${JSON.stringify(response)}`);
     }
-    return CommandResponseSchema.parse(response.result);
+    return CommitStatusResponseSchema.parse(response.result);
+  }
+
+  /**
+   * Get the status of the sandbox's current commit task.
+   *
+   * @returns Current commit task status, or undefined if sandbox_id is not set.
+   */
+  async getCommitStatus(): Promise<CommitStatusResponse | undefined> {
+    if (!this.sandboxId) {
+      return;
+    }
+    const url = `${this.url}/commit/${encodeURIComponent(this.sandboxId)}`;
+    const response = await HttpUtils.get<CommitStatusResponse & { code?: number }>(url, this.buildHeaders());
+    logger.debug(`Get commit status response: ${JSON.stringify(response)}`);
+    if (response.status !== 'Success') {
+      throw new Error(`Failed to get commit status: ${JSON.stringify(response)}`);
+    }
+    return CommitStatusResponseSchema.parse(response.result);
   }
 
   /**

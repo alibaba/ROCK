@@ -1,6 +1,7 @@
 import asyncio  # noqa: I001
 import json
 import os
+from typing import NoReturn
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.datastructures import Headers
 
@@ -17,6 +18,8 @@ from rock.actions import (
     BashObservation,
     CloseBashSessionResponse,
     CommandResponse,
+    CommitErrorCode,
+    CommitStatusResponse,
     CreateBashSessionResponse,
     IsAliveResponse,
     ReadFileResponse,
@@ -30,6 +33,7 @@ from rock.admin.metrics.monitor import MetricsMonitor
 from rock.admin.proto.request import SandboxBashAction as BashAction
 from rock.admin.proto.request import SandboxCloseBashSessionRequest as CloseBashSessionRequest
 from rock.admin.proto.request import SandboxCommand as Command
+from rock.admin.proto.request import CommitRequest
 from rock.admin.proto.request import SandboxCreateSessionRequest as CreateSessionRequest
 from rock.admin.proto.request import SandboxQueryParams
 from rock.admin.proto.request import SandboxReadFileRequest as ReadFileRequest
@@ -41,10 +45,11 @@ from rock.deployments.status import ServiceStatus
 from rock.common.port_validation import validate_port_forward_port
 from rock.logger import init_logger
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
+from rock.sandbox.service.commit_worker import CommitWorkerExecutor
 from rock.sandbox.utils.proxy import BLOCKED_WS_HEADER_NAMES, build_upstream_ws_headers
 from rock.sandbox.utils.rocklet_probe import check_alive_status, get_remote_status
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
-from rock.sdk.common.exceptions import BadRequestRockError
+from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError, WorkerCommitError
 from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
 from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var
@@ -53,9 +58,15 @@ logger = init_logger(__name__)
 
 
 class SandboxProxyService:
-    def __init__(self, rock_config: RockConfig, meta_store: SandboxMetaStore):
+    def __init__(
+        self,
+        rock_config: RockConfig,
+        meta_store: SandboxMetaStore,
+        commit_worker_executor: CommitWorkerExecutor | None = None,
+    ):
         self._rock_config = rock_config
         self._meta_store = meta_store
+        self._commit_worker_executor = commit_worker_executor or CommitWorkerExecutor()
         self.metrics_monitor = MetricsMonitor.create(
             export_interval_millis=20_000,
             metrics_endpoint=rock_config.runtime.metrics_endpoint,
@@ -96,6 +107,42 @@ class SandboxProxyService:
 
         self._batch_get_status_max_count = rock_config.proxy_service.batch_get_status_max_count
         self._validate_oss_config_or_warn()
+
+    async def _commit_worker_ip(self, sandbox_id: str) -> str:
+        sandbox = await self._meta_store.get(sandbox_id, check_db=True)
+        if sandbox is None:
+            raise BadRequestRockError(f"SANDBOX_NOT_FOUND: {sandbox_id}")
+        host_ip = sandbox.get("host_ip")
+        if not isinstance(host_ip, str) or not host_ip.strip():
+            raise BadRequestRockError(f"WORKER_NOT_FOUND: {sandbox_id}")
+        return host_ip
+
+    @staticmethod
+    def _raise_commit_error(exc: WorkerCommitError) -> NoReturn:
+        message = f"{exc.code.value}: {exc}"
+        if exc.code in {
+            CommitErrorCode.SANDBOX_CONTAINER_NOT_FOUND,
+            CommitErrorCode.COMMIT_CONFLICT,
+            CommitErrorCode.STATUS_NOT_FOUND,
+        }:
+            raise BadRequestRockError(message) from exc
+        raise InternalServerRockError(message) from exc
+
+    async def commit(self, request: CommitRequest) -> CommitStatusResponse:
+        host_ip = await self._commit_worker_ip(request.sandbox_id)
+        try:
+            state = await self._commit_worker_executor.start(host_ip, request)
+        except WorkerCommitError as exc:
+            self._raise_commit_error(exc)
+        return state.to_response(request.sandbox_id)
+
+    async def get_commit_status(self, sandbox_id: str) -> CommitStatusResponse:
+        host_ip = await self._commit_worker_ip(sandbox_id)
+        try:
+            state = await self._commit_worker_executor.get_status(host_ip, sandbox_id)
+        except WorkerCommitError as exc:
+            self._raise_commit_error(exc)
+        return state.to_response(sandbox_id)
 
     async def aclose(self) -> None:
         """No-op: clients are now managed by HttpPoolManager and closed in lifespan."""

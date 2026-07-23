@@ -1173,3 +1173,84 @@ describe('uploadByPath() with uploadMode', () => {
     expect(result).toBeDefined();
   });
 });
+
+describe('Sandbox commit()', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('starts an asynchronous commit and polls until completion', async () => {
+    jest.useFakeTimers();
+    const sandbox = new Sandbox({ image: 'test:latest' });
+    const running = {
+      sandboxId: 'sandbox-1',
+      imageTag: 'registry.example/app:v1',
+      phase: 'RUNNING' as const,
+      startedAt: '2026-01-01T00:00:00Z',
+      completedAt: null,
+      exitCode: null,
+      failedStage: null,
+      errorCode: null,
+      errorMessage: null,
+    };
+    const succeeded = {
+      ...running,
+      phase: 'SUCCEEDED' as const,
+      completedAt: '2026-01-01T00:00:05Z',
+      exitCode: 0,
+    };
+    const commitAsync = jest.spyOn(sandbox, 'commitAsync').mockResolvedValue(running);
+    const getCommitStatus = jest.spyOn(sandbox, 'getCommitStatus').mockResolvedValue(succeeded);
+
+    const resultPromise = sandbox.commit(
+      'registry.example/app:v1',
+      'registry-user',
+      'registry-password',
+      10,
+      0.25
+    );
+    await Promise.resolve();
+    await jest.advanceTimersByTimeAsync(250);
+
+    await expect(resultPromise).resolves.toEqual(succeeded);
+    expect(commitAsync).toHaveBeenCalledWith(
+      'registry.example/app:v1',
+      'registry-user',
+      'registry-password'
+    );
+    expect(getCommitStatus).toHaveBeenCalledTimes(1);
+  });
+
+  test('uses the default interval and rejects when the default timeout expires', async () => {
+    jest.useFakeTimers();
+    const sandbox = new Sandbox({ image: 'test:latest' });
+    const running = {
+      sandboxId: 'sandbox-1',
+      imageTag: 'registry.example/app:v1',
+      phase: 'RUNNING' as const,
+      startedAt: '2026-01-01T00:00:00Z',
+      completedAt: null,
+      exitCode: null,
+      failedStage: null,
+      errorCode: null,
+      errorMessage: null,
+    };
+    jest.spyOn(sandbox, 'commitAsync').mockResolvedValue(running);
+    const getCommitStatus = jest.spyOn(sandbox, 'getCommitStatus').mockResolvedValue(running);
+
+    const resultPromise = sandbox.commit(
+      'registry.example/app:v1',
+      'registry-user',
+      'registry-password'
+    );
+    const rejection = expect(resultPromise).rejects.toThrow('Commit timed out after 180 seconds');
+    await Promise.resolve();
+    await jest.advanceTimersByTimeAsync(1999);
+    expect(getCommitStatus).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(getCommitStatus).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(178000);
+
+    await rejection;
+  });
+});

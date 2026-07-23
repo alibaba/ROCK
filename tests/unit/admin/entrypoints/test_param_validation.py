@@ -132,6 +132,12 @@ async def test_sandbox_commit_empty_image_tag(sandbox_app):
         _assert_failed(
             await client.post(
                 "/commit",
+                json={"sandbox_id": "", "image_tag": "repo/image:tag", "username": "u", "password": "p"},
+            )
+        )
+        _assert_failed(
+            await client.post(
+                "/commit",
                 json={"sandbox_id": "sb-1", "image_tag": "", "username": "u", "password": "p"},
             ),
             field="image_tag",

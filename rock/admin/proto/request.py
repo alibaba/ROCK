@@ -59,6 +59,23 @@ class SandboxStartRequest(BaseModel):
         return v
 
 
+class CommitRequest(BaseModel):
+    sandbox_id: NonBlankStr
+    image_tag: NonBlankStr
+    username: str
+    password: str
+
+    @field_validator("image_tag", mode="before")
+    @classmethod
+    def validate_image_tag_for_status_file(cls, value: object) -> object:
+        if isinstance(value, str) and any(
+            character in value
+            for character in ("\x00", "\n", "\r", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
+        ):
+            raise ValueError("image_tag cannot contain NUL or line separators")
+        return value
+
+
 class SandboxCommand(Command):
     timeout: float | None = 1200
     """The timeout for the command. None means no timeout."""
