@@ -154,8 +154,13 @@ class RayOperator(AbstractOperator):
                     f"delete for {sandbox_id} called without host_ip; new actor "
                     f"may be scheduled on a node that does not own the container"
                 )
-            config.cpus = 0.01
-            config.memory = "128m"
+            # Cleanup must remain schedulable when the worker's logical
+            # sandbox resources are exhausted. Ray still starts a real worker
+            # process, but it does not reserve CPU, memory, or disk capacity
+            # for this short-lived actor.
+            config.cpus = 0
+            config.memory = "0"
+            config.disk = None
             sandbox_actor: SandboxActor = await self.create_actor(config, pin_to_host_ip=host_ip)
             try:
                 await self._ray_service.async_ray_get(sandbox_actor.delete.remote())
@@ -200,8 +205,9 @@ class RayOperator(AbstractOperator):
         archive_params: dict | None = None,
     ) -> None:
         async with self._ray_service.get_ray_rwlock().read_lock():
-            config.cpus = 0.1
-            config.memory = "256m"
+            config.cpus = 0
+            config.memory = "0"
+            config.disk = None
             sandbox_actor = await self.create_actor(config, pin_to_host_ip=host_ip)
             sandbox_actor.archive.remote(dir_storage_config, image_storage_config, archive_params)
 
