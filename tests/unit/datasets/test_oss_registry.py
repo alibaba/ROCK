@@ -13,10 +13,14 @@ def make_registry_info():
     )
 
 
-def make_list_result(prefixes=None, objects=None):
+def make_list_result(prefixes=None, objects=None, *, is_truncated=False, next_continuation_token=""):
     result = MagicMock()
     result.prefix_list = prefixes or []
     result.object_list = objects or []
+    # Explicitly set pagination fields: a bare MagicMock would return a truthy
+    # mock for these attributes, making the pagination loop never terminate.
+    result.is_truncated = is_truncated
+    result.next_continuation_token = next_continuation_token
     return result
 
 
@@ -453,3 +457,28 @@ def test_list_all_datasets_empty_when_no_orgs():
     registry = OssDatasetRegistry(make_registry_info())
     with patch.object(registry, "list_organizations", return_value=[]):
         assert registry.list_all_datasets() == []
+
+
+# ---------------------------------------------------------------------------
+# pagination safety: must never loop forever even if OSS keeps reporting
+# truncation with a non-advancing continuation token (regression for the
+# self-hosted-runner / local hang caused by an unbounded `while True`).
+# ---------------------------------------------------------------------------
+
+
+def test_extract_tasks_terminates_when_token_never_advances():
+    registry = OssDatasetRegistry(make_registry_info())
+    mock_bucket = MagicMock()
+
+    page = make_list_result(prefixes=["datasets/qwen/my-bench/test/task-001/"])
+    page.is_truncated = True
+    page.next_continuation_token = "stuck-token"  # never changes -> would loop forever
+    mock_bucket.list_objects_v2.return_value = page
+
+    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+        spec = registry.list_dataset_tasks("qwen", "my-bench", "test")
+
+    # Must terminate quickly: a non-advancing token stops the loop on the
+    # second page instead of spinning forever.
+    assert spec is not None
+    assert mock_bucket.list_objects_v2.call_count <= 2
