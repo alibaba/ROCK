@@ -1,4 +1,4 @@
-"""Deferred archival of stopped sandbox log directories — DB-driven.
+"""Deferred archival of stopped/deleted sandbox log directories — DB-driven.
 
 Per-worker daily task. Each run:
   1. /execute on worker: ``ls ${log_root}/`` returns candidate sandbox_ids
@@ -6,7 +6,7 @@ Per-worker daily task. Each run:
   2. SandboxTable.list_by_in("sandbox_id", candidate_ids): batch query
      state + stop_time from sandbox_record.
   3. For each candidate:
-       - state != "stopped"                 → skip (sandbox still alive)
+       - state not in {"stopped", "deleted"} → skip (sandbox still alive)
        - stop_time missing / unparseable    → log warning, skip
        - age_days < keep_days_before_archive → skip (too young)
        - else                                → tar | ossutil cp && rm -rf
@@ -182,13 +182,14 @@ class SandboxLogArchiveTask(BaseTask):
                 logger.warning(f"[{self.type}] orphan log dir for {sandbox_id} (no DB row); skip")
                 skipped_orphan += 1
                 continue
-            if row.get("state") != "stopped":
+            state = row.get("state")
+            if state not in {"stopped", "deleted"}:
                 skipped_alive += 1
                 continue
 
             stop_time = self._parse_stop_time(row.get("stop_time"))
             if stop_time is None:
-                logger.warning(f"[{self.type}] {sandbox_id} state=stopped but stop_time missing/unparseable; skip")
+                logger.warning(f"[{self.type}] {sandbox_id} state={state} but stop_time missing/unparseable; skip")
                 skipped_orphan += 1
                 continue
 

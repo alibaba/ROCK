@@ -292,6 +292,27 @@ class TestClassification:
         assert runtime.execute.await_count == 3
 
     @pytest.mark.asyncio
+    async def test_deleted_old_enough_archived(self, fake_table):
+        set_sandbox_table_provider(lambda: fake_table)
+        set_rock_config_provider(lambda: _fake_rock_config(keep_days=3))
+        fake_table.list_by_in = AsyncMock(return_value=[_row("sb-deleted", state="deleted", stop_time=_iso_days_ago(5))])
+
+        task = SandboxLogArchiveTask(log_root="/data/logs")
+        runtime = _runtime(
+            [
+                _FakeExecResult(),
+                _FakeExecResult(stdout="sb-deleted"),
+                _FakeExecResult(),
+            ]
+        )
+
+        result = await task.run_action(runtime)
+
+        assert result["archived"] == 1
+        assert result["failed"] == 0
+        assert runtime.execute.await_count == 3
+
+    @pytest.mark.asyncio
     async def test_stop_time_malformed_skipped(self, fake_table):
         set_sandbox_table_provider(lambda: fake_table)
         set_rock_config_provider(lambda: _fake_rock_config())
