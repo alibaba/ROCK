@@ -1,6 +1,4 @@
 import math
-import re
-import time
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, File, Form, Header, UploadFile
@@ -45,12 +43,11 @@ from rock.deployments.config import AcceleratorType, DockerDeploymentConfig
 from rock.logger import init_logger
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sdk.common.exceptions import BadRequestRockError
-from rock.utils.docker import ImageUtil
+from rock.utils.registry import ProbeCache, build_mirror_candidates, parse_image_ref, probe_manifest
 
 logger = init_logger(__name__)
 
-_MIRROR_PROBE_CACHE: dict[str, tuple[bool, float]] = {}
-_MIRROR_PROBE_TTL_SECONDS = 60.0
+_mirror_probe_cache = ProbeCache(ttl_seconds=60.0)
 
 
 sandbox_router = APIRouter()
@@ -109,75 +106,6 @@ async def _apply_disk_limits(config: DockerDeploymentConfig) -> None:
             config.disk_overcommit_ratio = ratio
 
 
-def _probe_cache_get(candidate: str) -> bool | None:
-    entry = _MIRROR_PROBE_CACHE.get(candidate)
-    if entry is None:
-        return None
-    hit, expires_at = entry
-    if expires_at < time.monotonic():
-        _MIRROR_PROBE_CACHE.pop(candidate, None)
-        return None
-    return hit
-
-
-def _probe_cache_set(candidate: str, hit: bool) -> None:
-    _MIRROR_PROBE_CACHE[candidate] = (hit, time.monotonic() + _MIRROR_PROBE_TTL_SECONDS)
-
-
-def _apply_mirror_hit(config: DockerDeploymentConfig, mirror, candidate: str) -> None:
-    config.image = candidate
-    config.registry_username = mirror.username
-    config.registry_password = mirror.password
-
-
-def _parse_bearer_challenge(header: str) -> dict[str, str]:
-    """Parse ``realm``, ``service``, ``scope`` from a Bearer WWW-Authenticate header."""
-    return {m.group(1): m.group(2) for m in re.finditer(r'(\w+)="([^"]*)"', header)}
-
-
-async def _http_probe_manifest(
-    registry: str,
-    repo: str,
-    tag: str,
-    username: str | None = None,
-    password: str | None = None,
-) -> bool:
-    """Check whether ``repo:tag`` exists on *registry* via the v2 manifest API."""
-    url = f"https://{registry}/v2/{repo}/manifests/{tag}"
-    headers = {
-        "Accept": ", ".join(
-            [
-                "application/vnd.docker.distribution.manifest.v2+json",
-                "application/vnd.oci.image.manifest.v1+json",
-                "application/vnd.docker.distribution.manifest.list.v2+json",
-                "application/vnd.oci.image.index.v1+json",
-            ]
-        )
-    }
-    auth = (username, password) if username and password else None
-
-    client = sandbox_manager.rock_config.http_pool_manager.get("probe")
-    resp = await client.get(url, headers=headers, auth=auth)
-
-    if resp.status_code == 401 and "www-authenticate" in resp.headers:
-        www_auth = resp.headers["www-authenticate"]
-        if www_auth.startswith("Bearer "):
-            params = _parse_bearer_challenge(www_auth)
-            realm = params.get("realm", "")
-            service = params.get("service", "")
-            scope = params.get("scope", "")
-            token_url = f"{realm}?service={service}&scope={scope}"
-            token_resp = await client.get(token_url, auth=auth)
-            if token_resp.status_code == 200:
-                data = token_resp.json()
-                token = data.get("token") or data.get("access_token")
-                if token:
-                    headers["Authorization"] = f"Bearer {token}"
-                    resp = await client.get(url, headers=headers)
-
-    return resp.status_code == 200
-
-
 async def _apply_image_registry_mirror(config: DockerDeploymentConfig) -> None:
     """Rewrite ``config.image`` to an internal mirror copy when one exists.
 
@@ -210,60 +138,53 @@ async def _apply_image_registry_mirror(config: DockerDeploymentConfig) -> None:
     if not mirrors:
         return
 
-    _, repo_and_tag = ImageUtil.parse_registry_and_others(config.image)
-    if "/" in repo_and_tag:
-        original_namespace, name_tag = repo_and_tag.split("/", 1)
-    else:
-        original_namespace = None
-        name_tag = repo_and_tag
-    if "@" in name_tag:
+    _, _, tag_or_digest = parse_image_ref(config.image)
+    if "@" in config.image:
         logger.info(
             f"image registry mirror skip for digest reference {config.image!r} "
             "(content-addressed, mirror replacement would change semantics)"
         )
         return
-    if ":" not in name_tag:
-        name_tag = f"{name_tag}:{ImageUtil.DEFAULT_TAG}"
-    original_image = config.image
 
-    image_name, tag = name_tag.rsplit(":", 1)
+    original_image = config.image
+    http_client = sandbox_manager.rock_config.http_pool_manager.get("probe")
+
     for mirror in mirrors:
         if not mirror.registry or not mirror.namespace:
             continue
 
-        candidates = []
-        if original_namespace:
-            candidates.append(
-                (f"{mirror.registry}/{original_namespace}/{name_tag}", f"{original_namespace}/{image_name}")
-            )
-        if original_namespace != mirror.namespace:
-            candidates.append((f"{mirror.registry}/{mirror.namespace}/{name_tag}", f"{mirror.namespace}/{image_name}"))
+        candidates = build_mirror_candidates(config.image, mirror.registry, mirror.namespace)
 
         for candidate, repo in candidates:
-            cached = _probe_cache_get(candidate)
+            cached = _mirror_probe_cache.get(candidate)
             if cached is True:
                 logger.info(f"image registry mirror hit (cached): {original_image!r} -> {candidate!r}")
-                _apply_mirror_hit(config, mirror, candidate)
+                config.image = candidate
+                config.registry_username = mirror.username
+                config.registry_password = mirror.password
                 return
             if cached is False:
                 continue
 
             try:
-                hit = await _http_probe_manifest(
+                hit = await probe_manifest(
                     registry=mirror.registry,
                     repo=repo,
-                    tag=tag,
+                    tag=tag_or_digest,
                     username=mirror.username,
                     password=mirror.password,
+                    client=http_client,
                 )
             except Exception as e:
                 logger.warning(f"image registry mirror probe failed for {candidate!r}: {e}")
                 continue
 
-            _probe_cache_set(candidate, hit)
+            _mirror_probe_cache.set(candidate, hit)
             if hit:
                 logger.info(f"image registry mirror hit: {original_image!r} -> {candidate!r}")
-                _apply_mirror_hit(config, mirror, candidate)
+                config.image = candidate
+                config.registry_username = mirror.username
+                config.registry_password = mirror.password
                 return
     logger.info(f"image registry mirror miss for {original_image!r}, keep original")
 

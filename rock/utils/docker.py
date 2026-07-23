@@ -234,9 +234,70 @@ class DockerUtil:
             raise
 
     @classmethod
+    def tag_image(cls, source: str, target: str, timeout: int = 30) -> None:
+        """Tag a local image with a new name."""
+        result = subprocess.run(
+            ["docker", "tag", source, target],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
+
+    @classmethod
+    def inspect_image(cls, image: str, timeout: int = 10) -> dict | None:
+        """Return parsed ``docker inspect`` output, or *None* if the image is not found locally."""
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", image],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            if result.returncode != 0:
+                return None
+            data = json.loads(result.stdout)
+            return data[0] if isinstance(data, list) and data else data
+        except Exception as e:
+            logger.warning(f"inspect_image: failed for {image}: {e}")
+            return None
+
+    @classmethod
     def remove_image(cls, image: str) -> bytes:
         """Remove a Docker image"""
         return subprocess.check_output(["docker", "rmi", image], timeout=30)
+
+    @classmethod
+    def buildx_build(
+        cls,
+        dockerfile: str,
+        context_path: str,
+        *extra_args: str,
+        docker_executable: str = "docker",
+        timeout: int = 600,
+    ) -> subprocess.CompletedProcess:
+        """Run ``docker buildx build``."""
+        cmd = [docker_executable, "buildx", "build", "-f", dockerfile, context_path, *extra_args]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
+        return result
+
+    @classmethod
+    def push_image_tag(
+        cls,
+        tag: str,
+        *,
+        docker_executable: str = "docker",
+        timeout: int = 600,
+    ) -> subprocess.CompletedProcess:
+        """Run ``docker push``."""
+        cmd = [docker_executable, "push", tag]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
+        return result
 
     @classmethod
     def remove_container_force(cls, name: str, timeout: int = 10) -> None:
