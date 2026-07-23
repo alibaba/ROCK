@@ -142,9 +142,11 @@ class SandboxManager(BaseManager):
         self, config: DeploymentConfig, user_info: UserInfo = {}, cluster_info: ClusterInfo = {}
     ) -> SandboxStartResponse:
         await self._check_sandbox_exists_in_redis(config)
-        self.validate_sandbox_spec(self.rock_config.runtime, config)
         with StageTimer("startup_timing", f"[{config.image}] Init config", logger):
             docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(config)
+        # init_config refreshes the cached Nacos settings; validate only after
+        # that refresh so a changed max_allowed_spec applies to this request.
+        self.validate_sandbox_spec(self.rock_config.runtime, config)
 
         sandbox_id = docker_deployment_config.container_name
         if self.rock_config.runtime.use_standard_spec_only:

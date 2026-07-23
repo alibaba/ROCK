@@ -411,6 +411,24 @@ def mgr_start(mgr, mock_meta_store, mock_operator, mock_docker_config):
 
 class TestManagerStart:
     @pytest.mark.asyncio
+    async def test_refreshes_nacos_config_before_validating_spec(self, mgr_start, mock_docker_config):
+        call_order = []
+
+        async def init_config(config):
+            call_order.append("refresh")
+            return mock_docker_config
+
+        def validate(runtime_config, config):
+            call_order.append("validate")
+
+        mgr_start.deployment_manager.init_config.side_effect = init_config
+        mgr_start.validate_sandbox_spec.side_effect = validate
+
+        await mgr_start.start_async(MagicMock(image="python:3.11"))
+
+        assert call_order[:2] == ["refresh", "validate"]
+
+    @pytest.mark.asyncio
     async def test_start_registers_effective_policy_before_operator_submit(
         self, mgr_start, mock_meta_store, mock_operator
     ):
