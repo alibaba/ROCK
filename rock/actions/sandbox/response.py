@@ -67,6 +67,7 @@ class SandboxStatusResponse(BaseModel):
     stop_time: str | None = None
     create_time: str | None = None
     archive_time: str | None = None
+    delete_time: str | None = None
     auto_stop_time: str | None = None
     auto_archive_time: str | None = None
     auto_delete_time: str | None = None

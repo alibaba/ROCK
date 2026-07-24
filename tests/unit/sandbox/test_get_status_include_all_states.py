@@ -121,6 +121,18 @@ class TestGetStatusIncludeAllStates:
         assert result.auto_stop_time == "2286-11-21T01:46:39+08:00"
 
     @pytest.mark.asyncio
+    async def test_deleted_sandbox_returns_delete_time(self, sandbox_manager, mock_operator, mock_meta_store):
+        sandbox_info = _make_sandbox_info(state=State.DELETED)
+        sandbox_info["delete_time"] = "2026-01-01T00:30:00+00:00"
+        mock_meta_store.get = AsyncMock(return_value=sandbox_info)
+        mock_operator.get_status = AsyncMock(return_value=None)
+
+        result = await sandbox_manager.get_status("sandbox-1", include_all_states=True)
+
+        assert result.state == State.DELETED
+        assert result.delete_time == "2026-01-01T00:30:00+00:00"
+
+    @pytest.mark.asyncio
     async def test_get_status_returns_gpu_info(self, sandbox_manager, mock_operator, mock_meta_store):
         sandbox_info = _make_sandbox_info(state=State.RUNNING)
         sandbox_info["num_gpus"] = 0.5

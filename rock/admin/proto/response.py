@@ -42,6 +42,7 @@ class SandboxStatusResponse(BaseModel):
     stop_time: str | None = None
     create_time: str | None = None
     archive_time: str | None = None
+    delete_time: str | None = None
     auto_stop_time: str | None = None
     auto_archive_time: str | None = None
     auto_delete_time: str | None = None
@@ -74,6 +75,7 @@ class SandboxStatusResponse(BaseModel):
             stop_time=sandbox_info.get("stop_time"),
             create_time=sandbox_info.get("create_time"),
             archive_time=sandbox_info.get("archive_time"),
+            delete_time=sandbox_info.get("delete_time"),
             auto_stop_time=auto_stop_time,
             auto_archive_time=auto_archive_time,
             auto_delete_time=auto_delete_time,

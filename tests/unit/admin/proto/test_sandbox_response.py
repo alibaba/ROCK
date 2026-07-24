@@ -60,12 +60,14 @@ class TestSandboxStatusResponseDiskLimit:
             "memory": "8g",
             "disk": "30g",
             "archive_time": "2026-01-01T00:25:00+00:00",
+            "delete_time": "2026-01-01T00:30:00+00:00",
         }
         response = SandboxStatusResponse.from_sandbox_info(sandbox_info)
         assert response.disk == "30g"
         assert response.cpus == 2.0
         assert response.memory == "8g"
         assert response.archive_time == "2026-01-01T00:25:00+00:00"
+        assert response.delete_time == "2026-01-01T00:30:00+00:00"
         assert response.auto_stop_time is None
 
     def test_from_sandbox_info_without_disk(self):
@@ -147,7 +149,15 @@ class TestActionsSandboxStatusResponseDiskLimit:
         response = ActionStatusResponse()
         assert response.disk is None
         assert response.archive_time is None
+        assert response.delete_time is None
         assert response.auto_stop_time is None
+
+    def test_actions_status_response_delete_time(self):
+        from rock.actions.sandbox.response import SandboxStatusResponse as ActionStatusResponse
+
+        response = ActionStatusResponse(delete_time="2026-01-01T00:30:00+00:00")
+
+        assert response.delete_time == "2026-01-01T00:30:00+00:00"
 
     def test_actions_status_response_auto_transition_fields(self):
         from rock.actions.sandbox.response import SandboxStatusResponse as ActionStatusResponse

@@ -190,6 +190,16 @@ class TestProxyGetStatus:
         assert result.auto_archive_time == "2026-01-01T01:00:00+00:00"
         assert result.auto_delete_time is None
 
+    async def test_deleted_with_include_all_states_returns_delete_time(self, proxy_service, mock_meta_store):
+        info = _make_meta_info(state=State.DELETED)
+        info["delete_time"] = "2026-01-01T00:30:00+00:00"
+        mock_meta_store.get.return_value = info
+
+        result = await proxy_service.get_status("sandbox-1", include_all_states=True)
+
+        assert result.state == State.DELETED
+        assert result.delete_time == "2026-01-01T00:30:00+00:00"
+
     async def test_rocklet_failure_falls_back_gracefully(self, proxy_service, mock_meta_store, mock_rpc_client):
         mock_meta_store.get.return_value = _make_meta_info(state=State.RUNNING)
         mock_rpc_client.post.side_effect = Exception("connection refused")
