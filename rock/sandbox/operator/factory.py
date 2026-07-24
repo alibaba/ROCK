@@ -15,6 +15,7 @@ from rock.utils.providers.redis_provider import RedisProvider
 
 logger = init_logger(__name__)
 
+
 def operator_requires_ray(operator_type: str) -> bool:
     """Whether admin must initialize a Ray cluster for this operator backend.
 
@@ -23,6 +24,16 @@ def operator_requires_ray(operator_type: str) -> bool:
     to an external orchestrator, so admin boots without Ray for them.
     """
     return operator_type.lower() == "ray"
+
+
+def operator_supports_scheduler(operator_type: str) -> bool:
+    """Whether the worker maintenance scheduler supports this operator backend.
+
+    OpenSandbox owns its workers outside ROCK and does not install Rocklet, while
+    the scheduler discovers Ray workers and dispatches every task through their
+    Rocklet endpoints. Other operators retain their existing behavior.
+    """
+    return operator_type.lower() != "opensandbox"
 
 
 @dataclass
@@ -99,6 +110,4 @@ class OperatorFactory:
                 opensandbox_operator.set_nacos_provider(context.nacos_provider)
             return opensandbox_operator
         else:
-            raise ValueError(
-                f"Unsupported operator type: {operator_type}. Supported types: ray, k8s, opensandbox"
-            )
+            raise ValueError(f"Unsupported operator type: {operator_type}. Supported types: ray, k8s, opensandbox")
