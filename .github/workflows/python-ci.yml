@@ -37,6 +37,16 @@ jobs:
       run: |
         uv sync --all-extras --group test --python 3.11
 
+    # LocalRuntimeEnv mounts ROCK_PYTHON_ENV_PATH (default: sys.base_prefix) into
+    # sandbox containers. uv writes the venv's python symlink through a version-alias
+    # dir (e.g. cpython-3.11-...), but sys.base_prefix canonicalizes to the full
+    # version dir (cpython-3.11.14-...), so the alias isn't mounted and rocklet's
+    # shebang interpreter is "not found" (container exits 127). Point it at uv's
+    # python root so the whole symlink chain resolves inside the container.
+    - name: Configure sandbox python env path
+      run: |
+        echo "ROCK_PYTHON_ENV_PATH=$(uv python dir)" >> "$GITHUB_ENV"
+
     - name: Run fast tests
       run: |
         mkdir -p data/logs
