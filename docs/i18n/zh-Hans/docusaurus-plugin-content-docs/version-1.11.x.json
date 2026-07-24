@@ -15,6 +15,10 @@
     "message": "参考",
     "description": "The label for category 'References' in sidebar 'tutorialSidebar'"
   },
+  "sidebar.tutorialSidebar.category.Release Notes": {
+    "message": "版本说明",
+    "description": "The label for category 'Release Notes' in sidebar 'tutorialSidebar'"
+  },
   "sidebar.tutorialSidebar.category.model-service": {
     "message": "Model Service 参考",
     "description": "The label for category 'Model Service References' in sidebar 'tutorialSidebar'"
