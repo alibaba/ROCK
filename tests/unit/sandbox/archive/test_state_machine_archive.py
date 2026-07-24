@@ -279,6 +279,22 @@ class TestArchiveHookSideEffects:
         # state_history records the transition
         assert any(r["to_state"] == "pending" for r in info.get("state_history", []))
 
+    async def test_on_restore_clears_previous_start_time(self, meta_store):
+        sm = await SandboxStateMachine.from_state_value(
+            State.ARCHIVED,
+            {
+                "start_time": "2026-01-01T08:00:00+08:00",
+                "stop_time": "2026-01-01T09:00:00+08:00",
+                "archive_time": "2026-01-01T10:00:00+08:00",
+            },
+        )
+
+        await sm.send("restore", sandbox_id="sbx-1", meta_store=meta_store)
+
+        assert sm.sandbox_info["state"] == State.PENDING
+        assert sm.sandbox_info["start_time"] is None
+        assert sm.sandbox_info["stop_time"] is None
+
     async def test_on_restore_failed_resets_archived_delete_deadline_from_failure_time(self, meta_store):
         old_deadline = "2026-01-02T08:00:00+08:00"
         sm = await SandboxStateMachine.from_state_value(
