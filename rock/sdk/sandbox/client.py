@@ -49,7 +49,7 @@ from rock.sdk.common.exceptions import (
 from rock.sdk.sandbox.agent.rock_agent import RockAgent
 from rock.sdk.sandbox.config import SandboxConfig, SandboxGroupConfig
 from rock.sdk.sandbox.deploy import Deploy
-from rock.sdk.sandbox.file_system import FileSystem, LinuxFileSystem
+from rock.sdk.sandbox.file_system import FileSystem, LinuxFileSystem, WindowsFileSystem
 from rock.sdk.sandbox.model_service.base import ModelService
 from rock.sdk.sandbox.network import Network
 from rock.sdk.sandbox.oss_client import OssClient
@@ -95,7 +95,7 @@ class Sandbox(AbstractSandbox):
         self.remote_user = LinuxRemoteUser(self)
         self.process = Process(self)
         self.network = Network(self)
-        self.fs = LinuxFileSystem(self)
+        self.fs = WindowsFileSystem(self) if self.config.image_os.casefold() == "windows" else LinuxFileSystem(self)
         self.runtime_envs = {}
         self.deploy = Deploy(self)
         self.agent = RockAgent(self)
