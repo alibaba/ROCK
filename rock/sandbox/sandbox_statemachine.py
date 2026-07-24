@@ -407,6 +407,10 @@ class SandboxStateMachine(StateChart):
         logger.info(f"restore sandbox {sandbox_id}")
         sandbox_info = self.sandbox_info or {}
         sandbox_info["state"] = RockState.PENDING
+        # Archive restore recreates the sandbox and therefore starts a new
+        # runtime session.  Clear the previous session timestamp so that the
+        # PENDING -> RUNNING transition records the restore completion time.
+        sandbox_info["start_time"] = None
         sandbox_info["stop_time"] = None
         sandbox_info["auto_transition_state"] = None
         sandbox_info["auto_transition_time"] = None
