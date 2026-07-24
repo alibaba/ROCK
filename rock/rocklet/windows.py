@@ -55,6 +55,7 @@ class PowerShellSession(Session):
     _BEGIN_MARKER = "ROCKLET_PS_BEGIN_29234"
     _END_MARKER = "ROCKLET_PS_END_29234"
     _EXIT_MARKER = "ROCKLET_PS_EXIT_29234:"
+    _PROMPT_MARKER = "ROCKLET_PS_PROMPT_29234"
 
     def __init__(self, request: CreateBashSessionRequest):
         self.request = request
@@ -127,10 +128,16 @@ class PowerShellSession(Session):
         # PowerShell caches its [Console].Out TextWriter at process init — late
         # OutputEncoding mutations don't affect already-cached writers used by
         # built-in formatters (Get-ChildItem, Format-Table, etc.).
+        #
+        # ConsoleHost normally writes both its prompt and every stdin command to
+        # stdout. Read redirected stdin ourselves to suppress the command echo,
+        # and use a private prompt marker that _run_command removes from output.
         ps_setup = (
             "chcp 65001 > $null; "
             "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
-            "$OutputEncoding = [System.Text.Encoding]::UTF8"
+            "$OutputEncoding = [System.Text.Encoding]::UTF8; "
+            f"function global:prompt {{ '{self._PROMPT_MARKER}' }}; "
+            "function global:PSConsoleHostReadLine { [Console]::In.ReadLine() }"
         )
         self._process = subprocess.Popen(
             [ps_cmd, "-NoLogo", "-NoProfile", "-NoExit", "-Command", ps_setup],
@@ -227,6 +234,7 @@ class PowerShellSession(Session):
                         raise SessionNotInitializedError("PowerShell process terminated unexpectedly")
                     continue
 
+                line = line.replace(self._PROMPT_MARKER, "")
                 if self._BEGIN_MARKER in line:
                     started = True
                     continue

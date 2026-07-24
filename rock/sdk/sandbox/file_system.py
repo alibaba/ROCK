@@ -1,18 +1,26 @@
+import base64
 import shlex
+import shutil
 import tarfile
 import tempfile
 import time
 from abc import ABC, abstractmethod
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
-from rock.actions import CreateBashSessionRequest, Observation
+from rock.actions import BashAction, CreateBashSessionRequest, Observation
 from rock.actions.sandbox.base import AbstractSandbox
-from rock.actions.sandbox.request import ChmodRequest, ChownRequest, Command
+from rock.actions.sandbox.request import ChmodRequest, ChownRequest, Command, UploadMode
 from rock.actions.sandbox.response import ChmodResponse, ChownResponse, CommandResponse, DownloadFileResponse
 from rock.logger import init_logger
+from rock.sdk.common.exceptions import BadRequestRockError
 from rock.sdk.sandbox.constants import ENSURE_OSSUTIL_SCRIPT
 
 logger = init_logger(__name__)
+
+
+def _powershell_literal(value: str) -> str:
+    """Quote a value for use as a literal in a PowerShell command."""
+    return "'" + value.replace("'", "''") + "'"
 
 
 class FileSystem(ABC):
@@ -216,3 +224,185 @@ class LinuxFileSystem(FileSystem):
             logger.warning(f"ossutil verify failed: {verify.stderr}")
             return False
         return True
+
+
+class WindowsFileSystem(FileSystem):
+    """File system operations for Windows sandboxes."""
+
+    async def chown(self, request: ChownRequest) -> ChownResponse:
+        paths = request.paths
+        if paths is None or len(paths) == 0:
+            raise BadRequestRockError("paths is empty")
+
+        responses: list[str] = []
+        for path in paths:
+            command = ["icacls", path, "/setowner", request.remote_user]
+            if request.recursive:
+                command.append("/T")
+            logger.info(f"chown command: {command}")
+
+            response: CommandResponse = await self.sandbox.execute(Command(command=command))
+            responses.append(str(response))
+            if response.exit_code != 0:
+                return ChownResponse(success=False, message="\n".join(responses))
+        return ChownResponse(success=True, message="\n".join(responses))
+
+    async def chmod(self, request: ChmodRequest) -> ChmodResponse:
+        paths = request.paths
+        if paths is None or len(paths) == 0:
+            raise BadRequestRockError("paths is empty")
+
+        try:
+            mode = int(request.mode, 8)
+            if mode < 0 or mode > 0o7777:
+                raise ValueError
+        except ValueError:
+            return ChmodResponse(success=False, message=f"Windows chmod requires an octal mode: {request.mode}")
+
+        attribute = "-R" if mode & 0o222 else "+R"
+        responses: list[str] = []
+        for path in paths:
+            if request.recursive:
+                target = _powershell_literal(path)
+                command = (
+                    "$ErrorActionPreference = 'Stop'; "
+                    f"$target = {target}; "
+                    f"& attrib.exe {attribute} $target; "
+                    'if ($LASTEXITCODE -ne 0) { throw "attrib failed with exit code $LASTEXITCODE" }; '
+                    "if (Test-Path -LiteralPath $target -PathType Container) { "
+                    f"& attrib.exe {attribute} (Join-Path -Path $target -ChildPath '*') /S /D; "
+                    'if ($LASTEXITCODE -ne 0) { throw "attrib failed with exit code $LASTEXITCODE" } '
+                    "}"
+                )
+                logger.info(f"chmod command: {command}")
+                try:
+                    response = await self.sandbox.arun(cmd=command)
+                except Exception as e:
+                    responses.append(str(e))
+                    return ChmodResponse(success=False, message="\n".join(responses))
+            else:
+                command = ["attrib", attribute, path]
+                logger.info(f"chmod command: {command}")
+                response = await self.sandbox.execute(Command(command=command))
+
+            responses.append(str(response))
+            if response.exit_code != 0:
+                return ChmodResponse(success=False, message="\n".join(responses))
+        return ChmodResponse(success=True, message="\n".join(responses))
+
+    async def upload_dir(
+        self,
+        source_dir: str | Path,
+        target_dir: str,
+        extract_timeout: int = 600,
+    ) -> Observation:
+        """Upload a local directory as a ZIP archive and extract it with PowerShell."""
+        local_zip_path: Path | None = None
+        remote_zip_path: str | None = None
+        session: str | None = None
+
+        try:
+            src = Path(source_dir).expanduser().resolve()
+            if not src.exists():
+                return Observation(exit_code=1, failure_reason=f"source_dir not found: {src}")
+            if not src.is_dir():
+                return Observation(exit_code=1, failure_reason=f"source_dir must be a directory: {src}")
+            if not isinstance(target_dir, str) or not PureWindowsPath(target_dir).is_absolute():
+                return Observation(
+                    exit_code=1,
+                    failure_reason=f"target_dir must be absolute Windows path: {target_dir}",
+                )
+
+            ts = str(time.time_ns())
+            local_zip_path = Path(tempfile.gettempdir()) / f"rock_upload_{ts}.zip"
+            session = f"powershell-{ts}"
+
+            await self.sandbox.create_session(CreateBashSessionRequest(session=session))
+
+            check = await self.sandbox.arun(
+                cmd=(
+                    "if (-not (Get-Command Expand-Archive -ErrorAction SilentlyContinue)) "
+                    "{ throw 'Expand-Archive is not available' }; "
+                    "[System.IO.Path]::GetTempPath()"
+                ),
+                session=session,
+            )
+            if check.exit_code != 0:
+                return Observation(exit_code=1, failure_reason="sandbox has no Expand-Archive command")
+            remote_temp_dir = check.output.strip()
+            if not PureWindowsPath(remote_temp_dir).is_absolute():
+                return Observation(exit_code=1, failure_reason=f"invalid sandbox temporary path: {remote_temp_dir}")
+            remote_zip_path = str(PureWindowsPath(remote_temp_dir) / f"rock_upload_{ts}.zip")
+
+            shutil.make_archive(str(local_zip_path.with_suffix("")), "zip", root_dir=src)
+            upload_response = await self.sandbox.upload_by_path(
+                file_path=str(local_zip_path),
+                target_path=remote_zip_path,
+                upload_mode=UploadMode.DIRECT,
+            )
+            if not upload_response.success:
+                return Observation(exit_code=1, failure_reason=f"zip upload failed: {upload_response.message}")
+
+            archive = _powershell_literal(remote_zip_path)
+            target = _powershell_literal(target_dir)
+            extract = await self.sandbox.run_in_session(
+                BashAction(
+                    command=(
+                        "$ErrorActionPreference = 'Stop'; "
+                        f"if (Test-Path -LiteralPath {target}) "
+                        f"{{ Remove-Item -LiteralPath {target} -Recurse -Force }}; "
+                        f"New-Item -ItemType Directory -Path {target} -Force | Out-Null; "
+                        f"Expand-Archive -LiteralPath {archive} -DestinationPath {target} -Force"
+                    ),
+                    session=session,
+                    timeout=extract_timeout,
+                ),
+            )
+            if extract.exit_code != 0:
+                return Observation(exit_code=1, failure_reason=f"zip extract failed: {extract.output}")
+
+            return Observation(exit_code=0, output=f"uploaded {src} -> {target_dir} via zip")
+        except Exception as e:
+            return Observation(exit_code=1, failure_reason=f"upload_dir unexpected error: {e}")
+        finally:
+            if remote_zip_path and session:
+                try:
+                    await self.sandbox.arun(
+                        cmd=(
+                            f"Remove-Item -LiteralPath {_powershell_literal(remote_zip_path)} "
+                            "-Force -ErrorAction SilentlyContinue"
+                        ),
+                        session=session,
+                    )
+                except Exception:
+                    pass
+            if local_zip_path:
+                try:
+                    local_zip_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    async def download_file(
+        self,
+        remote_path: str,
+        local_path: str | Path,
+    ) -> DownloadFileResponse:
+        """Download a Windows sandbox file through binary-safe Base64 output."""
+        try:
+            remote = _powershell_literal(remote_path)
+            response = await self.sandbox.arun(
+                cmd=f"[Convert]::ToBase64String([System.IO.File]::ReadAllBytes({remote}))"
+            )
+            if response.exit_code != 0:
+                return DownloadFileResponse(
+                    success=False,
+                    message=f"Failed to read remote file: {response.output}",
+                )
+
+            content = base64.b64decode("".join(response.output.split()), validate=True)
+            local = Path(local_path).expanduser().resolve()
+            local.parent.mkdir(parents=True, exist_ok=True)
+            local.write_bytes(content)
+            return DownloadFileResponse(success=True, message=f"Successfully downloaded {remote_path} to {local}")
+        except Exception as e:
+            return DownloadFileResponse(success=False, message=f"Failed to download {remote_path}: {e}")
