@@ -5,7 +5,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from rock.config import OpenSandboxConfig, RuntimeConfig
-from rock.sandbox.operator.factory import OperatorContext, OperatorFactory, operator_requires_ray
+from rock.sandbox.operator.factory import (
+    OperatorContext,
+    OperatorFactory,
+    operator_requires_ray,
+    operator_supports_scheduler,
+)
 from rock.sandbox.operator.opensandbox.operator import OpenSandboxOperator
 
 
@@ -14,6 +19,13 @@ def test_operator_requires_ray():
     assert operator_requires_ray("Ray") is True  # case-insensitive
     assert operator_requires_ray("k8s") is False
     assert operator_requires_ray("opensandbox") is False
+
+
+def test_operator_supports_scheduler():
+    assert operator_supports_scheduler("ray") is True
+    assert operator_supports_scheduler("k8s") is True
+    assert operator_supports_scheduler("opensandbox") is False
+    assert operator_supports_scheduler("OpenSandbox") is False
 
 
 def _runtime(operator_type: str) -> RuntimeConfig:

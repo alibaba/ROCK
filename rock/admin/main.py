@@ -47,7 +47,12 @@ from rock.common.exception import request_validation_exception_handler
 from rock.config import DatabaseConfig, RockConfig, SchedulerConfig
 from rock.logger import configure_logging, init_logger, reset_log_file
 from rock.sandbox.gem_manager import GemManager
-from rock.sandbox.operator.factory import OperatorContext, OperatorFactory, operator_requires_ray
+from rock.sandbox.operator.factory import (
+    OperatorContext,
+    OperatorFactory,
+    operator_requires_ray,
+    operator_supports_scheduler,
+)
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.service.factory import create_sandbox_proxy_service
 from rock.sandbox.service.warmup_service import WarmupService
@@ -93,6 +98,13 @@ def _init_ops_service(
     scheduler_task_table: "SchedulerTaskTable",
 ) -> OpsService:
     """Build OpsService with task registry from scheduler config."""
+    if not operator_supports_scheduler(rock_config.runtime.operator_type):
+        return OpsService(
+            task_table=scheduler_task_table,
+            task_registry={},
+            alive_workers_provider=set,
+        )
+
     ops_task_registry: dict[str, BaseTask] = {}
     if rock_config.scheduler.enabled:
         for task_config in rock_config.scheduler.tasks:
@@ -223,7 +235,13 @@ async def lifespan(app: FastAPI):
         set_warmup_service(warmup_service)
         set_env_service(sandbox_manager)
 
-        if rock_config.scheduler.enabled and is_primary_pod():
+        scheduler_supported = operator_supports_scheduler(rock_config.runtime.operator_type)
+        if rock_config.scheduler.enabled and not scheduler_supported:
+            logger.warning(
+                "Scheduler is enabled but unsupported for operator_type=%s; skipping worker scheduler",
+                rock_config.runtime.operator_type,
+            )
+        elif rock_config.scheduler.enabled and is_primary_pod():
             scheduler_metrics_monitor, scheduler_metrics = _init_scheduler_metrics(rock_config)
             scheduler_thread = SchedulerThread(
                 scheduler_config=rock_config.scheduler,
