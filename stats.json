@@ -3302,5 +3302,19 @@
       "total": 737,
       "open": 52
     }
+  },
+  "2026-07-25": {
+    "stars": 470,
+    "forks": 77,
+    "contributors": 27,
+    "issues": {
+      "total": 557,
+      "open": 105,
+      "fixRate": 81
+    },
+    "prs": {
+      "total": 742,
+      "open": 54
+    }
   }
 }
