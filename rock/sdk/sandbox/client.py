@@ -146,7 +146,9 @@ class Sandbox(AbstractSandbox):
 
         return headers
 
-    async def _parse_error_message_from_status(self, status: dict):
+    async def _parse_error_message_from_status(self, status: dict | None):
+        if not status:
+            return None
         # Traverse each stage in the status dictionary
         for stage, details in status.items():
             # Check if the status of the current stage is "failed" or "timeout"

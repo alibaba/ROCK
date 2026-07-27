@@ -1,5 +1,6 @@
-"""Unit tests for Sandbox.attach() and sandbox_id lifecycle."""
+"""Unit tests for Sandbox startup, attach(), and sandbox_id lifecycle."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -20,6 +21,43 @@ class TestSandboxClientInit:
         config = SandboxConfig(sandbox_id=SANDBOX_ID)
         sandbox = Sandbox(config)
         assert sandbox.sandbox_id is None
+
+
+class TestSandboxStart:
+    @pytest.mark.asyncio
+    async def test_start_keeps_polling_when_pending_status_is_none(self):
+        sandbox = Sandbox(SandboxConfig(startup_timeout=30))
+        pending = SimpleNamespace(
+            namespace=None,
+            experiment_id=None,
+            is_alive=False,
+            status=None,
+        )
+        running = SimpleNamespace(
+            namespace=None,
+            experiment_id=None,
+            is_alive=True,
+            status=None,
+        )
+        start_response = {
+            "status": "Success",
+            "result": {
+                "sandbox_id": SANDBOX_ID,
+                "host_name": None,
+                "host_ip": None,
+            },
+        }
+
+        with (
+            patch.object(sandbox, "_build_headers", return_value={}),
+            patch("rock.utils.HttpUtils.post", new_callable=AsyncMock, return_value=start_response),
+            patch.object(sandbox, "get_status", new_callable=AsyncMock, side_effect=[pending, running]) as get_status,
+            patch("rock.sdk.sandbox.client.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await sandbox.start()
+
+        assert sandbox.sandbox_id == SANDBOX_ID
+        assert get_status.await_count == 2
 
 
 class TestSandboxAttach:
