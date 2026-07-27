@@ -71,6 +71,10 @@ await sandbox.fs.chmod(
 
 ## upload_dir - 上传目录
 
+`upload_dir` 使用的是**替换语义（replace）**，而不是合并语义。如果
+`target_dir` 已存在，上传内容解压前会删除整个目标目录及其中的所有内容。
+`source_dir` 中不存在的原有文件不会被保留。
+
 ```python
 import os
 from pathlib import Path

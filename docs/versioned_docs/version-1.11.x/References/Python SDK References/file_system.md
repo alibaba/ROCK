@@ -71,6 +71,11 @@ await sandbox.fs.chmod(
 
 ## upload_dir - Upload Directory
 
+`upload_dir` uses **replace semantics**, not merge semantics. If `target_dir`
+already exists, the entire target directory and all of its contents are removed
+before the uploaded directory is extracted. Existing files that are not present
+in `source_dir` are not preserved.
+
 ```python
 import os
 from pathlib import Path

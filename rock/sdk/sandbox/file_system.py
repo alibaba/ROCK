@@ -44,6 +44,12 @@ class FileSystem(ABC):
         target_dir: str,
         extract_timeout: int = 600,
     ) -> Observation:
+        """Upload a directory using replace semantics.
+
+        If ``target_dir`` already exists, it and all of its contents are
+        removed before ``source_dir`` is extracted. Existing contents are not
+        merged with the uploaded directory.
+        """
         pass
 
     @abstractmethod
@@ -103,7 +109,7 @@ class LinuxFileSystem(FileSystem):
         - Check 'tar' exists; if not, return Observation with exit_code != 0
         - Pack source_dir fully into a tar.gz locally
         - Upload to sandbox /tmp
-        - Extract into target_dir
+        - Replace target_dir and extract into the newly created directory
         - Always cleanup local tar.gz
 
         Returns:
@@ -296,7 +302,11 @@ class WindowsFileSystem(FileSystem):
         target_dir: str,
         extract_timeout: int = 600,
     ) -> Observation:
-        """Upload a local directory as a ZIP archive and extract it with PowerShell."""
+        """Upload a directory as ZIP and replace the target using PowerShell.
+
+        If ``target_dir`` already exists, it and all of its contents are
+        removed before extraction. Existing contents are not merged.
+        """
         local_zip_path: Path | None = None
         remote_zip_path: str | None = None
         session: str | None = None
