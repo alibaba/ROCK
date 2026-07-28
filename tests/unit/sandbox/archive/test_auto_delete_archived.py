@@ -15,6 +15,7 @@ def manager():
     instance = MagicMock(spec=SandboxManager)
     instance._meta_store = AsyncMock()
     instance.delete = AsyncMock()
+    instance._delete_expired_candidates = SandboxManager._delete_expired_candidates.__get__(instance, SandboxManager)
     instance._auto_delete_archived = SandboxManager._auto_delete_archived.__get__(instance, SandboxManager)
     return instance
 

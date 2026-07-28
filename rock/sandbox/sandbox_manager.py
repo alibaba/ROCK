@@ -53,6 +53,9 @@ from rock.utils.system import get_iso8601_timestamp
 
 logger = init_logger(__name__)
 
+# Bound batch-wide fan-out to protect the Ray control plane.
+_AUTO_DELETE_CONCURRENCY = 20
+
 
 class SandboxManager(BaseManager):
     _ray_namespace: str = None
@@ -599,26 +602,43 @@ class SandboxManager(BaseManager):
             return
 
         logger.info(f"[auto_delete] candidates={len(candidates)}, due_at={now.isoformat(timespec='seconds')}")
-        deleted_count = 0
-        for info in candidates:
+        deleted_count = await self._delete_expired_candidates(candidates, now, log_prefix="auto_delete")
+        logger.info(f"[auto_delete] done: deleted={deleted_count}/{len(candidates)}")
+
+    async def _delete_expired_candidates(
+        self,
+        candidates: list[SandboxInfo],
+        now: datetime.datetime,
+        *,
+        log_prefix: str,
+    ) -> int:
+        """Delete due candidates concurrently without exceeding the Ray call budget."""
+        semaphore = asyncio.Semaphore(_AUTO_DELETE_CONCURRENCY)
+
+        async def delete_one(info: SandboxInfo) -> bool:
             sandbox_id = info.get("sandbox_id", "")
             if not sandbox_id:
-                continue
+                return False
 
             due_time = SandboxLifecycleHelper.parse_iso8601_timestamp(info.get("auto_transition_time"))
             if due_time is None:
-                continue
+                return False
 
             if now < due_time:
-                logger.info(f"[auto_delete] {sandbox_id} (state={info.get('state')}) not due until {due_time}")
-                continue
-            try:
-                logger.info(f"[auto_delete] {sandbox_id} (state={info.get('state')}) due at {due_time}, deleting")
-                await self.delete(sandbox_id, reason=DeleteReason.EXPIRED)
-                deleted_count += 1
-            except Exception as e:
-                logger.error(f"[auto_delete] {sandbox_id}: {e}", exc_info=True)
-        logger.info(f"[auto_delete] done: deleted={deleted_count}/{len(candidates)}")
+                logger.info(f"[{log_prefix}] {sandbox_id} (state={info.get('state')}) not due until {due_time}")
+                return False
+
+            async with semaphore:
+                try:
+                    logger.info(f"[{log_prefix}] {sandbox_id} (state={info.get('state')}) due at {due_time}, deleting")
+                    await self.delete(sandbox_id, reason=DeleteReason.EXPIRED)
+                    return True
+                except Exception as e:
+                    logger.error(f"[{log_prefix}] {sandbox_id}: {e}", exc_info=True)
+                    return False
+
+        results = await asyncio.gather(*(delete_one(info) for info in candidates))
+        return sum(results)
 
     async def _auto_delete_archived(self) -> None:
         """Delete ARCHIVED sandboxes at the cluster archive-retention deadline."""
@@ -636,25 +656,7 @@ class SandboxManager(BaseManager):
             return
 
         logger.info(f"[auto_delete_archived] candidates={len(candidates)}, due_at={now.isoformat(timespec='seconds')}")
-        deleted_count = 0
-        for info in candidates:
-            sandbox_id = info.get("sandbox_id", "")
-            if not sandbox_id:
-                continue
-
-            due_time = SandboxLifecycleHelper.parse_iso8601_timestamp(info.get("auto_transition_time"))
-            if due_time is None:
-                continue
-            if now < due_time:
-                logger.info(f"[auto_delete_archived] {sandbox_id} not due until {due_time}")
-                continue
-
-            try:
-                logger.info(f"[auto_delete_archived] {sandbox_id} due at {due_time}, deleting")
-                await self.delete(sandbox_id, reason=DeleteReason.EXPIRED)
-                deleted_count += 1
-            except Exception as e:
-                logger.error(f"[auto_delete_archived] {sandbox_id}: {e}", exc_info=True)
+        deleted_count = await self._delete_expired_candidates(candidates, now, log_prefix="auto_delete_archived")
         logger.info(f"[auto_delete_archived] done: deleted={deleted_count}/{len(candidates)}")
 
     async def _auto_archive_stopped(self) -> None:
