@@ -88,23 +88,28 @@ jobs:
 
       - name: Start host rocklet for sandbox status probing
         run: |
-          # The admin probes sandbox status via HTTP to a rocklet. Without a
-          # host rocklet, get_remote_status() tries host_ip:22555 (Port.PROXY),
-          # but Docker maps the container's 22555 to a random host port, so the
-          # connection always fails and sandboxes never become "alive".
-          # Starting a host rocklet on port 22555 and pointing
-          # ROCK_WORKER_ROCKLET_PORT at it lets the admin read the service
-          # status file (/tmp/<sandbox_id>.json) from the host filesystem.
+          # Kill stale processes from previous CI runs to avoid port conflicts.
+          pkill -f "rocklet --port 22555" 2>/dev/null || true
+          pkill -f "admin --env ci" 2>/dev/null || true
+          sleep 1
+
+          # Without a host rocklet, get_remote_status() connects to
+          # host_ip:22555 (Port.PROXY default), but Docker maps the
+          # container's 22555 to a random host port — the connection
+          # always fails and sandboxes never become "alive".
           nohup uv run rocklet --port 22555 > /tmp/rocklet.log 2>&1 &
           echo "Waiting for rocklet to be ready..."
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:22555/is_alive >/dev/null 2>&1; then
               echo "Rocklet is ready"
-              break
+              echo "ROCK_WORKER_ROCKLET_PORT=22555" >> "$GITHUB_ENV"
+              exit 0
             fi
             sleep 1
           done
-          echo "ROCK_WORKER_ROCKLET_PORT=22555" >> "$GITHUB_ENV"
+          echo "ERROR: rocklet failed to start within 30s"
+          cat /tmp/rocklet.log
+          exit 1
 
       - name: Start ROCK Admin service
         run: |
@@ -161,3 +166,9 @@ jobs:
           tail -50 /tmp/rocklet.log || true
           echo "=== Docker Containers ==="
           docker ps -a || true
+
+      - name: Cleanup processes
+        if: always()
+        run: |
+          pkill -f "rocklet --port 22555" 2>/dev/null || true
+          pkill -f "admin --env ci" 2>/dev/null || true
