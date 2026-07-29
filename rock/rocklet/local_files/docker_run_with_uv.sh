@@ -47,11 +47,7 @@ if [ ! -f /etc/alpine-release ]; then
     # Install dependencies
     $UV_CMD pip install --python /tmp/rocklet-venv/bin/python ".[rocklet]"
 
-    # Clean up build directory to free disk space.
-    # cd / first so rocklet (and bash sessions it spawns) don't inherit a
-    # deleted CWD, which would cause `getcwd: cannot access parent directories`
-    # warnings to leak into command output.
-    cd /
+    # Clean up build directory to free disk space
     rm -rf $WRITABLE_PROJECT
 
 
