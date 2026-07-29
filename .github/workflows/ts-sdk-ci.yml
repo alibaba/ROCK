@@ -46,19 +46,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # --- Python + uv + ROCK admin ---
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
-
-      - name: Install ROCK Python dependencies
+      - name: Cleanup old files in /tmp/ray
         run: |
-          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
-          uv sync --all-extras --python 3.11
+          target="$(readlink -f /tmp/ray 2>/dev/null || echo /tmp/ray)"
+          [ -d "$target" ] || exit 0
+
+          echo "ray dir: $target"
+          echo "Before:"
+          du -sh "$target" 2>/dev/null || true
+
+          echo "Will delete (older than 60min):"
+          find "$target" -mindepth 1 -maxdepth 1 -type d -name 'session_*' -mmin +60 -print -exec du -sh {} \; || true
+
+          find "$target" -mindepth 1 -maxdepth 1 -type d -name 'session_*' -mmin +60 -exec rm -rf -- {} + || true
+
+          echo "After:"
+          du -sh "$target" 2>/dev/null || true
+
+      # Self-hosted runner already has Python 3.11 and uv installed.
+      # Do NOT use actions/setup-python or setup-uv — they override the
+      # runner's existing Python/uv with a different version, causing
+      # ROCK_PYTHON_ENV_PATH to point at a path that doesn't mount
+      # correctly into sandbox containers.
+      - name: Set up project (install dependencies)
+        run: |
+          uv sync --all-extras --group test --python 3.11
 
       # LocalRuntimeEnv mounts ROCK_PYTHON_ENV_PATH (default: sys.base_prefix) into
       # sandbox containers. uv writes the venv's python symlink through a version-alias
@@ -72,14 +84,13 @@ jobs:
 
       - name: Pull sandbox Docker image
         run: |
-          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           docker pull python:3.11
 
       - name: Start ROCK Admin service
         env:
           ROCK_WORKER_ENV_TYPE: uv
         run: |
-          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          mkdir -p data/logs
           nohup uv run admin --env ci --role admin --port 8080 > /tmp/rock-admin.log 2>&1 &
           echo "Waiting for admin to be ready..."
           for i in $(seq 1 60); do
@@ -101,20 +112,16 @@ jobs:
 
       - name: Install pnpm
         run: |
-          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           npm install -g pnpm
 
       - name: Install TS SDK dependencies
         working-directory: rock/ts-sdk
         run: |
-          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           pnpm install --frozen-lockfile
 
       # --- Integration tests ---
-      # ubuntu-latest has 4 vCPU / 16GB RAM. SDK default sandbox spec is
-      # 2 CPU / 8g, which leaves no headroom for admin + Ray overhead once
-      # multiple sandboxes cycle. Force 1 CPU / 2g so each test can start
-      # cleanly within 120s.
+      # Force smaller sandbox spec so each test can start cleanly within 120s
+      # alongside the admin + Ray overhead on the self-hosted runner.
       - name: Run integration tests
         working-directory: rock/ts-sdk
         env:
@@ -125,13 +132,11 @@ jobs:
           ROCK_DEFAULT_CPUS: "1"
           ROCK_STARTUP_TIMEOUT: "120"
         run: |
-          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           pnpm test:integration
 
       - name: Print admin logs on failure
         if: failure()
         run: |
-          echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           echo "=== ROCK Admin Logs (last 200 lines) ==="
           tail -200 /tmp/rock-admin.log || true
           echo "=== Docker Containers ==="
