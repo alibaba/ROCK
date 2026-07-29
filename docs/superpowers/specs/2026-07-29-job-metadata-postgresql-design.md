@@ -73,6 +73,9 @@ CREATE INDEX ix_job_group_scope_created
 
 CREATE INDEX ix_job_group_scope_status
     ON job_group_metadata(namespace, experiment_id, status);
+
+CREATE INDEX ix_job_group_namespace_created
+    ON job_group_metadata(namespace, created_at DESC, group_id DESC);
 ```
 
 | 字段 | 含义 |
@@ -186,6 +189,8 @@ namespace、experiment、Job 名称及其组合均不设置唯一约束。精确
 
 ## 5. SDK Model 调整
 
+### 5.1 持久化 DTO
+
 `JobMeta` 调整为数据库侧 Job DTO：
 
 - 增加必填的 `job_id: UUID`，默认使用 `uuid4` 生成。
@@ -195,17 +200,92 @@ namespace、experiment、Job 名称及其组合均不设置唯一约束。精确
 - 删除 `schema_version`、`attempt`、`status_reason`、`user_id`、`image`、
   `labels`、`env`、`tmp_file` 和 `script_path`。
 
-`RunMeta` 继续作为 CLI 使用的兼容类名，但持久化标识改为必填的
-`group_id: UUID`。提供只读兼容属性 `run_id`，其值等于 `group_id`。
+新增 `JobGroupMeta` 作为 Group DTO，只包含 `job_group_metadata` 中存在的字段。
+`RunMeta` 保留为 `JobGroupMeta` 的兼容别名，其 `run_id` 只读属性返回
+`group_id`。
 
-以下字段不存储在 Group 表中，而是在查询 Group 时动态计算：
+### 5.2 状态筛选
 
-- `total_tasks`
-- `pending_tasks`
-- `task_job_map`
-- `summary`
+```python
+class JobStatusCategory(str, Enum):
+    ALL = "all"
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    UNSUCCESSFUL = "unsuccessful"
+    NOT_COMPLETED = "not_completed"
+```
 
-`task_job_map` 从原来的 Task 到非唯一 Job 名称，改为 Task 到 Job UUID。
+| Category | 包含状态 |
+|---|---|
+| `all` | 所有状态 |
+| `active` | `planned`、`starting`、`sandbox_ready`、`running` |
+| `completed` | `completed` |
+| `unsuccessful` | `failed`、`cancelled`、`unrecoverable` |
+| `not_completed` | 除 `completed` 外的所有状态 |
+
+`GroupJobQuery` 支持：
+
+```python
+class GroupJobQuery(BaseModel):
+    category: JobStatusCategory | None = None
+    statuses: set[JobStatus] | None = None
+    task_ids: set[str] | None = None
+    job_type: str | None = None
+```
+
+`category` 和 `statuses` 不能同时指定；两者都不传表示查询全部状态。`statuses`
+用于调用方传入精确状态集合。
+
+### 5.3 分页
+
+```python
+class PageRequest(BaseModel):
+    page_size: int = Field(default=100, ge=1, le=1000)
+    cursor: str | None = None
+
+class JobPage(BaseModel):
+    items: list[JobMeta]
+    total: int
+    next_cursor: str | None
+
+class JobGroupPage(BaseModel):
+    items: list[JobGroupMeta]
+    total: int
+    next_cursor: str | None
+```
+
+分页参数是可选项：
+
+- `pagination=None` 时返回全部匹配记录，`next_cursor=None`。
+- Job 按 `(created_at ASC, job_id ASC)` 使用游标分页。
+- Group 按 `(created_at DESC, group_id DESC)` 使用游标分页。
+- `total` 表示当前过滤条件下的总记录数。
+- cursor 是 SDK 生成和解析的不透明字符串，调用方不依赖其内部格式。
+
+### 5.4 Group 统计和详情
+
+```python
+class JobGroupStatistics(BaseModel):
+    group_id: UUID
+    total_jobs: int
+    active_jobs: int
+    completed_jobs: int
+    failed_jobs: int
+    cancelled_jobs: int
+    unrecoverable_jobs: int
+    scored_jobs: int
+    avg_score: float
+    total_score: float
+    min_score: float | None
+    max_score: float | None
+
+class JobGroupDetail(BaseModel):
+    group: JobGroupMeta
+    statistics: JobGroupStatistics
+    jobs: JobPage
+```
+
+这些统计全部从 `job_metadata` 动态计算，不增加 Group 表字段。
 
 ## 6. Repository 边界
 
@@ -222,27 +302,44 @@ Repository 不读取数据库环境变量，也不在生产环境自动建表。
 metadata，供元数据服务的 migration 工具创建表。单元测试可以调用
 `Base.metadata.create_all`。
 
-### 6.1 Job 操作
+SDK 只负责元数据创建、查询、更新和统计。真正的 Job 执行、断点续跑和失败重试
+均由调用 SDK 的客户端负责。
+
+### 6.1 创建操作
 
 ```python
-create_job(meta: JobMeta) -> JobMeta
-get_job(job_id: UUID) -> JobMeta | None
-list_jobs(query: JobQuery) -> list[JobMeta]
-update_job(job_id: UUID, changes: JobMetaUpdate) -> JobMeta
-list_group_jobs(group_id: UUID) -> list[JobMeta]
+create_group(group: JobGroupMeta) -> JobGroupMeta
+create_job(job: JobMeta) -> JobMeta
+create_group_with_jobs(
+    group: JobGroupMeta,
+    jobs: Sequence[JobMeta],
+) -> JobGroupMeta
 ```
 
-`JobQuery` 支持以下可选过滤条件：
+`create_group_with_jobs` 在一个事务中创建 Group 和所有初始 Job，避免部分写入。
 
-- `namespace`
-- `experiment_id`
-- `job_name`
-- `group_id`
-- `task_id`
-- `status`
-- 基于 `created_at` 的确定性分页
+### 6.2 更新操作
 
-`JobMetaUpdate` 只允许更新以下运行态字段：
+```python
+update_group(
+    group_id: UUID,
+    changes: JobGroupUpdate,
+) -> JobGroupMeta
+
+update_job(
+    job_id: UUID,
+    changes: JobUpdate,
+) -> JobMeta
+
+batch_update_jobs(
+    updates: Sequence[JobUpdateItem],
+) -> list[JobMeta]
+```
+
+`JobUpdateItem` 包含 `job_id` 和对应的 `JobUpdate`。批量更新在一个事务中执行，
+任意一条更新失败时全部回滚。
+
+`JobUpdate` 只允许修改运行态字段：
 
 - `status`
 - `sandbox_id`
@@ -254,68 +351,150 @@ list_group_jobs(group_id: UUID) -> list[JobMeta]
 - `started_at`
 - `finished_at`
 
-`updated_at` 由 Repository 自动设置。
+`updated_at` 由 Repository 自动设置。所有 Job 更新必须使用 `job_id`，不能根据
+非唯一的 `job_name` 定位记录。
 
-### 6.2 Group 操作
+### 6.3 基础查询
 
 ```python
-create_group(meta: RunMeta) -> RunMeta
-create_group_with_jobs(meta: RunMeta, jobs: list[JobMeta]) -> RunMeta
-get_group(group_id: UUID) -> RunMeta | None
-list_groups(query: GroupQuery) -> list[RunMeta]
-update_group(group_id: UUID, changes: GroupMetaUpdate) -> RunMeta
-resolve_group_id_for_resume(scope) -> UUID | None
-find_completed_tasks(group_id: UUID) -> set[str]
+get_group(group_id: UUID) -> JobGroupMeta | None
+get_job(job_id: UUID) -> JobMeta | None
+
+list_group_jobs(
+    group_id: UUID,
+    query: GroupJobQuery | None = None,
+    pagination: PageRequest | None = None,
+) -> JobPage
 ```
 
-Group 的任务数和得分汇总通过 Job 表动态计算：
+`list_group_jobs` 返回完整 `JobMeta`。客户端通过筛选条件得到需要断点续跑或失败
+重试的 Job，但后续执行不属于 SDK 职责。
+
+常见查询：
+
+```python
+# 断点续跑候选：只包含仍处于执行流程中的 Job
+list_group_jobs(
+    group_id,
+    query=GroupJobQuery(category=JobStatusCategory.ACTIVE),
+)
+
+# 所有尚未成功的 Job，包括执行中和失败终态
+list_group_jobs(
+    group_id,
+    query=GroupJobQuery(category=JobStatusCategory.NOT_COMPLETED),
+)
+
+# 只查询需要由客户端重试的失败 Job
+list_group_jobs(
+    group_id,
+    query=GroupJobQuery(statuses={JobStatus.FAILED}),
+)
+```
+
+### 6.4 namespace 下的 Group 查询
+
+```python
+class GroupQuery(BaseModel):
+    experiment_id: str | None = None
+    statuses: set[JobGroupStatus] | None = None
+    modes: set[JobGroupMode] | None = None
+    dataset: str | None = None
+
+list_namespace_groups(
+    namespace: str,
+    query: GroupQuery | None = None,
+    pagination: PageRequest | None = None,
+) -> JobGroupPage
+```
+
+`namespace` 是必填参数，SDK 不提供无范围的全库 Group 列表接口。
+
+### 6.5 Group 状态、统计与详情
+
+```python
+get_group_statistics(group_id: UUID) -> JobGroupStatistics
+
+get_group_detail(
+    group_id: UUID,
+    query: GroupJobQuery | None = None,
+    pagination: PageRequest | None = None,
+) -> JobGroupDetail
+```
+
+`get_group` 返回 Group 自身保存的状态。`get_group_statistics` 返回所有 Job 状态
+计数和分数统计。`get_group_detail` 一次返回 Group、统计和经过筛选/分页后的 Job
+详情，减少元数据服务的调用次数。
+
+Group 聚合使用条件聚合：
 
 ```sql
 SELECT
-    COUNT(*) AS total_tasks,
+    COUNT(*) AS total_jobs,
     COUNT(*) FILTER (
-        WHERE status NOT IN ('completed', 'failed', 'cancelled', 'unrecoverable')
-    ) AS pending_tasks,
-    COUNT(*) FILTER (WHERE status = 'completed') AS completed,
-    COUNT(*) FILTER (WHERE status IN ('failed', 'unrecoverable')) AS failed,
+        WHERE status IN ('planned', 'starting', 'sandbox_ready', 'running')
+    ) AS active_jobs,
+    COUNT(*) FILTER (WHERE status = 'completed') AS completed_jobs,
+    COUNT(*) FILTER (WHERE status = 'failed') AS failed_jobs,
+    COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled_jobs,
+    COUNT(*) FILTER (WHERE status = 'unrecoverable') AS unrecoverable_jobs,
+    COUNT(score) AS scored_jobs,
     COALESCE(AVG(score), 0) AS avg_score,
-    COALESCE(SUM(score), 0) AS total_score
+    COALESCE(SUM(score), 0) AS total_score,
+    MIN(score) AS min_score,
+    MAX(score) AS max_score
 FROM job_metadata
 WHERE group_id = :group_id;
 ```
 
-## 7. 写入与更新流程
+## 7. 使用流程与数据流
 
-创建一次 Run 使用一个事务：
+### 7.1 创建 Group 和 Job
 
-1. 生成一个 Group UUID。
-2. 插入 Group。
-3. 为每个计划执行的 Task 生成一个 Job UUID。
-4. 使用同一个 Group UUID 批量插入所有 `planned` Job。
-5. 提交事务。
+客户端生成或接收 Group/Job DTO，调用 `create_group_with_jobs`。Repository 在同一
+事务中写入 Group 和所有初始 `planned` Job。
 
-以上步骤由 `create_group_with_jobs` 提供，保证 Group 和初始 Job 不会部分可见。
+### 7.2 更新 Job 和 Group 状态
 
-运行回调始终使用同一个 Job UUID，并执行字段级更新：
+客户端在执行生命周期中调用 `update_job` 或 `batch_update_jobs` 更新 Job，再调用
+`update_group` 更新 Group。Repository 不主动推导或修改 Group 保存的 status。
 
-1. Job 启动：更新 status、Sandbox ID、session、PID 和开始时间。
-2. Job 结束：更新 status、exit code、score、error 和结束时间。
-3. Resume：查询 Group 中的 Job，恢复处于可恢复状态且 Sandbox 进程坐标完整的 Job。
-4. Group 结束：更新 Group status 和结束时间；汇总字段在读取 Group 时计算。
+### 7.3 客户端断点续跑
 
-Repository 不允许根据 `job_name` 定位需要修改的 Job。Job 名称查询可能返回多条，
-所有更新操作必须提供 `job_id`。
+客户端调用 `list_group_jobs(category=ACTIVE)` 获取尚未结束的 Job 详情，自行检查
+外部运行环境并完成续跑。SDK 不探测 Sandbox 是否存活，也不启动任务。
+
+### 7.4 统计 Group
+
+客户端调用 `get_group_statistics` 获取状态和分数聚合，或调用 `get_group_detail`
+同时获取 Group、聚合统计和 Job 明细。
+
+### 7.5 客户端重试失败 Job
+
+客户端调用 `list_group_jobs(statuses={FAILED})` 获得失败 Job，执行重试，并使用
+原 `job_id` 调用 `update_job` 更新状态与运行结果。SDK 不触发重试，也不保存重试
+历史。
+
+### 7.6 浏览 namespace 下的 Group
+
+客户端调用 `list_namespace_groups`，可按 experiment、Group status、mode、dataset
+筛选，并可选择一次返回全部或使用游标分页。
 
 ## 8. 错误与事务行为
 
 - 重复的 `job_id` 或 `group_id` 抛出 `MetadataConflictError`。
 - 更新不存在的 UUID 抛出 `MetadataNotFoundError`。
+- 查询不存在的 Group 时，`get_group` 返回 `None`；需要 Group 必须存在的聚合和
+  列表接口抛出 `MetadataNotFoundError`。
 - 关联不存在的 Group 抛出 `MetadataConstraintError`。
 - Job 与 Group 的 namespace 或 experiment 不一致时，在提交前抛出
   `MetadataConstraintError`。
+- 同时指定 `GroupJobQuery.category` 和 `statuses` 抛出
+  `MetadataValidationError`。
+- 非法或过期 cursor 抛出 `MetadataPaginationError`。
 - SQLAlchemy 异常必须回滚事务，并包装为元数据 Repository 异常，同时使用
   exception cause 保留原始异常。
-- 一次元数据更新要么完整提交所有字段，要么全部不提交。
+- 单次更新和批量更新要么完整提交，要么全部不提交。
 
 ## 9. OSS 兼容边界
 
@@ -336,14 +515,18 @@ Repository 不允许根据 `job_name` 定位需要修改的 Job。Job 名称查�
 
 测试需要覆盖：
 
-- ORM 表结构、PostgreSQL UUID、外键和索引。
-- 独立 Job 和 Group Job 创建。
+- ORM 表结构、PostgreSQL UUID、外键和全部索引。
+- 独立 Job，以及原子创建 Group 和初始 Job。
 - 相同 Job 名称使用不同 UUID 保存多条记录。
-- 根据 UUID 精确读取和更新 Job。
-- 根据业务属性查询并返回多条 Job。
-- Group Job 列表以及 Task 到 Job UUID 的映射。
-- Group 的总任务数、未完成数、得分汇总和已完成 Task 动态计算。
-- Resume Group 选择以及 Sandbox 进程坐标恢复。
+- 根据 UUID 精确读取、单条更新和事务性批量更新 Job。
+- Group Job 的 `all`、`active`、`completed`、`unsuccessful`、
+  `not_completed` 和精确 statuses 筛选。
+- `category` 与 `statuses` 互斥校验。
+- Group Job 查询不分页、游标首/中/末页、空页以及非法 cursor。
+- namespace 下 Group 列表及 experiment、status、mode、dataset 筛选。
+- namespace Group 列表不分页和游标分页。
+- Group 保存状态查询、各 Job 状态计数以及平均分、总分、最小分、最大分。
+- Group 详情同时返回 Group、统计和分页 Job 明细。
 - 拒绝 Job 关联不同 namespace 或 experiment 的 Group。
 - 冲突或约束异常时回滚事务。
 - CLI 从 `planned`、`running` 到终态始终使用同一个 Job UUID。
