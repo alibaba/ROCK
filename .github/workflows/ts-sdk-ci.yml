@@ -153,7 +153,6 @@ jobs:
           ROCK_TEST_CLUSTER: default
           ROCK_DEFAULT_MEMORY: "2g"
           ROCK_DEFAULT_CPUS: "1"
-          ROCK_STARTUP_TIMEOUT: "120"
         run: |
           pnpm test:integration
 
