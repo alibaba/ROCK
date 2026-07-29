@@ -87,8 +87,6 @@ jobs:
           docker pull python:3.11
 
       - name: Start ROCK Admin service
-        env:
-          ROCK_WORKER_ENV_TYPE: uv
         run: |
           mkdir -p data/logs
           nohup uv run admin --env ci --role admin --port 8080 > /tmp/rock-admin.log 2>&1 &
