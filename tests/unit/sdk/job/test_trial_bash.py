@@ -311,8 +311,8 @@ class TestRenderWrapper:
         # prologue
         assert 'mkdir -p "$ROCK_ARTIFACT_DIR"' in wrapper
         assert 'touch "$ROCK_ARTIFACT_DIR/.placeholder"' in wrapper
-        # initial upload (silent on failure)
-        assert "|| true" in wrapper
+        # Metadata is stored in PostgreSQL; OSS receives artifacts only.
+        assert "rock_meta.json" not in wrapper
         # heredoc terminator appears twice (open + close)
         assert wrapper.count("__ROCK_USER_SCRIPT_EOF_deadbeef__") == 2
         # single-quoted terminator (disables parameter expansion)
