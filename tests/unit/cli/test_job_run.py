@@ -11,7 +11,6 @@ from rock.sdk.bench.models.job.config import HarborJobConfig, OssRegistryInfo, R
 from rock.sdk.envhub.config import OssMirrorConfig
 from rock.sdk.envhub.datasets.models import DatasetSpec
 from rock.sdk.job.config import BashJobConfig
-from rock.sdk.job.meta import RunScoreSummary
 from rock.sdk.job.result import ExceptionInfo, TrialResult
 
 
@@ -93,33 +92,36 @@ def test_build_run_summary_from_trial_results():
 
 
 def test_jsonl_progress_reporter_emits_json_lines():
-    from rock.cli.job_run import JsonlProgressReporter
+    from rock.cli.job_run import JsonlProgressReporter, RunScoreSummary
 
     stream = StringIO()
     reporter = JsonlProgressReporter(stream)
 
     reporter.emit({"type": "run_started", "run_id": "run-1"})
-    reporter.emit({"type": "summary", "summary": RunScoreSummary(completed=1, failed=0, skipped=0, avg_score=1.0, total_score=1.0, pass_rate=1.0).model_dump()})
+    reporter.emit(
+        {
+            "type": "summary",
+            "summary": RunScoreSummary(
+                completed=1, failed=0, skipped=0, avg_score=1.0, total_score=1.0, pass_rate=1.0
+            ).model_dump(),
+        }
+    )
 
     lines = [json.loads(line) for line in stream.getvalue().splitlines()]
     assert lines[0] == {"type": "run_started", "run_id": "run-1"}
     assert lines[1]["type"] == "summary"
 
 
-async def test_unified_handler_writes_run_meta_and_runs_each_task():
+async def test_unified_handler_runs_each_task_without_metadata_repositories():
     from rock.cli.job_run import DatasetRef, NullProgressReporter, UnifiedJobRunHandler
-    from rock.sdk.job.planner import PlannedJob
 
-    writes = []
-
-    class FakeRunRepo:
-        def write(self, meta):
-            writes.append(meta.model_copy(deep=True))
+    seen_tasks = []
 
     class FakeExecutor:
         _max_concurrent = 1
 
         async def run_job(self, job, callbacks=None):
+            seen_tasks.append(job.task_id)
             client = SimpleNamespace(sandbox=SimpleNamespace(sandbox_id="sb"), session="s", pid=1)
             if callbacks:
                 callbacks.on_started(client)
@@ -134,16 +136,13 @@ async def test_unified_handler_writes_run_meta_and_runs_each_task():
         task_ids=["t1", "t2"],
         dataset_ref=DatasetRef(org=None, dataset=None, split=None),
         run_id="run-1",
-        run_meta_repo=FakeRunRepo(),
-        job_meta_repo=None,
         executor=FakeExecutor(),
         progress=NullProgressReporter(),
     ).run(config)
 
     assert result.failed == 0
-    assert writes[0].status == "planning"
-    assert writes[-1].status == "completed"
-    assert writes[-1].task_job_map == {"t1": "job_t1_run-1", "t2": "job_t2_run-1"}
+    assert result.total == 2
+    assert seen_tasks == ["t1", "t2"]
 
 
 async def test_unified_handler_preserves_yaml_job_name_for_single_task():
@@ -169,8 +168,6 @@ async def test_unified_handler_preserves_yaml_job_name_for_single_task():
         task_ids=["t1"],
         dataset_ref=DatasetRef(org=None, dataset=None, split=None),
         run_id="run-1",
-        run_meta_repo=None,
-        job_meta_repo=None,
         executor=FakeExecutor(),
         progress=NullProgressReporter(),
     ).run(BashJobConfig(job_name="yaml-job", script="echo hi"))
@@ -179,44 +176,25 @@ async def test_unified_handler_preserves_yaml_job_name_for_single_task():
     assert seen_job_names == ["yaml-job"]
 
 
-async def test_unified_handler_resume_recovers_running_job_meta_before_new_sandbox():
+async def test_unified_handler_resumes_one_explicit_handle_without_starting_new_sandbox():
     from rock.cli.job_run import DatasetRef, NullProgressReporter, UnifiedJobRunHandler
-    from rock.sdk.job.meta import JobMeta, RunMeta
+    from rock.sdk.job.executor import ExistingJobHandle
 
-    existing = JobMeta(
-        job_name="old-job",
-        run_id="run-1",
-        task_id="t1",
-        status="running",
+    handle = ExistingJobHandle(
         sandbox_id="sb-1",
         session="session-1",
         pid=42,
     )
 
-    class FakeRunRepo:
-        def write(self, meta):
-            pass
-
-    class FakeJobRepo:
-        def get(self, job_name):
-            assert job_name == "old-job"
-            return existing
-
-        def write(self, meta):
-            pass
-
-        def update_status(self, *args, **kwargs):
-            raise AssertionError("recoverable job should not be marked unrecoverable")
-
     class FakeExecutor:
         _max_concurrent = 1
 
         async def run_job(self, job, callbacks=None):
-            raise AssertionError("recoverable job should not start a new sandbox")
+            raise AssertionError("resume must not start a new sandbox")
 
-        async def wait_existing_job(self, job, meta):
+        async def wait_existing_job(self, job, received_handle):
             assert job.job_name == "old-job"
-            assert meta is existing
+            assert received_handle is handle
             return TrialResult(task_name="t1")
 
     result = await UnifiedJobRunHandler(
@@ -224,19 +202,43 @@ async def test_unified_handler_resume_recovers_running_job_meta_before_new_sandb
         task_ids=["t1"],
         dataset_ref=DatasetRef(org=None, dataset=None, split=None),
         run_id="run-1",
-        run_meta_repo=FakeRunRepo(),
-        job_meta_repo=FakeJobRepo(),
         executor=FakeExecutor(),
         progress=NullProgressReporter(),
-        resumed=True,
-        base_run_meta=RunMeta(
-            run_id="run-1",
-            mode="single",
-            status="running",
-            total_tasks=1,
-            pending_tasks=1,
-            task_job_map={"t1": "old-job"},
-        ),
-    ).run(BashJobConfig(job_name="job", script="echo hi"))
+        resume_handle=handle,
+    ).run(BashJobConfig(job_name="old-job", script="echo hi"))
 
     assert result.failed == 0
+
+
+async def test_unified_handler_does_not_fall_back_when_resume_wait_fails():
+    from rock.cli.job_run import DatasetRef, NullProgressReporter, UnifiedJobRunHandler
+    from rock.sdk.job.executor import ExistingJobHandle
+
+    handle = ExistingJobHandle(
+        sandbox_id="sb-1",
+        session="session-1",
+        pid=42,
+    )
+
+    class FakeExecutor:
+        _max_concurrent = 1
+
+        async def run_job(self, job, callbacks=None):
+            raise AssertionError("resume failure must not start a new sandbox")
+
+        async def wait_existing_job(self, job, received_handle):
+            assert received_handle is handle
+            raise RuntimeError("existing process not found")
+
+    handler = UnifiedJobRunHandler(
+        mode="single",
+        task_ids=["t1"],
+        dataset_ref=DatasetRef(org=None, dataset=None, split=None),
+        run_id="run-1",
+        executor=FakeExecutor(),
+        progress=NullProgressReporter(),
+        resume_handle=handle,
+    )
+
+    with pytest.raises(RuntimeError, match="existing process not found"):
+        await handler.run(BashJobConfig(job_name="old-job", script="echo hi"))
