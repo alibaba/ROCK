@@ -123,11 +123,6 @@ class JobGroupMeta(MetadataModel):
     updated_at: datetime = Field(default_factory=utc_now)
     finished_at: datetime | None = None
 
-    @property
-    def run_id(self) -> UUID:
-        """Compatibility view of the former Run identifier."""
-        return self.group_id
-
 
 RunMeta = JobGroupMeta
 

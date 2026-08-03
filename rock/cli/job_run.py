@@ -5,12 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import TextIO
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -39,7 +39,6 @@ class DatasetRef:
 
 @dataclass(frozen=True)
 class RunResult:
-    run_id: str
     total: int
     failed: int
     summary: RunScoreSummary
@@ -69,11 +68,6 @@ class JsonlProgressReporter:
     def emit(self, payload: dict) -> None:
         self._stream.write(json.dumps(payload, ensure_ascii=False) + "\n")
         self._stream.flush()
-
-
-def generate_run_id() -> str:
-    timestamp = datetime.now().strftime("%Y%m%dT%H%M%S")
-    return f"{timestamp}-{uuid.uuid4().hex[:8]}"
 
 
 def resolve_dataset_ref(
@@ -265,17 +259,19 @@ class UnifiedJobRunHandler:
         mode: str,
         task_ids: Sequence[str],
         dataset_ref: DatasetRef,
-        run_id: str,
+        job_id: UUID | None = None,
         executor: JobExecutor,
         progress: JsonlProgressReporter | NullProgressReporter,
         resume_handle: ExistingJobHandle | None = None,
     ):
         if resume_handle is not None and (mode != "single" or len(task_ids) != 1):
             raise ValueError("resume_handle requires exactly one task in single mode")
+        if job_id is not None and (mode != "single" or len(task_ids) != 1):
+            raise ValueError("job_id requires exactly one task in single mode")
         self.mode = mode
         self.task_ids = list(task_ids)
         self.dataset_ref = dataset_ref
-        self.run_id = run_id
+        self.job_id = job_id
         self.executor = executor
         self.progress = progress
         self.resume_handle = resume_handle
@@ -285,7 +281,7 @@ class UnifiedJobRunHandler:
 
     async def run(self, config: JobConfig) -> RunResult:
         started = datetime.now(timezone.utc)
-        planner = SingleTaskPlanner(run_id=self.run_id, preserve_job_name=self.mode == "single")
+        planner = SingleTaskPlanner(preserve_job_name=self.mode == "single")
         planned_jobs = []
         for task_id in self.task_ids:
             planned = planner.plan(
@@ -296,13 +292,13 @@ class UnifiedJobRunHandler:
                     dataset=self.dataset_ref.full_name,
                     split=self.dataset_ref.split,
                 ),
+                job_id=self.job_id,
             )
             planned_jobs.append(planned)
 
         self.progress.emit(
             {
                 "type": "run_started",
-                "run_id": self.run_id,
                 "mode": self.mode,
                 "total": len(self.task_ids),
                 "pending": len(self.task_ids),
@@ -318,7 +314,7 @@ class UnifiedJobRunHandler:
                     self.progress.emit(
                         {
                             "type": "job_recovered",
-                            "run_id": self.run_id,
+                            "job_id": str(job.job_id),
                             "task_id": job.task_id,
                             "job_name": job.job_name,
                             "sandbox_id": self.resume_handle.sandbox_id,
@@ -341,7 +337,6 @@ class UnifiedJobRunHandler:
         self.progress.emit(
             {
                 "type": "summary",
-                "run_id": self.run_id,
                 "status": status,
                 "total": len(self.task_ids),
                 "passed": summary.completed,
@@ -351,13 +346,13 @@ class UnifiedJobRunHandler:
                 "duration_s": duration_s,
             }
         )
-        return RunResult(run_id=self.run_id, total=len(self.task_ids), failed=summary.failed, summary=summary)
+        return RunResult(total=len(self.task_ids), failed=summary.failed, summary=summary)
 
     def on_job_started(self, job: PlannedJob, client: TrialClient, index: int) -> None:
         self.progress.emit(
             {
                 "type": "job_started",
-                "run_id": self.run_id,
+                "job_id": str(job.job_id),
                 "task_id": job.task_id,
                 "job_name": job.job_name,
                 "index": index,
@@ -385,7 +380,7 @@ class UnifiedJobRunHandler:
         self.progress.emit(
             {
                 "type": "job_done",
-                "run_id": self.run_id,
+                "job_id": str(job.job_id),
                 "task_id": job.task_id,
                 "job_name": job.job_name,
                 "status": primary.status,
@@ -399,7 +394,6 @@ class UnifiedJobRunHandler:
         self.progress.emit(
             {
                 "type": "progress",
-                "run_id": self.run_id,
                 "completed": self._completed,
                 "passed": self._passed,
                 "failed": self._failed,

@@ -127,7 +127,7 @@ class TestJobExecutorWait:
         from rock.sdk.job.planner import ResolvedTask, SingleTaskPlanner
 
         config = BashJobConfig(script="echo hi", job_name="old-job")
-        planned_job = SingleTaskPlanner(run_id="local-run", preserve_job_name=True).plan(
+        planned_job = SingleTaskPlanner(preserve_job_name=True).plan(
             config,
             task=ResolvedTask(task_id="task-1"),
         )

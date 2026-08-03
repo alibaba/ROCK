@@ -135,6 +135,7 @@ class JobMetadataRepository:
             return _group_model(record) if record is not None else None
 
     def get_job(self, job_id: UUID) -> JobMeta | None:
+        """Return the complete metadata record identified by its unique Job ID."""
         with self._session_factory() as session:
             record = session.get(JobRecord, job_id)
             return _job_model(record) if record is not None else None

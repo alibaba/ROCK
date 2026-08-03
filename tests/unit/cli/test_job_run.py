@@ -4,6 +4,7 @@ import json
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+from uuid import UUID
 
 import pytest
 
@@ -97,7 +98,7 @@ def test_jsonl_progress_reporter_emits_json_lines():
     stream = StringIO()
     reporter = JsonlProgressReporter(stream)
 
-    reporter.emit({"type": "run_started", "run_id": "run-1"})
+    reporter.emit({"type": "job_started", "job_id": "12345678-1234-5678-1234-567812345678"})
     reporter.emit(
         {
             "type": "summary",
@@ -108,20 +109,28 @@ def test_jsonl_progress_reporter_emits_json_lines():
     )
 
     lines = [json.loads(line) for line in stream.getvalue().splitlines()]
-    assert lines[0] == {"type": "run_started", "run_id": "run-1"}
+    assert lines[0] == {
+        "type": "job_started",
+        "job_id": "12345678-1234-5678-1234-567812345678",
+    }
     assert lines[1]["type"] == "summary"
 
 
 async def test_unified_handler_runs_each_task_without_metadata_repositories():
-    from rock.cli.job_run import DatasetRef, NullProgressReporter, UnifiedJobRunHandler
+    from rock.cli.job_run import DatasetRef, UnifiedJobRunHandler
 
-    seen_tasks = []
+    seen_jobs = []
+    events = []
+
+    class CaptureProgressReporter:
+        def emit(self, payload):
+            events.append(payload)
 
     class FakeExecutor:
         _max_concurrent = 1
 
         async def run_job(self, job, callbacks=None):
-            seen_tasks.append(job.task_id)
+            seen_jobs.append((job.task_id, job.job_id))
             client = SimpleNamespace(sandbox=SimpleNamespace(sandbox_id="sb"), session="s", pid=1)
             if callbacks:
                 callbacks.on_started(client)
@@ -135,14 +144,57 @@ async def test_unified_handler_runs_each_task_without_metadata_repositories():
         mode="multi",
         task_ids=["t1", "t2"],
         dataset_ref=DatasetRef(org=None, dataset=None, split=None),
-        run_id="run-1",
         executor=FakeExecutor(),
-        progress=NullProgressReporter(),
+        progress=CaptureProgressReporter(),
     ).run(config)
 
     assert result.failed == 0
     assert result.total == 2
-    assert seen_tasks == ["t1", "t2"]
+    assert [task_id for task_id, _job_id in seen_jobs] == ["t1", "t2"]
+    assert len({job_id for _task_id, job_id in seen_jobs}) == 2
+    assert all(isinstance(job_id, UUID) for _task_id, job_id in seen_jobs)
+    assert all("run_id" not in event for event in events)
+    job_events = [event for event in events if event["type"] in {"job_started", "job_done"}]
+    assert len(job_events) == 4
+    assert all(UUID(event["job_id"]) for event in job_events)
+
+
+async def test_unified_handler_uses_supplied_job_id_in_job_and_events():
+    from rock.cli.job_run import DatasetRef, UnifiedJobRunHandler
+
+    supplied_job_id = UUID("12345678-1234-5678-1234-567812345678")
+    seen_job_ids = []
+    events = []
+
+    class CaptureProgressReporter:
+        def emit(self, payload):
+            events.append(payload)
+
+    class FakeExecutor:
+        _max_concurrent = 1
+
+        async def run_job(self, job, callbacks=None):
+            seen_job_ids.append(job.job_id)
+            client = SimpleNamespace(sandbox=SimpleNamespace(sandbox_id="sb"), session="s", pid=1)
+            if callbacks:
+                callbacks.on_started(client)
+            result = TrialResult(task_name=job.task_id)
+            if callbacks:
+                callbacks.on_done(client, result)
+            return result
+
+    await UnifiedJobRunHandler(
+        mode="single",
+        task_ids=["t1"],
+        dataset_ref=DatasetRef(org=None, dataset=None, split=None),
+        job_id=supplied_job_id,
+        executor=FakeExecutor(),
+        progress=CaptureProgressReporter(),
+    ).run(BashJobConfig(job_name="job", script="echo hi"))
+
+    assert seen_job_ids == [supplied_job_id]
+    job_events = [event for event in events if event["type"] in {"job_started", "job_done"}]
+    assert [event["job_id"] for event in job_events] == [str(supplied_job_id), str(supplied_job_id)]
 
 
 async def test_unified_handler_preserves_yaml_job_name_for_single_task():
@@ -167,7 +219,6 @@ async def test_unified_handler_preserves_yaml_job_name_for_single_task():
         mode="single",
         task_ids=["t1"],
         dataset_ref=DatasetRef(org=None, dataset=None, split=None),
-        run_id="run-1",
         executor=FakeExecutor(),
         progress=NullProgressReporter(),
     ).run(BashJobConfig(job_name="yaml-job", script="echo hi"))
@@ -201,7 +252,6 @@ async def test_unified_handler_resumes_one_explicit_handle_without_starting_new_
         mode="single",
         task_ids=["t1"],
         dataset_ref=DatasetRef(org=None, dataset=None, split=None),
-        run_id="run-1",
         executor=FakeExecutor(),
         progress=NullProgressReporter(),
         resume_handle=handle,
@@ -234,7 +284,6 @@ async def test_unified_handler_does_not_fall_back_when_resume_wait_fails():
         mode="single",
         task_ids=["t1"],
         dataset_ref=DatasetRef(org=None, dataset=None, split=None),
-        run_id="run-1",
         executor=FakeExecutor(),
         progress=NullProgressReporter(),
         resume_handle=handle,

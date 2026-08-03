@@ -1,4 +1,5 @@
 import argparse
+from uuid import UUID
 
 from rock.cli.command.command import Command
 from rock.logger import init_logger
@@ -45,7 +46,6 @@ class JobCommand(Command):
             JsonlProgressReporter,
             NullProgressReporter,
             UnifiedJobRunHandler,
-            generate_run_id,
             resolve_task_ids,
             sync_namespace,
         )
@@ -133,7 +133,6 @@ class JobCommand(Command):
                 if not config.job_name:
                     _fail(parser, "single-task resume requires the original job name in YAML or --job-name.")
 
-            run_id = generate_run_id()
             try:
                 mode, dataset_ref, task_ids = resolve_task_ids(
                     config,
@@ -148,6 +147,9 @@ class JobCommand(Command):
             except ValueError as exc:
                 _fail(parser, str(exc))
 
+            if args.job_id is not None and (mode != "single" or len(task_ids) != 1):
+                _fail(parser, "--job-id requires exactly one explicit --task.")
+
             resume_handle = None
             if is_resume:
                 resume_handle = ExistingJobHandle(
@@ -160,14 +162,14 @@ class JobCommand(Command):
                 mode=mode,
                 task_ids=task_ids,
                 dataset_ref=dataset_ref,
-                run_id=run_id,
+                job_id=args.job_id,
                 executor=JobExecutor(max_concurrent=args.concurrency),
                 progress=JsonlProgressReporter() if args.jsonl else NullProgressReporter(),
                 resume_handle=resume_handle,
             ).run(config)
             if result.failed > 0:
                 raise SystemExit(1)
-            logger.info("Run completed: run_id=%s failed=%s", result.run_id, result.failed)
+            logger.info("Run completed: failed=%s", result.failed)
         except Exception as e:
             logger.error(f"Job run failed: {e}", exc_info=True)
             raise SystemExit(1)
@@ -487,6 +489,13 @@ class JobCommand(Command):
             help="XRL authorization token",
         )
         run_parser.add_argument("--task", default=None, help="Run one explicit task id")
+        run_parser.add_argument(
+            "--job-id",
+            type=UUID,
+            default=None,
+            metavar="UUID",
+            help="Use an existing Job UUID; only valid with one explicit --task",
+        )
         run_parser.add_argument("--tasks", default=None, help="Comma-separated task ids")
         run_parser.add_argument("--all", action="store_true", default=False, help="Run all tasks in dataset split")
         run_parser.add_argument("--org", default=None, help="Dataset org override")

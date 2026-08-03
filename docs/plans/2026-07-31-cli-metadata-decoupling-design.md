@@ -55,7 +55,7 @@ rock job run \
 
 `ExistingJobHandle` 是与持久化模型无关的执行句柄，只包含 `sandbox_id`、`session`、`pid`。`JobExecutor.wait_existing_job(planned_job, handle)` 根据句柄重建 `TrialClient`，等待原进程结束并收集结果。它不查询数据库，也不负责判断任务是否应当续跑。
 
-`JobCommand` 负责参数校验、加载配置、确定原始 `job_name`、推导默认 session，并构造 `ExistingJobHandle`。`UnifiedJobRunHandler` 接收可选句柄：普通运行调用 `run_job`；单任务续跑调用 `wait_existing_job`。Handler 继续生成本地 `run_id`，用于本次命令的日志、任务命名和 JSONL 事件，但不会把它持久化为 Group。
+`JobCommand` 负责参数校验、加载配置、确定原始 `job_name`、推导默认 session，并构造 `ExistingJobHandle`。`UnifiedJobRunHandler` 接收可选句柄：普通运行调用 `run_job`；单任务续跑调用 `wait_existing_job`。Handler 不再生成本地 `run_id`；每个 `PlannedJob` 使用独立 UUID `job_id`，用于多任务名称防冲突、Job 环境变量和 JSONL Job 生命周期事件，但 CLI 不会把它持久化到数据库。
 
 产物查询使用 `JobViewer` 的 OSS artifact API。通过 `--job-config` 定位产物时，直接由配置中的 `environment.oss_mirror` 创建 `JobViewer`，不经过任何元数据 Repository。`job-show` 直接读取 `result.json`；没有产物时返回明确提示。
 

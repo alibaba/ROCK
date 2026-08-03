@@ -56,6 +56,7 @@ def test_group_meta_uses_timezone_aware_datetimes():
         created_at=datetime.now(timezone.utc),
     )
     assert group.created_at.tzinfo is not None
+    assert not hasattr(group, "run_id")
 
 
 def test_metadata_rejects_naive_datetimes():

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from unittest.mock import MagicMock
+from uuid import UUID
 
 import pytest
 
@@ -61,6 +62,25 @@ def test_run_parser_supports_single_multi_full_and_explicit_resume():
     assert ns.resume_pid == 42
     assert ns.resume_session is None
     assert ns.job_name == "old-job"
+
+
+def test_run_parser_accepts_uuid_job_id():
+    parser = _build_parser()
+
+    ns = parser.parse_args(
+        [
+            "job",
+            "run",
+            "--script-content",
+            "echo hi",
+            "--task",
+            "t1",
+            "--job-id",
+            "12345678-1234-5678-1234-567812345678",
+        ]
+    )
+
+    assert ns.job_id == UUID("12345678-1234-5678-1234-567812345678")
 
 
 def test_run_query_parsers_use_explicit_command_names():
@@ -163,6 +183,24 @@ class TestRunValidation:
         with pytest.raises(SystemExit) as excinfo:
             self._run(["job", "run", "--script-content", "echo hi", "--task", "t1", "--all"])
         assert excinfo.value.code == 2
+
+    def test_job_id_requires_single_task_mode(self, capsys):
+        with pytest.raises(SystemExit) as excinfo:
+            self._run(
+                [
+                    "job",
+                    "run",
+                    "--script-content",
+                    "echo hi",
+                    "--tasks",
+                    "t1,t2",
+                    "--job-id",
+                    "12345678-1234-5678-1234-567812345678",
+                ]
+            )
+
+        assert excinfo.value.code == 2
+        assert "--job-id requires exactly one explicit --task" in capsys.readouterr().err
 
     def test_resume_requires_explicit_task(self, monkeypatch, capsys):
         from rock.sdk.job.config import BashJobConfig
@@ -297,17 +335,31 @@ class TestRunEndToEnd:
 
             async def run(self, cfg):
                 captured["cfg"] = cfg
-                return type("R", (), {"failed": 0, "run_id": "run-1"})()
+                return type("R", (), {"failed": 0})()
 
         monkeypatch.setattr("rock.cli.job_run.UnifiedJobRunHandler", FakeHandler)
 
         parser = _build_parser()
-        ns = parser.parse_args(["job", "run", "--script-content", "echo hi", "--task", "task-1"])
+        job_id = "12345678-1234-5678-1234-567812345678"
+        ns = parser.parse_args(
+            [
+                "job",
+                "run",
+                "--script-content",
+                "echo hi",
+                "--task",
+                "task-1",
+                "--job-id",
+                job_id,
+            ]
+        )
         asyncio.run(JobCommand().arun(ns))
 
         assert isinstance(captured["cfg"], BashJobConfig)
         assert captured["kwargs"]["mode"] == "single"
         assert captured["kwargs"]["task_ids"] == ["task-1"]
+        assert captured["kwargs"]["job_id"] == UUID(job_id)
+        assert "run_id" not in captured["kwargs"]
 
     @pytest.mark.parametrize(
         ("session_args", "expected_session"),
@@ -332,7 +384,7 @@ class TestRunEndToEnd:
 
             async def run(self, cfg):
                 captured["cfg"] = cfg
-                return type("R", (), {"failed": 0, "run_id": "local-run"})()
+                return type("R", (), {"failed": 0})()
 
         monkeypatch.setattr(
             JobCommand,
