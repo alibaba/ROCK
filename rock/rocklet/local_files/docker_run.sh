@@ -38,13 +38,27 @@ setup_kata_dind() {
             docker_root="$custom_root"
         fi
     fi
-    mkdir -p "$docker_root"
-    for i in $(seq 0 7); do
-        mknod -m 660 /dev/loop$i b 7 $i 2>/dev/null || true
-    done
-    mount -o loop /docker-disk.img "$docker_root"
-    mount -o remount,rw /sys/fs/cgroup
-    mount -o remount,rw /proc/sys
+    # Directory creation requires write and execute permissions on the nearest existing parent.
+    if [ ! -d "$docker_root" ]; then
+        local nearest_existing_path="$docker_root"
+        while [ ! -e "$nearest_existing_path" ]; do
+            nearest_existing_path=$(dirname "$nearest_existing_path")
+        done
+        if [ ! -d "$nearest_existing_path" ] || [ ! -w "$nearest_existing_path" ] || [ ! -x "$nearest_existing_path" ]; then
+            echo "Warning: no permission to create Docker data root '$docker_root'; skipping Kata DinD setup." >&2
+        else
+            mkdir -p "$docker_root"
+        fi
+    fi
+
+    if [ -d "$docker_root" ]; then
+        for i in $(seq 0 7); do
+            mknod -m 660 /dev/loop$i b 7 $i 2>/dev/null || true
+        done
+        mount -o loop /docker-disk.img "$docker_root"
+        mount -o remount,rw /sys/fs/cgroup
+        mount -o remount,rw /proc/sys
+    fi
 }
 
 # Run rocklet
