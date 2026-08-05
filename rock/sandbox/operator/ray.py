@@ -1,4 +1,5 @@
 import json
+import asyncio
 
 import ray
 
@@ -18,6 +19,7 @@ from rock.utils.format import parse_size_to_bytes
 from rock.utils.service import build_sandbox_from_redis
 
 logger = init_logger(__name__)
+RAY_KILL_TIMEOUT_SECONDS = 10
 
 
 class RayOperator(AbstractOperator):
@@ -25,6 +27,17 @@ class RayOperator(AbstractOperator):
         self._ray_service = ray_service
         self._runtime_config = runtime_config
         self._disk_scheduling_enabled = ray.is_initialized() and "disk" in ray.cluster_resources()
+
+    async def _kill_actor(self, actor, *, sandbox_id: str, no_restart: bool | None = None) -> None:
+        kill_kwargs = {}
+        if no_restart is not None:
+            kill_kwargs["no_restart"] = no_restart
+        try:
+            await asyncio.wait_for(asyncio.to_thread(ray.kill, actor, **kill_kwargs), timeout=RAY_KILL_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            logger.warning("ray.kill timed out while terminating sandbox %s", sandbox_id)
+        except Exception as e:
+            logger.warning("failed to kill sandbox %s actor: %s", sandbox_id, e)
 
     def _get_actor_name(self, sandbox_id: str) -> str:
         return f"sandbox-{sandbox_id}"
@@ -135,7 +148,7 @@ class RayOperator(AbstractOperator):
             actor: SandboxActor = await self._ray_service.async_ray_get_actor(self._get_actor_name(sandbox_id))
             await self._ray_service.async_ray_get(actor.stop.remote(reason))
             logger.info(f"run time stop over {sandbox_id}")
-            ray.kill(actor)
+            await self._kill_actor(actor, sandbox_id=sandbox_id)
             return True
 
     async def delete(self, config: DockerDeploymentConfig, host_ip: str | None = None) -> bool:
@@ -145,7 +158,7 @@ class RayOperator(AbstractOperator):
 
             try:
                 existing_actor = await self._ray_service.async_ray_get_actor(actor_name)
-                ray.kill(existing_actor)
+                await self._kill_actor(existing_actor, sandbox_id=sandbox_id)
             except Exception:
                 logger.info(f"Actor {actor_name} already gone, proceeding with delete")
 
@@ -167,7 +180,7 @@ class RayOperator(AbstractOperator):
                 logger.info(f"sandbox {sandbox_id} deleted on host_ip={host_ip}")
                 return True
             finally:
-                ray.kill(sandbox_actor)
+                await self._kill_actor(sandbox_actor, sandbox_id=sandbox_id)
 
     async def restart(self, config: DockerDeploymentConfig, host_ip: str | None = None) -> SandboxInfo:
         """Restart an existing sandbox using docker start (container is preserved).
