@@ -3456,5 +3456,19 @@
       "total": 747,
       "open": 51
     }
+  },
+  "2026-08-05": {
+    "stars": 472,
+    "forks": 79,
+    "contributors": 27,
+    "issues": {
+      "total": 560,
+      "open": 105,
+      "fixRate": 81
+    },
+    "prs": {
+      "total": 749,
+      "open": 53
+    }
   }
 }
