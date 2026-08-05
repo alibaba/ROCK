@@ -100,11 +100,7 @@ class RayOperator(AbstractOperator):
             try:
                 sandbox_info: SandboxInfo = await self._ray_service.async_ray_get(sandbox_actor.sandbox_info.remote())
             except Exception:
-                try:
-                    ray.kill(sandbox_actor, no_restart=True)
-                    logger.info("[%s] force-killed actor after sandbox info failure", sandbox_id)
-                except Exception:
-                    logger.exception("[%s] failed to force-kill actor after sandbox info failure", sandbox_id)
+                await self._kill_actor(sandbox_actor, sandbox_id=sandbox_id, no_restart=True)
                 raise
             sandbox_info["user_id"] = user_id
             sandbox_info["experiment_id"] = experiment_id
