@@ -54,7 +54,7 @@ from rock.utils.system import get_iso8601_timestamp
 logger = init_logger(__name__)
 
 # Bound batch-wide fan-out to protect the Ray control plane.
-_AUTO_DELETE_CONCURRENCY = 20
+_AUTO_DELETE_CONCURRENCY = 50
 
 
 class SandboxManager(BaseManager):
@@ -595,7 +595,7 @@ class SandboxManager(BaseManager):
                 State.STOPPED.value,
                 State.DELETED.value,
                 now,
-                limit=1000,
+                limit=2000,
             )
         except Exception as e:
             logger.warning(f"[auto_delete] list_expired_by failed: {e}")
