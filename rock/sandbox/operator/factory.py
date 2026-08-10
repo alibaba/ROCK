@@ -8,6 +8,7 @@ from rock.config import K8sConfig, OpenSandboxConfig, RuntimeConfig
 from rock.logger import init_logger
 from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.operator.k8s.operator import K8sOperator
+from rock.sandbox.operator.k8s.provider import TemplateFiberPoolLookup
 from rock.sandbox.operator.opensandbox.operator import OpenSandboxOperator
 from rock.sandbox.operator.ray import RayOperator
 from rock.utils.providers.nacos_provider import NacosConfigProvider
@@ -51,6 +52,7 @@ class OperatorContext:
     # K8s operator dependencies
     k8s_config: K8sConfig | None = None
     nacos_provider: NacosConfigProvider | None = None
+    template_table: TemplateFiberPoolLookup | None = None
     # OpenSandbox operator dependencies
     opensandbox_config: OpenSandboxConfig | None = None
     # Future operator dependencies can be added here without breaking existing code
@@ -93,7 +95,7 @@ class OperatorFactory:
             if context.k8s_config is None:
                 raise ValueError("K8sConfig is required for K8sOperator")
             logger.info("Creating K8sOperator")
-            k8s_operator = K8sOperator(k8s_config=context.k8s_config)
+            k8s_operator = K8sOperator(k8s_config=context.k8s_config, template_table=context.template_table)
             if context.redis_provider is not None:
                 k8s_operator.set_redis_provider(context.redis_provider)
             if context.nacos_provider is not None:

@@ -122,6 +122,7 @@ class OpenSandboxOperator(AbstractOperator):
             image=image,
             cpu=cpu,
             memory=memory,
+            env=config.env_vars,
             metadata=metadata,
             timeout=config.startup_timeout,
         )

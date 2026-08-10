@@ -170,13 +170,20 @@ class SandboxProxyService:
                 ", ".join(missing),
             )
 
+    @staticmethod
+    def _merge_sandbox_env(sandbox_info: SandboxInfo, request_env: dict[str, str] | None) -> dict[str, str] | None:
+        merged_env = {**sandbox_info.get("env", {}), **(request_env or {})}
+        return merged_env or None
+
     @monitor_sandbox_operation()
     async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
         sandbox_id = request.sandbox_id
         await self._update_expire_time(sandbox_id)
         sandbox_status_dicts = await self.get_service_status(sandbox_id)
+        payload = request.model_dump()
+        payload["env"] = self._merge_sandbox_env(sandbox_status_dicts[0], request.env)
         response = await self._send_request(
-            sandbox_id, sandbox_status_dicts[0], "create_session", None, request.model_dump(), None, "POST"
+            sandbox_id, sandbox_status_dicts[0], "create_session", None, payload, None, "POST"
         )
         return CreateBashSessionResponse(**response)
 
@@ -247,9 +254,9 @@ class SandboxProxyService:
         sandbox_id = command.sandbox_id
         await self._update_expire_time(sandbox_id)
         sandbox_status_dicts = await self.get_service_status(sandbox_id)
-        response = await self._send_request(
-            sandbox_id, sandbox_status_dicts[0], "execute", None, command.model_dump(), None, "POST"
-        )
+        payload = command.model_dump()
+        payload["env"] = self._merge_sandbox_env(sandbox_status_dicts[0], command.env)
+        response = await self._send_request(sandbox_id, sandbox_status_dicts[0], "execute", None, payload, None, "POST")
         return CommandResponse(**response)
 
     @monitor_sandbox_operation()
@@ -729,7 +736,8 @@ class SandboxProxyService:
         full_request_url = f"{api_url}/{path}"
         logger.info(f"full_request_url: {full_request_url}")
         logger.info(f"data: {data}")
-        logger.info(f"json_data: {json_data}")
+        logged_json_data = {**json_data, "env": "<redacted>"} if json_data and "env" in json_data else json_data
+        logger.info("json_data: %s", logged_json_data)
 
         # Make request
         try:

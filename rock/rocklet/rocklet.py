@@ -8,6 +8,7 @@ Use Rocklet.create(**kwargs) to obtain the right subclass for the current OS.
 """
 
 import asyncio
+import os
 import shutil
 import subprocess
 import sys
@@ -217,11 +218,15 @@ class Rocklet(AbstractSandbox, ABC):
 
     def _run_subprocess_blocking(self, command: Command):
         # This is synchronous blocking code
+        process_env = None
+        if command.env is not None:
+            process_env = os.environ.copy()
+            process_env.update(command.env)
         return subprocess.run(
             command.command,
             shell=command.shell,
             timeout=command.timeout,
-            env=command.env,
+            env=process_env,
             capture_output=True,
             cwd=command.cwd,
         )

@@ -26,7 +26,7 @@ class FakeClient:
         self.calls = []
 
     async def create(self, *, image, cpu, memory, env=None, metadata=None, timeout=None):
-        self.calls.append(("create", dict(image=image, cpu=cpu, memory=memory, metadata=metadata)))
+        self.calls.append(("create", dict(image=image, cpu=cpu, memory=memory, env=env, metadata=metadata)))
         return self.created_id
 
     async def get_state(self, opensandbox_id):
@@ -106,12 +106,18 @@ async def test_submit_returns_sandbox_info(operator, client):
 
 @pytest.mark.asyncio
 async def test_submit_maps_resources_and_metadata(operator, client):
-    config = _deployment_config(sandbox_id="sbx-2", memory="8g", cpus=4)
+    config = _deployment_config(
+        sandbox_id="sbx-2",
+        memory="8g",
+        cpus=4,
+        env_vars={"WORKSPACE": "/workspace"},
+    )
     await operator.submit(config, user_info={"user_id": "u1"})
 
     call = dict(client.calls[0][1])
     assert call["memory"] == "8Gi"
     assert call["cpu"] == "4"
+    assert call["env"] == {"WORKSPACE": "/workspace"}
     assert call["metadata"]["rock_sandbox_id"] == "sbx-2"
     assert call["metadata"]["user_id"] == "u1"
 

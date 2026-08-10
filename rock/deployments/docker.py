@@ -823,7 +823,7 @@ class DockerDeployment(AbstractDeployment):
             image_id,
             *self._get_rocklet_start_cmd(),
         ]
-        cmd_str = shlex.join(cmds)
+        cmd_str = shlex.join(self._redact_env_args(cmds))
         logger.info(
             f"Starting container {self._container_name} with image {self._config.image} serving on port {self._config.port}"
         )
@@ -875,6 +875,8 @@ class DockerDeployment(AbstractDeployment):
         alongside in `start()`.
         """
         args: list[str] = []
+        for key, value in self._config.env_vars.items():
+            args.extend(["-e", f"{key}={value}"])
         if env_vars.ROCK_LOGGING_PATH:
             args.extend(
                 [
@@ -892,6 +894,15 @@ class DockerDeployment(AbstractDeployment):
             args.extend(["-e", f"INSTANCE_ROCK_REGISTRY={','.join(mirrors)}"])
         args.extend(self._runtime_env.get_extra_env_args(self._config))
         return args
+
+    @staticmethod
+    def _redact_env_args(command: list[str]) -> list[str]:
+        redacted = command.copy()
+        for index, argument in enumerate(redacted[:-1]):
+            if argument == "-e" and "=" in redacted[index + 1]:
+                key = redacted[index + 1].split("=", 1)[0]
+                redacted[index + 1] = f"{key}=<redacted>"
+        return redacted
 
     def _prepare_timezone_mount(self) -> list[str]:
         tz = env_vars.ROCK_TIME_ZONE
@@ -1081,7 +1092,7 @@ class DockerDeployment(AbstractDeployment):
             *self._get_rocklet_start_cmd(),
         ]
 
-        cmd_str = shlex.join(cmds)
+        cmd_str = shlex.join(self._redact_env_args(cmds))
         logger.info(f"Recreating container {self._container_name} from archived image {image_ref}")
         logger.info(f"Command: {cmd_str!r}")
 

@@ -164,6 +164,8 @@ class SandboxManager(BaseManager):
         sandbox_info: SandboxInfo = {
             "sandbox_id": sandbox_id,
             "image": docker_deployment_config.image,
+            "metadata": dict(docker_deployment_config.metadata),
+            "env": dict(docker_deployment_config.env_vars),
             "cpus": docker_deployment_config.cpus,
             "memory": docker_deployment_config.memory,
             "num_gpus": docker_deployment_config.num_gpus,

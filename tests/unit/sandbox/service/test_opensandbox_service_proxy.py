@@ -8,6 +8,7 @@ from rock.actions.sandbox.response import State
 from rock.admin.proto.request import (
     SandboxBashAction,
     SandboxCloseBashSessionRequest,
+    SandboxCommand,
     SandboxCreateBashSessionRequest,
 )
 from rock.rocklet.exceptions import SessionDoesNotExistError, SessionExistsError
@@ -50,6 +51,28 @@ async def test_create_session_reserves_and_commits_mapping(service):
     proxy._session_registry.reserve.assert_awaited_once_with("sbx-1", "worker")
     backend.create_session.assert_awaited_once_with("sbx-1", _info(), request)
     proxy._session_registry.commit.assert_awaited_once_with("sbx-1", "worker", "reservation-1", "os-session-1")
+
+
+@pytest.mark.asyncio
+async def test_create_session_merges_sandbox_environment(service):
+    proxy, backend = service
+    info = {**_info(), "env": {"WORKSPACE": "/workspace", "SHARED": "sandbox"}}
+    proxy._meta_store.get.return_value = info
+    backend.create_session.return_value = ("os-session-1", SimpleNamespace(output="ready", session_type="bash"))
+    request = SandboxCreateBashSessionRequest(
+        session="worker",
+        sandbox_id="sbx-1",
+        env={"SHARED": "request", "SESSION_ONLY": "value"},
+    )
+
+    await proxy.create_session(request)
+
+    merged_request = backend.create_session.await_args.args[2]
+    assert merged_request.env == {
+        "WORKSPACE": "/workspace",
+        "SHARED": "request",
+        "SESSION_ONLY": "value",
+    }
 
 
 @pytest.mark.asyncio
@@ -148,6 +171,28 @@ async def test_close_session_keeps_mapping_when_remote_delete_fails(service):
         await proxy.close_session(SandboxCloseBashSessionRequest(session="worker", sandbox_id="sbx-1"))
 
     proxy._session_registry.remove.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_execute_merges_sandbox_environment(service):
+    proxy, backend = service
+    info = {**_info(), "env": {"WORKSPACE": "/workspace", "SHARED": "sandbox"}}
+    proxy._meta_store.get.return_value = info
+    backend.execute.return_value = SimpleNamespace(stdout="ok", stderr="", exit_code=0)
+    command = SandboxCommand(
+        sandbox_id="sbx-1",
+        command="pwd",
+        env={"SHARED": "request", "COMMAND_ONLY": "value"},
+    )
+
+    await proxy.execute(command)
+
+    merged_command = backend.execute.await_args.args[2]
+    assert merged_command.env == {
+        "WORKSPACE": "/workspace",
+        "SHARED": "request",
+        "COMMAND_ONLY": "value",
+    }
 
 
 class FakeHTTPResponse:

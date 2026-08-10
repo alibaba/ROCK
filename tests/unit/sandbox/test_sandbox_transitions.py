@@ -83,6 +83,40 @@ async def test_build_sandbox_info_metadata_does_not_refresh_aes_key(mgr):
     assert sandbox_info["rock_authorization_encrypted"] == "enc"
 
 
+@pytest.mark.asyncio
+async def test_start_async_persists_opaque_metadata():
+    from rock.deployments.config import DockerDeploymentConfig
+
+    manager = MagicMock(spec=SandboxManager)
+    manager._check_sandbox_exists_in_redis = AsyncMock()
+    manager.deployment_manager = MagicMock()
+    metadata = {"ap-job-id": "job-123", "custom-key": "custom-value"}
+    config = DockerDeploymentConfig(container_name="sandbox-123", metadata=metadata)
+    manager.deployment_manager.init_config = AsyncMock(return_value=config)
+    manager.rock_config = MagicMock()
+    manager.rock_config.runtime.use_standard_spec_only = False
+    manager.validate_sandbox_spec = MagicMock()
+    manager._meta_store = AsyncMock()
+    manager._apply_user_auto_transition_policy = MagicMock()
+    manager._operator = AsyncMock()
+    manager._operator.submit = AsyncMock(
+        return_value={"sandbox_id": "sandbox-123", "host_name": "sandbox-123", "host_ip": "10.0.1.23"}
+    )
+
+    async def add_standard_metadata(sandbox_info, user_info, cluster_info):
+        sandbox_info["state"] = State.PENDING
+        sandbox_info["create_time"] = "2026-08-07T00:00:00Z"
+
+    manager._build_sandbox_info_metadata = AsyncMock(side_effect=add_standard_metadata)
+    manager.start_async = SandboxManager.start_async.__get__(manager, SandboxManager)
+
+    await manager.start_async(config)
+
+    persisted_info = manager._meta_store.create.await_args.args[1]
+    assert persisted_info["metadata"] == metadata
+    assert manager._meta_store.create.await_args.kwargs["deployment_config"].metadata == metadata
+
+
 # ---------------------------------------------------------------------------
 # TestManagerStop
 # ---------------------------------------------------------------------------
@@ -410,6 +444,15 @@ def mgr_start(mgr, mock_meta_store, mock_operator, mock_docker_config):
 
 
 class TestManagerStart:
+    @pytest.mark.asyncio
+    async def test_persists_sandbox_environment(self, mgr_start, mock_docker_config, mock_meta_store):
+        mock_docker_config.env_vars = {"WORKSPACE": "/workspace", "JOB_ID": "job-123"}
+
+        await mgr_start.start_async(mock_docker_config)
+
+        sandbox_info = mock_meta_store.create.await_args.args[1]
+        assert sandbox_info["env"] == {"WORKSPACE": "/workspace", "JOB_ID": "job-123"}
+
     @pytest.mark.asyncio
     async def test_refreshes_nacos_config_before_validating_spec(self, mgr_start, mock_docker_config):
         call_order = []

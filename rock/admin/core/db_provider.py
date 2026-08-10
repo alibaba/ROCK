@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, TypeVar
 
 from sqlalchemy import Engine, create_engine
+from sqlalchemy.exc import DisconnectionError, InterfaceError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -32,6 +33,42 @@ T = TypeVar("T")
 
 # Wait time (s) for a free connection when the pool is saturated.
 _PG_POOL_TIMEOUT = 120
+
+_DISCONNECT_RETRY_ATTEMPTS = 4
+_RETRY_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    OperationalError,
+    InterfaceError,
+    DisconnectionError,
+    ConnectionError,
+    OSError,
+    asyncio.TimeoutError,
+)
+
+
+def retry_on_disconnect(func):
+    """Retry database operations across transient connection outages."""
+
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        last_exc: BaseException | None = None
+        for attempt in range(1, _DISCONNECT_RETRY_ATTEMPTS + 1):
+            try:
+                return await func(*args, **kwargs)
+            except _RETRY_EXCEPTIONS as exc:
+                last_exc = exc
+                logger.warning(
+                    "DB connection lost on %s (attempt %d/%d): %r",
+                    func.__name__,
+                    attempt,
+                    _DISCONNECT_RETRY_ATTEMPTS,
+                    exc,
+                )
+                if attempt < _DISCONNECT_RETRY_ATTEMPTS:
+                    await asyncio.sleep(1.0 * 2 ** (attempt - 1))
+        assert last_exc is not None
+        raise last_exc
+
+    return wrapper
 
 
 class DatabaseProvider:

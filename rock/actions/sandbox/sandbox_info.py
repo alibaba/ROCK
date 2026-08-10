@@ -8,6 +8,8 @@ class SandboxInfo(TypedDict, total=False):
     host_ip: str
     host_name: str
     image: str
+    metadata: dict[str, str]
+    env: dict[str, str]
     user_id: str
     experiment_id: str
     namespace: str

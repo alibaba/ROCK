@@ -1,10 +1,10 @@
 """Unit tests for OperatorFactory dispatch (opensandbox branch)."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from rock.config import OpenSandboxConfig, RuntimeConfig
+from rock.config import K8sConfig, OpenSandboxConfig, RuntimeConfig
 from rock.sandbox.operator.factory import (
     OperatorContext,
     OperatorFactory,
@@ -51,6 +51,21 @@ def test_create_opensandbox_operator_requires_config():
     ctx = OperatorContext(runtime_config=_runtime("opensandbox"), opensandbox_config=None)
     with pytest.raises(ValueError, match="OpenSandboxConfig"):
         OperatorFactory.create_operator(ctx)
+
+
+def test_create_k8s_operator_receives_template_table():
+    template_table = MagicMock()
+    k8s_config = K8sConfig()
+    ctx = OperatorContext(
+        runtime_config=_runtime("k8s"),
+        k8s_config=k8s_config,
+        template_table=template_table,
+    )
+
+    with patch("rock.sandbox.operator.factory.K8sOperator") as operator_class:
+        OperatorFactory.create_operator(ctx)
+
+    operator_class.assert_called_once_with(k8s_config=k8s_config, template_table=template_table)
 
 
 def test_unsupported_operator_type_lists_opensandbox():

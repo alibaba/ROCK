@@ -1,5 +1,7 @@
 """Unit tests for BatchSandboxProvider helper methods."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from rock.config import K8sConfig, PoolConfig, TemplateSelectorRule
@@ -24,12 +26,13 @@ BASIC_TEMPLATES = {
 }
 
 
-def make_provider() -> BatchSandboxProvider:
+def make_provider(template_table=None) -> BatchSandboxProvider:
     return BatchSandboxProvider(
         k8s_config=K8sConfig(
             kubeconfig_path=None,
             templates=BASIC_TEMPLATES,
-        )
+        ),
+        template_table=template_table,
     )
 
 
@@ -219,6 +222,31 @@ class TestGetPoolName:
         # No nacos provider set, so pools is empty
         config = make_config()
         assert await provider._get_pool_name(config) is None
+
+    async def test_falls_back_to_ready_template_pool_from_database(self):
+        template_table = AsyncMock()
+        template_table.get_ready_fiber_pool_id.return_value = "pool-from-db"
+        provider = make_provider(template_table=template_table)
+        provider.set_nacos_provider(MockNacosProvider({K8sConstants.NACOS_POOLS_KEY: {}}))
+
+        config = make_config(image="template-1")
+
+        assert await provider._get_pool_name(config) == "pool-from-db"
+        template_table.get_ready_fiber_pool_id.assert_awaited_once_with("template-1")
+
+    async def test_nacos_pool_takes_priority_over_database(self):
+        template_table = AsyncMock()
+        provider = make_provider(template_table=template_table)
+        provider.set_nacos_provider(
+            MockNacosProvider(
+                {K8sConstants.NACOS_POOLS_KEY: {"pool-nacos": {"image": "template-1", "cpus": 2, "memory": "4Gi"}}}
+            )
+        )
+
+        config = make_config(image="template-1")
+
+        assert await provider._get_pool_name(config) == "pool-nacos"
+        template_table.get_ready_fiber_pool_id.assert_not_awaited()
 
 
 # ========== _get_template_name ==========
@@ -749,6 +777,40 @@ class TestBuildBatchSandboxManifestCpuOvercommit:
         container = manifest["spec"]["template"]["spec"]["containers"][0]
         assert container["resources"]["requests"]["cpu"] == "4.0"
         assert container["resources"]["limits"]["cpu"] == "4.0"
+
+
+class TestBuildBatchSandboxManifestEnvVars:
+    async def test_env_vars_are_injected_into_template_containers(self):
+        provider = make_resource_provider()
+        config = make_config()
+        config.env_vars = {"WORKSPACE": "/workspace", "JOB_ID": "job-123"}
+
+        manifest = await provider._build_batchsandbox_manifest(config)
+
+        container = manifest["spec"]["template"]["spec"]["containers"][0]
+        assert container["env"] == [
+            {"name": "WORKSPACE", "value": "/workspace"},
+            {"name": "JOB_ID", "value": "job-123"},
+        ]
+
+    async def test_env_var_values_are_not_logged_with_template_manifest(self):
+        provider = make_resource_provider()
+        config = make_config()
+        config.env_vars = {"TOKEN": "secret-value"}
+
+        with patch("rock.sandbox.operator.k8s.provider.logger.info") as log_info:
+            await provider._build_batchsandbox_manifest(config)
+
+        assert "secret-value" not in str(log_info.call_args_list)
+
+    async def test_env_vars_are_kept_out_of_precreated_pool_pod_manifest(self):
+        provider = make_resource_provider()
+        config = make_config(extended_params={"pool_name": "warm-pool"})
+        config.env_vars = {"WORKSPACE": "/workspace"}
+
+        manifest = await provider._build_batchsandbox_manifest(config)
+
+        assert manifest["spec"] == {"poolRef": "warm-pool", "replicas": 1}
 
 
 IMAGE_AUTH_ANNOTATION = "example.com/encrypted-image-auth"

@@ -46,6 +46,17 @@ class TestSandboxTableWithSQLite:
         assert record["user_id"] == "user-1"
         assert record["state"] == "running"
 
+    async def test_metadata_is_persisted_as_labels(self, db):
+        metadata = {"ap-job-id": "job-123", "custom-key": "custom-value"}
+        await db.create(
+            "sqlite-sbx-metadata",
+            {"create_time": "2025-01-01T00:00:00Z", "metadata": metadata},
+        )
+
+        record = await db.get("sqlite-sbx-metadata")
+
+        assert record["labels"] == metadata
+
     async def test_insert_duplicate_raises(self, db):
         sandbox_id = "sqlite-sbx-002"
         data = {"state": "pending", "create_time": "2025-01-01T00:00:00Z"}
@@ -185,6 +196,16 @@ class TestSandboxTableWithSQLite:
         assert record is not None
         assert record["user_id"] == "default"
         assert record["state"] == "pending"
+
+
+def test_sandbox_labels_column_has_postgresql_gin_index():
+    column = SandboxRecord.__table__.c.labels
+    assert column.name == "labels"
+    assert column.nullable is False
+
+    index = next(item for item in SandboxRecord.__table__.indexes if item.name == "ix_sandbox_record_labels_gin")
+    assert index.dialect_options["postgresql"]["using"] == "gin"
+    assert index.dialect_options["postgresql"]["ops"] == {"labels": "jsonb_path_ops"}
 
 
 @pytest.mark.need_docker

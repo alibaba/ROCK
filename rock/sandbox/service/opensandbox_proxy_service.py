@@ -84,6 +84,7 @@ class OpenSandboxProxyService(SandboxProxyService):
     async def create_session(self, request: CreateSessionRequest) -> CreateBashSessionResponse:
         await self._update_expire_time(request.sandbox_id)
         info = await self._get_runtime_info(request.sandbox_id)
+        request = request.model_copy(update={"env": self._merge_sandbox_env(info, request.env)})
         reservation = await self._session_registry.reserve(request.sandbox_id, request.session)
         if reservation is None:
             raise SessionExistsError(f"session {request.session!r} already exists")
@@ -164,6 +165,7 @@ class OpenSandboxProxyService(SandboxProxyService):
     async def execute(self, command: Command) -> CommandResponse:
         await self._update_expire_time(command.sandbox_id)
         info = await self._get_runtime_info(command.sandbox_id)
+        command = command.model_copy(update={"env": self._merge_sandbox_env(info, command.env)})
         return await self._opensandbox_backend.execute(command.sandbox_id, info, command)
 
     def _service_url(self, endpoint: str, target_path: str | None, query_string: str = "", *, websocket=False) -> str:

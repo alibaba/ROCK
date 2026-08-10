@@ -44,7 +44,7 @@ class TestSandboxTablePgProcessRestart:
     """PostgreSQL process restart inside a running container.
 
     pool_pre_ping=False so the pool does NOT silently reconnect — the
-    @_retry_on_disconnect decorator must handle recovery.
+    @retry_on_disconnect decorator must handle recovery.
     """
 
     @pytest.fixture
@@ -118,7 +118,7 @@ class TestSandboxTablePgProcessRestart:
 
         provider = DatabaseProvider(db_config=DatabaseConfig(url=restartable_pg["url"]))
         # Force pool_size=1 / no pre-ping so the pool does NOT silently reconnect —
-        # the @_retry_on_disconnect decorator must be what recovers the stale connection.
+        # the @retry_on_disconnect decorator must be what recovers the stale connection.
         provider._engine = create_engine(provider._url, pool_size=1, max_overflow=0, pool_pre_ping=False)
         provider._session_factory = sessionmaker(bind=provider._engine, class_=Session, expire_on_commit=False)
         provider._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="db-test")

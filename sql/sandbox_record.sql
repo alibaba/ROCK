@@ -23,12 +23,15 @@ CREATE TABLE sandbox_record (
 	create_user_gray_flag BOOLEAN, 
 	phases JSONB, 
 	port_mapping JSONB, 
+	labels JSONB DEFAULT '{}' NOT NULL,
 	spec JSONB, 
 	status JSONB, 
 	PRIMARY KEY (sandbox_id)
 );
 
 CREATE INDEX ix_sandbox_record_image ON sandbox_record (image);
+
+CREATE INDEX ix_sandbox_record_labels_gin ON sandbox_record USING gin (labels jsonb_path_ops);
 
 CREATE INDEX ix_sandbox_record_state ON sandbox_record (state);
 

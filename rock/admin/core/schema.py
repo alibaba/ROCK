@@ -10,7 +10,7 @@ import datetime
 import zoneinfo
 from typing import Any, ClassVar
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Index, String
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.types import JSON
@@ -57,6 +57,12 @@ class SandboxRecord(Base):
     create_user_gray_flag = Column(Boolean, nullable=True)
     phases = Column(_JSONB_VARIANT, nullable=True)
     port_mapping = Column(_JSONB_VARIANT, nullable=True)
+    labels = Column(
+        _JSONB_VARIANT,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'"),
+    )
     spec = Column(_JSONB_VARIANT, nullable=True)
     status = Column(_JSONB_VARIANT, nullable=True)
 
@@ -64,6 +70,12 @@ class SandboxRecord(Base):
         Index("ix_sandbox_record_user_id", "user_id"),
         Index("ix_sandbox_record_state", "state"),
         Index("ix_sandbox_record_image", "image"),
+        Index(
+            "ix_sandbox_record_labels_gin",
+            "labels",
+            postgresql_using="gin",
+            postgresql_ops={"labels": "jsonb_path_ops"},
+        ),
         Index("ix_sandbox_record_state_stop_time", "state", "stop_time"),
         Index(
             "ix_sandbox_record_state_auto_transition",
@@ -101,6 +113,7 @@ class SandboxRecord(Base):
         "state": "pending",
         "host_ip": "default",
         "create_time": "",
+        "labels": {},
     }
 
     def to_dict(self) -> dict[str, Any]:
@@ -118,6 +131,27 @@ class SandboxRecord(Base):
                 value = value.isoformat(timespec="seconds")
             result[column.key] = value
         return result
+
+
+class TemplateRecord(Base):
+    """ORM model for the ``template`` table."""
+
+    __tablename__ = "template"
+
+    template_id = Column(String(128), primary_key=True)
+    os_type = Column(String(32), nullable=False)
+    spec = Column(_JSONB_VARIANT, nullable=True)
+    status = Column(String(32), nullable=False)
+    current_step = Column(String(32), nullable=True)
+    artifact_uri = Column(String(1024), nullable=True)
+    fiber_pool_id = Column(String(128), nullable=True)
+    execution_context = Column(_JSONB_VARIANT, nullable=True)
+    error_code = Column(String(128), nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("ix_template_status", "status"),)
 
 
 class SchedulerTaskRecord(Base):

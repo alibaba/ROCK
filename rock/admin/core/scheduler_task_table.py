@@ -9,8 +9,7 @@ from enum import Enum
 
 from sqlalchemy import select
 
-from rock.admin.core.db_provider import DatabaseProvider
-from rock.admin.core.sandbox_table import _retry_on_disconnect
+from rock.admin.core.db_provider import DatabaseProvider, retry_on_disconnect
 from rock.admin.core.schema import SchedulerTaskRecord
 from rock.logger import init_logger
 
@@ -31,7 +30,7 @@ class SchedulerTaskTable:
     def __init__(self, db_provider: DatabaseProvider) -> None:
         self._db = db_provider
 
-    @_retry_on_disconnect
+    @retry_on_disconnect
     async def insert_tasks(self, records: list[SchedulerTaskRecord]) -> None:
         return await self._db.run(self._insert_tasks_sync, records)
 
@@ -41,7 +40,7 @@ class SchedulerTaskTable:
                 session.add(r)
             session.commit()
 
-    @_retry_on_disconnect
+    @retry_on_disconnect
     async def get_tasks_by_group(self, taskset_id: str) -> list[SchedulerTaskRecord]:
         return await self._db.run(self._get_tasks_by_group_sync, taskset_id)
 
@@ -51,7 +50,7 @@ class SchedulerTaskTable:
             rows = session.execute(stmt).scalars().all()
             return list(rows)
 
-    @_retry_on_disconnect
+    @retry_on_disconnect
     async def update_task(self, task_id: str, **fields) -> bool:
         return await self._db.run(self._update_task_sync, task_id, fields)
 
@@ -65,7 +64,7 @@ class SchedulerTaskTable:
             session.commit()
             return True
 
-    @_retry_on_disconnect
+    @retry_on_disconnect
     async def has_recent_task(self, task_type: str, since_epoch: float) -> bool:
         return await self._db.run(self._has_recent_task_sync, task_type, since_epoch)
 

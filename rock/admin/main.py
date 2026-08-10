@@ -23,7 +23,9 @@ from rock.admin.core.db_provider import DatabaseProvider
 from rock.admin.core.ray_service import RayService
 from rock.admin.core.sandbox_table import SandboxTable
 from rock.admin.core.scheduler_task_table import SchedulerTaskTable
+from rock.admin.core.template_table import TemplateTable
 from rock.admin.entrypoints.admin_ops_api import admin_ops_router, set_ops_service
+from rock.admin.entrypoints.e2b_api import e2b_router, set_e2b_sandbox_manager
 from rock.admin.entrypoints.sandbox_api import sandbox_router, set_sandbox_manager
 from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_sandbox_proxy_service
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
@@ -167,6 +169,7 @@ async def lifespan(app: FastAPI):
     if not rock_config.database.url:
         await db_provider.create_tables()
     sandbox_table = SandboxTable(db_provider, rock_config=rock_config)
+    template_table = TemplateTable(db_provider)
     meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=sandbox_table, rock_config=rock_config)
 
     # Wire SandboxLogArchiveTask deps. Providers (vs static set) so Nacos
@@ -205,6 +208,7 @@ async def lifespan(app: FastAPI):
             ray_service=ray_service,
             redis_provider=redis_provider,
             nacos_provider=rock_config.nacos_provider,
+            template_table=template_table,
             k8s_config=rock_config.k8s,
             opensandbox_config=rock_config.opensandbox,
         )
@@ -230,6 +234,7 @@ async def lifespan(app: FastAPI):
                 meta_store=meta_store,
             )
         set_sandbox_manager(sandbox_manager)
+        set_e2b_sandbox_manager(sandbox_manager)
         warmup_service = WarmupService(rock_config.warmup)
         await warmup_service.init()
         set_warmup_service(warmup_service)
@@ -342,6 +347,7 @@ async def log_requests_and_responses(request: Request, call_next):
 
 def _include_routers(app: FastAPI, role: str) -> None:
     if role == "admin":
+        app.include_router(e2b_router, tags=["e2b"])
         app.include_router(sandbox_router, prefix="/apis/envs/sandbox/v1", tags=["sandbox"])
         app.include_router(admin_ops_router, prefix="/apis/envs/sandbox/v1/ops", tags=["admin-ops"])
     else:

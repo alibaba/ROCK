@@ -97,6 +97,16 @@ class TestSave:
         assert result is not None
         assert result[0]["auto_clear_time"] == "30"
 
+    async def test_save_persists_sandbox_environment(self, repo, redis, db):
+        info = {**SANDBOX_INFO, "env": {"WORKSPACE": "/workspace"}}
+
+        await repo.create(SANDBOX_ID, info)
+
+        redis_result = await redis.json_get(alive_sandbox_key(SANDBOX_ID), "$")
+        assert redis_result[0]["env"] == {"WORKSPACE": "/workspace"}
+        db_record = await db.get(SANDBOX_ID)
+        assert db_record["env"] == {"WORKSPACE": "/workspace"}
+
     async def test_create_filters_db_only_fields_from_redis_and_db_status(self, repo, redis, db):
         config = DockerDeploymentConfig(container_name=SANDBOX_ID, auto_delete_seconds=1200)
         info = {

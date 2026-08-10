@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import datetime
-import functools
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
-from sqlalchemy.exc import DisconnectionError, InterfaceError, OperationalError
 
-from rock.admin.core.db_provider import DatabaseProvider
+from rock.admin.core.db_provider import DatabaseProvider, retry_on_disconnect
 from rock.admin.core.schema import SandboxRecord
 from rock.admin.metrics.decorator import monitor_metastore_operation
 from rock.admin.metrics.monitor import MetricsMonitor
@@ -22,55 +19,6 @@ if TYPE_CHECKING:
     from rock.deployments.config import DockerDeploymentConfig
 
 logger = init_logger(__name__)
-
-
-_DISCONNECT_RETRY_ATTEMPTS = 4
-
-# Exceptions retried with exponential back-off across DB outages.
-# - OperationalError / InterfaceError: SQLAlchemy-wrapped runtime connection
-#   problems on the statement-execution path (stale connection, server gone,
-#   socket-level failures observed mid-query).
-# - DisconnectionError: explicit pool-level "connection is invalid" signal.
-# - OSError / ConnectionError / asyncio.TimeoutError: asyncpg's connect path
-#   raises these directly; SQLAlchemy does NOT wrap them into DBAPIError
-#   because they fire before a statement is ever issued. Without catching
-#   them here, retries cannot bridge a multi-second PG restart window.
-# Excluded on purpose: DatabaseError (would swallow IntegrityError,
-# DataError, ProgrammingError — all permanent failures that must fast-fail).
-_RETRY_EXCEPTIONS: tuple[type[BaseException], ...] = (
-    OperationalError,
-    InterfaceError,
-    DisconnectionError,
-    ConnectionError,
-    OSError,
-    asyncio.TimeoutError,
-)
-
-
-def _retry_on_disconnect(func):
-    """Retry up to _DISCONNECT_RETRY_ATTEMPTS times across DB outages."""
-
-    @functools.wraps(func)
-    async def wrapper(*args, **kwargs):
-        last_exc: BaseException | None = None
-        for attempt in range(1, _DISCONNECT_RETRY_ATTEMPTS + 1):
-            try:
-                return await func(*args, **kwargs)
-            except _RETRY_EXCEPTIONS as exc:
-                last_exc = exc
-                logger.warning(
-                    "DB connection lost on %s (attempt %d/%d): %r",
-                    func.__name__,
-                    attempt,
-                    _DISCONNECT_RETRY_ATTEMPTS,
-                    exc,
-                )
-                if attempt < _DISCONNECT_RETRY_ATTEMPTS:
-                    await asyncio.sleep(1.0 * 2 ** (attempt - 1))
-        assert last_exc is not None
-        raise last_exc
-
-    return wrapper
 
 
 class SandboxTable:
@@ -98,7 +46,7 @@ class SandboxTable:
             metric_prefix="meta_store.db",
         )
 
-    @_retry_on_disconnect
+    @retry_on_disconnect
     @monitor_metastore_operation
     async def create(
         self,
@@ -137,7 +85,7 @@ class SandboxTable:
             session.add(record)
             session.commit()
 
-    @_retry_on_disconnect
+    @retry_on_disconnect
     @monitor_metastore_operation
     async def get(self, sandbox_id: str) -> dict | None:
         """Return a sandbox row as a plain dict, or ``None`` if not found.
@@ -156,7 +104,7 @@ class SandboxTable:
                 return None
             return _merge_status_blob(record.to_dict())
 
-    @_retry_on_disconnect
+    @retry_on_disconnect
     @monitor_metastore_operation
     async def update(self, sandbox_id: str, info: SandboxInfo) -> None:
         """Partial update of scalar columns; always overwrites ``status`` with *info*."""
@@ -175,7 +123,7 @@ class SandboxTable:
                 setattr(record, key, value)
             session.commit()
 
-    @_retry_on_disconnect
+    @retry_on_disconnect
     @monitor_metastore_operation
     async def delete(self, sandbox_id: str) -> None:
         """Hard-delete a sandbox record."""
@@ -188,7 +136,7 @@ class SandboxTable:
                 session.delete(record)
                 session.commit()
 
-    @_retry_on_disconnect
+    @retry_on_disconnect
     @monitor_metastore_operation
     async def list_by(
         self, column: str, value: str | int | float | bool, order_by: str | None = None, limit: int | None = None
@@ -212,7 +160,7 @@ class SandboxTable:
             result = session.execute(stmt)
             return [_merge_status_blob(r.to_dict()) for r in result.scalars().all()]
 
-    @_retry_on_disconnect
+    @retry_on_disconnect
     @monitor_metastore_operation
     async def list_by_in(
         self,
@@ -242,7 +190,7 @@ class SandboxTable:
             result = session.execute(stmt)
             return [_merge_status_blob(r.to_dict()) for r in result.scalars().all()]
 
-    @_retry_on_disconnect
+    @retry_on_disconnect
     @monitor_metastore_operation
     async def list_expired_by(
         self,
@@ -277,9 +225,11 @@ class SandboxTable:
 
 
 def _pick_columns(data: dict[str, Any]) -> dict[str, Any]:
-    """Return only keys matching a scalar SandboxRecord column, excluding sandbox_id/spec/status."""
+    """Select scalar record columns and map business ``metadata`` to database ``labels``."""
     columns = SandboxRecord.column_names() - {"sandbox_id", "spec", "status"}
     result = {k: v for k, v in data.items() if k in columns}
+    if "metadata" in data:
+        result["labels"] = data["metadata"]
     if "auto_transition_time" in result:
         result["auto_transition_time"] = _parse_aware_datetime(result["auto_transition_time"])
     return result

@@ -20,6 +20,13 @@ class TestK8sOperator:
             operator = K8sOperator(k8s_config=k8s_config)
             assert operator._provider is not None
 
+    def test_initialization_forwards_template_table(self, k8s_config):
+        template_table = AsyncMock()
+        with patch("rock.sandbox.operator.k8s.operator.BatchSandboxProvider") as provider_class:
+            K8sOperator(k8s_config=k8s_config, template_table=template_table)
+
+        provider_class.assert_called_once_with(k8s_config=k8s_config, template_table=template_table)
+
     def test_initialization_without_templates(self):
         """Test K8sOperator initialization fails without templates."""
         config = K8sConfig(kubeconfig_path=None, templates={})

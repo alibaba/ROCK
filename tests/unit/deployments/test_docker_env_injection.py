@@ -53,6 +53,37 @@ class TestBuildEnvArgsInstanceRegistry:
         assert "INSTANCE_ROCK_REGISTRY=reg-a.example.com/ns-1,reg-b.example.com/ns-2" in args
 
 
+class TestBuildEnvArgsFromCreateRequest:
+    def test_caller_environment_variables_are_injected(self):
+        deployment = _make_deployment(env_vars={"WORKSPACE": "/workspace", "JOB_ID": "job-123"})
+        with patch("rock.deployments.docker.env_vars") as mock_env:
+            mock_env.ROCK_LOGGING_PATH = ""
+            mock_env.ROCK_TIME_ZONE = "UTC"
+            args = deployment._build_env_args()
+
+        assert "WORKSPACE=/workspace" in args
+        assert "JOB_ID=job-123" in args
+        assert args.count("-e") == 3
+
+
+class TestRedactEnvArgs:
+    def test_redacts_docker_environment_values_without_mutating_command(self):
+        command = ["docker", "create", "-e", "TOKEN=secret", "-e", "WORKSPACE=/workspace", "python:3.11"]
+
+        redacted = DockerDeployment._redact_env_args(command)
+
+        assert redacted == [
+            "docker",
+            "create",
+            "-e",
+            "TOKEN=<redacted>",
+            "-e",
+            "WORKSPACE=<redacted>",
+            "python:3.11",
+        ]
+        assert command[3] == "TOKEN=secret"
+
+
 class TestBuildEnvArgsRegression:
     """The existing env entries must keep working after the extraction."""
 

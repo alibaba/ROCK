@@ -64,6 +64,7 @@ class K8sTemplateLoader:
         accelerator_type: str | None = None,
         limit_cpus: float | None = None,
         encrypted_image_auth: str | None = None,
+        env_vars: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Build a complete BatchSandbox manifest from template.
 
@@ -105,6 +106,7 @@ class K8sTemplateLoader:
                 requests.cpu == limits.cpu.
             encrypted_image_auth: Pre-encrypted pouch auth string
                 (rendered via {{ encrypted_image_auth }}).
+            env_vars: Environment variables merged into every sandbox container.
 
         Returns:
             Complete BatchSandbox manifest.
@@ -147,6 +149,9 @@ class K8sTemplateLoader:
         pod_template = rendered.get("template", {})
         template_metadata = pod_template.get("metadata", {})
         pod_spec = pod_template.get("spec", {})
+        if env_vars:
+            for container in pod_spec.get("containers", []):
+                _merge_env_vars(container, env_vars)
 
         manifest = {
             "apiVersion": K8sConstants.CRD_API_VERSION,
@@ -181,3 +186,15 @@ class K8sTemplateLoader:
     def available_templates(self) -> list[str]:
         """Get list of available template names."""
         return list(self._templates.keys())
+
+
+def _merge_env_vars(container: dict[str, Any], env_vars: dict[str, str]) -> None:
+    existing = container.setdefault("env", [])
+    positions = {item.get("name"): index for index, item in enumerate(existing)}
+    for name, value in env_vars.items():
+        item = {"name": name, "value": value}
+        if name in positions:
+            existing[positions[name]] = item
+        else:
+            positions[name] = len(existing)
+            existing.append(item)

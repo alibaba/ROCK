@@ -8,7 +8,6 @@ import re
 from abc import ABC, abstractmethod
 from typing import Any, Protocol
 
-import yaml
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from kubernetes import client
 from kubernetes import config as k8s_config
@@ -25,6 +24,10 @@ from rock.sandbox.operator.k8s.template_loader import K8sTemplateLoader
 from rock.sandbox.remote_sandbox import RemoteSandboxRuntime
 
 logger = init_logger(__name__)
+
+
+class TemplateFiberPoolLookup(Protocol):
+    async def get_ready_fiber_pool_id(self, template_id: str) -> str | None: ...
 
 
 class PoolSelector(ABC):
@@ -263,11 +266,12 @@ class BatchSandboxProvider(K8sProvider):
     The watch task runs in the background and automatically reconnects on network failures.
     """
 
-    def __init__(self, k8s_config: K8sConfig):
+    def __init__(self, k8s_config: K8sConfig, template_table: TemplateFiberPoolLookup | None = None):
         """Initialize BatchSandbox provider.
 
         Args:
             k8s_config: K8sConfig object containing kubeconfig and templates
+            template_table: Optional READY-template fiber pool lookup
         """
         self.kubeconfig_path = k8s_config.kubeconfig_path
         self.namespace = k8s_config.namespace
@@ -276,6 +280,7 @@ class BatchSandboxProvider(K8sProvider):
         self._k8s_api: K8sApiClient | None = None
         self._initialized = False
         self._nacos_provider = None
+        self._template_table = template_table
         self._image_auth_key = self._load_image_auth_key(k8s_config)
 
         # Initialize template loader with config templates
@@ -535,6 +540,7 @@ class BatchSandboxProvider(K8sProvider):
         Priority:
         1. Check extended_params for explicit pool name
         2. Use ResourceMatchingPoolSelector to find best matching pool
+        3. Look up the READY template's fiber pool in the database
 
         Args:
             config: Docker deployment configuration
@@ -550,7 +556,11 @@ class BatchSandboxProvider(K8sProvider):
         # Priority 2: Use pool selector to find best match
         pools = await self._get_pools()
         logger.info(f"Available pools from Nacos: {list(pools.keys())}")
-        return ResourceMatchingPoolSelector().select_pool(config, pools)
+        pool_name = ResourceMatchingPoolSelector().select_pool(config, pools)
+        if pool_name or self._template_table is None:
+            return pool_name
+
+        return await self._template_table.get_ready_fiber_pool_id(config.image)
 
     async def _get_template_name(self, config: DockerDeploymentConfig) -> str:
         """Get template name from extended_params or Nacos template_rules.
@@ -706,11 +716,14 @@ class BatchSandboxProvider(K8sProvider):
             accelerator_type=config.accelerator_type,
             limit_cpus=config.limit_cpus,
             encrypted_image_auth=self._encrypt_image_auth(config),
+            env_vars=config.env_vars,
         )
 
         logger.info(
-            f"Built BatchSandbox manifest for {sandbox_id} in namespace '{self.namespace}' "
-            f"using template '{template_name}':\n{yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True)}"
+            "Built BatchSandbox manifest for %s in namespace '%s' using template '%s'",
+            sandbox_id,
+            self.namespace,
+            template_name,
         )
         return manifest
 

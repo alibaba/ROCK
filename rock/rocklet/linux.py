@@ -139,7 +139,7 @@ class BashSession(Session):
         env.update({"PS1": self._ps1, "PS2": "", "PS0": ""})
         if self.request.env is not None:
             env.update(self.request.env)
-        logger.info(f"env:{env}")
+        logger.info("starting shell with %d environment variables", len(env))
         command = "/bin/bash"
         if self.request.remote_user is not None and self.request.remote_user != self._system_user:
             command = f"su {self.request.remote_user} -c {command}"

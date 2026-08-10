@@ -437,6 +437,20 @@ wheels = [
 ]
 
 [[package]]
+name = "ap-sandbox"
+version = "0.1.2"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "e2b-code-interpreter" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/d5/1d/11a8868273c67f73fd27f7c385f8b99bbeec23b7817504ec5bcf8d019cb5/ap_sandbox-0.1.2.tar.gz", hash = "sha256:90c6aa7503ab8cb2a16ba95bf383fc3e7f0692a1c8170699b51bf8e95e45d2f6" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/4d/e8/54d4fca725c5190384033be902f68b1c2bc04b918e50186b8f4a32e55090/ap_sandbox-0.1.2-py3-none-any.whl", hash = "sha256:1431429ef0789f5471bc47b826efc003bc9771f41e3221e1911c32dbd2e1d2f2" },
+]
+
+[[package]]
 name = "apscheduler"
 version = "3.11.1"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -613,6 +627,15 @@ dependencies = [
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/c3/f3/5dae6e3b06493f2ac769c6764543b84fa50a8de3fec1e33252271166b394/botocore-1.40.66.tar.gz", hash = "sha256:e49a55ad54426c4ea853a59ff9d8243023a90c935782d4c287e9b3424883c3fa" }
 wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/9a/48/43f9335e28351f35a939dce366a3943296f381ecd4660bd1c8d2bb8f3006/botocore-1.40.66-py3-none-any.whl", hash = "sha256:98d5766e17e72110b1d08ab510a8475a6597c59d9560235e2d28ae1a4b043b92" },
+]
+
+[[package]]
+name = "bracex"
+version = "3.0.1"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/ac/01/5f394b8bcd6e5b92f73130990960423bbb19711f906bd9fe9ea5557c667c/bracex-3.0.1.tar.gz", hash = "sha256:4e38e32392e4a4780fe15d644bfc7c8514057cfc3861e060b11814ce829c25e4" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/b8/8f/6f7273a7adb8d73fc8d21ede4376a3e475e52f98435c6007f69100dec8ca/bracex-3.0.1-py3-none-any.whl", hash = "sha256:6523ad83aeb5098a4ee597cff0f964442ff74e460bd3fafaffab6a013ff2288c" },
 ]
 
 [[package]]
@@ -1228,6 +1251,15 @@ wheels = [
 ]
 
 [[package]]
+name = "dockerfile-parse"
+version = "2.0.1"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/92/df/929ee0b5d2c8bd8d713c45e71b94ab57c7e11e322130724d54f469b2cd48/dockerfile-parse-2.0.1.tar.gz", hash = "sha256:3184ccdc513221983e503ac00e1aa504a2aa8f84e5de673c46b0b6eee99ec7bc" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/7a/6c/79cd5bc1b880d8c1a9a5550aa8dacd57353fa3bb2457227e1fb47383eb49/dockerfile_parse-2.0.1-py2.py3-none-any.whl", hash = "sha256:bdffd126d2eb26acf1066acb54cb2e336682e1d72b974a40894fac76a4df17f6" },
+]
+
+[[package]]
 name = "drawsvg"
 version = "2.4.0"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -1242,6 +1274,42 @@ source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/9d/a4/e44218c2b394e31a6dd0d6b095c4e1f32d0be54c2a4b250032d717647bab/durationpy-0.10.tar.gz", hash = "sha256:1fa6893409a6e739c9c72334fc65cca1f355dbdd93405d30f726deb5bde42fba" }
 wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/b0/0d/9feae160378a3553fa9a339b0e9c1a048e147a4127210e286ef18b730f03/durationpy-0.10-py3-none-any.whl", hash = "sha256:3b41e1b601234296b4fb368338fdcd3e13e0b4fb5b67345948f4f2bf9868b286" },
+]
+
+[[package]]
+name = "e2b"
+version = "2.34.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "attrs" },
+    { name = "dockerfile-parse" },
+    { name = "h2" },
+    { name = "httpcore" },
+    { name = "httpx" },
+    { name = "packaging" },
+    { name = "protobuf" },
+    { name = "python-dateutil" },
+    { name = "rich" },
+    { name = "typing-extensions" },
+    { name = "wcmatch" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/5b/22/5bcf34304b62e6984df9089eb996a4b2aa63618f901befe1f7cc73a24437/e2b-2.34.0.tar.gz", hash = "sha256:0dcc2694b3ead62e87b3d1070a05f66842dd2fa320fc1d7bd84c8fcfadeaf1b1" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/6d/ec/b2f9297afc25de7c27ab5a85db4060783680e2b132285e2498fdbad484cf/e2b-2.34.0-py3-none-any.whl", hash = "sha256:873323571d18bf633be45e59fc6271410b30dfbc81e8df85e711f4f184c03fea" },
+]
+
+[[package]]
+name = "e2b-code-interpreter"
+version = "2.9.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "attrs" },
+    { name = "e2b" },
+    { name = "httpx" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/2c/5a/5e72da1b6c1692f2b79b286634e4cfeb114a796e6fdd64a37852a4b2800b/e2b_code_interpreter-2.9.0.tar.gz", hash = "sha256:5e5e5bbeaba49653a7a7782770a0aa2b5f801f3cd77e7e8e8b4f97eb3682f5e3" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/7d/12/05c974ad1823fb1808432e87fda1675c6d0c2abb8d21cd23da91daaae684/e2b_code_interpreter-2.9.0-py3-none-any.whl", hash = "sha256:8e0520815bfb596ece0c730e430b970900adda6a174d56dc12dae5bd2b39e281" },
 ]
 
 [[package]]
@@ -3856,6 +3924,20 @@ wheels = [
 ]
 
 [[package]]
+name = "pydantic-settings"
+version = "2.15.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "typing-inspection" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/68/ca/31c57507b13119d7d3cfa1576dad2911a4861e3be07b579395f4e9d393f9/pydantic_settings-2.15.0.tar.gz", hash = "sha256:694b793e84f766ba76a90ebdefc01d0a9a045dab0382bee70393da93712ad117" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/30/a4/2bffa9f8e804325a09867f0e9d30795c80ea9f8d62560bd1b6ad6220eb2f/pydantic_settings-2.15.0-py3-none-any.whl", hash = "sha256:0ba092c291c94baceb5eff768aa0d56400a457585bc0175925a5a5510303da42" },
+]
+
+[[package]]
 name = "pyfiglet"
 version = "1.0.2"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -4408,7 +4490,7 @@ wheels = [
 
 [[package]]
 name = "rl-rock"
-version = "1.10.2"
+version = "1.11.0"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
@@ -4527,6 +4609,7 @@ sandbox-actor = [
 
 [package.dev-dependencies]
 test = [
+    { name = "ap-sandbox" },
     { name = "iflow-cli-sdk" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -4613,6 +4696,7 @@ provides-extras = ["admin", "rocklet", "sandbox-actor", "builder", "model-servic
 
 [package.metadata.requires-dev]
 test = [
+    { name = "ap-sandbox", specifier = ">=0.1.2" },
     { name = "iflow-cli-sdk", specifier = ">=0.1.1" },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pytest" },
@@ -5431,6 +5515,18 @@ wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/bd/95/615e72cd27b85b61eec764a5ca51bd94d40b5adea5ff47567d9ebc4d275a/watchfiles-1.1.1-pp311-pypy311_pp73-macosx_11_0_arm64.whl", hash = "sha256:89eef07eee5e9d1fda06e38822ad167a044153457e6fd997f8a858ab7564a336" },
     { url = "https://mirrors.aliyun.com/pypi/packages/c9/81/e7fe958ce8a7fb5c73cc9fb07f5aeaf755e6aa72498c57d760af760c91f8/watchfiles-1.1.1-pp311-pypy311_pp73-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ce19e06cbda693e9e7686358af9cd6f5d61312ab8b00488bc36f5aabbaf77e24" },
     { url = "https://mirrors.aliyun.com/pypi/packages/6e/d4/ed38dd3b1767193de971e694aa544356e63353c33a85d948166b5ff58b9e/watchfiles-1.1.1-pp311-pypy311_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:3e6f39af2eab0118338902798b5aa6664f46ff66bc0280de76fca67a7f262a49" },
+]
+
+[[package]]
+name = "wcmatch"
+version = "10.2.1"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "bracex" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/11/15/dc61746d8c0852f6d711ad09c774b63cf7c8211aa49e30871ac3d342b7e2/wcmatch-10.2.1.tar.gz", hash = "sha256:ecac70a5c70e62ba854b78318d3a1408e8651f8f1c96e5837743b71aa6a4fb92" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/82/ba/20b48eedeab5316bf9a502bb9eb7e3b1588bd61d0f565822fefa8f06e10b/wcmatch-10.2.1-py3-none-any.whl", hash = "sha256:2d775395b93f233af66690f62cb9d52b084ec159a31cc4084f4069d72f437acd" },
 ]
 
 [[package]]
