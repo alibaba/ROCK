@@ -99,3 +99,22 @@ class TestBuildEnvArgsRegression:
             mock_env.ROCK_TIME_ZONE = "UTC"
             args = deployment._build_env_args()
         assert "ROCK_KATA_RUNTIME=true" not in args
+
+
+class TestBuildRuntimeArgs:
+    def test_kata_runtime_grants_guest_kvm_device_number(self):
+        deployment = _make_deployment(use_kata_runtime=True)
+
+        args = deployment._build_runtime_args()
+
+        rule_index = args.index("--device-cgroup-rule")
+        assert args[rule_index + 1] == "c 10:232 rwm"
+        assert "--device=/dev/kvm" not in args
+
+    def test_default_runtime_does_not_grant_guest_kvm_device(self):
+        deployment = _make_deployment(use_kata_runtime=False)
+
+        args = deployment._build_runtime_args()
+
+        assert args == ["--privileged"]
+        assert "--device-cgroup-rule" not in args

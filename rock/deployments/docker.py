@@ -180,6 +180,8 @@ class DockerDeployment(AbstractDeployment):
         if self._config.use_kata_runtime:
             return [
                 "--cap-add=ALL",
+                "--device-cgroup-rule",
+                "c 10:232 rwm",
                 "--security-opt",
                 "seccomp=unconfined",
                 "--runtime=io.containerd.kata.v2",
