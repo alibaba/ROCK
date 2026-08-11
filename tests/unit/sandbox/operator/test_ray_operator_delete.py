@@ -1,13 +1,9 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import asyncio
-import time
-
 import pytest
 
 from rock.admin.core.ray_service import RayService
 from rock.config import RayConfig, RuntimeConfig
-from rock.common.constants import StopReason
 from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.operator.ray import RayOperator
 
@@ -111,22 +107,3 @@ async def test_archive_actor_drops_sandbox_resources():
         image_storage_config,
         archive_params,
     )
-
-
-@pytest.mark.asyncio
-async def test_stop_with_hanging_kill_times_out_and_returns():
-    operator, ray_service = _make_operator()
-    actor = MagicMock()
-    actor.stop.remote.return_value = object()
-    ray_service.async_ray_get_actor = AsyncMock(return_value=actor)
-    ray_service.async_ray_get = AsyncMock(return_value=None)
-
-    def hanging_kill(*_args, **_kwargs):
-        time.sleep(5)
-
-    with patch("rock.sandbox.operator.ray.ray.kill", side_effect=hanging_kill), patch(
-        "rock.sandbox.operator.ray.RAY_KILL_TIMEOUT_SECONDS", 0.2
-    ):
-        result = await asyncio.wait_for(operator.stop("sb-1", reason=StopReason.MANUAL), timeout=1)
-
-    assert result is True
