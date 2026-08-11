@@ -27,7 +27,12 @@ def _info(*, backend=None, state=State.RUNNING, opensandbox_id=None):
         extended_params["backend"] = backend
     if opensandbox_id is not None:
         extended_params["opensandbox_id"] = opensandbox_id
-    return {"sandbox_id": "sbx-1", "state": state, "extended_params": extended_params}
+    return {
+        "sandbox_id": "sbx-1",
+        "state": state,
+        "metadata": {"ap-job-id": "job-123"},
+        "extended_params": extended_params,
+    }
 
 
 @pytest.mark.asyncio
@@ -103,6 +108,7 @@ async def test_opensandbox_get_status_does_not_probe_rocklet(opensandbox_proxy_s
     assert result.host_ip is None
     assert result.port_mapping is None
     assert result.swe_rex_version is None
+    assert result.metadata == {"ap-job-id": "job-123"}
     backend.get_state.assert_awaited_once()
     rocklet_probe.assert_not_awaited()
 

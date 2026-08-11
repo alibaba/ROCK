@@ -1,7 +1,7 @@
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 
 from fastapi import Header
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from rock import env_vars
 from rock.actions import (
@@ -12,7 +12,21 @@ from rock.actions import (
     ReadFileRequest,
     WriteFileRequest,
 )
+from rock.common.constants import BEARER_AUTHORIZATION_PREFIX
 from rock.common.validation import NonBlankStr
+
+
+class E2BCreateSandboxRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    template_id: NonBlankStr = Field(alias="templateID")
+    timeout: int = Field(gt=0, strict=True)
+    metadata: dict[str, str]
+    secure: bool | None = None
+    allow_internet_access: bool | None = None
+    env_vars: dict[str, str] = Field(default_factory=dict, alias="envVars")
+    auto_pause: bool | None = Field(default=None, alias="autoPause")
+    auto_resume: dict[str, Any] | None = Field(default=None, alias="autoResume")
 
 
 class SandboxStartRequest(BaseModel):
@@ -190,9 +204,12 @@ class StartHeaders:
         x_user_id: str | None = Header(default="default", alias="X-User-Id"),
         x_experiment_id: str | None = Header(default="default", alias="X-Experiment-Id"),
         rock_authorization: str | None = Header(default="default", alias="X-Key"),
+        x_api_key: str | None = Header(default=None, alias="X-API-Key"),
         x_namespace: str | None = Header(default="default", alias="X-Namespace"),
         x_cluster: str | None = Header(default="default", alias="X-Cluster"),
     ):
+        if x_api_key is not None:
+            rock_authorization = f"{BEARER_AUTHORIZATION_PREFIX}{x_api_key}"
         self.user_info: UserInfo = {
             "user_id": x_user_id,
             "experiment_id": x_experiment_id,

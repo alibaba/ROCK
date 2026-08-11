@@ -57,6 +57,17 @@ class TestSandboxTableWithSQLite:
 
         assert record["labels"] == metadata
 
+    async def test_labels_are_restored_as_metadata_on_read(self, db):
+        labels = {"legacy-key": "legacy-value"}
+        await db.create(
+            "sqlite-sbx-labels",
+            {"create_time": "2025-01-01T00:00:00Z", "labels": labels},
+        )
+
+        record = await db.get("sqlite-sbx-labels")
+
+        assert record["metadata"] == labels
+
     async def test_insert_duplicate_raises(self, db):
         sandbox_id = "sqlite-sbx-002"
         data = {"state": "pending", "create_time": "2025-01-01T00:00:00Z"}

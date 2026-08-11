@@ -27,6 +27,7 @@ def _make_meta_info(state: State = State.RUNNING, host_ip: str = "10.0.0.1") -> 
         "host_ip": host_ip,
         "host_name": "node-1",
         "image": "python:3.11",
+        "metadata": {"ap-job-id": "job-123"},
         "user_id": "u1",
         "experiment_id": "e1",
         "namespace": "ns1",
@@ -133,6 +134,7 @@ class TestProxyGetStatus:
             "docker_run": {"status": "running", "message": "running"},
         }
         assert result.port_mapping == {22555: 22555, 8080: 8080}
+        assert result.metadata == {"ap-job-id": "job-123"}
 
     async def test_get_status_returns_gpu_info(self, proxy_service, mock_meta_store, mock_rpc_client):
         info = _make_meta_info(state=State.RUNNING)

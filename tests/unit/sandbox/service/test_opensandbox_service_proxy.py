@@ -34,7 +34,11 @@ def service():
     result._opensandbox_backend = backend
     result._session_registry = registry
     result._opensandbox_protocol = "https"
-    result._meta_store = SimpleNamespace(get=AsyncMock(return_value=_info()), update=AsyncMock())
+    result._meta_store = SimpleNamespace(
+        get=AsyncMock(return_value=_info()),
+        get_timeout=AsyncMock(return_value=None),
+        update=AsyncMock(),
+    )
     result._update_expire_time = AsyncMock()
     return result, backend
 

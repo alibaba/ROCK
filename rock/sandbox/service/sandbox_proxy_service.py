@@ -1183,6 +1183,7 @@ class SandboxProxyService:
             host_ip=host_ip,
             is_alive=is_alive,
             image=info.get("image"),
+            metadata=info.get("metadata"),
             swe_rex_version=swe_version,
             gateway_version=gateway_version,
             user_id=info.get("user_id"),

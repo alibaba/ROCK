@@ -1,39 +1,20 @@
 import math
-from typing import Any
+from typing import Annotated
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, ConfigDict, Field
 
-from rock.common.validation import NonBlankStr
+from rock.admin.proto.request import E2BCreateSandboxRequest, StartHeaders
+from rock.admin.proto.response import E2BCreateSandboxResponse
+from rock.common.constants import AP_SANDBOX_ID_METADATA_KEY, E2B_CLIENT_ID, E2B_ENVD_VERSION
 from rock.deployments.config import DockerDeploymentConfig
 from rock.logger import init_logger
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sdk.common.exceptions import BadRequestRockError
 
 logger = init_logger(__name__)
-
-
-class E2BCreateSandboxRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    template_id: NonBlankStr = Field(alias="templateID")
-    timeout: int = Field(gt=0, strict=True)
-    metadata: dict[str, str]
-    secure: bool | None = None
-    allow_internet_access: bool | None = None
-    env_vars: dict[str, str] = Field(default_factory=dict, alias="envVars")
-    auto_pause: bool | None = Field(default=None, alias="autoPause")
-    auto_resume: dict[str, Any] | None = Field(default=None, alias="autoResume")
-
-
-class E2BCreateSandboxResponse(BaseModel):
-    sandbox_id: str = Field(alias="sandboxID")
-    envd_version: str = Field(alias="envdVersion")
-    client_id: str = Field(alias="clientID")
-    template_id: str = Field(alias="templateID")
 
 
 class E2BAPIRoute(APIRoute):
@@ -79,19 +60,25 @@ def _error_response(status_code: int, message: str) -> JSONResponse:
 )
 async def create_sandbox(
     request: E2BCreateSandboxRequest,
+    headers: Annotated[StartHeaders, Depends()],
 ) -> E2BCreateSandboxResponse:
     # ROCK stores lifecycle TTLs in whole minutes. Round up so an E2B timeout
     # never expires a sandbox earlier than the caller requested.
     config = DockerDeploymentConfig(
         image=request.template_id,
         auto_clear_time_minutes=math.ceil(request.timeout / 60),
+        container_name=request.metadata.get(AP_SANDBOX_ID_METADATA_KEY),
         metadata=request.metadata,
         env_vars=request.env_vars,
     )
-    result = await e2b_sandbox_manager.start(config)
+    result = await e2b_sandbox_manager.start(
+        config,
+        user_info=headers.user_info,
+        cluster_info=headers.cluster_info,
+    )
     return E2BCreateSandboxResponse(
         sandboxID=result.sandbox_id,
-        envdVersion="0.1.0",
-        clientID="rock",
+        envdVersion=E2B_ENVD_VERSION,
+        clientID=E2B_CLIENT_ID,
         templateID=request.template_id,
     )

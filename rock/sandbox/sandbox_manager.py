@@ -282,8 +282,13 @@ class SandboxManager(BaseManager):
         )
 
     @monitor_sandbox_operation()
-    async def start(self, config: DeploymentConfig) -> SandboxStartResponse:
-        response = await self.start_async(config)
+    async def start(
+        self,
+        config: DeploymentConfig,
+        user_info: UserInfo = {},
+        cluster_info: ClusterInfo = {},
+    ) -> SandboxStartResponse:
+        response = await self.start_async(config, user_info=user_info, cluster_info=cluster_info)
         sandbox_id = response.sandbox_id
         deadline = time.time() + REQUEST_TIMEOUT_SECONDS
         with StageTimer("startup_timing", f"[{sandbox_id}] Wait sandbox running", logger):
@@ -472,6 +477,7 @@ class SandboxManager(BaseManager):
             host_ip=sandbox_info.get("host_ip"),
             is_alive=is_alive,
             image=sandbox_info.get("image"),
+            metadata=sandbox_info.get("metadata"),
             swe_rex_version=swe_version,
             gateway_version=gateway_version,
             user_id=sandbox_info.get("user_id"),

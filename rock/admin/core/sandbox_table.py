@@ -254,7 +254,11 @@ def _merge_status_blob(raw: dict[str, Any]) -> dict[str, Any]:
 
     The ``status`` column stores the full SandboxInfo snapshot.  Fields that
     only exist in the blob (e.g. ``state_history``) become top-level keys.
-    Scalar columns take priority over blob values.
+    Scalar columns take priority over blob values.  The database ``labels``
+    column is exposed through the business-facing ``metadata`` field.
     """
     status_blob = raw.pop("status", None) or {}
-    return {**status_blob, **raw}
+    result = {**status_blob, **raw}
+    if "labels" in result:
+        result["metadata"] = result["labels"]
+    return result

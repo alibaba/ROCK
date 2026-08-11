@@ -33,6 +33,7 @@ async def test_create_sandbox_returns_e2b_response_and_maps_request(e2b_app):
         "templateID": "linux-dind",
         "timeout": 3601,
         "metadata": {
+            "ap-sandbox-id": "ap-sandbox-123",
             "ap-job-id": "job-123",
             "ap-template": "swe-bench",
             "e2b.agents.kruise.io/return-sandbox-ip": "true",
@@ -45,7 +46,18 @@ async def test_create_sandbox_returns_e2b_response_and_maps_request(e2b_app):
     }
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.post("/sandboxes", json=request_body)
+        response = await client.post(
+            "/sandboxes",
+            json=request_body,
+            headers={
+                "X-User-Id": "user-123",
+                "X-Experiment-Id": "experiment-123",
+                "X-Namespace": "namespace-123",
+                "X-Cluster": "cluster-123",
+                "X-Key": "legacy-key",
+                "X-API-Key": "e2b-key",
+            },
+        )
 
     assert response.status_code == 201
     assert response.json() == {
@@ -60,7 +72,16 @@ async def test_create_sandbox_returns_e2b_response_and_maps_request(e2b_app):
     assert config.auto_clear_time_minutes == 61
     assert config.metadata == request_body["metadata"]
     assert config.env_vars == request_body["envVars"]
-    assert manager.start.await_args.kwargs == {}
+    assert config.container_name == "ap-sandbox-123"
+    assert manager.start.await_args.kwargs == {
+        "user_info": {
+            "user_id": "user-123",
+            "experiment_id": "experiment-123",
+            "namespace": "namespace-123",
+            "rock_authorization": "Bearer e2b-key",
+        },
+        "cluster_info": {"cluster_name": "cluster-123"},
+    }
 
 
 @pytest.mark.parametrize("timeout", [0, True, "3600"])

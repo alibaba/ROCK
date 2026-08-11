@@ -9,6 +9,10 @@ class WorkerCommitError(Exception):
         self.code = code
 
 
+class E2BSandboxNotFoundError(Exception):
+    pass
+
+
 class RockException(Exception):
     _code: codes = None
 

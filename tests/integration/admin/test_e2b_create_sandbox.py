@@ -2,8 +2,7 @@ import logging
 import os
 
 import pytest
-from ap_sandbox import SandboxConfig
-from ap_sandbox.client import create_sandbox
+from ap_sandbox import SandboxConfig, SandboxManager
 
 TEMPLATE_ID = "st_5efa0210685646998525"
 
@@ -27,10 +26,11 @@ def test_create_sandbox_with_ap_sandbox_sdk(caplog: pytest.LogCaptureFixture):
         ap_sandbox_metadata={"ap-job-id": "e2e-create-sandbox-test"},
     )
 
-    sandbox = create_sandbox(
-        config,
+    sandbox_manager = SandboxManager(config)
+    sandbox_manager.create(
         api_url=f"https://{domain}",
         validate_api_key=False,
     )
 
-    assert sandbox.sandbox_id
+    assert sandbox_manager.sandbox_id not in {None, "", "<unknown>"}
+    assert sandbox_manager.sandbox_ip

@@ -21,6 +21,7 @@ def test_proxy_role_mounts_proxy_router():
     assert commit_path in paths
     assert commit_status_path in paths
     assert "/sandboxes" not in paths
+    assert "/sandboxes/{sandboxID}" in paths
 
 
 def test_proxy_role_excludes_admin_router():
@@ -40,6 +41,7 @@ def test_admin_role_mounts_admin_routers():
     assert commit_path in paths
     assert commit_status_path not in paths
     assert "/sandboxes" in paths
+    assert "/sandboxes/{sandboxID}" not in paths
 
 
 @pytest.mark.skipif(not hasattr(socket, "SO_REUSEPORT"), reason="SO_REUSEPORT unavailable")

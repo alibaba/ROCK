@@ -26,6 +26,7 @@ from rock.admin.core.scheduler_task_table import SchedulerTaskTable
 from rock.admin.core.template_table import TemplateTable
 from rock.admin.entrypoints.admin_ops_api import admin_ops_router, set_ops_service
 from rock.admin.entrypoints.e2b_api import e2b_router, set_e2b_sandbox_manager
+from rock.admin.entrypoints.e2b_proxy_api import e2b_proxy_router, set_e2b_proxy_service
 from rock.admin.entrypoints.sandbox_api import sandbox_router, set_sandbox_manager
 from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_sandbox_proxy_service
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
@@ -262,6 +263,7 @@ async def lifespan(app: FastAPI):
 
     else:
         sandbox_manager = create_sandbox_proxy_service(rock_config=rock_config, meta_store=meta_store)
+        set_e2b_proxy_service(sandbox_manager)
         set_sandbox_proxy_service(sandbox_manager)
         proxy_service_ref = sandbox_manager
 
@@ -351,6 +353,7 @@ def _include_routers(app: FastAPI, role: str) -> None:
         app.include_router(sandbox_router, prefix="/apis/envs/sandbox/v1", tags=["sandbox"])
         app.include_router(admin_ops_router, prefix="/apis/envs/sandbox/v1/ops", tags=["admin-ops"])
     else:
+        app.include_router(e2b_proxy_router, tags=["e2b"])
         app.include_router(sandbox_proxy_router, prefix="/apis/envs/sandbox/v1", tags=["sandbox"])
     app.include_router(warmup_router, prefix="/apis/envs/sandbox/v1", tags=["warmup"])
     app.include_router(gem_router, prefix="/apis/v1/envs/gem", tags=["gem"])

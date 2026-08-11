@@ -51,6 +51,7 @@ class SandboxStatusResponse(BaseModel):
     host_ip: str | None = None
     is_alive: bool = True
     image: str | None = None
+    metadata: dict[str, str] | None = None
     gateway_version: str | None = None
     swe_rex_version: str | None = None
     user_id: str | None = None

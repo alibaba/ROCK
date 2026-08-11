@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Literal
 
 KATA_RUNTIME_SWITCH = "use_kata_enabled"
 SUPPORT_KATA_SWITCH = "support_kata_enabled"
@@ -11,6 +12,15 @@ EXTRA_ACCELERATOR_TYPES_KEY = "extra_accelerator_types"
 PID_PREFIX = "PIDSTART"
 PID_SUFFIX = "PIDEND"
 SCHEDULER_LOG_NAME = "scheduler.log"
+BEARER_AUTHORIZATION_PREFIX = "Bearer "
+AP_SANDBOX_ID_METADATA_KEY = "ap-sandbox-id"
+E2B_CLIENT_ID = "rock"
+E2B_ENVD_VERSION = "0.1.0"
+E2B_SANDBOX_IP_METADATA_KEY = "e2b.agents.kruise.io/sandbox-ip"
+E2B_STATE_BY_ROCK_STATE: dict[str, Literal["running", "paused"]] = {
+    "running": "running",
+    "archived": "paused",
+}
 
 
 class DeploymentHookStep(str, Enum):
