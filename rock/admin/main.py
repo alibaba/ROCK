@@ -45,6 +45,7 @@ from rock.admin.scheduler.tasks.sandbox_log_archive_task import (
 from rock.admin.scheduler.tasks.sandbox_log_archive_task import (
     set_sandbox_table_provider as set_archive_sandbox_table_provider,
 )
+from rock.admin.service.e2b_proxy_service import E2BProxyService
 from rock.admin.service.ops_service import OpsService
 from rock.common.exception import request_validation_exception_handler
 from rock.config import DatabaseConfig, RockConfig, SchedulerConfig
@@ -263,7 +264,7 @@ async def lifespan(app: FastAPI):
 
     else:
         sandbox_manager = create_sandbox_proxy_service(rock_config=rock_config, meta_store=meta_store)
-        set_e2b_proxy_service(sandbox_manager)
+        set_e2b_proxy_service(E2BProxyService(sandbox_service=sandbox_manager, meta_store=meta_store))
         set_sandbox_proxy_service(sandbox_manager)
         proxy_service_ref = sandbox_manager
 

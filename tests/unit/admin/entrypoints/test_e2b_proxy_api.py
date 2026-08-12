@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -6,8 +6,10 @@ from httpx import ASGITransport, AsyncClient
 
 from rock.actions.sandbox.response import State
 from rock.admin.entrypoints.e2b_proxy_api import e2b_proxy_router, set_e2b_proxy_service
+from rock.admin.service.e2b_proxy_service import E2BProxyService
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+from rock.sdk.common.exceptions import SandboxNotFoundRockError
 
 
 @pytest.fixture
@@ -21,8 +23,54 @@ async def e2b_proxy_app(redis_provider, _memory_sandbox_table, rock_config, monk
     proxy_service._rpc_client = AsyncMock()
     proxy_service._rpc_client.post.side_effect = RuntimeError("rocklet unavailable")
     proxy_service._rpc_client.get.side_effect = RuntimeError("rocklet unavailable")
-    set_e2b_proxy_service(proxy_service)
+    set_e2b_proxy_service(E2BProxyService(sandbox_service=proxy_service, meta_store=meta_store))
     monkeypatch.setattr("rock.sandbox.utils.timeout.time.time", lambda: 1767222000)
+
+    app = FastAPI()
+    app.include_router(e2b_proxy_router)
+    return app, meta_store
+
+
+@pytest.fixture
+def e2b_list_app():
+    meta_store = MagicMock()
+    meta_store.list_by_metadata = AsyncMock(
+        return_value=[
+            {
+                "sandbox_id": "sandbox-running",
+                "state": State.RUNNING,
+                "host_ip": "10.0.1.23",
+                "labels": {
+                    "ap-job-id": "job-123",
+                    "team": "red",
+                    "extra": "preserved",
+                    "e2b.agents.kruise.io/sandbox-ip": "192.0.2.1",
+                },
+            },
+            {
+                "sandbox_id": "sandbox-archived",
+                "state": State.ARCHIVED,
+                "host_ip": "10.0.1.24",
+                "labels": {"ap-job-id": "job-123", "team": "red"},
+            },
+            {
+                "sandbox_id": "sandbox-stopped",
+                "state": State.STOPPED,
+                "labels": {"ap-job-id": "job-123", "team": "red"},
+            },
+            {
+                "sandbox_id": "sandbox-deleted",
+                "state": State.DELETED,
+                "labels": {"ap-job-id": "job-123", "team": "red"},
+            },
+            {
+                "sandbox_id": "sandbox-pending",
+                "state": State.PENDING,
+                "labels": {"ap-job-id": "job-123", "team": "red"},
+            },
+        ]
+    )
+    set_e2b_proxy_service(E2BProxyService(sandbox_service=MagicMock(), meta_store=meta_store))
 
     app = FastAPI()
     app.include_router(e2b_proxy_router)
@@ -101,3 +149,185 @@ async def test_get_sandbox_maps_archived_to_paused(e2b_proxy_app):
     assert response.status_code == 200
     assert response.json()["state"] == "paused"
     assert response.json()["endAt"] == "2026-01-01T09:00:00+08:00"
+
+
+@pytest.mark.asyncio
+async def test_get_sandbox_maps_typed_not_found_to_404():
+    proxy_service = MagicMock()
+    proxy_service.get_status = AsyncMock(side_effect=SandboxNotFoundRockError("provider-specific message"))
+    set_e2b_proxy_service(E2BProxyService(sandbox_service=proxy_service, meta_store=MagicMock()))
+
+    app = FastAPI()
+    app.include_router(e2b_proxy_router)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/sandboxes/missing")
+
+    assert response.status_code == 404
+    assert response.json() == {"code": 404, "message": "provider-specific message"}
+
+
+@pytest.mark.asyncio
+async def test_list_sandboxes_returns_only_e2b_states_without_headers(e2b_list_app):
+    app, meta_store = e2b_list_app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(
+            "/v2/sandboxes",
+            params={"metadata": "ap-job-id=job-123&team=red"},
+        )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json"
+    assert response.json() == [
+        {
+            "sandboxID": "sandbox-running",
+            "metadata": {
+                "ap-job-id": "job-123",
+                "team": "red",
+                "extra": "preserved",
+                "e2b.agents.kruise.io/sandbox-ip": "10.0.1.23",
+            },
+            "state": "running",
+        },
+        {
+            "sandboxID": "sandbox-archived",
+            "metadata": {
+                "ap-job-id": "job-123",
+                "team": "red",
+                "e2b.agents.kruise.io/sandbox-ip": "10.0.1.24",
+            },
+            "state": "paused",
+        },
+    ]
+    meta_store.list_by_metadata.assert_awaited_once_with({"ap-job-id": "job-123", "team": "red"})
+
+
+@pytest.mark.asyncio
+async def test_list_sandboxes_accepts_upstream_colon_metadata_filter(e2b_list_app):
+    app, meta_store = e2b_list_app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/v2/sandboxes", params={"metadata": "ap-job-id:job-123"})
+
+    assert response.status_code == 200
+    meta_store.list_by_metadata.assert_awaited_once_with({"ap-job-id": "job-123"})
+
+
+@pytest.mark.asyncio
+async def test_list_sandboxes_preserves_equals_sign_in_upstream_metadata_value(e2b_list_app):
+    app, meta_store = e2b_list_app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/v2/sandboxes", params={"metadata": "ap-job-id:job=123"})
+
+    assert response.status_code == 200
+    meta_store.list_by_metadata.assert_awaited_once_with({"ap-job-id": "job=123"})
+
+
+@pytest.mark.asyncio
+async def test_list_sandboxes_accepts_upstream_comma_separated_metadata_filters(e2b_list_app):
+    app, meta_store = e2b_list_app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(
+            "/v2/sandboxes",
+            params={"metadata": "ap-job-id:job-123,team:red"},
+        )
+
+    assert response.status_code == 200
+    meta_store.list_by_metadata.assert_awaited_once_with({"ap-job-id": "job-123", "team": "red"})
+
+
+@pytest.mark.asyncio
+async def test_list_sandboxes_decodes_url_encoded_upstream_metadata(e2b_list_app):
+    app, meta_store = e2b_list_app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(
+            "/v2/sandboxes",
+            params={"metadata": "ap%2Fjob-id:job%3A123,team:red%20blue"},
+        )
+
+    assert response.status_code == 200
+    meta_store.list_by_metadata.assert_awaited_once_with({"ap/job-id": "job:123", "team": "red blue"})
+
+
+@pytest.mark.asyncio
+async def test_list_sandboxes_returns_200_with_empty_array_when_nothing_matches(e2b_list_app):
+    app, meta_store = e2b_list_app
+    meta_store.list_by_metadata.return_value = []
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/v2/sandboxes", params={"metadata": "ap-job-id=missing"})
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+@pytest.mark.asyncio
+async def test_list_sandboxes_decodes_url_encoded_metadata_keys_and_values(e2b_list_app):
+    app, meta_store = e2b_list_app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(
+            "/v2/sandboxes",
+            params={"metadata": "ap%2Fjob-id=job%3A123&team=red%20blue"},
+        )
+
+    assert response.status_code == 200
+    meta_store.list_by_metadata.assert_awaited_once_with({"ap/job-id": "job:123", "team": "red blue"})
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        "ap-job-id",
+        "ap-job-id=",
+        "=job-123",
+        "ap-job-id=job-123&",
+        "ap-job-id=job-123&ap-job-id=job-456",
+        "ap-job-id:",
+        ":job-123",
+        "ap-job-id:job-123,",
+        "ap-job-id:job-123,ap-job-id:job-456",
+        "a:b,c=d",
+        "key=%ZZ",
+        "key=%2",
+        "key=%FF",
+        "key:%FF",
+    ],
+)
+@pytest.mark.asyncio
+async def test_list_sandboxes_returns_400_for_invalid_metadata(e2b_list_app, metadata):
+    app, meta_store = e2b_list_app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/v2/sandboxes", params={"metadata": metadata})
+
+    assert response.status_code == 400
+    assert response.json()["code"] == 400
+    meta_store.list_by_metadata.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_list_sandboxes_returns_400_when_metadata_is_missing(e2b_list_app):
+    app, meta_store = e2b_list_app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/v2/sandboxes")
+
+    assert response.status_code == 400
+    assert response.json()["code"] == 400
+    meta_store.list_by_metadata.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_list_sandboxes_hides_internal_errors(e2b_list_app):
+    app, meta_store = e2b_list_app
+    meta_store.list_by_metadata.side_effect = RuntimeError("database password leaked")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/v2/sandboxes", params={"metadata": "ap-job-id=job-123"})
+
+    assert response.status_code == 500
+    assert response.json() == {"code": 500, "message": "Internal server error"}

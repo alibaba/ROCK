@@ -5,8 +5,9 @@ from __future__ import annotations
 import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 
+from rock.actions.sandbox.response import State
 from rock.admin.core.db_provider import DatabaseProvider, retry_on_disconnect
 from rock.admin.core.schema import SandboxRecord
 from rock.admin.metrics.decorator import monitor_metastore_operation
@@ -192,6 +193,27 @@ class SandboxTable:
 
     @retry_on_disconnect
     @monitor_metastore_operation
+    async def list_by_metadata(self, metadata: dict[str, str]) -> list[dict]:
+        """Return running sandboxes whose persisted metadata contains all requested pairs."""
+        return await self._db.run(self._list_by_metadata_sync, metadata)
+
+    def _list_by_metadata_sync(self, metadata: dict[str, str]) -> list[dict]:
+        if not metadata:
+            raise ValueError("metadata filter must not be empty")
+
+        stmt = (
+            select(SandboxRecord)
+            .where(SandboxRecord.state == State.RUNNING.value)
+            .where(_metadata_filter_expression(metadata, dialect_name=self._db.engine.dialect.name))
+            .order_by(SandboxRecord.sandbox_id.asc())
+        )
+
+        with self._db.session_factory() as session:
+            result = session.execute(stmt)
+            return [_merge_status_blob(record.to_dict()) for record in result.scalars().all()]
+
+    @retry_on_disconnect
+    @monitor_metastore_operation
     async def list_expired_by(
         self,
         state: str,
@@ -233,6 +255,12 @@ def _pick_columns(data: dict[str, Any]) -> dict[str, Any]:
     if "auto_transition_time" in result:
         result["auto_transition_time"] = _parse_aware_datetime(result["auto_transition_time"])
     return result
+
+
+def _metadata_filter_expression(metadata: dict[str, str], dialect_name: str):
+    if dialect_name == "postgresql":
+        return SandboxRecord.labels.op("@>")(metadata)
+    return and_(*(SandboxRecord.labels[key].as_string() == value for key, value in metadata.items()))
 
 
 def _parse_aware_datetime(value: Any) -> datetime.datetime | None:

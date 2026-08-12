@@ -1,6 +1,3 @@
-import datetime
-import math
-from ipaddress import ip_address
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -9,10 +6,7 @@ from rock.actions import SandboxResponse
 from rock.actions.sandbox.response import State, StateTransitionRecord
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.proto.request import TaskSetSpec
-from rock.common.constants import E2B_CLIENT_ID, E2B_ENVD_VERSION, E2B_SANDBOX_IP_METADATA_KEY, E2B_STATE_BY_ROCK_STATE
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
-from rock.sdk.common.exceptions import E2BSandboxNotFoundError
-from rock.utils.format import parse_size_to_bytes
 
 
 class E2BCreateSandboxResponse(BaseModel):
@@ -20,6 +14,14 @@ class E2BCreateSandboxResponse(BaseModel):
     envd_version: str = Field(alias="envdVersion")
     client_id: str = Field(alias="clientID")
     template_id: str = Field(alias="templateID")
+
+
+class E2BListedSandbox(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    sandbox_id: str = Field(alias="sandboxID")
+    metadata: dict[str, str]
+    state: Literal["running", "paused"]
 
 
 class SandboxStartResponse(SandboxResponse):
@@ -114,68 +116,6 @@ class E2BSandboxDetail(BaseModel):
     disk_size_mb: int = Field(alias="diskSizeMB")
     started_at: str = Field(alias="startedAt")
     end_at: str = Field(alias="endAt")
-
-    @staticmethod
-    def _state(sandbox_id: str, state: State | str | None) -> Literal["running", "paused"]:
-        try:
-            rock_state = state if isinstance(state, State) else State(state)
-            return E2B_STATE_BY_ROCK_STATE[rock_state.value]
-        except (KeyError, TypeError, ValueError):
-            raise E2BSandboxNotFoundError(f"Sandbox {sandbox_id} not found") from None
-
-    @staticmethod
-    def _iso8601_timestamp(sandbox_id: str, field: str, value: object) -> str:
-        if not isinstance(value, str):
-            raise ValueError(f"Sandbox {sandbox_id} {field} is invalid")
-        try:
-            parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
-            raise ValueError(f"Sandbox {sandbox_id} {field} is invalid") from None
-        if parsed.tzinfo is None:
-            raise ValueError(f"Sandbox {sandbox_id} {field} must include a timezone")
-        return parsed.isoformat(timespec="seconds")
-
-    @classmethod
-    def from_sandbox_status(
-        cls,
-        sandbox_id: str,
-        sandbox_status: SandboxStatusResponse,
-    ) -> "E2BSandboxDetail":
-        state = cls._state(sandbox_id, sandbox_status.state)
-        end_at = (
-            sandbox_status.auto_stop_time
-            if state == "running"
-            else sandbox_status.auto_delete_time or sandbox_status.archive_time
-        )
-
-        metadata = sandbox_status.metadata
-        if not isinstance(metadata, dict) or not all(
-            isinstance(key, str) and isinstance(value, str) for key, value in metadata.items()
-        ):
-            raise ValueError(f"Sandbox {sandbox_id} metadata is invalid")
-
-        host_ip = sandbox_status.host_ip
-        if not isinstance(host_ip, str) or not host_ip.strip():
-            raise ValueError(f"Sandbox {sandbox_id} IP is missing")
-        ip_address(host_ip)
-
-        return cls(
-            sandboxID=sandbox_id,
-            metadata={**metadata, E2B_SANDBOX_IP_METADATA_KEY: host_ip},
-            state=state,
-            clientID=E2B_CLIENT_ID,
-            templateID=str(sandbox_status.image),
-            envdVersion=E2B_ENVD_VERSION,
-            cpuCount=max(1, math.ceil(float(sandbox_status.cpus))),
-            memoryMB=parse_size_to_bytes(str(sandbox_status.memory)) // (1024**2),
-            diskSizeMB=parse_size_to_bytes(str(sandbox_status.disk)) // (1024**2),
-            startedAt=cls._iso8601_timestamp(
-                sandbox_id,
-                "start time",
-                sandbox_status.start_time or sandbox_status.create_time,
-            ),
-            endAt=cls._iso8601_timestamp(sandbox_id, "end time", end_at),
-        )
 
 
 class SandboxListStatusResponse(SandboxStatusResponse):

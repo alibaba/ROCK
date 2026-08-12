@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Request
+from typing import Annotated
+
+from fastapi import APIRouter, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
-from rock.admin.proto.response import E2BSandboxDetail
+from rock.admin.proto.response import E2BListedSandbox, E2BSandboxDetail
+from rock.admin.service.e2b_proxy_service import E2BProxyService
 from rock.logger import init_logger
-from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sdk.common.exceptions import BadRequestRockError, E2BSandboxNotFoundError
 
 logger = init_logger(__name__)
@@ -25,18 +27,21 @@ class E2BProxyAPIRoute(APIRoute):
                 return _error_response(400, message)
             except E2BSandboxNotFoundError as error:
                 return _error_response(404, str(error))
+            except BadRequestRockError as error:
+                logger.warning("E2B proxy request rejected: %s", error)
+                return _error_response(400, str(error))
             except Exception:
-                logger.exception("E2B get sandbox failed")
+                logger.exception("E2B proxy request failed")
                 return _error_response(500, "Internal server error")
 
         return handler
 
 
 e2b_proxy_router = APIRouter(route_class=E2BProxyAPIRoute)
-e2b_proxy_service: SandboxProxyService
+e2b_proxy_service: E2BProxyService
 
 
-def set_e2b_proxy_service(service: SandboxProxyService) -> None:
+def set_e2b_proxy_service(service: E2BProxyService) -> None:
     global e2b_proxy_service
     e2b_proxy_service = service
 
@@ -46,15 +51,21 @@ def _error_response(status_code: int, message: str) -> JSONResponse:
 
 
 @e2b_proxy_router.get(
+    "/v2/sandboxes",
+    response_model=list[E2BListedSandbox],
+    response_model_by_alias=True,
+    response_model_exclude_none=True,
+)
+async def list_sandboxes(
+    metadata: Annotated[str, Query(min_length=1)],
+) -> list[E2BListedSandbox]:
+    return await e2b_proxy_service.list_sandboxes(metadata)
+
+
+@e2b_proxy_router.get(
     "/sandboxes/{sandboxID}",
     response_model=E2BSandboxDetail,
     response_model_by_alias=True,
 )
 async def get_sandbox(sandboxID: str) -> E2BSandboxDetail:
-    try:
-        sandbox_status = await e2b_proxy_service.get_status(sandboxID, include_all_states=True)
-    except BadRequestRockError as error:
-        if str(error) == f"Sandbox {sandboxID} not found":
-            raise E2BSandboxNotFoundError(str(error)) from None
-        raise
-    return E2BSandboxDetail.from_sandbox_status(sandboxID, sandbox_status)
+    return await e2b_proxy_service.get_sandbox(sandboxID)

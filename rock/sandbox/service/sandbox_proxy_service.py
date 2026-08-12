@@ -49,7 +49,12 @@ from rock.sandbox.service.commit_worker import CommitWorkerExecutor
 from rock.sandbox.utils.proxy import BLOCKED_WS_HEADER_NAMES, build_upstream_ws_headers
 from rock.sandbox.utils.rocklet_probe import check_alive_status, get_remote_status
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
-from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError, WorkerCommitError
+from rock.sdk.common.exceptions import (
+    BadRequestRockError,
+    InternalServerRockError,
+    SandboxNotFoundRockError,
+    WorkerCommitError,
+)
 from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
 from rock.utils import EAGLE_EYE_TRACE_ID, trace_id_ctx_var
@@ -1132,7 +1137,7 @@ class SandboxProxyService:
         """
         sandbox_info = await self._meta_store.get(sandbox_id, check_db=True)
         if sandbox_info is None:
-            raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
+            raise SandboxNotFoundRockError(f"Sandbox {sandbox_id} not found")
 
         state = sandbox_info.get("state")
         host_ip = sandbox_info.get("host_ip")
@@ -1164,7 +1169,7 @@ class SandboxProxyService:
                 sandbox_info = sm.sandbox_info
 
         if not include_all_states and state not in (State.PENDING, State.RUNNING):
-            raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
+            raise SandboxNotFoundRockError(f"Sandbox {sandbox_id} not found")
 
         info = operator_sandbox_info if operator_sandbox_info is not None else sandbox_info
         timeout_info = await self._meta_store.get_timeout(sandbox_id)

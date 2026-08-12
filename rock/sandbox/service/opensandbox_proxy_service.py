@@ -35,7 +35,7 @@ from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.service.backends.opensandbox import OpenSandboxBackend
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
-from rock.sdk.common.exceptions import BadRequestRockError
+from rock.sdk.common.exceptions import BadRequestRockError, SandboxNotFoundRockError
 
 OPENSANDBOX_BACKEND = "opensandbox"
 logger = init_logger(__name__)
@@ -258,12 +258,12 @@ class OpenSandboxProxyService(SandboxProxyService):
     async def get_status(self, sandbox_id: str, include_all_states: bool = False) -> SandboxStatusResponse:
         sandbox_info = await self._meta_store.get(sandbox_id, check_db=True)
         if sandbox_info is None:
-            raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
+            raise SandboxNotFoundRockError(f"Sandbox {sandbox_id} not found")
         self._validate_backend(sandbox_info)
 
         state = sandbox_info.get("state")
         if not include_all_states and state not in (State.PENDING, State.RUNNING):
-            raise BadRequestRockError(f"Sandbox {sandbox_id} not found")
+            raise SandboxNotFoundRockError(f"Sandbox {sandbox_id} not found")
 
         is_alive = False
         operator_sandbox_info = None

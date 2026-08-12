@@ -3,11 +3,12 @@
 from datetime import datetime
 
 import pytest
-from sqlalchemy import DateTime
+from sqlalchemy import DateTime, select
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
 
 from rock.admin.core.db_provider import DatabaseProvider
-from rock.admin.core.sandbox_table import SandboxTable
+from rock.admin.core.sandbox_table import SandboxTable, _metadata_filter_expression
 from rock.admin.core.schema import SandboxRecord
 from rock.config import DatabaseConfig
 
@@ -102,6 +103,47 @@ class TestSandboxTableWithSQLite:
         await db.create("lbi-3", {"user_id": "carol", "create_time": "2025-01-01T00:00:00Z"})
         results = await db.list_by_in("sandbox_id", ["lbi-1", "lbi-3"])
         assert {r["sandbox_id"] for r in results} == {"lbi-1", "lbi-3"}
+
+    async def test_list_by_metadata_requires_every_exact_key_value_pair(self, db):
+        await db.create(
+            "metadata-match",
+            {
+                "metadata": {"ap-job-id": "job-123", "team": "red", "extra": "preserved"},
+                "state": "running",
+                "create_time": "2025-01-01T00:00:00Z",
+            },
+        )
+        await db.create(
+            "metadata-archived",
+            {
+                "metadata": {"ap-job-id": "job-123", "team": "red"},
+                "state": "archived",
+                "create_time": "2025-01-01T00:00:00Z",
+            },
+        )
+        await db.create(
+            "metadata-wrong-value",
+            {
+                "metadata": {"ap-job-id": "job-456", "team": "red"},
+                "create_time": "2025-01-01T00:00:00Z",
+            },
+        )
+        await db.create(
+            "metadata-missing-key",
+            {
+                "metadata": {"ap-job-id": "job-123"},
+                "create_time": "2025-01-01T00:00:00Z",
+            },
+        )
+
+        results = await db.list_by_metadata({"ap-job-id": "job-123", "team": "red"})
+
+        assert [record["sandbox_id"] for record in results] == ["metadata-match"]
+        assert results[0]["labels"] == {
+            "ap-job-id": "job-123",
+            "team": "red",
+            "extra": "preserved",
+        }
 
     async def test_list_expired_by(self, db):
         await db.create(
@@ -217,6 +259,17 @@ def test_sandbox_labels_column_has_postgresql_gin_index():
     index = next(item for item in SandboxRecord.__table__.indexes if item.name == "ix_sandbox_record_labels_gin")
     assert index.dialect_options["postgresql"]["using"] == "gin"
     assert index.dialect_options["postgresql"]["ops"] == {"labels": "jsonb_path_ops"}
+
+
+def test_metadata_filter_uses_postgresql_jsonb_containment():
+    clause = _metadata_filter_expression({"ap-job-id": "job-123"}, dialect_name="postgresql")
+    statement = select(SandboxRecord.sandbox_id).where(clause)
+
+    sql = str(statement.compile(dialect=postgresql.dialect()))
+
+    assert " @> " in sql
+    assert " LIKE " not in sql
+    assert "CAST(sandbox_record.labels" not in sql
 
 
 @pytest.mark.need_docker

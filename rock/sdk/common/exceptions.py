@@ -36,6 +36,10 @@ class BadRequestRockError(RockException):
         super().__init__(message, code)
 
 
+class SandboxNotFoundRockError(BadRequestRockError):
+    pass
+
+
 class InternalServerRockError(RockException):
     def __init__(self, message, code: codes = codes.INTERNAL_SERVER_ERROR):
         super().__init__(message, code)

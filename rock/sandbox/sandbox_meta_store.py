@@ -198,6 +198,11 @@ class SandboxMetaStore:
         return await self._db.list_by_in(field, values, order_by=order_by, limit=limit)
 
     @monitor_metastore_operation
+    async def list_by_metadata(self, metadata: dict[str, str]) -> list[SandboxInfo]:
+        """Query all sandboxes whose persisted metadata contains every requested pair."""
+        return await self._db.list_by_metadata(metadata)
+
+    @monitor_metastore_operation
     async def list_expired_by(
         self,
         state: str,
