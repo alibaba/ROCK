@@ -438,6 +438,7 @@ def mgr_start(mgr, mock_meta_store, mock_operator, mock_docker_config):
         )
 
     mock_meta_store.create.side_effect = capture_create
+    mgr._start_and_wait = SandboxManager._start_and_wait.__get__(mgr)
     mgr.start = SandboxManager.start.__wrapped__.__get__(mgr)
     mgr.get_status = AsyncMock(return_value=MagicMock(is_alive=True, state=State.RUNNING))
     return mgr

@@ -6,6 +6,7 @@ timeout_info from SandboxMetaStore and writing the result back.
 
 from __future__ import annotations
 
+import datetime
 import time
 from typing import Any
 
@@ -64,6 +65,31 @@ class SandboxTimeoutHelper:
             return get_iso8601_timestamp(int(expire_time))
         except (TypeError, ValueError, OSError, OverflowError):
             return None
+
+    @staticmethod
+    def persisted_auto_stop_time(sandbox_info: dict[str, Any]) -> str | None:
+        transition_state = sandbox_info.get("auto_transition_state")
+        if transition_state in (State.STOPPED, State.STOPPED.value):
+            transition_time = sandbox_info.get("auto_transition_time")
+            if isinstance(transition_time, str):
+                return transition_time
+
+        spec = sandbox_info.get("spec")
+        if not isinstance(spec, dict):
+            return None
+        timeout_minutes = spec.get("auto_clear_time_minutes")
+        if not isinstance(timeout_minutes, (int, float)) or isinstance(timeout_minutes, bool) or timeout_minutes < 0:
+            return None
+        timeout_origin = sandbox_info.get("create_time") or sandbox_info.get("start_time")
+        if not isinstance(timeout_origin, str):
+            return None
+        try:
+            parsed = datetime.datetime.fromisoformat(timeout_origin.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return None
+        return (parsed + datetime.timedelta(minutes=timeout_minutes)).isoformat(timespec="seconds")
 
     @staticmethod
     def auto_transition_times_for_status(

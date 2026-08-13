@@ -25,7 +25,7 @@ def test_proxy_role_mounts_proxy_router():
     assert commit_path in paths
     assert commit_status_path in paths
     assert "/sandboxes" not in paths
-    assert _methods_for_path(app, "/sandboxes/{sandboxID}") == {"GET"}
+    assert _methods_for_path(app, "/sandboxes/{sandboxID}") == set()
     assert "/v2/sandboxes" in paths
 
 
@@ -46,7 +46,7 @@ def test_admin_role_mounts_admin_routers():
     assert commit_path in paths
     assert commit_status_path not in paths
     assert "/sandboxes" in paths
-    assert _methods_for_path(app, "/sandboxes/{sandboxID}") == {"DELETE"}
+    assert _methods_for_path(app, "/sandboxes/{sandboxID}") == {"DELETE", "GET"}
     assert "/v2/sandboxes" not in paths
 
 

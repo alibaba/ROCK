@@ -16,12 +16,30 @@ class E2BCreateSandboxResponse(BaseModel):
     template_id: str = Field(alias="templateID")
 
 
-class E2BListedSandbox(BaseModel):
+class E2BSandboxInfo(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     sandbox_id: str = Field(alias="sandboxID")
     metadata: dict[str, str]
     state: Literal["running", "paused"]
+    client_id: str = Field(alias="clientID")
+    template_id: str = Field(alias="templateID")
+    envd_version: str = Field(alias="envdVersion")
+    cpu_count: int = Field(alias="cpuCount")
+    memory_mb: int = Field(alias="memoryMB")
+    disk_size_mb: int = Field(alias="diskSizeMB")
+    started_at: str = Field(alias="startedAt")
+    end_at: str = Field(alias="endAt")
+
+
+class E2BSandboxVolumeMount(BaseModel):
+    name: str
+    path: str
+
+
+class E2BListedSandbox(E2BSandboxInfo):
+    alias: str | None = None
+    volume_mounts: list[E2BSandboxVolumeMount] | None = Field(default=None, alias="volumeMounts")
 
 
 class SandboxStartResponse(SandboxResponse):
@@ -100,22 +118,6 @@ class SandboxStatusResponse(BaseModel):
             auto_delete_time=auto_delete_time,
             state_history=sandbox_info.get("state_history", []),
         )
-
-
-class E2BSandboxDetail(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    sandbox_id: str = Field(alias="sandboxID")
-    metadata: dict[str, str]
-    state: Literal["running", "paused"]
-    client_id: str = Field(alias="clientID")
-    template_id: str = Field(alias="templateID")
-    envd_version: str = Field(alias="envdVersion")
-    cpu_count: int = Field(alias="cpuCount")
-    memory_mb: int = Field(alias="memoryMB")
-    disk_size_mb: int = Field(alias="diskSizeMB")
-    started_at: str = Field(alias="startedAt")
-    end_at: str = Field(alias="endAt")
 
 
 class SandboxListStatusResponse(SandboxStatusResponse):

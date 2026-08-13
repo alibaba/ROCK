@@ -5,9 +5,10 @@ from __future__ import annotations
 import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select, update
 
 from rock.actions.sandbox.response import State
+from rock.actions.sandbox.sandbox_info import MISSING_HOST_IP_VALUES, is_missing_host_ip
 from rock.admin.core.db_provider import DatabaseProvider, retry_on_disconnect
 from rock.admin.core.schema import SandboxRecord
 from rock.admin.metrics.decorator import monitor_metastore_operation
@@ -121,8 +122,33 @@ class SandboxTable:
                 logger.warning("update: sandbox_id=%s not found", sandbox_id)
                 return
             for key, value in filtered.items():
+                if key == "host_ip" and is_missing_host_ip(value):
+                    continue
                 setattr(record, key, value)
             session.commit()
+
+    @retry_on_disconnect
+    @monitor_metastore_operation
+    async def update_host_ip_if_missing(self, sandbox_id: str, host_ip: str) -> bool:
+        """Atomically set the scalar host_ip only when its current value is missing."""
+        return await self._db.run(self._update_host_ip_if_missing_sync, sandbox_id, host_ip)
+
+    def _update_host_ip_if_missing_sync(self, sandbox_id: str, host_ip: str) -> bool:
+        stmt = (
+            update(SandboxRecord)
+            .where(SandboxRecord.sandbox_id == sandbox_id)
+            .where(
+                or_(
+                    SandboxRecord.host_ip.is_(None),
+                    SandboxRecord.host_ip.in_(MISSING_HOST_IP_VALUES),
+                )
+            )
+            .values(host_ip=host_ip)
+        )
+        with self._db.session_factory() as session:
+            result = session.execute(stmt)
+            session.commit()
+            return result.rowcount > 0
 
     @retry_on_disconnect
     @monitor_metastore_operation
@@ -193,11 +219,11 @@ class SandboxTable:
 
     @retry_on_disconnect
     @monitor_metastore_operation
-    async def list_by_metadata(self, metadata: dict[str, str]) -> list[dict]:
+    async def list_running_by_metadata(self, metadata: dict[str, str]) -> list[dict]:
         """Return running sandboxes whose persisted metadata contains all requested pairs."""
-        return await self._db.run(self._list_by_metadata_sync, metadata)
+        return await self._db.run(self._list_running_by_metadata_sync, metadata)
 
-    def _list_by_metadata_sync(self, metadata: dict[str, str]) -> list[dict]:
+    def _list_running_by_metadata_sync(self, metadata: dict[str, str]) -> list[dict]:
         if not metadata:
             raise ValueError("metadata filter must not be empty")
 

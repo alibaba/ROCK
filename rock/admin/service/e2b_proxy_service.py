@@ -1,111 +1,55 @@
-import datetime
-import math
+import asyncio
 import re
-from ipaddress import ip_address
-from typing import Literal
 from urllib.parse import parse_qsl, unquote
 
-from rock.actions.sandbox.response import State
-from rock.admin.proto.response import E2BListedSandbox, E2BSandboxDetail, SandboxStatusResponse
-from rock.common.constants import E2B_CLIENT_ID, E2B_ENVD_VERSION, E2B_SANDBOX_IP_METADATA_KEY, E2B_STATE_BY_ROCK_STATE
+from rock.admin.proto.response import E2BListedSandbox, SandboxStatusResponse
+from rock.admin.service.e2b_sandbox_info import e2b_sandbox_info_fields
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
-from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
-from rock.sdk.common.exceptions import BadRequestRockError, E2BSandboxNotFoundError, SandboxNotFoundRockError
-from rock.utils.format import parse_size_to_bytes
+from rock.sandbox.utils.timeout import SandboxTimeoutHelper
+from rock.sdk.common.exceptions import BadRequestRockError
 
 _INVALID_PERCENT_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 
 
 class E2BProxyService:
-    def __init__(self, sandbox_service: SandboxProxyService, meta_store: SandboxMetaStore) -> None:
-        self._sandbox_service = sandbox_service
+    def __init__(self, meta_store: SandboxMetaStore, *, sandbox_service: object | None = None) -> None:
+        # Kept as a keyword-only compatibility argument so main.py wiring does
+        # not need to change; list operations depend only on the metadata store.
+        del sandbox_service
         self._meta_store = meta_store
 
     async def list_sandboxes(self, metadata: str) -> list[E2BListedSandbox]:
-        records = await self._meta_store.list_by_metadata(self._parse_metadata_filter(metadata))
-        result: list[E2BListedSandbox] = []
-        for record in records:
-            state = self._e2b_state(record.get("state"))
-            if state is None:
-                continue
-            result.append(
-                E2BListedSandbox(
-                    sandboxID=record["sandbox_id"],
-                    metadata=self._metadata_with_sandbox_ip(
-                        record["sandbox_id"],
-                        record["labels"],
-                        record.get("host_ip"),
-                    ),
-                    state=state,
-                )
-            )
-        return result
-
-    async def get_sandbox(self, sandbox_id: str) -> E2BSandboxDetail:
-        try:
-            sandbox_status = await self._sandbox_service.get_status(sandbox_id, include_all_states=True)
-        except SandboxNotFoundRockError as error:
-            raise E2BSandboxNotFoundError(str(error)) from None
-        return self._sandbox_detail(sandbox_id, sandbox_status)
-
-    def _sandbox_detail(self, sandbox_id: str, sandbox_status: SandboxStatusResponse) -> E2BSandboxDetail:
-        state = self._e2b_state(sandbox_status.state)
-        if state is None:
-            raise E2BSandboxNotFoundError(f"Sandbox {sandbox_id} not found")
-        end_at = (
-            sandbox_status.auto_stop_time
-            if state == "running"
-            else sandbox_status.auto_delete_time or sandbox_status.archive_time
+        records = await self._meta_store.list_running_by_metadata(self._parse_metadata_filter(metadata))
+        timeout_infos = await asyncio.gather(
+            *(self._meta_store.get_timeout(record["sandbox_id"]) for record in records)
         )
+        return [
+            self._listed_sandbox(record, timeout_info)
+            for record, timeout_info in zip(records, timeout_infos, strict=True)
+        ]
 
-        return E2BSandboxDetail(
-            sandboxID=sandbox_id,
-            metadata=self._metadata_with_sandbox_ip(
-                sandbox_id,
-                sandbox_status.metadata,
-                sandbox_status.host_ip,
-            ),
-            state=state,
-            clientID=E2B_CLIENT_ID,
-            templateID=str(sandbox_status.image),
-            envdVersion=E2B_ENVD_VERSION,
-            cpuCount=max(1, math.ceil(float(sandbox_status.cpus))),
-            memoryMB=parse_size_to_bytes(str(sandbox_status.memory)) // (1024**2),
-            diskSizeMB=parse_size_to_bytes(str(sandbox_status.disk)) // (1024**2),
-            startedAt=self._iso8601_timestamp(
-                sandbox_id,
-                "start time",
-                sandbox_status.start_time or sandbox_status.create_time,
-            ),
-            endAt=self._iso8601_timestamp(sandbox_id, "end time", end_at),
+    def _listed_sandbox(self, record: dict, timeout_info: dict[str, str] | None) -> E2BListedSandbox:
+        auto_stop_time, _, _ = SandboxTimeoutHelper.auto_transition_times_for_status(
+            record.get("state"),
+            record,
+            timeout_info,
         )
-
-    @staticmethod
-    def _metadata_with_sandbox_ip(
-        sandbox_id: str,
-        metadata: object,
-        host_ip: object,
-    ) -> dict[str, str]:
-        if not isinstance(metadata, dict) or not all(
-            isinstance(key, str) and isinstance(value, str) for key, value in metadata.items()
-        ):
-            raise ValueError(f"Sandbox {sandbox_id} metadata is invalid")
-        if not isinstance(host_ip, str) or not host_ip.strip():
-            raise ValueError(f"Sandbox {sandbox_id} IP is missing")
-        ip_address(host_ip)
-        return {**metadata, E2B_SANDBOX_IP_METADATA_KEY: host_ip}
-
-    @staticmethod
-    def _iso8601_timestamp(sandbox_id: str, field: str, value: object) -> str:
-        if not isinstance(value, str):
-            raise ValueError(f"Sandbox {sandbox_id} {field} is invalid")
-        try:
-            parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
-            raise ValueError(f"Sandbox {sandbox_id} {field} is invalid") from None
-        if parsed.tzinfo is None:
-            raise ValueError(f"Sandbox {sandbox_id} {field} must include a timezone")
-        return parsed.isoformat(timespec="seconds")
+        if auto_stop_time is None:
+            auto_stop_time = SandboxTimeoutHelper.persisted_auto_stop_time(record)
+        sandbox_id = record["sandbox_id"]
+        sandbox_status = SandboxStatusResponse(
+            state=record.get("state"),
+            metadata=record.get("metadata") or record.get("labels"),
+            host_ip=record.get("host_ip"),
+            image=record.get("image"),
+            cpus=record.get("cpus"),
+            memory=record.get("memory"),
+            disk=record.get("disk"),
+            start_time=record.get("start_time"),
+            create_time=record.get("create_time"),
+            auto_stop_time=auto_stop_time,
+        )
+        return E2BListedSandbox(**e2b_sandbox_info_fields(sandbox_id, sandbox_status))
 
     @staticmethod
     def _parse_metadata_filter(value: str) -> dict[str, str]:
@@ -151,11 +95,3 @@ class E2BProxyService:
                 raise BadRequestRockError(f"duplicate metadata key: {key}")
             result[key] = item
         return result
-
-    @staticmethod
-    def _e2b_state(value: object) -> Literal["running", "paused"] | None:
-        try:
-            rock_state = value if isinstance(value, State) else State(value)
-            return E2B_STATE_BY_ROCK_STATE.get(rock_state.value)
-        except (TypeError, ValueError):
-            return None

@@ -105,6 +105,11 @@ class SandboxMetaStore:
         await self._db.update(sandbox_id, sandbox_info)
 
     @monitor_metastore_operation
+    async def update_host_ip_if_missing(self, sandbox_id: str, host_ip: str) -> bool:
+        """Persist host_ip to the DB only when its current value is missing."""
+        return await self._db.update_host_ip_if_missing(sandbox_id, host_ip)
+
+    @monitor_metastore_operation
     async def delete(self, sandbox_id: str) -> None:
         """Delete Redis alive + timeout keys and await DB delete."""
         await self._redis.json_delete(alive_sandbox_key(sandbox_id))
@@ -198,9 +203,9 @@ class SandboxMetaStore:
         return await self._db.list_by_in(field, values, order_by=order_by, limit=limit)
 
     @monitor_metastore_operation
-    async def list_by_metadata(self, metadata: dict[str, str]) -> list[SandboxInfo]:
-        """Query all sandboxes whose persisted metadata contains every requested pair."""
-        return await self._db.list_by_metadata(metadata)
+    async def list_running_by_metadata(self, metadata: dict[str, str]) -> list[SandboxInfo]:
+        """Query running sandboxes whose persisted metadata contains every requested pair."""
+        return await self._db.list_running_by_metadata(metadata)
 
     @monitor_metastore_operation
     async def list_expired_by(

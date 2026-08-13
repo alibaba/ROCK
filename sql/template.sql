@@ -1,6 +1,9 @@
 CREATE TABLE template (
 	template_id VARCHAR(128) NOT NULL,
 	os_type VARCHAR(32) NOT NULL,
+	cpu_count INTEGER NOT NULL,
+	memory_mb INTEGER NOT NULL,
+	disk_size_mb INTEGER NOT NULL,
 	spec JSONB,
 	status VARCHAR(32) NOT NULL,
 	current_step VARCHAR(32),

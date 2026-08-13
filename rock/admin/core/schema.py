@@ -10,7 +10,7 @@ import datetime
 import zoneinfo
 from typing import Any, ClassVar
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Index, String, Text, text
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.types import JSON
@@ -140,6 +140,9 @@ class TemplateRecord(Base):
 
     template_id = Column(String(128), primary_key=True)
     os_type = Column(String(32), nullable=False)
+    cpu_count = Column(Integer, nullable=False)
+    memory_mb = Column(Integer, nullable=False)
+    disk_size_mb = Column(Integer, nullable=False)
     spec = Column(_JSONB_VARIANT, nullable=True)
     status = Column(String(32), nullable=False)
     current_step = Column(String(32), nullable=True)

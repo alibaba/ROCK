@@ -46,6 +46,7 @@ from rock.admin.scheduler.tasks.sandbox_log_archive_task import (
     set_sandbox_table_provider as set_archive_sandbox_table_provider,
 )
 from rock.admin.service.e2b_proxy_service import E2BProxyService
+from rock.admin.service.e2b_service import E2BService
 from rock.admin.service.ops_service import OpsService
 from rock.common.exception import request_validation_exception_handler
 from rock.config import DatabaseConfig, RockConfig, SchedulerConfig
@@ -236,7 +237,7 @@ async def lifespan(app: FastAPI):
                 meta_store=meta_store,
             )
         set_sandbox_manager(sandbox_manager)
-        set_e2b_sandbox_manager(sandbox_manager)
+        set_e2b_sandbox_manager(E2BService(sandbox_manager, template_table))
         warmup_service = WarmupService(rock_config.warmup)
         await warmup_service.init()
         set_warmup_service(warmup_service)

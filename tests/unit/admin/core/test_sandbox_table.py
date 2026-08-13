@@ -104,7 +104,7 @@ class TestSandboxTableWithSQLite:
         results = await db.list_by_in("sandbox_id", ["lbi-1", "lbi-3"])
         assert {r["sandbox_id"] for r in results} == {"lbi-1", "lbi-3"}
 
-    async def test_list_by_metadata_requires_every_exact_key_value_pair(self, db):
+    async def test_list_running_by_metadata_matches_every_exact_pair(self, db):
         await db.create(
             "metadata-match",
             {
@@ -136,7 +136,7 @@ class TestSandboxTableWithSQLite:
             },
         )
 
-        results = await db.list_by_metadata({"ap-job-id": "job-123", "team": "red"})
+        results = await db.list_running_by_metadata({"ap-job-id": "job-123", "team": "red"})
 
         assert [record["sandbox_id"] for record in results] == ["metadata-match"]
         assert results[0]["labels"] == {
@@ -240,6 +240,16 @@ class TestSandboxTableWithSQLite:
     async def test_update_nonexistent_is_noop(self, db):
         """update() on a non-existent ID should log a warning and not raise."""
         await db.update("does-not-exist", {"state": "running"})  # should not raise
+
+    async def test_update_does_not_replace_known_host_ip_with_missing_value(self, db):
+        sandbox_id = "sqlite-sbx-preserve-host-ip"
+        await db.create(sandbox_id, {"host_ip": "10.0.0.1"})
+
+        await db.update(sandbox_id, {"host_ip": "", "state": "stopped"})
+
+        record = await db.get(sandbox_id)
+        assert record["host_ip"] == "10.0.0.1"
+        assert record["state"] == "stopped"
 
     async def test_not_null_defaults_applied_on_insert(self, db):
         """Insert with minimal data should fill NOT NULL columns from _NOT_NULL_DEFAULTS."""

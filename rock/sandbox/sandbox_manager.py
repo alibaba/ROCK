@@ -17,7 +17,7 @@ from rock.actions import (
     WriteFileResponse,
 )
 from rock.actions.sandbox.response import State
-from rock.actions.sandbox.sandbox_info import SandboxInfo
+from rock.actions.sandbox.sandbox_info import SandboxInfo, is_missing_host_ip
 from rock.admin.core.ray_service import RayService
 from rock.admin.metrics.decorator import monitor_sandbox_operation
 from rock.admin.proto.request import ClusterInfo, UserInfo
@@ -146,7 +146,12 @@ class SandboxManager(BaseManager):
 
     @monitor_sandbox_operation()
     async def start_async(
-        self, config: DeploymentConfig, user_info: UserInfo = {}, cluster_info: ClusterInfo = {}
+        self,
+        config: DeploymentConfig,
+        user_info: UserInfo = {},
+        cluster_info: ClusterInfo = {},
+        *,
+        use_template_resource_spec: bool = False,
     ) -> SandboxStartResponse:
         await self._check_sandbox_exists_in_redis(config)
         with StageTimer("startup_timing", f"[{config.image}] Init config", logger):
@@ -156,14 +161,10 @@ class SandboxManager(BaseManager):
         self.validate_sandbox_spec(self.rock_config.runtime, config)
 
         sandbox_id = docker_deployment_config.container_name
-        if self.rock_config.runtime.use_standard_spec_only:
-            logger.info(
-                f"[{sandbox_id}] Using standard spec only: "
-                f"cpus={self.rock_config.runtime.standard_spec.cpus}, "
-                f"memory={self.rock_config.runtime.standard_spec.memory}"
-            )
-            docker_deployment_config.cpus = self.rock_config.runtime.standard_spec.cpus
-            docker_deployment_config.memory = self.rock_config.runtime.standard_spec.memory
+        self._apply_standard_spec(
+            docker_deployment_config,
+            use_template_resource_spec=use_template_resource_spec,
+        )
 
         sandbox_info: SandboxInfo = {
             "sandbox_id": sandbox_id,
@@ -224,6 +225,21 @@ class SandboxManager(BaseManager):
             disk=sandbox_info.get("disk"),
             disk_limit_rootfs=sandbox_info.get("disk"),
         )
+
+    def _apply_standard_spec(
+        self,
+        config: DockerDeploymentConfig,
+        *,
+        use_template_resource_spec: bool = False,
+    ) -> None:
+        if self.rock_config.runtime.use_standard_spec_only and not use_template_resource_spec:
+            logger.info(
+                f"[{config.container_name}] Using standard spec only: "
+                f"cpus={self.rock_config.runtime.standard_spec.cpus}, "
+                f"memory={self.rock_config.runtime.standard_spec.memory}"
+            )
+            config.cpus = self.rock_config.runtime.standard_spec.cpus
+            config.memory = self.rock_config.runtime.standard_spec.memory
 
     def _apply_user_auto_transition_policy(self, config: DockerDeploymentConfig) -> None:
         """Resolve the effective policy and enforce the cluster deadline cap."""
@@ -292,17 +308,46 @@ class SandboxManager(BaseManager):
         user_info: UserInfo = {},
         cluster_info: ClusterInfo = {},
     ) -> SandboxStartResponse:
-        response = await self.start_async(config, user_info=user_info, cluster_info=cluster_info)
+        return await self._start_and_wait(config, user_info=user_info, cluster_info=cluster_info)
+
+    @monitor_sandbox_operation()
+    async def start_from_template(
+        self,
+        config: DeploymentConfig,
+        user_info: UserInfo = {},
+        cluster_info: ClusterInfo = {},
+    ) -> SandboxStartResponse:
+        return await self._start_and_wait(
+            config,
+            user_info=user_info,
+            cluster_info=cluster_info,
+            use_template_resource_spec=True,
+        )
+
+    async def _start_and_wait(
+        self,
+        config: DeploymentConfig,
+        user_info: UserInfo,
+        cluster_info: ClusterInfo,
+        *,
+        use_template_resource_spec: bool = False,
+    ) -> SandboxStartResponse:
+        response = await self.start_async(
+            config,
+            user_info=user_info,
+            cluster_info=cluster_info,
+            use_template_resource_spec=use_template_resource_spec,
+        )
         sandbox_id = response.sandbox_id
         deadline = time.time() + REQUEST_TIMEOUT_SECONDS
         with StageTimer("startup_timing", f"[{sandbox_id}] Wait sandbox running", logger):
             while True:
+                await asyncio.sleep(1)
                 status = await self.get_status(sandbox_id)
                 if status.is_alive:
                     break
                 if time.time() >= deadline:
                     raise TimeoutError(f"sandbox {sandbox_id} not running after {REQUEST_TIMEOUT_SECONDS}s")
-                await asyncio.sleep(1)
         return response
 
     @monitor_sandbox_operation()
@@ -436,6 +481,7 @@ class SandboxManager(BaseManager):
 
         state = sandbox_info.get("state")
         is_alive = False
+        status_persisted = False
         operator_sandbox_info: SandboxInfo | None = await self._operator.get_status(sandbox_id=sandbox_id)
         if operator_sandbox_info is not None:
             is_alive = operator_sandbox_info.get("state") == State.RUNNING
@@ -446,6 +492,16 @@ class SandboxManager(BaseManager):
                     await sm.send(
                         "alive", sandbox_id=sandbox_id, meta_store=self._meta_store, sandbox_info=operator_sandbox_info
                     )
+                    status_persisted = True
+
+            operator_host_ip = operator_sandbox_info.get("host_ip")
+            if (
+                not status_persisted
+                and is_missing_host_ip(sandbox_info.get("host_ip"))
+                and isinstance(operator_host_ip, str)
+                and not is_missing_host_ip(operator_host_ip)
+            ):
+                await self._meta_store.update_host_ip_if_missing(sandbox_id, operator_host_ip)
 
             if operator_sandbox_info.get("state") in (State.PENDING, State.RUNNING):
                 await self._refresh_timeout(sandbox_id)
