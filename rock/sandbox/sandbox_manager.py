@@ -87,6 +87,10 @@ class SandboxManager(BaseManager):
         self._proxy_service = create_sandbox_proxy_service(rock_config=rock_config, meta_store=meta_store)
         logger.info("sandbox service init success")
 
+    @property
+    def supports_running_delete(self) -> bool:
+        return bool(self._operator and self._operator.supports_running_delete)
+
     def _init_archive_storage(self, rock_config: RockConfig) -> None:
         archive_cfg = rock_config.lifecycle.archive
         image_registry_cfg = archive_cfg.registry

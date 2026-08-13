@@ -4,8 +4,9 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from rock.actions.sandbox.response import State
 from rock.admin.entrypoints.e2b_api import e2b_router, set_e2b_sandbox_manager
-from rock.admin.proto.response import SandboxStartResponse
+from rock.admin.proto.response import SandboxStartResponse, SandboxStatusResponse
 from rock.sdk.common.exceptions import BadRequestRockError, InternalServerRockError
 
 
@@ -19,6 +20,16 @@ def e2b_app():
             host_ip="10.0.1.23",
         )
     )
+    manager.get_status = AsyncMock(
+        return_value=SandboxStatusResponse(
+            sandbox_id="sandbox-123",
+            state=State.RUNNING,
+            is_alive=True,
+        )
+    )
+    manager.stop = AsyncMock()
+    manager.delete = AsyncMock()
+    manager.supports_running_delete = False
     set_e2b_sandbox_manager(manager)
 
     app = FastAPI()
@@ -63,7 +74,7 @@ async def test_create_sandbox_returns_e2b_response_and_maps_request(e2b_app):
     assert response.json() == {
         "sandboxID": "sandbox-123",
         "envdVersion": "0.1.0",
-        "clientID": "rock",
+        "clientID": "ap-sandbox",
         "templateID": "linux-dind",
     }
 
@@ -156,3 +167,45 @@ async def test_create_sandbox_hides_server_error(e2b_app, server_error):
 
     assert response.status_code == 500
     assert response.json() == {"code": 500, "message": "Internal server error"}
+
+
+@pytest.mark.asyncio
+async def test_delete_running_sandbox_returns_empty_204(e2b_app):
+    app, manager = e2b_app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.delete("/sandboxes/sandbox-123")
+
+    assert response.status_code == 204
+    assert response.content == b""
+    manager.get_status.assert_awaited_once_with("sandbox-123", include_all_states=True)
+    manager.stop.assert_awaited_once_with("sandbox-123")
+    manager.delete.assert_awaited_once_with("sandbox-123")
+
+
+@pytest.mark.asyncio
+async def test_delete_running_sandbox_uses_direct_delete_when_supported(e2b_app):
+    app, manager = e2b_app
+    manager.supports_running_delete = True
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.delete("/sandboxes/sandbox-123")
+
+    assert response.status_code == 204
+    assert response.content == b""
+    manager.stop.assert_not_awaited()
+    manager.delete.assert_awaited_once_with("sandbox-123")
+
+
+@pytest.mark.asyncio
+async def test_delete_missing_sandbox_returns_404(e2b_app):
+    app, manager = e2b_app
+    manager.get_status.side_effect = BadRequestRockError("Sandbox missing not found")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.delete("/sandboxes/missing")
+
+    assert response.status_code == 404
+    assert response.json() == {"code": 404, "message": "Sandbox missing not found"}
+    manager.stop.assert_not_awaited()
+    manager.delete.assert_not_awaited()

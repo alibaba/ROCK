@@ -3,12 +3,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
 
+from rock.actions.sandbox.response import State
 from rock.admin.proto.request import E2BCreateSandboxRequest, StartHeaders
 from rock.admin.proto.response import E2BCreateSandboxResponse
 from rock.common.constants import AP_SANDBOX_ID_METADATA_KEY, E2B_CLIENT_ID, E2B_ENVD_VERSION
+from rock.common.validation import NonBlankStr
 from rock.deployments.config import DockerDeploymentConfig
 from rock.logger import init_logger
 from rock.sandbox.sandbox_manager import SandboxManager
@@ -30,10 +32,10 @@ class E2BAPIRoute(APIRoute):
                 )
                 return _error_response(400, message)
             except BadRequestRockError as error:
-                logger.warning("E2B create sandbox rejected: %s", error)
+                logger.warning("E2B request rejected: %s", error)
                 return _error_response(400, str(error))
             except Exception:
-                logger.exception("E2B create sandbox failed")
+                logger.exception("E2B request failed")
                 return _error_response(500, "Internal server error")
 
         return handler
@@ -82,3 +84,20 @@ async def create_sandbox(
         clientID=E2B_CLIENT_ID,
         templateID=request.template_id,
     )
+
+
+@e2b_router.delete("/sandboxes/{sandbox_id}", status_code=204, response_class=Response)
+async def delete_sandbox(sandbox_id: NonBlankStr) -> Response:
+    try:
+        status = await e2b_sandbox_manager.get_status(sandbox_id, include_all_states=True)
+    except BadRequestRockError as error:
+        return _error_response(404, str(error))
+    if status.state == State.DELETED:
+        return _error_response(404, f"Sandbox {sandbox_id} not found")
+    needs_stop = status.state == State.PENDING or (
+        status.state == State.RUNNING and not e2b_sandbox_manager.supports_running_delete
+    )
+    if needs_stop:
+        await e2b_sandbox_manager.stop(sandbox_id)
+    await e2b_sandbox_manager.delete(sandbox_id)
+    return Response(status_code=204)

@@ -118,7 +118,7 @@ async def test_get_sandbox_returns_e2b_detail_without_requiring_headers(e2b_prox
             "e2b.agents.kruise.io/sandbox-ip": "10.0.1.23",
         },
         "state": "running",
-        "clientID": "rock",
+        "clientID": "ap-sandbox",
         "templateID": "linux-dind",
         "envdVersion": "0.1.0",
         "cpuCount": 4,

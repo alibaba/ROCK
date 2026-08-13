@@ -166,6 +166,14 @@ class TestK8sOperator:
         assert result is False
 
     @pytest.mark.asyncio
+    async def test_delete_is_noop(self, k8s_operator, mock_provider, deployment_config):
+        """K8s resources are already removed by stop, so delete is a successful no-op."""
+        result = await k8s_operator.delete(deployment_config, host_ip="10.0.0.1")
+
+        assert result is True
+        assert mock_provider.mock_calls == []
+
+    @pytest.mark.asyncio
     async def test_get_sandbox_info_from_redis_success(self, k8s_operator, mock_provider, redis_provider):
         """Test get_sandbox_info_from_redis returns data from Redis."""
         k8s_operator.set_redis_provider(redis_provider)
