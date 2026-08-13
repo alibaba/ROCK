@@ -1,7 +1,7 @@
 import math
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Path, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
@@ -86,8 +86,8 @@ async def create_sandbox(
     )
 
 
-@e2b_router.delete("/sandboxes/{sandbox_id}", status_code=204, response_class=Response)
-async def delete_sandbox(sandbox_id: NonBlankStr) -> Response:
+@e2b_router.delete("/sandboxes/{sandboxID}", status_code=204, response_class=Response)
+async def delete_sandbox(sandbox_id: Annotated[NonBlankStr, Path(alias="sandboxID")]) -> Response:
     try:
         status = await e2b_sandbox_manager.get_status(sandbox_id, include_all_states=True)
     except BadRequestRockError as error:

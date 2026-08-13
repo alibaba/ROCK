@@ -74,7 +74,7 @@ async def test_create_sandbox_returns_e2b_response_and_maps_request(e2b_app):
     assert response.json() == {
         "sandboxID": "sandbox-123",
         "envdVersion": "0.1.0",
-        "clientID": "ap-sandbox",
+        "clientID": "rock",
         "templateID": "linux-dind",
     }
 
