@@ -31,3 +31,4 @@ class K8sConstants:
     # Nacos config keys
     NACOS_POOLS_KEY = "pools"
     NACOS_TEMPLATE_RULES_KEY = "template_rules"
+    K8S_ALIVE_CHECK_SWITCH = "k8s_alive_check_enabled"

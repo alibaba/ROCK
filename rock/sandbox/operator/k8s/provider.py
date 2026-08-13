@@ -434,8 +434,8 @@ class BatchSandboxProvider(K8sProvider):
 
         This method fetches the sandbox resource from K8s and checks if the sandbox
         is alive by calling its is_alive endpoint. The state is determined by:
-        - RUNNING: IP allocated AND is_alive returns true
-        - PENDING: IP not allocated OR is_alive returns false
+        - RUNNING: alive check disabled OR IP allocated AND is_alive returns true
+        - PENDING: alive check enabled AND (IP not allocated OR is_alive returns false)
 
         Args:
             sandbox_id: Sandbox identifier
@@ -449,9 +449,16 @@ class BatchSandboxProvider(K8sProvider):
         # Get host_ip, port_mapping and resource_version
         host_ip, port_mapping, resource_version = await self._get_sandbox_runtime_info(sandbox_id)
 
-        # Check is_alive through runtime
-        is_alive = False
-        if host_ip:
+        # Check is_alive through runtime unless disabled by Nacos
+        check_alive_enabled = True
+        if self._nacos_provider:
+            check_alive_enabled = await self._nacos_provider.get_switch_status(
+                K8sConstants.K8S_ALIVE_CHECK_SWITCH,
+                True,
+            )
+
+        is_alive = not check_alive_enabled
+        if check_alive_enabled and host_ip:
             runtime = self._build_runtime(host_ip, port_mapping)
             try:
                 is_alive_response = await runtime.is_alive()
