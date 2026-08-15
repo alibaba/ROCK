@@ -1,16 +1,21 @@
 import json
+import posixpath
+import shlex
 
 import ray
 
 from rock.actions.sandbox.response import State
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.admin.core.ray_service import RayService
+from rock.admin.proto.request import SandboxCommand as Command
 from rock.common.constants import StopReason
 from rock.config import RuntimeConfig
 from rock.deployments.config import DockerDeploymentConfig
+from rock.deployments.constants import Port
 from rock.deployments.docker import DockerDeployment
 from rock.logger import init_logger
 from rock.sandbox.operator.abstract import AbstractOperator
+from rock.sandbox.remote_sandbox import RemoteSandboxRuntime
 from rock.sandbox.sandbox_actor import SandboxActor
 from rock.sandbox.utils.rocklet_probe import check_alive_status, get_remote_status
 from rock.sdk.common.exceptions import BadRequestRockError
@@ -139,35 +144,40 @@ class RayOperator(AbstractOperator):
             return True
 
     async def delete(self, config: DockerDeploymentConfig, host_ip: str | None = None) -> bool:
-        async with self._ray_service.get_ray_rwlock().read_lock():
-            sandbox_id = config.container_name
-            actor_name = self._get_actor_name(sandbox_id)
+        sandbox_id = config.container_name
+        if not host_ip:
+            raise ValueError(f"delete for {sandbox_id} requires the worker host_ip")
 
-            try:
-                existing_actor = await self._ray_service.async_ray_get_actor(actor_name)
-                ray.kill(existing_actor)
-            except Exception:
-                logger.info(f"Actor {actor_name} already gone, proceeding with delete")
+        # Use the worker's host-level rocklet, as scheduler cleanup tasks do,
+        # instead of starting a short-lived Ray actor solely to run docker rm.
+        runtime = RemoteSandboxRuntime(host=host_ip, port=Port.PROXY.value)
+        delete_command = f"docker rm -f -v {shlex.quote(sandbox_id)}"
+        if config.use_kata_runtime:
+            disk_path = posixpath.join(config.kata_disk_base_path, f"{sandbox_id}.img")
+            delete_command = (
+                f"{delete_command}; docker_status=$?; "
+                f"rm -f -- {shlex.quote(disk_path)}; kata_status=$?; "
+                '[ "$docker_status" -eq 0 ] && [ "$kata_status" -eq 0 ]'
+            )
 
-            if not host_ip:
-                logger.warning(
-                    f"delete for {sandbox_id} called without host_ip; new actor "
-                    f"may be scheduled on a node that does not own the container"
-                )
-            # Cleanup must remain schedulable when the worker's logical
-            # sandbox resources are exhausted. Ray still starts a real worker
-            # process, but it does not reserve CPU, memory, or disk capacity
-            # for this short-lived actor.
-            config.cpus = 0
-            config.memory = "0"
-            config.disk = None
-            sandbox_actor: SandboxActor = await self.create_actor(config, pin_to_host_ip=host_ip)
-            try:
-                await self._ray_service.async_ray_get(sandbox_actor.delete.remote())
-                logger.info(f"sandbox {sandbox_id} deleted on host_ip={host_ip}")
-                return True
-            finally:
-                ray.kill(sandbox_actor)
+        result = await runtime.execute(
+            Command(
+                command=delete_command,
+                timeout=10,
+                shell=True,
+                check=False,
+                sandbox_id=sandbox_id,
+            )
+        )
+        if result.exit_code != 0:
+            # Deletion is idempotent: a missing container is already clean.
+            logger.warning(
+                f"worker cleanup for sandbox {sandbox_id} on host_ip={host_ip} "
+                f"returned exit_code={result.exit_code}: {result.stderr}"
+            )
+
+        logger.info(f"sandbox {sandbox_id} deleted through rocklet on host_ip={host_ip}")
+        return True
 
     async def restart(self, config: DockerDeploymentConfig, host_ip: str | None = None) -> SandboxInfo:
         """Restart an existing sandbox using docker start (container is preserved).
