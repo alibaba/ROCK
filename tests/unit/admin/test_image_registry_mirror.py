@@ -36,9 +36,9 @@ def _make_manager(mirrors, allowlist=None):
 @pytest.fixture(autouse=True)
 def clear_probe_cache():
     """Mirror probe cache is process-local — wipe between tests to avoid cross-test leakage."""
-    sandbox_api._MIRROR_PROBE_CACHE.clear()
+    sandbox_api._mirror_probe_cache.clear()
     yield
-    sandbox_api._MIRROR_PROBE_CACHE.clear()
+    sandbox_api._mirror_probe_cache.clear()
 
 
 @pytest.fixture
@@ -51,11 +51,11 @@ def restore_sandbox_manager():
 
 @pytest.fixture
 def stub_manifest_probe():
-    """Replace _http_probe_manifest with a stub that records probes and returns pre-set results."""
+    """Replace probe_manifest with a stub that records probes and returns pre-set results."""
     probes: list[dict] = []
     probe_results: list[bool] = []
 
-    async def _mock(registry, repo, tag, username=None, password=None, timeout=5):
+    async def _mock(registry, repo, tag, *, username=None, password=None, client=None, timeout=5.0):
         probes.append(
             {
                 "image": f"{registry}/{repo}:{tag}",
@@ -68,7 +68,7 @@ def stub_manifest_probe():
         )
         return probe_results.pop(0) if probe_results else False
 
-    with patch.object(sandbox_api, "_http_probe_manifest", _mock):
+    with patch.object(sandbox_api, "probe_manifest", _mock):
         yield SimpleNamespace(probes=probes, probe_results=probe_results)
 
 
@@ -290,13 +290,13 @@ async def test_probe_exception_treated_as_miss(restore_sandbox_manager):
 
     call_count = {"n": 0}
 
-    async def _mock(registry, repo, tag, username=None, password=None, timeout=5):
+    async def _mock(registry, repo, tag, *, username=None, password=None, client=None, timeout=5.0):
         if registry == "rock-a.example.com":
             raise RuntimeError("connection failed")
         call_count["n"] += 1
         return True
 
-    with patch.object(sandbox_api, "_http_probe_manifest", _mock):
+    with patch.object(sandbox_api, "probe_manifest", _mock):
         await sandbox_api._apply_image_registry_mirror(config)
 
     assert config.image == "rock-b.example.com/rock-mirror/python:3.11"
@@ -370,9 +370,9 @@ async def test_expired_cache_entry_reprobes(restore_sandbox_manager, stub_manife
 
     first = DockerDeploymentConfig(image="python:3.11")
     await sandbox_api._apply_image_registry_mirror(first)
-    for key in list(sandbox_api._MIRROR_PROBE_CACHE):
-        hit, _ = sandbox_api._MIRROR_PROBE_CACHE[key]
-        sandbox_api._MIRROR_PROBE_CACHE[key] = (hit, 0.0)
+    for key in list(sandbox_api._mirror_probe_cache._data):
+        hit, _ = sandbox_api._mirror_probe_cache._data[key]
+        sandbox_api._mirror_probe_cache._data[key] = (hit, 0.0)
     second = DockerDeploymentConfig(image="python:3.11")
     await sandbox_api._apply_image_registry_mirror(second)
 
@@ -386,16 +386,16 @@ async def test_probe_exception_not_cached(restore_sandbox_manager):
     )
     call_count = {"n": 0}
 
-    async def _mock(registry, repo, tag, username=None, password=None, timeout=5):
+    async def _mock(registry, repo, tag, *, username=None, password=None, client=None, timeout=5.0):
         call_count["n"] += 1
         raise RuntimeError("connection failed")
 
-    with patch.object(sandbox_api, "_http_probe_manifest", _mock):
+    with patch.object(sandbox_api, "probe_manifest", _mock):
         await sandbox_api._apply_image_registry_mirror(DockerDeploymentConfig(image="python:3.11"))
         await sandbox_api._apply_image_registry_mirror(DockerDeploymentConfig(image="python:3.11"))
 
     assert call_count["n"] == 2
-    assert sandbox_api._MIRROR_PROBE_CACHE == {}
+    assert sandbox_api._mirror_probe_cache._data == {}
 
 
 async def test_empty_allowlist_disables_lookup_entirely(restore_sandbox_manager, stub_manifest_probe):
@@ -474,11 +474,14 @@ async def test_nacos_mirrors_override_rock_config(restore_sandbox_manager, stub_
             "image_mirror_lookup_allowlist": ["*"],
         }
     )
+    pool_manager = MagicMock()
+    pool_manager.get.return_value = MagicMock()
     sandbox_api.sandbox_manager = SimpleNamespace(
         rock_config=SimpleNamespace(
             image_registry_mirrors=[ImageRegistryMirror(registry="yaml-mirror.example.com", namespace="yaml-ns")],
             image_mirror_lookup_allowlist=["should-be-ignored:"],
             nacos_provider=nacos_provider,
+            http_pool_manager=pool_manager,
         )
     )
     stub_manifest_probe.probe_results.append(True)
@@ -493,11 +496,14 @@ async def test_nacos_without_mirror_keys_falls_back_to_rock_config(restore_sandb
     """When nacos_provider has no mirror keys, fall back to rock_config fields."""
     nacos_provider = MagicMock()
     nacos_provider.get_config = AsyncMock(return_value={"sandbox_config": {}})
+    pool_manager = MagicMock()
+    pool_manager.get.return_value = MagicMock()
     sandbox_api.sandbox_manager = SimpleNamespace(
         rock_config=SimpleNamespace(
             image_registry_mirrors=[ImageRegistryMirror(registry="yaml-mirror.example.com", namespace="yaml-ns")],
             image_mirror_lookup_allowlist=["*"],
             nacos_provider=nacos_provider,
+            http_pool_manager=pool_manager,
         )
     )
     stub_manifest_probe.probe_results.append(True)
