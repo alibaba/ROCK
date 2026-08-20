@@ -31,6 +31,7 @@ from rock.admin.proto.response import SandboxStartResponse, SandboxStatusRespons
 from rock.common.constants import DeleteReason, StopReason
 from rock.config import RockConfig, RuntimeConfig
 from rock.deployments.config import DeploymentConfig, DockerDeploymentConfig
+from rock.deployments.start_config import apply_start_config
 from rock.logger import init_logger
 from rock.rocklet import __version__ as swe_version
 from rock.sandbox import __version__ as gateway_version
@@ -154,10 +155,21 @@ class SandboxManager(BaseManager):
         use_template_resource_spec: bool = False,
     ) -> SandboxStartResponse:
         await self._check_sandbox_exists_in_redis(config)
+
+        if isinstance(config, DockerDeploymentConfig):
+            await self.rock_config.update()
+            await apply_start_config(self.rock_config, config, user_info.get("rock_authorization"))
+
         with StageTimer("startup_timing", f"[{config.image}] Init config", logger):
-            docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(config)
-        # init_config refreshes the cached Nacos settings; validate only after
-        # that refresh so a changed max_allowed_spec applies to this request.
+            if isinstance(config, DockerDeploymentConfig):
+                docker_deployment_config: DockerDeploymentConfig = await self.deployment_manager.init_config(
+                    config,
+                    refresh_config=False,
+                )
+            else:
+                docker_deployment_config = await self.deployment_manager.init_config(config)
+        # Nacos is refreshed before normalization for Docker configs, or by
+        # init_config for other config types. Validate only after that refresh.
         self.validate_sandbox_spec(self.rock_config.runtime, config)
 
         sandbox_id = docker_deployment_config.container_name

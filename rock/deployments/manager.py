@@ -21,7 +21,12 @@ class DeploymentManager:
             return config.container_name
         return uuid.uuid4().hex
 
-    async def init_config(self, config: DeploymentConfig) -> DockerDeploymentConfig:
+    async def init_config(
+        self,
+        config: DeploymentConfig,
+        *,
+        refresh_config: bool = True,
+    ) -> DockerDeploymentConfig:
         _role = env_vars.ROCK_ADMIN_ROLE
         _env = env_vars.ROCK_ADMIN_ENV
         sandbox_id = self._generate_sandbox_id(config)
@@ -37,7 +42,8 @@ class DeploymentManager:
         docker_deployment_config.enable_auto_clear = self._enable_runtime_auto_clear
         docker_deployment_config.runtime_config = self.rock_config.runtime
 
-        await self.rock_config.update()
+        if refresh_config:
+            await self.rock_config.update()
         docker_deployment_config.actor_resource = self.rock_config.sandbox_config.actor_resource
         docker_deployment_config.actor_resource_num = self.rock_config.sandbox_config.actor_resource_num
         if docker_deployment_config.auto_delete_seconds is None:

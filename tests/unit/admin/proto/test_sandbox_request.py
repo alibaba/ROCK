@@ -37,6 +37,23 @@ def test_image_os_default_propagates_to_docker_deployment_config():
     assert config.image_os == "linux"
 
 
+def test_from_request_preserves_unset_auto_clear_field():
+    request = SandboxStartRequest(image="ubuntu:22.04")
+
+    config = DockerDeploymentConfig.from_request(request)
+
+    assert "auto_clear_time_minutes" not in config.model_fields_set
+
+
+def test_from_request_preserves_explicit_auto_clear_field():
+    request = SandboxStartRequest(image="ubuntu:22.04", auto_clear_time_minutes=45)
+
+    config = DockerDeploymentConfig.from_request(request)
+
+    assert "auto_clear_time_minutes" in config.model_fields_set
+    assert config.auto_clear_time_minutes == 45
+
+
 def test_all_fields_propagate_from_request_to_docker_config():
     """Every field set on SandboxStartRequest must appear unchanged in DockerDeploymentConfig."""
     request = SandboxStartRequest(

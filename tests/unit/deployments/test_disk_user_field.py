@@ -107,8 +107,7 @@ class TestDiskPriorityLogic:
         """Integration test: None disk should fallback to runtime defaults."""
         from unittest.mock import AsyncMock, MagicMock
 
-        from rock.admin.entrypoints import sandbox_api
-        from rock.admin.entrypoints.sandbox_api import _apply_disk_limits
+        from rock.deployments.start_config import apply_disk_limits
 
         config = DockerDeploymentConfig(disk=None)
 
@@ -120,12 +119,7 @@ class TestDiskPriorityLogic:
         mock_nacos.get_config_value = AsyncMock(return_value=None)
         mock_rock_config.nacos_provider = mock_nacos
 
-        mock_manager = MagicMock()
-        mock_manager.rock_config = mock_rock_config
-
-        sandbox_api.set_sandbox_manager(mock_manager)
-
-        await _apply_disk_limits(config)
+        await apply_disk_limits(mock_rock_config, config)
 
         assert config.disk == "100g"
         assert config.disk_overcommit_ratio is None

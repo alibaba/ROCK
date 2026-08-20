@@ -46,10 +46,15 @@ def e2b_app():
     manager.delete = AsyncMock()
     manager.supports_running_delete = False
     template_table = MagicMock()
-    template_table.get_ready_resource_spec = AsyncMock(
-        return_value={"cpu_count": 4, "memory_mb": 16384, "disk_size_mb": 262144}
+    template_table.get_ready_template = AsyncMock(
+        return_value={
+            "image": "registry.example.com/rock/linux-dind:latest",
+            "cpu_count": 4,
+            "memory_mb": 16384,
+            "disk_size_mb": 262144,
+        }
     )
-    set_e2b_service(E2BService(manager, template_table))
+    set_e2b_service(E2BService(manager, template_table, resolve_template_image=True))
 
     app = FastAPI()
     app.include_router(e2b_router)
@@ -98,7 +103,7 @@ async def test_create_sandbox_returns_e2b_response_and_maps_request(e2b_app):
     }
 
     config = manager.start_from_template.await_args.args[0]
-    assert config.image == "linux-dind"
+    assert config.image == "registry.example.com/rock/linux-dind:latest"
     assert config.auto_clear_time_minutes == 61
     assert config.metadata == request_body["metadata"]
     assert config.env_vars == request_body["envVars"]
@@ -106,7 +111,7 @@ async def test_create_sandbox_returns_e2b_response_and_maps_request(e2b_app):
     assert config.cpus == 4
     assert config.memory == "16g"
     assert config.disk == "256g"
-    template_table.get_ready_resource_spec.assert_awaited_once_with("linux-dind")
+    template_table.get_ready_template.assert_awaited_once_with("linux-dind")
     assert manager.start_from_template.await_args.kwargs == {
         "user_info": {
             "user_id": "user-123",
@@ -116,6 +121,59 @@ async def test_create_sandbox_returns_e2b_response_and_maps_request(e2b_app):
         },
         "cluster_info": {"cluster_name": "cluster-123"},
     }
+
+
+@pytest.mark.asyncio
+async def test_create_sandbox_keeps_template_id_when_image_resolution_is_disabled(e2b_app):
+    app, manager, template_table = e2b_app
+    set_e2b_service(E2BService(manager, template_table, resolve_template_image=False))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/sandboxes",
+            json={"templateID": "linux-dind", "timeout": 3600, "metadata": {}},
+        )
+
+    assert response.status_code == 201
+    config = manager.start_from_template.await_args.args[0]
+    assert config.image == "linux-dind"
+
+
+@pytest.mark.asyncio
+async def test_create_sandbox_returns_400_when_template_is_not_ready(e2b_app):
+    app, manager, template_table = e2b_app
+    template_table.get_ready_template.return_value = None
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/sandboxes",
+            json={"templateID": "missing", "timeout": 3600, "metadata": {}},
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {"code": 400, "message": "Template missing is not ready or does not exist"}
+    manager.start_from_template.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_sandbox_returns_400_when_ray_template_has_no_image(e2b_app):
+    app, manager, template_table = e2b_app
+    template_table.get_ready_template.return_value = {
+        "image": None,
+        "cpu_count": 4,
+        "memory_mb": 16384,
+        "disk_size_mb": 262144,
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/sandboxes",
+            json={"templateID": "template-without-image", "timeout": 3600, "metadata": {}},
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {"code": 400, "message": "Template template-without-image has no image"}
+    manager.start_from_template.assert_not_awaited()
 
 
 @pytest.mark.parametrize("timeout", [0, True, "3600"])

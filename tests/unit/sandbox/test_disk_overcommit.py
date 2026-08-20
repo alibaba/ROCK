@@ -2,7 +2,7 @@
 Unit tests for disk overcommit support.
 
 Tests cover:
-- _apply_disk_limits overcommit ratio propagation
+- apply_disk_limits overcommit ratio propagation
 - Ray scheduling disk resource division by overcommit ratio
 """
 
@@ -11,17 +11,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from rock.deployments.config import DockerDeploymentConfig
+from rock.deployments.start_config import apply_disk_limits
 from rock.utils.format import parse_size_to_bytes
 
-# ---- _apply_disk_limits overcommit tests ----
+# ---- apply_disk_limits overcommit tests ----
 
 
 class TestApplyDiskLimitsOvercommit:
     @pytest.mark.asyncio
     async def test_overcommit_ratio_from_nacos(self):
-        from rock.admin.entrypoints import sandbox_api
-        from rock.admin.entrypoints.sandbox_api import _apply_disk_limits
-
         config = DockerDeploymentConfig(disk="20g")
 
         mock_rock_config = MagicMock()
@@ -34,20 +32,13 @@ class TestApplyDiskLimitsOvercommit:
         )
         mock_rock_config.nacos_provider = mock_nacos
 
-        mock_manager = MagicMock()
-        mock_manager.rock_config = mock_rock_config
-
-        sandbox_api.set_sandbox_manager(mock_manager)
-        await _apply_disk_limits(config)
+        await apply_disk_limits(mock_rock_config, config)
 
         assert config.disk == "20g"
         assert config.disk_overcommit_ratio == 2.0
 
     @pytest.mark.asyncio
     async def test_overcommit_ratio_from_runtime_config(self):
-        from rock.admin.entrypoints import sandbox_api
-        from rock.admin.entrypoints.sandbox_api import _apply_disk_limits
-
         config = DockerDeploymentConfig(disk="20g")
 
         mock_rock_config = MagicMock()
@@ -58,20 +49,13 @@ class TestApplyDiskLimitsOvercommit:
         mock_nacos.get_config_value = AsyncMock(return_value=None)
         mock_rock_config.nacos_provider = mock_nacos
 
-        mock_manager = MagicMock()
-        mock_manager.rock_config = mock_rock_config
-
-        sandbox_api.set_sandbox_manager(mock_manager)
-        await _apply_disk_limits(config)
+        await apply_disk_limits(mock_rock_config, config)
 
         assert config.disk == "20g"
         assert config.disk_overcommit_ratio == 1.5
 
     @pytest.mark.asyncio
     async def test_nacos_ratio_overrides_runtime(self):
-        from rock.admin.entrypoints import sandbox_api
-        from rock.admin.entrypoints.sandbox_api import _apply_disk_limits
-
         config = DockerDeploymentConfig(disk="10g")
 
         mock_rock_config = MagicMock()
@@ -84,20 +68,13 @@ class TestApplyDiskLimitsOvercommit:
         )
         mock_rock_config.nacos_provider = mock_nacos
 
-        mock_manager = MagicMock()
-        mock_manager.rock_config = mock_rock_config
-
-        sandbox_api.set_sandbox_manager(mock_manager)
-        await _apply_disk_limits(config)
+        await apply_disk_limits(mock_rock_config, config)
 
         assert config.disk == "10g"
         assert config.disk_overcommit_ratio == 3.0
 
     @pytest.mark.asyncio
     async def test_no_overcommit_when_ratio_none(self):
-        from rock.admin.entrypoints import sandbox_api
-        from rock.admin.entrypoints.sandbox_api import _apply_disk_limits
-
         config = DockerDeploymentConfig(disk="20g")
 
         mock_rock_config = MagicMock()
@@ -108,20 +85,13 @@ class TestApplyDiskLimitsOvercommit:
         mock_nacos.get_config_value = AsyncMock(return_value=None)
         mock_rock_config.nacos_provider = mock_nacos
 
-        mock_manager = MagicMock()
-        mock_manager.rock_config = mock_rock_config
-
-        sandbox_api.set_sandbox_manager(mock_manager)
-        await _apply_disk_limits(config)
+        await apply_disk_limits(mock_rock_config, config)
 
         assert config.disk == "20g"
         assert config.disk_overcommit_ratio is None
 
     @pytest.mark.asyncio
     async def test_no_overcommit_when_ratio_le_one(self):
-        from rock.admin.entrypoints import sandbox_api
-        from rock.admin.entrypoints.sandbox_api import _apply_disk_limits
-
         config = DockerDeploymentConfig(disk="20g")
 
         mock_rock_config = MagicMock()
@@ -132,20 +102,13 @@ class TestApplyDiskLimitsOvercommit:
         mock_nacos.get_config_value = AsyncMock(return_value=None)
         mock_rock_config.nacos_provider = mock_nacos
 
-        mock_manager = MagicMock()
-        mock_manager.rock_config = mock_rock_config
-
-        sandbox_api.set_sandbox_manager(mock_manager)
-        await _apply_disk_limits(config)
+        await apply_disk_limits(mock_rock_config, config)
 
         assert config.disk == "20g"
         assert config.disk_overcommit_ratio is None
 
     @pytest.mark.asyncio
     async def test_no_overcommit_when_disk_none(self):
-        from rock.admin.entrypoints import sandbox_api
-        from rock.admin.entrypoints.sandbox_api import _apply_disk_limits
-
         config = DockerDeploymentConfig(disk=None)
 
         mock_rock_config = MagicMock()
@@ -156,11 +119,7 @@ class TestApplyDiskLimitsOvercommit:
         mock_nacos.get_config_value = AsyncMock(return_value=None)
         mock_rock_config.nacos_provider = mock_nacos
 
-        mock_manager = MagicMock()
-        mock_manager.rock_config = mock_rock_config
-
-        sandbox_api.set_sandbox_manager(mock_manager)
-        await _apply_disk_limits(config)
+        await apply_disk_limits(mock_rock_config, config)
 
         assert config.disk is None
         assert config.disk_overcommit_ratio is None

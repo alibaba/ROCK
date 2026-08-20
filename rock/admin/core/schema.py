@@ -139,6 +139,7 @@ class TemplateRecord(Base):
     __tablename__ = "template"
 
     template_id = Column(String(128), primary_key=True)
+    image = Column(String(512), nullable=True)
     os_type = Column(String(32), nullable=False)
     cpu_count = Column(Integer, nullable=False)
     memory_mb = Column(Integer, nullable=False)
@@ -154,7 +155,10 @@ class TemplateRecord(Base):
     created_at = Column(DateTime(timezone=True), nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False)
 
-    __table_args__ = (Index("ix_template_status", "status"),)
+    __table_args__ = (
+        Index("ix_template_status", "status"),
+        Index("ux_template_image", "image", unique=True),
+    )
 
 
 class SchedulerTaskRecord(Base):

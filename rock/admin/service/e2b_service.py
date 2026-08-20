@@ -16,9 +16,16 @@ def _e2b_megabytes_to_rock_size(megabytes: int) -> str:
 
 
 class E2BService:
-    def __init__(self, sandbox_manager: SandboxManager, template_table: TemplateTable) -> None:
+    def __init__(
+        self,
+        sandbox_manager: SandboxManager,
+        template_table: TemplateTable,
+        *,
+        resolve_template_image: bool,
+    ) -> None:
         self._sandbox_manager = sandbox_manager
         self._template_table = template_table
+        self._resolve_template_image = resolve_template_image
 
     async def start(
         self,
@@ -26,16 +33,21 @@ class E2BService:
         user_info: UserInfo = {},
         cluster_info: ClusterInfo = {},
     ) -> SandboxStartResponse:
-        resource_spec = await self._template_table.get_ready_resource_spec(config.image)
-        if resource_spec is None:
+        template = await self._template_table.get_ready_template(config.image)
+        if template is None:
             raise BadRequestRockError(f"Template {config.image} is not ready or does not exist")
 
+        updates = {
+            "cpus": template["cpu_count"],
+            "memory": _e2b_megabytes_to_rock_size(template["memory_mb"]),
+            "disk": _e2b_megabytes_to_rock_size(template["disk_size_mb"]),
+        }
+        if self._resolve_template_image:
+            if template["image"] is None:
+                raise BadRequestRockError(f"Template {config.image} has no image")
+            updates["image"] = template["image"]
         template_config = config.model_copy(
-            update={
-                "cpus": resource_spec["cpu_count"],
-                "memory": _e2b_megabytes_to_rock_size(resource_spec["memory_mb"]),
-                "disk": _e2b_megabytes_to_rock_size(resource_spec["disk_size_mb"]),
-            }
+            update=updates,
         )
         return await self._sandbox_manager.start_from_template(
             template_config,

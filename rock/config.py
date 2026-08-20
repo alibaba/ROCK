@@ -468,7 +468,7 @@ class RuntimeConfig:
 
     image_os_profiles: dict = field(default_factory=dict)
     """Profiles keyed by image_os value (e.g. "android"). Nacos image_os_profiles
-    are merged on top at request time via _apply_image_os_profile().
+    are merged on top at request time by the shared start-config normalizer.
     YAML: runtime.image_os_profiles.<image_os>: {runtime_env: {...}, startup_timeout, ...}"""
 
     def __post_init__(self) -> None:

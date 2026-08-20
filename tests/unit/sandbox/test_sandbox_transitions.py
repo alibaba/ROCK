@@ -13,6 +13,7 @@ from rock.actions.sandbox.response import State
 from rock.admin.proto.response import SandboxStartResponse
 from rock.common.constants import StopReason
 from rock.config import AutoTransitionConfig, SandboxLifecycleConfig
+from rock.deployments.config import DockerDeploymentConfig
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sandbox.sandbox_statemachine import SandboxLifecycleHelper
 from rock.sdk.common.exceptions import BadRequestRockError
@@ -94,6 +95,7 @@ async def test_start_async_persists_opaque_metadata():
     config = DockerDeploymentConfig(container_name="sandbox-123", metadata=metadata)
     manager.deployment_manager.init_config = AsyncMock(return_value=config)
     manager.rock_config = MagicMock()
+    manager.rock_config.update = AsyncMock()
     manager.rock_config.runtime.use_standard_spec_only = False
     manager.validate_sandbox_spec = MagicMock()
     manager._meta_store = AsyncMock()
@@ -110,7 +112,8 @@ async def test_start_async_persists_opaque_metadata():
     manager._build_sandbox_info_metadata = AsyncMock(side_effect=add_standard_metadata)
     manager.start_async = SandboxManager.start_async.__get__(manager, SandboxManager)
 
-    await manager.start_async(config)
+    with patch("rock.sandbox.sandbox_manager.apply_start_config", new_callable=AsyncMock):
+        await manager.start_async(config)
 
     persisted_info = manager._meta_store.create.await_args.args[1]
     assert persisted_info["metadata"] == metadata
@@ -415,6 +418,7 @@ def mgr_start(mgr, mock_meta_store, mock_operator, mock_docker_config):
     mgr._check_sandbox_exists_in_redis = AsyncMock()
     mgr.validate_sandbox_spec = MagicMock()
     mgr.rock_config = MagicMock()
+    mgr.rock_config.update = AsyncMock()
     mgr.rock_config.runtime.use_standard_spec_only = False
     mgr.rock_config.lifecycle = SandboxLifecycleConfig(
         auto_transition=AutoTransitionConfig(auto_delete_seconds=3600, auto_delete_archived_seconds=7200)
@@ -446,6 +450,16 @@ def mgr_start(mgr, mock_meta_store, mock_operator, mock_docker_config):
 
 class TestManagerStart:
     @pytest.mark.asyncio
+    async def test_start_async_applies_shared_start_config(self, mgr_start):
+        user_info = {"rock_authorization": "Bearer token"}
+        config = DockerDeploymentConfig(image="python:3.11")
+
+        with patch("rock.sandbox.sandbox_manager.apply_start_config", new_callable=AsyncMock) as apply:
+            await mgr_start.start_async(config, user_info=user_info)
+
+        apply.assert_awaited_once_with(mgr_start.rock_config, config, "Bearer token")
+
+    @pytest.mark.asyncio
     async def test_persists_sandbox_environment(self, mgr_start, mock_docker_config, mock_meta_store):
         mock_docker_config.env_vars = {"WORKSPACE": "/workspace", "JOB_ID": "job-123"}
 
@@ -458,19 +472,28 @@ class TestManagerStart:
     async def test_refreshes_nacos_config_before_validating_spec(self, mgr_start, mock_docker_config):
         call_order = []
 
-        async def init_config(config):
+        async def refresh_config():
             call_order.append("refresh")
+
+        async def normalize_config(rock_config, config, rock_authorization):
+            call_order.append("normalize")
+
+        async def init_config(config, *, refresh_config):
+            assert refresh_config is False
+            call_order.append("init")
             return mock_docker_config
 
         def validate(runtime_config, config):
             call_order.append("validate")
 
+        mgr_start.rock_config.update.side_effect = refresh_config
         mgr_start.deployment_manager.init_config.side_effect = init_config
         mgr_start.validate_sandbox_spec.side_effect = validate
 
-        await mgr_start.start_async(MagicMock(image="python:3.11"))
+        with patch("rock.sandbox.sandbox_manager.apply_start_config", side_effect=normalize_config):
+            await mgr_start.start_async(DockerDeploymentConfig(image="python:3.11"))
 
-        assert call_order[:2] == ["refresh", "validate"]
+        assert call_order[:4] == ["refresh", "normalize", "init", "validate"]
 
     @pytest.mark.asyncio
     async def test_start_registers_effective_policy_before_operator_submit(
