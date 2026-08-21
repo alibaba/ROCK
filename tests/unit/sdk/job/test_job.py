@@ -24,6 +24,7 @@ def _make_mock_sandbox():
     sandbox.close = AsyncMock()
     sandbox.create_session = AsyncMock()
     sandbox.write_file_by_path = AsyncMock()
+    sandbox.execute = AsyncMock(return_value=MagicMock(stdout=""))
     sandbox.arun = AsyncMock()
 
     upload_obs = MagicMock()

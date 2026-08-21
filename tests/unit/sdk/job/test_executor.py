@@ -22,6 +22,7 @@ def _make_mock_sandbox():
     sandbox.close = AsyncMock()
     sandbox.create_session = AsyncMock()
     sandbox.write_file_by_path = AsyncMock(return_value=MagicMock(success=True))
+    sandbox.execute = AsyncMock(return_value=MagicMock(stdout=""))
 
     # fs.upload_dir for _upload_files — returns success obs
     upload_obs = MagicMock()
@@ -232,9 +233,9 @@ class TestExecutorPaths:
         # Inspect the path passed to write_file_by_path — must start with USER_DEFINED_LOGS
         write_call = mock_sandbox.write_file_by_path.call_args
         script_path = write_call.args[1] if len(write_call.args) >= 2 else write_call.kwargs["path"]
-        assert script_path.startswith(
-            USER_DEFINED_LOGS
-        ), f"script path {script_path!r} must live under {USER_DEFINED_LOGS!r}, not /tmp"
+        assert script_path.startswith(USER_DEFINED_LOGS), (
+            f"script path {script_path!r} must live under {USER_DEFINED_LOGS!r}, not /tmp"
+        )
 
     async def test_do_submit_passes_nohup_tmp_file_under_user_defined_logs(self):
         mock_sandbox = _make_mock_sandbox()
