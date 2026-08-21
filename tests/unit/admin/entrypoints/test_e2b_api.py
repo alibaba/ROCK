@@ -1,5 +1,4 @@
-import logging
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -125,16 +124,16 @@ async def test_create_sandbox_returns_e2b_response_and_maps_request(e2b_app):
 
 
 @pytest.mark.asyncio
-async def test_create_sandbox_continues_when_template_is_not_ready(e2b_app, caplog):
+async def test_create_sandbox_continues_when_template_is_not_ready(e2b_app):
     app, manager, template_table = e2b_app
     template_table.get_ready_template.return_value = None
-    caplog.set_level(logging.INFO, logger="rock.admin.service.e2b_service")
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.post(
-            "/sandboxes",
-            json={"templateID": "missing", "timeout": 3600, "metadata": {}},
-        )
+    with patch("rock.admin.service.e2b_service.logger.info") as log_info:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/sandboxes",
+                json={"templateID": "missing", "timeout": 3600, "metadata": {}},
+            )
 
     assert response.status_code == 201
     config = manager.start_from_template.await_args.args[0]
@@ -142,10 +141,9 @@ async def test_create_sandbox_continues_when_template_is_not_ready(e2b_app, capl
     assert config.cpus == 2
     assert config.memory == "8g"
     assert config.disk == "50G"
-    assert any(
-        record.levelno == logging.INFO
-        and record.getMessage() == "Template missing is not ready or does not exist; using request config"
-        for record in caplog.records
+    log_info.assert_called_once_with(
+        "Template %s is not ready or does not exist; using request config",
+        "missing",
     )
 
 
