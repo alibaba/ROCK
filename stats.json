@@ -3680,5 +3680,19 @@
       "total": 762,
       "open": 53
     }
+  },
+  "2026-08-21": {
+    "stars": 477,
+    "forks": 80,
+    "contributors": 28,
+    "issues": {
+      "total": 572,
+      "open": 107,
+      "fixRate": 81
+    },
+    "prs": {
+      "total": 763,
+      "open": 53
+    }
   }
 }
