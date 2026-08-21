@@ -39,7 +39,7 @@ uv run ruff format .               # Format
 ```
 rock/
 ├── admin/          # Admin service: API routers, Ray service, scheduler, metrics
-├── sandbox/        # SandboxManager, Operators (Ray/K8s), SandboxActor
+├── sandbox/        # SandboxManager, Operators (Ray/K8s/OpenSandbox/Remote), SandboxActor
 ├── deployments/    # AbstractDeployment → Docker/Ray/Local/Remote, configs, validator
 ├── rocklet/        # Lightweight sandbox runtime server
 ├── sdk/            # Client SDK: Sandbox client, agent integrations, EnvHub client, JobViewer
@@ -53,7 +53,7 @@ rock/
 
 ### Key Patterns
 
-- **Operator pattern**: `AbstractOperator` → `RayOperator` / `K8sOperator` — decouples scheduling from execution
+- **Operator pattern**: `AbstractOperator` → `RayOperator` / `K8sOperator` / `OpenSandboxOperator` / `RemoteOperator` — decouples scheduling from execution. RemoteOperator delegates to a `RemoteProvider` Protocol (first impl: `SandboxNextProvider`) with Redis info merge and graceful template API fallback.
 - **Deployment hierarchy**: `AbstractDeployment` → `DockerDeployment` → `RayDeployment`, plus `LocalDeployment`, `RemoteDeployment`
 - **Actor pattern (Ray)**: `SandboxActor` (remote, detached) wraps a `DockerDeployment` instance
 - **Config flow**: `SandboxManager` → `DeploymentManager.init_config()` (normalize config) → `Operator.submit()` (orchestrate)
@@ -153,7 +153,7 @@ All defined in `rock/env_vars.py` with lazy evaluation via module `__getattr__`.
 
 Loaded by `RockConfig.from_env()`. Files: `rock-local.yml`, `rock-dev.yml`, `rock-test.yml`.
 
-Key sections: `ray`, `k8s`, `runtime` (operator_type, standard_spec, max_allowed_spec), `redis`, `proxy_service`, `scheduler`.
+Key sections: `ray`, `k8s`, `runtime` (operator_type, standard_spec, max_allowed_spec), `redis`, `proxy_service`, `scheduler`, `opensandbox`, `remote`.
 
 ## Git Workflow
 

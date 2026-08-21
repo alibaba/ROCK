@@ -1,0 +1,1319 @@
+openapi: 3.0.0
+info:
+  version: 1.0.0
+  title: Sandbox Gateway API (native /v1)
+  description: >
+    infra 层统一控制面入口的原生 API。对平台层屏蔽物理集群与底座实现，
+    覆盖沙箱、模板、快照的生命周期。数据面流量不经过 Gateway，响应只返回
+    数据面坐标与访问凭证。设计详见 docs/proposals/20260813-gateway-api.md。
+
+    E2B 兼容表面（/sandboxes、/v2、/v3）不在本 spec 内：它跟随上游协议、
+    走独立监听与独立域名，直接以上游 openapi 为准。
+
+servers:
+  - url: https://api.{region}.sandbox.internal
+    description: 每个 region 独立 endpoint；region 由部署边界确定，不编码进 ID
+    variables:
+      region:
+        default: cn-hangzhou
+
+security:
+  - ApiKeyAuth: []
+  - AccessTokenAuth: []
+
+tags:
+  - name: sandboxes
+    description: 沙箱生命周期
+  - name: templates
+    description: 模板（可用于创建沙箱的启动配置引用；不暴露 build 概念）
+  - name: snapshots
+    description: 从运行沙箱导出的可复用产物
+  - name: regions
+    description: region 与 class 能力发现
+  - name: passthrough
+    description: 长尾场景的受控透传（非稳定契约）
+
+paths:
+  /v1/sandboxes:
+    post:
+      operationId: createSandbox
+      tags: [sandboxes]
+      summary: 创建沙箱
+      description: >
+        幂等：同一 tenant + request_id 重复请求返回同一对象与相同状态码。
+        同步底座（capability sync_create）返回 201 且 state=running；
+        声明式底座返回 202 且 state=creating，需轮询 GET 至 running。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewSandbox"
+      responses:
+        "201":
+          description: 已创建并就绪（同步底座）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sandbox"
+        "202":
+          description: 已受理，尚未就绪（声明式底座）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sandbox"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/Internal"
+    get:
+      operationId: listSandboxes
+      tags: [sandboxes]
+      summary: 列举沙箱
+      description: 省略 region 时在凭证允许范围内跨 region 扇出；部分不可用返回 partial=true。
+      parameters:
+        - $ref: "#/components/parameters/regionQuery"
+        - name: state
+          in: query
+          description: 按状态过滤，可重复
+          schema:
+            $ref: "#/components/schemas/SandboxState"
+        - name: class
+          in: query
+          schema:
+            type: string
+        - name: metadata
+          in: query
+          description: 形如 metadata.key=value 的元数据过滤，可重复
+          schema:
+            type: string
+        - $ref: "#/components/parameters/pageSize"
+        - $ref: "#/components/parameters/pageToken"
+      responses:
+        "200":
+          description: 沙箱列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxList"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /v1/sandboxes/{sandbox_id}:
+    parameters:
+      - $ref: "#/components/parameters/sandboxId"
+    get:
+      operationId: getSandbox
+      tags: [sandboxes]
+      summary: 查询沙箱详情
+      responses:
+        "200":
+          description: 沙箱详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxDetail"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      operationId: deleteSandbox
+      tags: [sandboxes]
+      summary: 删除沙箱（受理即返回）
+      responses:
+        "202":
+          description: 删除意图已受理
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /v1/sandboxes/{sandbox_id}/pause:
+    parameters:
+      - $ref: "#/components/parameters/sandboxId"
+    post:
+      operationId: pauseSandbox
+      tags: [sandboxes]
+      summary: 暂停沙箱
+      description: 需 class 具备 pause_resume capability，否则 501。受理即返回，终态经 GET 轮询。
+      responses:
+        "202":
+          description: 暂停意图已受理，state=pausing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxDetail"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /v1/sandboxes/{sandbox_id}/resume:
+    parameters:
+      - $ref: "#/components/parameters/sandboxId"
+    post:
+      operationId: resumeSandbox
+      tags: [sandboxes]
+      summary: 从暂停态恢复
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResumeRequest"
+      responses:
+        "200":
+          description: 已恢复（同步底座）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxDetail"
+        "202":
+          description: 恢复意图已受理，state=resuming（声明式底座）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxDetail"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /v1/sandboxes/{sandbox_id}/connect:
+    parameters:
+      - $ref: "#/components/parameters/sandboxId"
+    post:
+      operationId: connectSandbox
+      tags: [sandboxes]
+      summary: 获取连接坐标，必要时恢复并续租
+      description: >
+        复合操作：running 则刷新租约并返回坐标；paused 且 auto_resume=true
+        且具备 pause_resume 则先恢复再返回；paused 且 auto_resume=false 返回 409。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConnectRequest"
+      responses:
+        "200":
+          description: 已可连接
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sandbox"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /v1/sandboxes/{sandbox_id}/renew:
+    parameters:
+      - $ref: "#/components/parameters/sandboxId"
+    post:
+      operationId: renewSandbox
+      tags: [sandboxes]
+      summary: 延长租约（只向后推进）
+      description: candidate = now + timeout_seconds；不晚于当前 expire_at 时幂等返回。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenewRequest"
+      responses:
+        "200":
+          description: 已续租
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxDetail"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /v1/sandboxes/{sandbox_id}/timeout:
+    parameters:
+      - $ref: "#/components/parameters/sandboxId"
+    post:
+      operationId: setSandboxTimeout
+      tags: [sandboxes]
+      summary: 绝对设置到期时间（可缩短）
+      description: 与 renew 不同，timeout 是绝对覆盖，允许把 expire_at 提前。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TimeoutRequest"
+      responses:
+        "200":
+          description: 已设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxDetail"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /v1/sandboxes/{sandbox_id}/snapshots:
+    parameters:
+      - $ref: "#/components/parameters/sandboxId"
+    post:
+      operationId: createSnapshot
+      tags: [snapshots]
+      summary: 从运行实例导出快照
+      description: >
+        需 class 具备 snapshot capability。快照不保留进程内存态（内存态保留是
+        pause_resume 的语义）。受理即返回，就绪经 GET /v1/snapshots/{id} 轮询。
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSnapshotRequest"
+      responses:
+        "202":
+          description: 快照意图已受理
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Snapshot"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /v1/sandboxes/{sandbox_id}/logs:
+    parameters:
+      - $ref: "#/components/parameters/sandboxId"
+    get:
+      operationId: getSandboxLogs
+      tags: [sandboxes]
+      summary: 查询沙箱日志
+      description: 依赖 class 的 logs capability。
+      parameters:
+        - name: start
+          in: query
+          description: 起始时间（unix 秒）
+          schema:
+            type: integer
+            format: int64
+        - name: end
+          in: query
+          description: 结束时间（unix 秒）
+          schema:
+            type: integer
+            format: int64
+        - name: level
+          in: query
+          schema:
+            $ref: "#/components/schemas/LogLevel"
+        - $ref: "#/components/parameters/pageSize"
+        - $ref: "#/components/parameters/pageToken"
+      responses:
+        "200":
+          description: 日志条目
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogList"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /v1/sandboxes/{sandbox_id}/metrics:
+    parameters:
+      - $ref: "#/components/parameters/sandboxId"
+    get:
+      operationId: getSandboxMetrics
+      tags: [sandboxes]
+      summary: 查询沙箱指标
+      description: 依赖 class 的 metrics capability。
+      parameters:
+        - name: start
+          in: query
+          schema:
+            type: integer
+            format: int64
+        - name: end
+          in: query
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: 时间序列指标
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SandboxMetric"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /v1/templates:
+    post:
+      operationId: createTemplate
+      tags: [templates]
+      summary: 创建模板
+      description: >
+        需 class 具备 template_create capability，否则 501。受理即返回，
+        通过 GET 轮询 status 至 ready。Gateway 不暴露 build 概念。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewTemplate"
+      responses:
+        "202":
+          description: 模板创建已受理
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Template"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+        "500":
+          $ref: "#/components/responses/Internal"
+    get:
+      operationId: listTemplates
+      tags: [templates]
+      summary: 列举模板
+      parameters:
+        - $ref: "#/components/parameters/regionQuery"
+        - $ref: "#/components/parameters/pageSize"
+        - $ref: "#/components/parameters/pageToken"
+      responses:
+        "200":
+          description: 模板列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateList"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /v1/templates/{template_id}:
+    parameters:
+      - $ref: "#/components/parameters/templateId"
+    get:
+      operationId: getTemplate
+      tags: [templates]
+      summary: 查询模板
+      description: 查询路由回模板的 origin cluster。
+      responses:
+        "200":
+          description: 模板详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Template"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      operationId: deleteTemplate
+      tags: [templates]
+      summary: 删除模板
+      description: 需 template_create capability，否则 501。
+      responses:
+        "202":
+          description: 删除意图已受理
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /v1/snapshots:
+    get:
+      operationId: listSnapshots
+      tags: [snapshots]
+      summary: 列举快照
+      parameters:
+        - name: sandbox_id
+          in: query
+          description: 按来源沙箱过滤
+          schema:
+            type: string
+        - $ref: "#/components/parameters/pageSize"
+        - $ref: "#/components/parameters/pageToken"
+      responses:
+        "200":
+          description: 快照列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SnapshotList"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /v1/snapshots/{snapshot_id}:
+    parameters:
+      - $ref: "#/components/parameters/snapshotId"
+    get:
+      operationId: getSnapshot
+      tags: [snapshots]
+      summary: 查询快照状态
+      responses:
+        "200":
+          description: 快照详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Snapshot"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      operationId: deleteSnapshot
+      tags: [snapshots]
+      summary: 删除快照
+      responses:
+        "202":
+          description: 删除意图已受理
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /v1/regions:
+    get:
+      operationId: listRegions
+      tags: [regions]
+      summary: region 与 class 能力发现
+      description: 平台层据此做灰度与降级，不应硬编码 class 列表或靠试错发现能力缺失。
+      responses:
+        "200":
+          description: region 能力列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegionList"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /v1/passthrough/{route_name}/{proxy_path}:
+    parameters:
+      - name: route_name
+        in: path
+        required: true
+        description: 必须在 Gateway 配置的白名单中
+        schema:
+          type: string
+      - name: proxy_path
+        in: path
+        required: true
+        description: 透传到底座的剩余路径（多段）
+        schema:
+          type: string
+    post:
+      operationId: passthrough
+      tags: [passthrough]
+      summary: 受控透传（非稳定契约）
+      description: >
+        用于抽象未覆盖的长尾场景。Gateway 只做鉴权、限流、路由与 trace_id 注入，
+        不转换 body。响应恒带 X-Gateway-Unstable-Contract: true，且不做 schema 承诺。
+      x-gateway-unstable-contract: true
+      requestBody:
+        required: false
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: 透传响应（形状由目标底座决定，不做承诺）
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+    AccessTokenAuth:
+      type: http
+      scheme: bearer
+
+  parameters:
+    sandboxId:
+      name: sandbox_id
+      in: path
+      required: true
+      description: 不透明字符串，客户端不得解析其内部结构
+      schema:
+        type: string
+    templateId:
+      name: template_id
+      in: path
+      required: true
+      schema:
+        type: string
+    snapshotId:
+      name: snapshot_id
+      in: path
+      required: true
+      schema:
+        type: string
+    regionQuery:
+      name: region
+      in: query
+      description: 省略时在凭证允许范围内跨 region 扇出
+      schema:
+        type: string
+    pageSize:
+      name: page_size
+      in: query
+      schema:
+        type: integer
+        format: int32
+        default: 100
+        minimum: 1
+        maximum: 1000
+    pageToken:
+      name: page_token
+      in: query
+      description: 不透明分页游标，禁止客户端构造
+      schema:
+        type: string
+
+  responses:
+    BadRequest:
+      description: 请求非法（字段缺失、取值非法、超出预算）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthenticated:
+      description: 凭证缺失或无效
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PermissionDenied:
+      description: 凭证有效但无权访问该 region / class / 对象
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: 对象不存在或已删除
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: 幂等键冲突或当前状态不允许该操作
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: 实例级限流（resource_exhausted）或底座配额不足（quota_exceeded）
+      headers:
+        Retry-After:
+          description: 建议重试等待秒数（仅 resource_exhausted 附带）
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotImplemented:
+      description: 目标 class 不具备该 capability
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unavailable:
+      description: 底座或 region 暂时不可达
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Internal:
+      description: 未分类内部错误
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      required:
+        - code
+        - message
+        - retryable
+      properties:
+        code:
+          type: string
+          description: 稳定字符串错误码，调用方唯一可据此分支的字段
+          enum:
+            - invalid_argument
+            - unauthenticated
+            - permission_denied
+            - not_found
+            - already_exists
+            - failed_precondition
+            - resource_exhausted
+            - quota_exceeded
+            - not_implemented
+            - backend_unavailable
+            - region_unavailable
+            - deadline_exceeded
+            - internal
+        message:
+          type: string
+          description: 面向人的描述，措辞可变，不得据此判定
+        request_id:
+          type: string
+        trace_id:
+          type: string
+        retryable:
+          type: boolean
+          description: 同样的请求原样重试是否有意义
+
+    Resources:
+      type: object
+      properties:
+        vcpu:
+          type: integer
+          format: int32
+          minimum: 1
+        memory_mb:
+          type: integer
+          format: int32
+          minimum: 128
+        disk_mb:
+          type: integer
+          format: int32
+          minimum: 0
+
+    SandboxState:
+      type: string
+      description: 归一化后的统一状态词表
+      enum:
+        - creating
+        - running
+        - pausing
+        - paused
+        - resuming
+        - failed
+
+    OnTimeout:
+      type: string
+      enum:
+        - delete
+        - pause
+      default: delete
+
+    Capability:
+      type: string
+      enum:
+        - pause_resume
+        - snapshot
+        - template_create
+        - prewarm_pool
+        - sync_create
+        - metrics
+        - logs
+
+    SandboxAccess:
+      type: object
+      description: 数据面坐标与访问凭证；Gateway 不代理数据面流量
+      properties:
+        endpoint_template:
+          type: string
+          description: 唯一数据面契约，客户端把 {port} 替换为目标端口
+          example: https://{port}-s485cf4a26daa06baf87e7636e63ca8873f.cn-hangzhou.sandbox.example.com
+        agent_token:
+          type: string
+          description: 访问沙箱内 agent 的凭证；未启用时为空串
+        traffic_token:
+          type: string
+          nullable: true
+          description: 经代理访问沙箱的凭证；未启用时为 null
+        route_hint:
+          type: string
+          description: 不透明首访路由提示，可原样回传数据面
+
+    NewSandbox:
+      type: object
+      required:
+        - request_id
+        - region
+        - class
+      properties:
+        request_id:
+          type: string
+          description: 幂等键，参与 uid 派生与集群选择
+        region:
+          type: string
+        class:
+          type: string
+          description: 沙箱形态，如 headless-vm / gui-pod
+        template_id:
+          type: string
+          description: 与 snapshot_id 二选一
+        snapshot_id:
+          type: string
+          description: 与 template_id 二选一
+        resources:
+          $ref: "#/components/schemas/Resources"
+        timeout_seconds:
+          type: integer
+          format: int32
+          description: 缺省用 class 的 default_timeout_seconds
+        on_timeout:
+          $ref: "#/components/schemas/OnTimeout"
+        env_vars:
+          type: object
+          additionalProperties:
+            type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+
+    Sandbox:
+      type: object
+      description: 创建 / 连接的响应
+      required:
+        - sandbox_id
+        - region
+        - class
+        - state
+      properties:
+        sandbox_id:
+          type: string
+        region:
+          type: string
+        class:
+          type: string
+        template_id:
+          type: string
+        state:
+          $ref: "#/components/schemas/SandboxState"
+        state_uncertain:
+          type: boolean
+          description: 控制面无法确认节点事实时为 true（呈现最近稳态）
+        resources:
+          $ref: "#/components/schemas/Resources"
+        created_at:
+          type: string
+          format: date-time
+        expire_at:
+          type: string
+          format: date-time
+        access:
+          $ref: "#/components/schemas/SandboxAccess"
+        capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/Capability"
+
+    SandboxDetail:
+      type: object
+      description: 查询详情；列表项是其子集（不含 access 凭证）
+      required:
+        - sandbox_id
+        - region
+        - class
+        - state
+      properties:
+        sandbox_id:
+          type: string
+        region:
+          type: string
+        class:
+          type: string
+        template_id:
+          type: string
+        state:
+          $ref: "#/components/schemas/SandboxState"
+        state_uncertain:
+          type: boolean
+        resources:
+          $ref: "#/components/schemas/Resources"
+        on_timeout:
+          $ref: "#/components/schemas/OnTimeout"
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        expire_at:
+          type: string
+          format: date-time
+        capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/Capability"
+
+    SandboxList:
+      type: object
+      required:
+        - sandboxes
+        - partial
+      properties:
+        sandboxes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SandboxDetail"
+        next_page_token:
+          type: string
+          description: 空串表示结束
+        partial:
+          type: boolean
+          description: 部分集群不可用时为 true
+        unavailable_scopes:
+          type: array
+          description: 不可用范围的不透明标识
+          items:
+            type: string
+
+    ConnectRequest:
+      type: object
+      required:
+        - timeout_seconds
+      properties:
+        timeout_seconds:
+          type: integer
+          format: int32
+        auto_resume:
+          type: boolean
+          default: true
+
+    ResumeRequest:
+      type: object
+      properties:
+        timeout_seconds:
+          type: integer
+          format: int32
+
+    RenewRequest:
+      type: object
+      required:
+        - timeout_seconds
+      properties:
+        timeout_seconds:
+          type: integer
+          format: int32
+          minimum: 1
+
+    TimeoutRequest:
+      type: object
+      required:
+        - timeout_seconds
+      properties:
+        timeout_seconds:
+          type: integer
+          format: int32
+          description: 绝对到期 = now + timeout_seconds，允许缩短
+
+    CreateSnapshotRequest:
+      type: object
+      properties:
+        name:
+          type: string
+
+    SnapshotStatus:
+      type: string
+      enum:
+        - pending
+        - running
+        - ready
+        - error
+
+    Snapshot:
+      type: object
+      required:
+        - snapshot_id
+        - status
+      properties:
+        snapshot_id:
+          type: string
+        sandbox_id:
+          type: string
+          description: 来源沙箱
+        status:
+          $ref: "#/components/schemas/SnapshotStatus"
+        failure:
+          $ref: "#/components/schemas/Failure"
+        created_at:
+          type: string
+          format: date-time
+        ready_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    SnapshotList:
+      type: object
+      required:
+        - snapshots
+      properties:
+        snapshots:
+          type: array
+          items:
+            $ref: "#/components/schemas/Snapshot"
+        next_page_token:
+          type: string
+
+    Failure:
+      type: object
+      nullable: true
+      properties:
+        message:
+          type: string
+
+    NewTemplate:
+      type: object
+      required:
+        - request_id
+        - region
+        - class
+        - name
+      properties:
+        request_id:
+          type: string
+        region:
+          type: string
+        class:
+          type: string
+        name:
+          type: string
+          maxLength: 128
+        resources:
+          $ref: "#/components/schemas/Resources"
+        from_image:
+          type: string
+          description: 仅 template_create capability 的 class 支持
+        env_vars:
+          type: object
+          additionalProperties:
+            type: string
+
+    TemplateStatus:
+      type: string
+      enum:
+        - pending
+        - preparing
+        - ready
+        - failed
+
+    Template:
+      type: object
+      required:
+        - template_id
+        - region
+        - class
+        - status
+      properties:
+        template_id:
+          type: string
+        name:
+          type: string
+        region:
+          type: string
+        class:
+          type: string
+        resources:
+          $ref: "#/components/schemas/Resources"
+        status:
+          $ref: "#/components/schemas/TemplateStatus"
+        failure:
+          $ref: "#/components/schemas/Failure"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        ready_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    TemplateList:
+      type: object
+      required:
+        - templates
+      properties:
+        templates:
+          type: array
+          items:
+            $ref: "#/components/schemas/Template"
+        next_page_token:
+          type: string
+
+    ResourceLimits:
+      type: object
+      properties:
+        max_vcpu:
+          type: integer
+          format: int32
+        max_memory_mb:
+          type: integer
+          format: int32
+        max_disk_mb:
+          type: integer
+          format: int32
+
+    SandboxClass:
+      type: object
+      required:
+        - class
+        - status
+        - capabilities
+      properties:
+        class:
+          type: string
+        status:
+          $ref: "#/components/schemas/AvailabilityStatus"
+        capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/Capability"
+        resource_limits:
+          $ref: "#/components/schemas/ResourceLimits"
+        default_timeout_seconds:
+          type: integer
+          format: int32
+        max_timeout_seconds:
+          type: integer
+          format: int32
+
+    AvailabilityStatus:
+      type: string
+      enum:
+        - available
+        - degraded
+        - unavailable
+
+    Region:
+      type: object
+      required:
+        - region
+        - status
+        - classes
+      properties:
+        region:
+          type: string
+        status:
+          $ref: "#/components/schemas/AvailabilityStatus"
+        classes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SandboxClass"
+
+    RegionList:
+      type: object
+      required:
+        - regions
+      properties:
+        regions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Region"
+
+    LogLevel:
+      type: string
+      enum:
+        - debug
+        - info
+        - warn
+        - error
+
+    LogEntry:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        level:
+          $ref: "#/components/schemas/LogLevel"
+        message:
+          type: string
+        fields:
+          type: object
+          additionalProperties:
+            type: string
+
+    LogList:
+      type: object
+      required:
+        - logs
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEntry"
+        next_page_token:
+          type: string
+
+    SandboxMetric:
+      type: object
+      properties:
+        timestamp_unix:
+          type: integer
+          format: int64
+        cpu_count:
+          type: integer
+          format: int32
+        cpu_used_pct:
+          type: number
+          format: float
+        mem_used:
+          type: integer
+          format: int64
+        mem_total:
+          type: integer
+          format: int64
+        disk_used:
+          type: integer
+          format: int64
+        disk_total:
+          type: integer
+          format: int64

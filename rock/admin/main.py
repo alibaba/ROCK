@@ -214,6 +214,7 @@ async def lifespan(app: FastAPI):
             template_table=template_table,
             k8s_config=rock_config.k8s,
             opensandbox_config=rock_config.opensandbox,
+            remote_config=rock_config.remote,
         )
         operator = OperatorFactory.create_operator(operator_context)
 
