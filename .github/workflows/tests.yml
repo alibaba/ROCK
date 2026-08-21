@@ -1,0 +1,148 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - master
+      - release/**
+  pull_request:
+    branches:
+      - master
+      - release/**
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Stage 1: Unit tests ──
+  unit-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --all-extras --group test
+
+      - name: Run unit tests
+        run: |
+          mkdir -p .tmp/test_data/logs
+          uv run pytest tests/unit \
+            -m "not need_ray and not need_docker and not need_admin and not need_admin_and_network" \
+            --timeout=60 \
+            --tb=short \
+            -v
+
+  # ── Stage 2: Integration tests (Ray + Docker + Admin) ──
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: unit-test
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --all-extras --group test
+
+      - name: Pull Docker images
+        run: docker pull python:3.11
+
+      - name: Start Ray cluster
+        run: |
+          uv run ray start --head --disable-usage-stats --num-cpus=2 --memory=6442450944
+          sleep 3
+          uv run ray status
+
+      - name: Run fast tests (no Ray/Docker/Admin)
+        env:
+          ROCK_WORKER_ENV_TYPE: uv
+          ROCK_LOGGING_LEVEL: WARNING
+        run: |
+          mkdir -p .tmp/test_data/logs
+          uv run pytest tests/integration \
+            -m "not need_ray and not need_docker and not need_admin and not need_admin_and_network" \
+            --timeout=300 \
+            --log-cli-level=WARNING \
+            --tb=short \
+            -v
+
+      - name: Run Docker-dependent tests
+        if: success() || failure()
+        env:
+          ROCK_WORKER_ENV_TYPE: uv
+          ROCK_LOGGING_LEVEL: WARNING
+        run: |
+          uv run pytest tests/ \
+            -m "need_docker" \
+            --timeout=600 \
+            --log-cli-level=WARNING \
+            --tb=short \
+            -v
+
+      - name: Run Ray-dependent tests
+        if: success() || failure()
+        env:
+          ROCK_WORKER_ENV_TYPE: uv
+          ROCK_LOGGING_LEVEL: WARNING
+        run: |
+          uv run pytest tests/ \
+            -m "need_ray" \
+            --timeout=600 \
+            --log-cli-level=WARNING \
+            --tb=short \
+            -v
+
+      - name: Run Admin-dependent tests
+        if: success() || failure()
+        env:
+          ROCK_WORKER_ENV_TYPE: uv
+          ROCK_LOGGING_LEVEL: WARNING
+        run: |
+          uv run pytest tests/ \
+            -m "need_admin" \
+            --timeout=600 \
+            --log-cli-level=WARNING \
+            --tb=short \
+            -v
+
+      - name: Run Admin + Network tests
+        if: success() || failure()
+        env:
+          ROCK_WORKER_ENV_TYPE: uv
+          ROCK_LOGGING_LEVEL: WARNING
+        run: |
+          uv run pytest tests/ \
+            -m "need_admin_and_network" \
+            --timeout=600 \
+            --log-cli-level=WARNING \
+            --tb=short \
+            -v
+
+      - name: Stop Ray cluster
+        if: always()
+        run: uv run ray stop --force || true
