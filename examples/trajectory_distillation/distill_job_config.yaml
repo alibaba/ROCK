@@ -1,0 +1,39 @@
+experiment_id: "distill-exp-001"
+
+environment:
+  base_url: "<your-rock-base-url>"
+  extra_headers:
+    XRL-Authorization: "Bearer <your-token>"
+  user_id: "<your-user-id>"
+  cluster: "<your-cluster>"
+  image: "<your-harbor-image:tag>"
+  cpus: 8
+  memory: "32g"
+  startup_timeout: 1800
+  env:
+    OPENAI_API_KEY: "<your-api-key>"
+    OPENAI_API_BASE: "<your-api-base-url>"
+
+agents:
+  - name: "swe-agent"
+    model_name: "openai/<your-teacher-model>"
+    max_timeout_sec: 1800
+    kwargs:
+      per_instance_cost_limit: 0
+      total_cost_limit: 0
+
+datasets:
+  - name: "princeton-nlp/SWE-bench_Verified"
+    registry:
+      split: "test"
+      oss_access_key_id: "<your-oss-key>"
+      oss_access_key_secret: "<your-oss-secret>"
+      oss_bucket: "<your-oss-bucket>"
+      oss_dataset_path: "<your-oss-path>"
+      oss_region: "<your-oss-region>"
+      oss_endpoint: "<your-oss-endpoint>"
+    task_names:
+      - "astropy__astropy-7606"
+
+orchestrator:
+  n_concurrent_trials: 4
