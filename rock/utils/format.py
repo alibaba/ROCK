@@ -1,5 +1,7 @@
 import re
 
+_MEGABYTES_PER_GIGABYTE = 1024
+
 
 def parse_size_to_bytes(size_str: str) -> int:
     size_str = size_str.strip().lower()
@@ -27,6 +29,12 @@ def parse_size_to_bytes(size_str: str) -> int:
     if unit not in units:
         raise ValueError(f"Unknown memory unit: {unit}")
     return int(number * units[unit])
+
+
+def megabytes_to_size(megabytes: int) -> str:
+    if megabytes % _MEGABYTES_PER_GIGABYTE == 0:
+        return f"{megabytes // _MEGABYTES_PER_GIGABYTE}g"
+    return f"{megabytes}m"
 
 
 def convert_to_gb(size_str: str) -> str:

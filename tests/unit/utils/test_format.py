@@ -1,6 +1,6 @@
 import pytest
 
-from rock.utils.format import convert_to_gb, parse_size_to_bytes
+from rock.utils.format import convert_to_gb, megabytes_to_size, parse_size_to_bytes
 
 
 def test_bytes_without_unit():
@@ -84,6 +84,14 @@ def test_edge_cases():
     assert parse_size_to_bytes("0.0") == 0
     assert parse_size_to_bytes("0.0k") == 0
     assert parse_size_to_bytes("1000") == 1000
+
+
+@pytest.mark.parametrize(
+    ("megabytes", "expected"),
+    [(16384, "16g"), (1536, "1536m")],
+)
+def test_megabytes_to_size(megabytes, expected):
+    assert megabytes_to_size(megabytes) == expected
 
 
 def test_convert_to_gb_from_bytes():

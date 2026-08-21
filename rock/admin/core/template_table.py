@@ -27,9 +27,14 @@ class TemplateTable:
 
     def _get_ready_fiber_pool_id_sync(self, template_id: str) -> str | None:
         with self._db.session_factory() as session:
-            stmt = select(TemplateRecord.fiber_pool_id).where(
-                TemplateRecord.template_id == template_id,
-                TemplateRecord.status == _READY_STATUS,
+            stmt = (
+                select(TemplateRecord.fiber_pool_id)
+                .where(
+                    or_(TemplateRecord.template_id == template_id, TemplateRecord.image == template_id),
+                    TemplateRecord.status == _READY_STATUS,
+                )
+                .order_by((TemplateRecord.template_id == template_id).desc())
+                .limit(1)
             )
             return session.execute(stmt).scalar_one_or_none()
 

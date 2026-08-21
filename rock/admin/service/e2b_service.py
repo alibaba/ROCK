@@ -3,29 +3,18 @@ from rock.admin.proto.request import ClusterInfo, UserInfo
 from rock.admin.proto.response import E2BSandboxInfo, SandboxStartResponse, SandboxStatusResponse
 from rock.admin.service.e2b_sandbox_info import e2b_sandbox_info_fields
 from rock.deployments.config import DockerDeploymentConfig
+from rock.logger import init_logger
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sdk.common.exceptions import BadRequestRockError, E2BSandboxNotFoundError
+from rock.utils.format import megabytes_to_size
 
-_MEGABYTES_PER_GIGABYTE = 1024
-
-
-def _e2b_megabytes_to_rock_size(megabytes: int) -> str:
-    if megabytes % _MEGABYTES_PER_GIGABYTE == 0:
-        return f"{megabytes // _MEGABYTES_PER_GIGABYTE}g"
-    return f"{megabytes}m"
+logger = init_logger(__name__)
 
 
 class E2BService:
-    def __init__(
-        self,
-        sandbox_manager: SandboxManager,
-        template_table: TemplateTable,
-        *,
-        resolve_template_image: bool,
-    ) -> None:
+    def __init__(self, sandbox_manager: SandboxManager, template_table: TemplateTable) -> None:
         self._sandbox_manager = sandbox_manager
         self._template_table = template_table
-        self._resolve_template_image = resolve_template_image
 
     async def start(
         self,
@@ -35,20 +24,17 @@ class E2BService:
     ) -> SandboxStartResponse:
         template = await self._template_table.get_ready_template(config.image)
         if template is None:
-            raise BadRequestRockError(f"Template {config.image} is not ready or does not exist")
-
-        updates = {
-            "cpus": template["cpu_count"],
-            "memory": _e2b_megabytes_to_rock_size(template["memory_mb"]),
-            "disk": _e2b_megabytes_to_rock_size(template["disk_size_mb"]),
-        }
-        if self._resolve_template_image:
-            if template["image"] is None:
-                raise BadRequestRockError(f"Template {config.image} has no image")
-            updates["image"] = template["image"]
-        template_config = config.model_copy(
-            update=updates,
-        )
+            logger.info("Template %s is not ready or does not exist; using request config", config.image)
+            template_config = config
+        else:
+            template_config = config.model_copy(
+                update={
+                    "image": template["image"] or config.image,
+                    "cpus": template["cpu_count"],
+                    "memory": megabytes_to_size(template["memory_mb"]),
+                    "disk": megabytes_to_size(template["disk_size_mb"]),
+                }
+            )
         return await self._sandbox_manager.start_from_template(
             template_config,
             user_info=user_info,

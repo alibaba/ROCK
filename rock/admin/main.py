@@ -237,13 +237,7 @@ async def lifespan(app: FastAPI):
                 meta_store=meta_store,
             )
         set_sandbox_manager(sandbox_manager)
-        set_e2b_sandbox_manager(
-            E2BService(
-                sandbox_manager,
-                template_table,
-                resolve_template_image=operator_requires_ray(rock_config.runtime.operator_type),
-            )
-        )
+        set_e2b_sandbox_manager(E2BService(sandbox_manager, template_table))
         warmup_service = WarmupService(rock_config.warmup)
         await warmup_service.init()
         set_warmup_service(warmup_service)

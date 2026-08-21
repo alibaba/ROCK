@@ -1,3 +1,4 @@
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -54,7 +55,7 @@ def e2b_app():
             "disk_size_mb": 262144,
         }
     )
-    set_e2b_service(E2BService(manager, template_table, resolve_template_image=True))
+    set_e2b_service(E2BService(manager, template_table))
 
     app = FastAPI()
     app.include_router(e2b_router)
@@ -124,25 +125,10 @@ async def test_create_sandbox_returns_e2b_response_and_maps_request(e2b_app):
 
 
 @pytest.mark.asyncio
-async def test_create_sandbox_keeps_template_id_when_image_resolution_is_disabled(e2b_app):
-    app, manager, template_table = e2b_app
-    set_e2b_service(E2BService(manager, template_table, resolve_template_image=False))
-
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.post(
-            "/sandboxes",
-            json={"templateID": "linux-dind", "timeout": 3600, "metadata": {}},
-        )
-
-    assert response.status_code == 201
-    config = manager.start_from_template.await_args.args[0]
-    assert config.image == "linux-dind"
-
-
-@pytest.mark.asyncio
-async def test_create_sandbox_returns_400_when_template_is_not_ready(e2b_app):
+async def test_create_sandbox_continues_when_template_is_not_ready(e2b_app, caplog):
     app, manager, template_table = e2b_app
     template_table.get_ready_template.return_value = None
+    caplog.set_level(logging.INFO, logger="rock.admin.service.e2b_service")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post(
@@ -150,16 +136,25 @@ async def test_create_sandbox_returns_400_when_template_is_not_ready(e2b_app):
             json={"templateID": "missing", "timeout": 3600, "metadata": {}},
         )
 
-    assert response.status_code == 400
-    assert response.json() == {"code": 400, "message": "Template missing is not ready or does not exist"}
-    manager.start_from_template.assert_not_awaited()
+    assert response.status_code == 201
+    config = manager.start_from_template.await_args.args[0]
+    assert config.image == "missing"
+    assert config.cpus == 2
+    assert config.memory == "8g"
+    assert config.disk == "50G"
+    assert any(
+        record.levelno == logging.INFO
+        and record.getMessage() == "Template missing is not ready or does not exist; using request config"
+        for record in caplog.records
+    )
 
 
+@pytest.mark.parametrize("template_image", [None, ""])
 @pytest.mark.asyncio
-async def test_create_sandbox_returns_400_when_ray_template_has_no_image(e2b_app):
+async def test_create_sandbox_falls_back_to_template_id_when_image_is_empty(e2b_app, template_image):
     app, manager, template_table = e2b_app
     template_table.get_ready_template.return_value = {
-        "image": None,
+        "image": template_image,
         "cpu_count": 4,
         "memory_mb": 16384,
         "disk_size_mb": 262144,
@@ -171,9 +166,9 @@ async def test_create_sandbox_returns_400_when_ray_template_has_no_image(e2b_app
             json={"templateID": "template-without-image", "timeout": 3600, "metadata": {}},
         )
 
-    assert response.status_code == 400
-    assert response.json() == {"code": 400, "message": "Template template-without-image has no image"}
-    manager.start_from_template.assert_not_awaited()
+    assert response.status_code == 201
+    config = manager.start_from_template.await_args.args[0]
+    assert config.image == "template-without-image"
 
 
 @pytest.mark.parametrize("timeout", [0, True, "3600"])
