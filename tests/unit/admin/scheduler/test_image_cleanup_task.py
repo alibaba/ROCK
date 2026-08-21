@@ -48,9 +48,9 @@ def _docuum_results(pid=12345):
 
 
 # Call sequence for _run_prune (single combined cmd):
-#   1) docker image prune + docker builder prune (one combined cmd)
-def _prune_results(prune_stdout="Total reclaimed space: 1.2GB"):
-    return [_FakeExecResult(stdout=prune_stdout)]
+#   1) docker image prune + docker builder prune, followed by both exit codes.
+def _prune_results(prune_stdout="Total reclaimed space: 1.2GB", image_exit=0, builder_exit=0):
+    return [_FakeExecResult(stdout=f"{prune_stdout}\nROCK_PRUNE_EXIT_CODES:{image_exit}:{builder_exit}")]
 
 
 class TestInit:
@@ -189,8 +189,9 @@ class TestRunPrune:
         await task._run_prune(runtime)
 
         prune_cmd = runtime.execute.await_args_list[0].args[0].command
-        # `(...) 2>&1 || true` makes a missing/old docker subcommand non-fatal.
-        assert "|| true" in prune_cmd
+        # Both commands run even when one fails, and their exit codes are preserved.
+        assert "|| true" not in prune_cmd
+        assert "ROCK_PRUNE_EXIT_CODES" in prune_cmd
 
     @pytest.mark.asyncio
     async def test_prune_records_output(self):
@@ -202,6 +203,19 @@ class TestRunPrune:
         assert "Total reclaimed space" in result["prune_output_head"]
         assert result["prune_exit_code"] == 0
         assert result["keep_build_storage"] == "20GB"
+        assert result["prune_failed"] is False
+
+    @pytest.mark.asyncio
+    async def test_prune_failure_is_reported(self):
+        task = ImageCleanupTask()
+        runtime = _runtime(_prune_results(image_exit=1))
+
+        result = await task._run_prune(runtime)
+
+        assert result["image_prune_exit_code"] == 1
+        assert result["builder_prune_exit_code"] == 0
+        assert result["prune_failed"] is True
+        assert "docker image prune" in result["prune_error"]
 
     @pytest.mark.asyncio
     async def test_prune_skipped_when_keep_build_storage_falsy(self):
@@ -267,6 +281,26 @@ class TestRunOnWorker:
             "action": "prune_only",
             "prune_exit_code": 0,
         }
+
+    @pytest.mark.asyncio
+    async def test_prune_failure_marks_docuum_alive_worker_failed(self, monkeypatch):
+        task = ImageCleanupTask()
+        runtime = AsyncMock()
+        monkeypatch.setattr(task, "_get_runtime", lambda ip: runtime)
+        monkeypatch.setattr(task, "should_run", AsyncMock(return_value=False))
+        monkeypatch.setattr(
+            task,
+            "_run_prune",
+            AsyncMock(return_value={"prune_failed": True, "prune_error": "docker image prune exited 1"}),
+        )
+
+        result = await task.run_on_worker("10.0.0.1")
+        report = await task.run({"10.0.0.1"})
+
+        assert result["status"] == TaskStatusEnum.FAILED
+        assert result["error"] == "docker image prune exited 1"
+        assert report.failed_count == 1
+        assert report.worker_results[0].error == "docker image prune exited 1"
 
     @pytest.mark.asyncio
     async def test_prune_exception_does_not_block_docuum(self, monkeypatch):
