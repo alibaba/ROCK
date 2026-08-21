@@ -6,6 +6,7 @@ Harbor-specific subclasses in rock.sdk.agent.models.trial.result.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import Enum
 from typing import Generic, TypeVar
@@ -107,3 +108,39 @@ class JobResult(BaseModel, Generic[T]):
     @property
     def n_failed(self) -> int:
         return sum(1 for t in self.trial_results if t.status == "failed")
+
+
+# ---------------------------------------------------------------------------
+# BashTrialResult — parses score from stdout Score Summary
+# ---------------------------------------------------------------------------
+
+_SCORE_RE = re.compile(
+    r"===\s*Score\s+Summary\s*===\s*\n.*?(?:score|task_score):\s*([\d.]+)",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+class BashTrialResult(TrialResult):
+    """TrialResult for Bash Jobs — parses score from stdout Score Summary block.
+
+    BenchHub Bash Jobs emit a ``=== Score Summary ===`` block at the end of
+    stdout. This subclass extracts the score so it surfaces in JobResult
+    and can be reported to tracking backends.
+    """
+
+    _parsed_score: float | None = None
+
+    @property
+    def score(self) -> float:
+        if self._parsed_score is not None:
+            return self._parsed_score
+        if not self.raw_output:
+            return 0.0
+        match = _SCORE_RE.search(self.raw_output)
+        if match:
+            try:
+                self._parsed_score = float(match.group(1))
+                return self._parsed_score
+            except (ValueError, TypeError):
+                pass
+        return 0.0
