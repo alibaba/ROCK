@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from rock.admin.core.template_table import TemplateTable
 from rock.admin.proto.request import ClusterInfo, UserInfo
 from rock.admin.proto.response import E2BSandboxInfo, SandboxStartResponse, SandboxStatusResponse
@@ -9,13 +11,22 @@ from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sdk.common.exceptions import BadRequestRockError, E2BSandboxNotFoundError, SandboxNotFoundRockError
 from rock.utils.format import megabytes_to_size
 
+if TYPE_CHECKING:
+    from rock.admin.service.image_resolver import ImageResolver
+
 logger = init_logger(__name__)
 
 
 class E2BService:
-    def __init__(self, sandbox_manager: SandboxManager, template_table: TemplateTable) -> None:
+    def __init__(
+        self,
+        sandbox_manager: SandboxManager,
+        template_table: TemplateTable,
+        image_resolver: "ImageResolver | None" = None,
+    ) -> None:
         self._sandbox_manager = sandbox_manager
         self._template_table = template_table
+        self._image_resolver = image_resolver
 
     async def start(
         self,
@@ -41,6 +52,11 @@ class E2BService:
                     "disk": megabytes_to_size(template["disk_size_mb"]),
                 }
             )
+        if self._image_resolver is not None:
+            try:
+                template_config.image = await self._image_resolver.resolve(template_config.image)
+            except Exception as error:
+                logger.warning("Image resolution failed; keeping the original image (%s)", type(error).__name__)
         return await self._sandbox_manager.start_from_template(
             template_config,
             user_info=user_info,

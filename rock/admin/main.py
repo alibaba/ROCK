@@ -47,6 +47,7 @@ from rock.admin.scheduler.tasks.sandbox_log_archive_task import (
 )
 from rock.admin.service.e2b_proxy_service import E2BProxyService
 from rock.admin.service.e2b_service import E2BService
+from rock.admin.service.image_resolver import create_image_resolver
 from rock.admin.service.ops_service import OpsService
 from rock.common.exception import request_validation_exception_handler
 from rock.config import DatabaseConfig, RockConfig, SchedulerConfig
@@ -139,7 +140,7 @@ async def lifespan(app: FastAPI):
     rock_config = RockConfig.from_env(config_file_path)
     _apply_logging_config(rock_config)
 
-    # Override config from Nacos if available (sandbox_config, proxy_service, lifecycle via update(); scheduler separately)
+    # Override config from Nacos before creating services and startup-scoped plugins.
     if rock_config.nacos_provider:
         await rock_config.update()
         nacos_config = await rock_config.nacos_provider.get_config()
@@ -239,7 +240,13 @@ async def lifespan(app: FastAPI):
                 meta_store=meta_store,
             )
         set_sandbox_manager(sandbox_manager)
-        set_e2b_sandbox_manager(E2BService(sandbox_manager, template_table))
+        set_e2b_sandbox_manager(
+            E2BService(
+                sandbox_manager,
+                template_table,
+                image_resolver=create_image_resolver(rock_config.e2b_image_resolver, rock_config.http_pool_manager),
+            )
+        )
         warmup_service = WarmupService(rock_config.warmup)
         await warmup_service.init()
         set_warmup_service(warmup_service)

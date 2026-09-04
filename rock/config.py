@@ -324,6 +324,14 @@ class ImageRegistryMirror:
 
 
 @dataclass
+class ImageResolverConfig:
+    """Optional image resolver plugin, instantiated once at admin startup."""
+
+    resolver_class: str | None = None
+    options: dict = field(default_factory=dict)
+
+
+@dataclass
 class PoolConfig:
     """Pool configuration with resource and port settings."""
 
@@ -602,6 +610,7 @@ class RockConfig:
     aes_encrypt_key: str | None = None
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    e2b_image_resolver: ImageResolverConfig = field(default_factory=ImageResolverConfig)
     image_registry_mirrors: list[ImageRegistryMirror] = field(default_factory=list)
     image_mirror_lookup_allowlist: list[str] = field(default_factory=list)
     http_pools: dict[str, HttpPoolConfig] = field(
@@ -677,6 +686,8 @@ class RockConfig:
             kwargs["scheduler"] = SchedulerConfig(**config["scheduler"])
         if "database" in config:
             kwargs["database"] = DatabaseConfig(**config["database"])
+        if "e2b_image_resolver" in config:
+            kwargs["e2b_image_resolver"] = ImageResolverConfig(**(config["e2b_image_resolver"] or {}))
         if "http_pools" in config:
             raw_pools = config["http_pools"] or {}
             kwargs["http_pools"] = {name: HttpPoolConfig(**params) for name, params in raw_pools.items()}
@@ -780,6 +791,7 @@ class RockConfig:
             "sandbox_config": (SandboxConfig, "sandbox_config"),
             "proxy_service": (ProxyServiceConfig, "proxy_service"),
             "lifecycle": (SandboxLifecycleConfig, "lifecycle"),
+            "e2b_image_resolver": (ImageResolverConfig, "e2b_image_resolver"),
         }
 
         for key, (config_class, attr_name) in config_map.items():
