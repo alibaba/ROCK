@@ -17,6 +17,17 @@ AP_SANDBOX_ID_METADATA_KEY = "ap-sandbox-id"
 E2B_CLIENT_ID = "rock"
 E2B_ENVD_VERSION = "0.3.0"
 E2B_SANDBOX_IP_METADATA_KEY = "e2b.agents.kruise.io/sandbox-ip"
+DADI_IMAGE_TAG_SUFFIXES = ("_accelerated", "_containerd_accelerated")
+DADI_IMAGE_REDIS_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60
+DADI_IMAGE_REDIS_TIMEOUT_SECONDS = 0.1
+REGISTRY_MANIFEST_ACCEPT = ", ".join(
+    (
+        "application/vnd.oci.image.manifest.v1+json",
+        "application/vnd.oci.image.index.v1+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+    )
+)
 E2B_STATE_BY_ROCK_STATE: dict[str, Literal["running", "paused"]] = {
     "running": "running",
     "pending": "running",

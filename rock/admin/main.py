@@ -243,7 +243,9 @@ async def lifespan(app: FastAPI):
             E2BService(
                 sandbox_manager,
                 template_table,
-                image_resolver=create_image_resolver(rock_config.e2b_image_resolver, rock_config.http_pool_manager),
+                image_resolver=create_image_resolver(
+                    rock_config.e2b_image_resolver, rock_config.http_pool_manager, redis_provider
+                ),
             )
         )
         warmup_service = WarmupService(rock_config.warmup)

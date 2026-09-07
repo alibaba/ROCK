@@ -9,6 +9,7 @@ from rock.admin.service.e2b_service import E2BService
 from rock.admin.service.image_resolver import create_image_resolver
 from rock.config import RockConfig
 from rock.deployments.config import DockerDeploymentConfig
+from rock.utils.providers.redis_provider import RedisProvider
 
 
 class ExampleImageResolver:
@@ -25,6 +26,7 @@ class ExampleImageResolver:
 @pytest.mark.parametrize("config_source", ["yaml", "nacos"])
 async def test_start_uses_configured_image_resolver(tmp_path, config_source):
     rock_config = RockConfig()
+    redis_provider = RedisProvider(host="", port=0, password="")
     manager = AsyncMock()
     templates = AsyncMock()
     templates.get_ready_template.return_value = {
@@ -38,7 +40,9 @@ async def test_start_uses_configured_image_resolver(tmp_path, config_source):
         service = E2BService(
             manager,
             templates,
-            image_resolver=create_image_resolver(rock_config.e2b_image_resolver, rock_config.http_pool_manager),
+            image_resolver=create_image_resolver(
+                rock_config.e2b_image_resolver, rock_config.http_pool_manager, redis_provider
+            ),
         )
         await service.start(DockerDeploymentConfig(image="template-id"))
         return manager.start_from_template.call_args.args[0].image
