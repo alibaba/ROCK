@@ -33,6 +33,14 @@ class E2BSetSandboxTimeoutRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     timeout: int = Field(ge=0, le=2_147_483_647)
+class E2BColdStartOptions(BaseModel):
+    """ROCK-specific metadata overrides, read only when no ready template exists."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    cpu_count: int | None = Field(default=None, alias="cpuCount", gt=0)
+    memory_mb: int | None = Field(default=None, alias="memoryMB", gt=0)
+    startup_timeout: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
 
 class E2BFilePathRequest(BaseModel):

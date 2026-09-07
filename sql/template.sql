@@ -9,7 +9,6 @@ CREATE TABLE template (
 	status VARCHAR(32) NOT NULL,
 	current_step VARCHAR(32),
 	artifact_uri VARCHAR(1024),
-	fiber_pool_id VARCHAR(128),
 	execution_context JSONB,
 	error_code VARCHAR(128),
 	error_message TEXT,
@@ -19,4 +18,4 @@ CREATE TABLE template (
 );
 
 CREATE INDEX ix_template_status ON template (status);
-CREATE UNIQUE INDEX ux_template_image ON template (image);
+CREATE INDEX ix_template_image ON template (image);

@@ -189,6 +189,41 @@ async def test_create_sandbox_falls_back_to_template_id_when_image_is_empty(e2b_
     assert config.image == "template-without-image"
 
 
+@pytest.mark.parametrize("ready_template", [False, True])
+async def test_create_sandbox_applies_metadata_overrides_only_on_cold_start(e2b_app, ready_template):
+    app, manager, templates = e2b_app
+    if not ready_template:
+        templates.get_ready_template.return_value = None
+    metadata = {"cpuCount": "3", "memoryMB": "12288", "startup_timeout": "120", "custom-key": "value"}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/sandboxes", json={"templateID": "image-or-template", "timeout": 1800, "metadata": metadata}
+        )
+
+    assert response.status_code == 201
+    config = manager.start_from_template.await_args.args[0]
+    assert config.cpus == (4 if ready_template else 3)
+    assert config.memory == ("16g" if ready_template else "12g")
+    assert config.auto_clear_time_minutes == 30
+    assert config.metadata == metadata
+    assert manager.start_from_template.await_args.kwargs.get("wait_timeout") == (None if ready_template else 120)
+
+
+@pytest.mark.parametrize(("key", "value"), [("cpuCount", "nan"), ("memoryMB", "0"), ("startup_timeout", "-1")])
+async def test_create_sandbox_rejects_invalid_cold_start_metadata(e2b_app, key, value):
+    app, manager, templates = e2b_app
+    templates.get_ready_template.return_value = None
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/sandboxes", json={"templateID": "raw-image", "timeout": 1800, "metadata": {key: value}}
+        )
+
+    assert response.status_code == 400
+    assert key in response.json()["message"]
+    manager.start_from_template.assert_not_awaited()
+
+
 @pytest.mark.parametrize("timeout", [0, True, "3600"])
 @pytest.mark.asyncio
 async def test_create_sandbox_returns_400_for_invalid_timeout(e2b_app, timeout):

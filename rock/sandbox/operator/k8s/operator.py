@@ -9,7 +9,7 @@ from rock.deployments.config import DockerDeploymentConfig
 from rock.logger import init_logger
 from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.operator.k8s.constants import K8sConstants
-from rock.sandbox.operator.k8s.provider import BatchSandboxProvider, TemplateSpec, TemplateFiberPoolLookup
+from rock.sandbox.operator.k8s.provider import BatchSandboxProvider, TemplateSpec
 
 logger = init_logger(__name__)
 
@@ -64,16 +64,14 @@ class K8sOperator(AbstractOperator):
         self,
         k8s_config: K8sConfig,
         redis_provider=None,
-        template_table: TemplateFiberPoolLookup | None = None,
     ):
         """Initialize K8s operator.
 
         Args:
             k8s_config: K8sConfig object containing kubeconfig and templates
             redis_provider: Optional Redis provider for caching sandbox info
-            template_table: Optional READY-template fiber pool lookup
         """
-        self._provider = BatchSandboxProvider(k8s_config=k8s_config, template_table=template_table)
+        self._provider = BatchSandboxProvider(k8s_config=k8s_config)
         self._redis_provider = redis_provider
         logger.info("Initialized K8sOperator")
 

@@ -148,7 +148,6 @@ class TemplateRecord(Base):
     status = Column(String(32), nullable=False)
     current_step = Column(String(32), nullable=True)
     artifact_uri = Column(String(1024), nullable=True)
-    fiber_pool_id = Column(String(128), nullable=True)
     execution_context = Column(_JSONB_VARIANT, nullable=True)
     error_code = Column(String(128), nullable=True)
     error_message = Column(Text, nullable=True)

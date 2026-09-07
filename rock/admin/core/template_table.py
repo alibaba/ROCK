@@ -22,23 +22,6 @@ class TemplateTable:
         self._db = db_provider
 
     @retry_on_disconnect
-    async def get_ready_fiber_pool_id(self, template_id: str) -> str | None:
-        return await self._db.run(self._get_ready_fiber_pool_id_sync, template_id)
-
-    def _get_ready_fiber_pool_id_sync(self, template_id: str) -> str | None:
-        with self._db.session_factory() as session:
-            stmt = (
-                select(TemplateRecord.fiber_pool_id)
-                .where(
-                    or_(TemplateRecord.template_id == template_id, TemplateRecord.image == template_id),
-                    TemplateRecord.status == _READY_STATUS,
-                )
-                .order_by((TemplateRecord.template_id == template_id).desc())
-                .limit(1)
-            )
-            return session.execute(stmt).scalar_one_or_none()
-
-    @retry_on_disconnect
     async def get_ready_template(self, template_id: str) -> ReadyTemplate | None:
         return await self._db.run(self._get_ready_template_sync, template_id)
 

@@ -72,8 +72,6 @@ def generate_template_id(spec: TemplateSpec) -> str:
     raw = "|".join(parts)
     digest = hashlib.sha256(raw.encode()).hexdigest()[:16]
     return f"{K8sConstants.TEMPLATE_ID_PREFIX}{digest}"
-class TemplateFiberPoolLookup(Protocol):
-    async def get_ready_fiber_pool_id(self, template_id: str) -> str | None: ...
 
 
 class PoolSelector(ABC):
@@ -312,12 +310,11 @@ class BatchSandboxProvider(K8sProvider):
     The watch task runs in the background and automatically reconnects on network failures.
     """
 
-    def __init__(self, k8s_config: K8sConfig, template_table: TemplateFiberPoolLookup | None = None):
+    def __init__(self, k8s_config: K8sConfig):
         """Initialize BatchSandbox provider.
 
         Args:
             k8s_config: K8sConfig object containing kubeconfig and templates
-            template_table: Optional READY-template fiber pool lookup
         """
         self.kubeconfig_path = k8s_config.kubeconfig_path
         self.namespace = k8s_config.namespace
@@ -327,7 +324,6 @@ class BatchSandboxProvider(K8sProvider):
         self._pool_api: K8sApiClient | None = None
         self._initialized = False
         self._nacos_provider = None
-        self._template_table = template_table
         self._image_auth_key = self._load_image_auth_key(k8s_config)
 
         # Initialize template loader with config templates and pool template
@@ -606,7 +602,7 @@ class BatchSandboxProvider(K8sProvider):
         Priority:
         1. Check extended_params for explicit pool name
         2. Use ResourceMatchingPoolSelector to find best matching pool
-        3. Look up the READY template's fiber pool in the database
+        3. Use config.template_id as the pool name
 
         Args:
             config: Docker deployment configuration
@@ -623,10 +619,10 @@ class BatchSandboxProvider(K8sProvider):
         pools = await self._get_pools()
         logger.info(f"Available pools from Nacos: {list(pools.keys())}")
         pool_name = ResourceMatchingPoolSelector().select_pool(config, pools)
-        if pool_name or self._template_table is None:
+        if pool_name:
             return pool_name
 
-        return await self._template_table.get_ready_fiber_pool_id(config.image)
+        return config.template_id
 
     async def _get_template_name(self, config: DockerDeploymentConfig) -> str:
         """Get template name from extended_params or Nacos template_rules.

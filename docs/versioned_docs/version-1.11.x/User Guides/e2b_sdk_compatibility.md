@@ -129,6 +129,32 @@ The create response contains `sandboxID`, requested `templateID`, `clientID="roc
 The request model and create mapping are in `rock/admin/proto/request.py` and
 `rock/admin/service/e2b_service.py`.
 
+#### Cold-start metadata
+
+When no ready template is available, ROCK accepts the following optional fields in `metadata`. All values must
+be strings. If a ready template is found, these fields are ignored and the template's resources are used.
+
+| Field | Value | Default when omitted |
+|---|---|---|
+| `cpuCount` | Positive integer number of CPU cores, such as `"4"`. | 2 CPU cores |
+| `memoryMB` | Positive integer memory size in MB, such as `"16384"` (16 GiB). | 8192 MB |
+| `startup_timeout` | Positive finite number of seconds to wait for the sandbox to become ready after submission, such as `"120"`. | 85 seconds |
+
+For example, use the following object as the `metadata` value in a `POST /sandboxes` request or `Sandbox.create()` call:
+
+```json
+{
+  "cpuCount": "4",
+  "memoryMB": "16384",
+  "startup_timeout": "120"
+}
+```
+
+Invalid values are rejected with HTTP 400 on cold starts. Resource requests remain subject to the deployment's
+CPU and memory limits. `startup_timeout` covers readiness polling and status queries after submission; it does not
+include preparation/submission time or change client/gateway HTTP timeouts. The top-level `timeout` continues to
+control sandbox lifetime.
+
 ### Get sandbox information
 
 Both `sandbox.get_info()` and `Sandbox.get_info(id, ...)` are supported. The returned `SandboxInfo` includes sandbox

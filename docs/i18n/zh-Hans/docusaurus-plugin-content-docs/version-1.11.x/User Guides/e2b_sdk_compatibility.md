@@ -106,6 +106,28 @@ ROCK 期望部署网关对两个平面都进行身份验证。应用将传入的
 
 请求模型和创建映射位于 `rock/admin/proto/request.py` 和 `rock/admin/service/e2b_service.py`。
 
+#### 冷启动 metadata
+
+没有就绪模板、需要冷启动时，可以在 `metadata` 中指定以下可选字段，值均须为字符串。找到就绪模板时，这些字段会被忽略，资源使用模板配置。
+
+| 字段 | 用法 | 省略时的默认值 |
+|---|---|---|
+| `cpuCount` | CPU 核数，正整数，例如 `"4"`。 | 2 核 |
+| `memoryMB` | 内存大小，单位 MB，正整数，例如 `"16384"`（16 GiB）。 | 8192 MB |
+| `startup_timeout` | 提交后等待沙箱就绪的最长时间，单位秒，有限正数，例如 `"120"`。 | 85 秒 |
+
+例如，将以下字典作为 `POST /sandboxes` 请求中的 `metadata` 值，或作为 `metadata` 参数传给 `Sandbox.create()`：
+
+```json
+{
+  "cpuCount": "4",
+  "memoryMB": "16384",
+  "startup_timeout": "120"
+}
+```
+
+冷启动时，无效参数会返回 HTTP 400；CPU、内存申请仍受部署配置的资源上限约束。`startup_timeout` 包含提交后的就绪轮询与状态查询等待，不包含准备及提交耗时，也不会调整客户端或网关的 HTTP 超时。请求顶层的 `timeout` 仍控制沙箱存活时间。
+
 ### 获取沙箱信息
 
 支持 `sandbox.get_info()` 和 `Sandbox.get_info(id, ...)`。返回的 `SandboxInfo` 包含沙箱 ID、模板/镜像、元数据、开始/结束时间、状态、CPU 数量、内存和 `envdVersion`。ROCK 还在响应中报告磁盘大小，并向 `metadata` 添加 `e2b.agents.kruise.io/sandbox-ip`。详细信息中的 `template_id` 从当前沙箱状态派生，可能是解析后的镜像，而不是创建响应原样返回的 `template` 字符串。

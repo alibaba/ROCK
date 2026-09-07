@@ -4,6 +4,7 @@ Verifies that stop(), get_status(), and start_async() behave correctly for
 each sandbox state, using lightweight mocks (no Ray / Docker).
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -444,6 +445,7 @@ def mgr_start(mgr, mock_meta_store, mock_operator, mock_docker_config):
     mock_meta_store.create.side_effect = capture_create
     mgr._start_and_wait = SandboxManager._start_and_wait.__get__(mgr)
     mgr.start = SandboxManager.start.__wrapped__.__get__(mgr)
+    mgr.start_from_template = SandboxManager.start_from_template.__wrapped__.__get__(mgr)
     mgr.get_status = AsyncMock(return_value=MagicMock(is_alive=True, state=State.RUNNING))
     return mgr
 
@@ -685,10 +687,38 @@ class TestManagerStart:
         assert call_count >= 3
 
     @pytest.mark.asyncio
-    async def test_start_timeout_raises(self, mgr_start):
-        mgr_start.get_status = AsyncMock(return_value=MagicMock(is_alive=False, state=State.PENDING))
+    @pytest.mark.parametrize("wait_timeout, slow_status", [(None, False), (0.03, False), (0.03, True)])
+    async def test_start_timeout_raises(self, mgr_start, mock_operator, wait_timeout, slow_status):
+        status_cancelled = asyncio.Event()
+
+        async def get_status(sandbox_id):
+            if slow_status:
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    status_cancelled.set()
+            return MagicMock(is_alive=False, state=State.PENDING)
+
+        mgr_start.get_status = AsyncMock(side_effect=get_status)
         config = MagicMock()
         config.image = "python:3.11"
-        with patch("rock.sandbox.sandbox_manager.REQUEST_TIMEOUT_SECONDS", 0):
-            with pytest.raises(TimeoutError, match="not running after"):
-                await mgr_start.start(config)
+        expected_timeout = 85 if wait_timeout is None else wait_timeout
+        real_wait_for, real_sleep = asyncio.wait_for, asyncio.sleep
+
+        async def short_wait_for(awaitable, timeout):
+            return await real_wait_for(awaitable, min(timeout, 0.03))
+
+        async def short_sleep(delay):
+            await real_sleep(min(delay, 0.001))
+
+        with (
+            patch("rock.sandbox.sandbox_manager.asyncio.wait_for", side_effect=short_wait_for) as wait_for,
+            patch("rock.sandbox.sandbox_manager.asyncio.sleep", side_effect=short_sleep),
+        ):
+            with pytest.raises(TimeoutError, match=f"sandbox sb-1 not running after {expected_timeout}s"):
+                await mgr_start.start_from_template(config, wait_timeout=wait_timeout)
+
+        assert wait_for.call_args.kwargs["timeout"] == expected_timeout
+        assert mgr_start.get_status.await_count > 0
+        assert status_cancelled.is_set() == slow_status
+        mock_operator.stop.assert_not_awaited()

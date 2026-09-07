@@ -329,12 +329,15 @@ class SandboxManager(BaseManager):
         config: DeploymentConfig,
         user_info: UserInfo = {},
         cluster_info: ClusterInfo = {},
+        *,
+        wait_timeout: float | None = None,
     ) -> SandboxStartResponse:
         return await self._start_and_wait(
             config,
             user_info=user_info,
             cluster_info=cluster_info,
             use_template_resource_spec=True,
+            wait_timeout=wait_timeout,
         )
 
     async def _start_and_wait(
@@ -344,6 +347,7 @@ class SandboxManager(BaseManager):
         cluster_info: ClusterInfo,
         *,
         use_template_resource_spec: bool = False,
+        wait_timeout: float | None = None,
     ) -> SandboxStartResponse:
         response = await self.start_async(
             config,
@@ -352,15 +356,20 @@ class SandboxManager(BaseManager):
             use_template_resource_spec=use_template_resource_spec,
         )
         sandbox_id = response.sandbox_id
-        deadline = time.time() + REQUEST_TIMEOUT_SECONDS
-        with StageTimer("startup_timing", f"[{sandbox_id}] Wait sandbox running", logger):
+        wait_timeout = REQUEST_TIMEOUT_SECONDS if wait_timeout is None else wait_timeout
+
+        async def poll_until_running():
             while True:
                 await asyncio.sleep(1)
                 status = await self.get_status(sandbox_id)
                 if status.is_alive and status.host_ip:
-                    break
-                if time.time() >= deadline:
-                    raise TimeoutError(f"sandbox {sandbox_id} not running after {REQUEST_TIMEOUT_SECONDS}s")
+                    return
+
+        with StageTimer("startup_timing", f"[{sandbox_id}] Wait sandbox running", logger):
+            try:
+                await asyncio.wait_for(poll_until_running(), timeout=wait_timeout)
+            except asyncio.TimeoutError as exc:
+                raise TimeoutError(f"sandbox {sandbox_id} not running after {wait_timeout}s") from exc
         return response
 
     @monitor_sandbox_operation()

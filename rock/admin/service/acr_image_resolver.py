@@ -21,21 +21,26 @@ class AcrRegionImageResolver:
         timeout_seconds: float = 1.0,
         cache_ttl_seconds: float = 300.0,
         failure_cache_ttl_seconds: float = 5.0,
+        probe_registry: str | None = None,
     ) -> None:
         self._client = client
         self._source_registries = frozenset(source_registries or [])
+        self._probe_registry = probe_registry
         self._region_registry_mapping = dict(region_registry_mapping or {})
         self._timeout_seconds = timeout_seconds
         self._cache_ttl_seconds = cache_ttl_seconds
         self._failure_cache_ttl_seconds = failure_cache_ttl_seconds
         self._cache: dict[str, tuple[str | None, float]] = {}
-        self._locks = {registry: asyncio.Lock() for registry in self._source_registries}
+        self._locks = {
+            registry: asyncio.Lock() for registry in {probe_registry or source for source in self._source_registries}
+        }
 
     async def resolve(self, image: str) -> str:
         registry, repository = ImageUtil.parse_registry_and_others(image)
         if registry not in self._source_registries or not self._region_registry_mapping:
             return image
 
+        registry = self._probe_registry or registry
         cached = self._cache.get(registry)
         if cached is not None and cached[1] > monotonic():
             target = cached[0]

@@ -43,14 +43,17 @@ async def make_service():
 
 
 @pytest.mark.parametrize(
-    ("source", "region", "target", "repository"),
+    ("source", "region", "target", "repository", "probe_registry"),
     [
-        ("sg.example.com", "cn-zhangjiakou", "zjk.example.com", "team/task:version"),
-        ("sh.example.com", "cn-shanghai", "sh-target.example.com", "team/task:version"),
-        ("sg.example.com", "cn-beijing", "bj.example.com", "team/task@sha256:" + "a" * 64),
+        ("sg.example.com", "cn-zhangjiakou", "zjk.example.com", "team/task:version", None),
+        ("sh.example.com", "cn-shanghai", "sh-target.example.com", "team/task:version", None),
+        ("sg.example.com", "cn-beijing", "bj.example.com", "team/task@sha256:" + "a" * 64, None),
+        ("sh.example.com", "cn-zhangjiakou", "zjk.example.com", "team/task:version", "sg.example.com"),
     ],
 )
-async def test_start_maps_template_image_and_preserves_suffix(make_service, source, region, target, repository):
+async def test_start_maps_template_image_and_preserves_suffix(
+    make_service, source, region, target, repository, probe_registry
+):
     requests = []
 
     def respond(request):
@@ -59,7 +62,7 @@ async def test_start_maps_template_image_and_preserves_suffix(make_service, sour
 
     image = f"{source}/{repository}"
     template = {"image": image, "cpu_count": 4, "memory_mb": 8192, "disk_size_mb": 51200}
-    service, manager = make_service(respond, template=template)
+    service, manager = make_service(respond, template=template, probe_registry=probe_registry)
     config = DockerDeploymentConfig(image="template-id", template_id="template-id")
     await service.start(config)
 
@@ -68,7 +71,7 @@ async def test_start_maps_template_image_and_preserves_suffix(make_service, sour
     assert passed.template_id == "template-id"
     assert config.image == "template-id"
     assert template["image"] == image
-    assert str(requests[0].url) == f"https://{source}/v2/"
+    assert str(requests[0].url) == f"https://{probe_registry or source}/v2/"
     assert "authorization" not in requests[0].headers
 
 
@@ -86,13 +89,15 @@ async def test_start_keeps_original_image_when_resolution_is_unavailable(make_se
             return httpx.Response(401)
         return httpx.Response(500, headers=_challenge())
 
-    service, manager = make_service(respond)
+    service, manager = make_service(respond, probe_registry="probe.example.com")
     source = "sg.example.com.other.example" if case == "unlisted" else "sg.example.com"
     image = f"{source}/team/task:version"
     await service.start(DockerDeploymentConfig(image=image))
 
     assert manager.start_from_template.call_args[0][0].image == image
     assert len(requests) == (0 if case == "unlisted" else 1)
+    if requests:
+        assert str(requests[0].url) == "https://probe.example.com/v2/"
 
 
 @pytest.mark.parametrize("outcome", ["success", "dns-error", "timeout"])
@@ -108,16 +113,25 @@ async def test_concurrent_starts_share_bounded_probe_and_cache(make_service, out
             await asyncio.Event().wait()
         return httpx.Response(401, headers=_challenge())
 
-    service, manager = make_service(respond, timeout_seconds=0.02)
+    service, manager = make_service(respond, timeout_seconds=0.02, probe_registry="sg.example.com")
+    sources = ["sg.example.com", "sh.example.com"] * 5
     await asyncio.wait_for(
         asyncio.gather(
-            *(service.start(DockerDeploymentConfig(image=f"sg.example.com/team/task:{index}")) for index in range(10))
+            *(
+                service.start(DockerDeploymentConfig(image=f"{source}/team/task:{index}"))
+                for index, source in enumerate(sources)
+            )
         ),
         timeout=0.5,
     )
     await service.start(DockerDeploymentConfig(image="sg.example.com/team/another:latest"))
 
-    target = "zjk.example.com" if outcome == "success" else "sg.example.com"
     images = {call.args[0].image for call in manager.start_from_template.call_args_list}
-    assert images == {f"{target}/team/task:{index}" for index in range(10)} | {f"{target}/team/another:latest"}
+    expected = {
+        f"{'zjk.example.com' if outcome == 'success' else source}/team/task:{index}"
+        for index, source in enumerate(sources)
+    }
+    target = "zjk.example.com" if outcome == "success" else "sg.example.com"
+    assert images == expected | {f"{target}/team/another:latest"}
     assert len(requests) == 1
+    assert str(requests[0].url) == "https://sg.example.com/v2/"

@@ -213,7 +213,6 @@ async def lifespan(app: FastAPI):
             ray_service=ray_service,
             redis_provider=redis_provider,
             nacos_provider=rock_config.nacos_provider,
-            template_table=template_table,
             k8s_config=rock_config.k8s,
             opensandbox_config=rock_config.opensandbox,
             remote_config=rock_config.remote,

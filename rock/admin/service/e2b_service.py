@@ -1,7 +1,9 @@
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
 from rock.admin.core.template_table import TemplateTable
-from rock.admin.proto.request import ClusterInfo, UserInfo
+from rock.admin.proto.request import ClusterInfo, E2BColdStartOptions, UserInfo
 from rock.admin.proto.response import E2BSandboxInfo, SandboxStartResponse, SandboxStatusResponse
 from rock.admin.service.e2b_sandbox_info import e2b_sandbox_info_fields
 from rock.deployments.config import DockerDeploymentConfig
@@ -35,11 +37,23 @@ class E2BService:
         cluster_info: ClusterInfo = {},
     ) -> SandboxStartResponse:
         template = await self._template_table.get_ready_template(config.image)
+        wait_options = {}
         if template is None:
+            try:
+                cold_start = E2BColdStartOptions.model_validate(config.metadata)
+            except ValidationError as error:
+                details = "; ".join(f"{item['loc'][0]}: {item['msg']}" for item in error.errors())
+                raise BadRequestRockError(f"Invalid cold-start metadata: {details}") from None
+            if cold_start.startup_timeout is not None:
+                wait_options["wait_timeout"] = cold_start.startup_timeout
             logger.info("Template %s is not ready or does not exist; using raw manifest", config.image)
             template_config = config.model_copy(
                 update={
                     "template_id": None,
+                    "cpus": cold_start.cpu_count if cold_start.cpu_count is not None else config.cpus,
+                    "memory": (
+                        megabytes_to_size(cold_start.memory_mb) if cold_start.memory_mb is not None else config.memory
+                    ),
                     "extended_params": {**config.extended_params, EXT_USE_RAW: EXT_USE_RAW_ENABLED},
                 }
             )
@@ -61,6 +75,7 @@ class E2BService:
             template_config,
             user_info=user_info,
             cluster_info=cluster_info,
+            **wait_options,
         )
 
     @property

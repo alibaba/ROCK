@@ -1,6 +1,6 @@
 """Unit tests for BatchSandboxProvider helper methods."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -26,13 +26,12 @@ BASIC_TEMPLATES = {
 }
 
 
-def make_provider(template_table=None) -> BatchSandboxProvider:
+def make_provider() -> BatchSandboxProvider:
     return BatchSandboxProvider(
         k8s_config=K8sConfig(
             kubeconfig_path=None,
             templates=BASIC_TEMPLATES,
         ),
-        template_table=template_table,
     )
 
 
@@ -216,37 +215,14 @@ class TestGetPoolName:
         config = make_config(image="python:3.11", cpus=2, memory="4Gi")
         assert await provider._get_pool_name(config) == "pool_small"
 
-    async def test_returns_none_when_no_matching_pool(self):
-        """Return None when no matching pool."""
+    @pytest.mark.parametrize("template_id", [None, "template-from-config"])
+    async def test_returns_template_id_when_no_matching_pool(self, template_id):
+        """Use the configured template ID when no matching pool is available."""
         provider = make_provider()
         # No nacos provider set, so pools is empty
         config = make_config()
-        assert await provider._get_pool_name(config) is None
-
-    async def test_falls_back_to_ready_template_pool_from_database(self):
-        template_table = AsyncMock()
-        template_table.get_ready_fiber_pool_id.return_value = "pool-from-db"
-        provider = make_provider(template_table=template_table)
-        provider.set_nacos_provider(MockNacosProvider({K8sConstants.NACOS_POOLS_KEY: {}}))
-
-        config = make_config(image="template-1")
-
-        assert await provider._get_pool_name(config) == "pool-from-db"
-        template_table.get_ready_fiber_pool_id.assert_awaited_once_with("template-1")
-
-    async def test_nacos_pool_takes_priority_over_database(self):
-        template_table = AsyncMock()
-        provider = make_provider(template_table=template_table)
-        provider.set_nacos_provider(
-            MockNacosProvider(
-                {K8sConstants.NACOS_POOLS_KEY: {"pool-nacos": {"image": "template-1", "cpus": 2, "memory": "4Gi"}}}
-            )
-        )
-
-        config = make_config(image="template-1")
-
-        assert await provider._get_pool_name(config) == "pool-nacos"
-        template_table.get_ready_fiber_pool_id.assert_not_awaited()
+        config.template_id = template_id
+        assert await provider._get_pool_name(config) == template_id
 
 
 # ========== _get_template_name ==========
