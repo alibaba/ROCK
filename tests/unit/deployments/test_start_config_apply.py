@@ -34,7 +34,8 @@ def _make_rock_config(
 
 
 @pytest.mark.asyncio
-async def test_apply_start_config_runs_all_steps_in_order(monkeypatch):
+@pytest.mark.parametrize("apply_image_mirror", [True, False])
+async def test_apply_start_config_runs_all_steps_in_order(monkeypatch, apply_image_mirror):
     calls = []
 
     def record_sync(name):
@@ -59,7 +60,8 @@ async def test_apply_start_config_runs_all_steps_in_order(monkeypatch):
     monkeypatch.setattr(start_config, "apply_disk_limits", record_async("disk"))
     monkeypatch.setattr(start_config, "apply_image_registry_mirror", record_async("mirror"))
 
-    await start_config.apply_start_config(MagicMock(), DockerDeploymentConfig(), "Bearer token")
+    options = {} if apply_image_mirror else {"apply_image_mirror": False}
+    await start_config.apply_start_config(MagicMock(), DockerDeploymentConfig(), "Bearer token", **options)
 
     assert calls == [
         "auto_clear",
@@ -70,8 +72,7 @@ async def test_apply_start_config_runs_all_steps_in_order(monkeypatch):
         "timeout",
         "cpu",
         "disk",
-        "mirror",
-    ]
+    ] + (["mirror"] if apply_image_mirror else [])
 
 
 def test_auto_clear_default_keeps_e2b_explicit_timeout():

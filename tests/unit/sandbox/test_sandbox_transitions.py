@@ -452,14 +452,20 @@ def mgr_start(mgr, mock_meta_store, mock_operator, mock_docker_config):
 
 class TestManagerStart:
     @pytest.mark.asyncio
-    async def test_start_async_applies_shared_start_config(self, mgr_start):
+    @pytest.mark.parametrize("start_method", ["start_async", "start_from_template"])
+    async def test_start_async_applies_shared_start_config(self, mgr_start, start_method):
         user_info = {"rock_authorization": "Bearer token"}
         config = DockerDeploymentConfig(image="python:3.11")
 
         with patch("rock.sandbox.sandbox_manager.apply_start_config", new_callable=AsyncMock) as apply:
-            await mgr_start.start_async(config, user_info=user_info)
+            await getattr(mgr_start, start_method)(config, user_info=user_info)
 
-        apply.assert_awaited_once_with(mgr_start.rock_config, config, "Bearer token")
+        apply.assert_awaited_once_with(
+            mgr_start.rock_config,
+            config,
+            "Bearer token",
+            apply_image_mirror=start_method != "start_from_template",
+        )
 
     @pytest.mark.asyncio
     async def test_persists_sandbox_environment(self, mgr_start, mock_docker_config, mock_meta_store):
@@ -477,7 +483,7 @@ class TestManagerStart:
         async def refresh_config():
             call_order.append("refresh")
 
-        async def normalize_config(rock_config, config, rock_authorization):
+        async def normalize_config(rock_config, config, rock_authorization, *, apply_image_mirror):
             call_order.append("normalize")
 
         async def init_config(config, *, refresh_config):

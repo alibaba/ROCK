@@ -351,6 +351,8 @@ async def apply_start_config(
     rock_config: RockConfig,
     config: DockerDeploymentConfig,
     rock_authorization: str | None,
+    *,
+    apply_image_mirror: bool = True,
 ) -> None:
     """Apply the shared sandbox start normalization pipeline in dependency order."""
     apply_auto_clear_default(rock_config, config)
@@ -361,4 +363,5 @@ async def apply_start_config(
     await apply_timeout_defaults(rock_config, config)
     await apply_cpu_overcommit_default(rock_config, config, rock_authorization)
     await apply_disk_limits(rock_config, config)
-    await apply_image_registry_mirror(rock_config, config)
+    if apply_image_mirror:
+        await apply_image_registry_mirror(rock_config, config)

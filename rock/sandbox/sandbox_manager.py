@@ -154,12 +154,18 @@ class SandboxManager(BaseManager):
         cluster_info: ClusterInfo = {},
         *,
         use_template_resource_spec: bool = False,
+        apply_image_mirror: bool = True,
     ) -> SandboxStartResponse:
         await self._check_sandbox_exists_in_redis(config)
 
         if isinstance(config, DockerDeploymentConfig):
             await self.rock_config.update()
-            await apply_start_config(self.rock_config, config, user_info.get("rock_authorization"))
+            await apply_start_config(
+                self.rock_config,
+                config,
+                user_info.get("rock_authorization"),
+                apply_image_mirror=apply_image_mirror,
+            )
 
         with StageTimer("startup_timing", f"[{config.image}] Init config", logger):
             if isinstance(config, DockerDeploymentConfig):
@@ -337,6 +343,7 @@ class SandboxManager(BaseManager):
             user_info=user_info,
             cluster_info=cluster_info,
             use_template_resource_spec=True,
+            apply_image_mirror=False,
             wait_timeout=wait_timeout,
         )
 
@@ -348,12 +355,14 @@ class SandboxManager(BaseManager):
         *,
         use_template_resource_spec: bool = False,
         wait_timeout: float | None = None,
+        apply_image_mirror: bool = True,
     ) -> SandboxStartResponse:
         response = await self.start_async(
             config,
             user_info=user_info,
             cluster_info=cluster_info,
             use_template_resource_spec=use_template_resource_spec,
+            apply_image_mirror=apply_image_mirror,
         )
         sandbox_id = response.sandbox_id
         wait_timeout = REQUEST_TIMEOUT_SECONDS if wait_timeout is None else wait_timeout
