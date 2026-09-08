@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     ROCK_PYTHON_ENV_PATH: str | None = None
     ROCK_ADMIN_ENV: str | None = "dev"
     ROCK_ADMIN_ROLE: str | None = "write"
+    ROCK_PROXY_MAX_RPC_RESPONSE_BYTES: int = 128 * 1024 * 1024
     ROCK_FORCE_PRIMARY_POD: bool = False
     ROCK_CLI_LOAD_PATHS: str = str(Path(__file__).parent / "cli" / "command")
     ROCK_CLI_DEFAULT_CONFIG_PATH: str
@@ -116,6 +117,9 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_ADMIN_ENV": lambda: os.getenv("ROCK_ADMIN_ENV", "dev"),
     "ROCK_ADMIN_ROLE": lambda: os.getenv("ROCK_ADMIN_ROLE", "write"),
     "ROCK_PROXY_WORKERS": lambda: int(os.getenv("ROCK_PROXY_WORKERS", "0")),
+    "ROCK_PROXY_MAX_RPC_RESPONSE_BYTES": lambda: int(
+        os.getenv("ROCK_PROXY_MAX_RPC_RESPONSE_BYTES", str(128 * 1024 * 1024))
+    ),
     "ROCK_FORCE_PRIMARY_POD": lambda: os.getenv("ROCK_FORCE_PRIMARY_POD", "false").lower() == "true",
     "ROCK_CLI_LOAD_PATHS": lambda: os.getenv("ROCK_CLI_LOAD_PATHS", str(Path(__file__).parent / "cli" / "command")),
     "ROCK_CLI_DEFAULT_CONFIG_PATH": lambda: os.getenv(
