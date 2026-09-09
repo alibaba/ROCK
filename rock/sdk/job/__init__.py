@@ -1,10 +1,9 @@
 # Auto-register BashTrial (safe: no bench dependency).
 # HarborTrial is registered by rock.sdk.bench.__init__ to avoid circular imports.
 import rock.sdk.job.trial.bash  # noqa: F401
-
 from rock.sdk.job.api import Job
 from rock.sdk.job.config import BashJobConfig, JobConfig
-from rock.sdk.job.executor import JobClient, JobExecutor, TrialClient
+from rock.sdk.job.executor import ExistingJobHandle, JobClient, JobExecutor, TrialClient
 from rock.sdk.job.operator import Operator, ScatterOperator
 from rock.sdk.job.result import ExceptionInfo, JobResult, JobStatus, TrialResult
 from rock.sdk.job.trial import AbstractTrial, register_trial
@@ -20,6 +19,7 @@ __all__ = [
     "JobExecutor",
     "JobClient",
     "TrialClient",
+    "ExistingJobHandle",
     "Operator",
     "ScatterOperator",
     "SingleTaskPlanner",
@@ -27,11 +27,24 @@ __all__ = [
     "PlannedJob",
     "JobMeta",
     "JobMetaRepository",
+    "JobMetadataRepository",
+    "JobGroupMeta",
     "RunMeta",
     "RunJobRef",
     "RunJobStatus",
     "RunScoreSummary",
     "RunMetaRepository",
+    "GroupJobQuery",
+    "GroupQuery",
+    "JobGroupDetail",
+    "JobGroupPage",
+    "JobGroupStatistics",
+    "JobGroupUpdate",
+    "JobPage",
+    "JobStatusCategory",
+    "JobUpdate",
+    "JobUpdateItem",
+    "PageRequest",
     "AbstractTrial",
     "register_trial",
     "JobViewer",
@@ -51,22 +64,43 @@ def __getattr__(name: str):
             "ResolvedTask": ResolvedTask,
             "PlannedJob": PlannedJob,
         }[name]
-    if name in {"JobMeta", "RunMeta", "RunJobRef", "RunJobStatus", "RunScoreSummary"}:
+    if name in {
+        "JobMeta",
+        "JobGroupMeta",
+        "RunMeta",
+        "RunJobRef",
+        "RunJobStatus",
+        "RunScoreSummary",
+    }:
         from rock.sdk.job.meta import JobMeta, RunJobRef, RunJobStatus, RunMeta, RunScoreSummary
+        from rock.sdk.job.metadata.models import JobGroupMeta
 
         return {
             "JobMeta": JobMeta,
+            "JobGroupMeta": JobGroupMeta,
             "RunMeta": RunMeta,
             "RunJobRef": RunJobRef,
             "RunJobStatus": RunJobStatus,
             "RunScoreSummary": RunScoreSummary,
         }[name]
-    if name == "JobMetaRepository":
-        from rock.sdk.job.job_meta import JobMetaRepository
+    if name in {"JobMetaRepository", "RunMetaRepository", "JobMetadataRepository"}:
+        from rock.sdk.job.metadata.repository import JobMetadataRepository
 
-        return JobMetaRepository
-    if name == "RunMetaRepository":
-        from rock.sdk.job.run_meta import RunMetaRepository
+        return JobMetadataRepository
+    if name in {
+        "GroupJobQuery",
+        "GroupQuery",
+        "JobGroupDetail",
+        "JobGroupPage",
+        "JobGroupStatistics",
+        "JobGroupUpdate",
+        "JobPage",
+        "JobStatusCategory",
+        "JobUpdate",
+        "JobUpdateItem",
+        "PageRequest",
+    }:
+        from rock.sdk.job.metadata import models
 
-        return RunMetaRepository
+        return getattr(models, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

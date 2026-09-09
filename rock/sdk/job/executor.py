@@ -15,9 +15,8 @@ from rock.sdk.job.result import ExceptionInfo, TrialResult
 from rock.sdk.sandbox.client import Sandbox
 
 if TYPE_CHECKING:
-    from rock.sdk.job.meta import JobMeta
-    from rock.sdk.job.planner import PlannedJob
     from rock.sdk.job.config import JobConfig
+    from rock.sdk.job.planner import PlannedJob
     from rock.sdk.job.trial.abstract import AbstractTrial
 
 logger = init_logger(__name__)
@@ -34,6 +33,15 @@ class TrialClient:
 @dataclass
 class JobClient:
     trials: list[TrialClient]
+
+
+@dataclass(frozen=True)
+class ExistingJobHandle:
+    """Connection details for a process that is already running."""
+
+    sandbox_id: str
+    session: str
+    pid: int
 
 
 TrialDoneCallback = Callable[[TrialClient, TrialResult | list[TrialResult], int], None]
@@ -82,21 +90,19 @@ class JobExecutor:
     async def wait_existing_job(
         self,
         planned_job: PlannedJob,
-        job_meta: JobMeta,
+        handle: ExistingJobHandle,
     ) -> TrialResult | list[TrialResult]:
         """Reconnect to an existing sandbox/process and collect the result.
 
-        The CLI decides whether a job is recoverable; this method only performs
-        the atomic wait/collect operation from persisted metadata.
+        The caller decides whether a job is recoverable and supplies an
+        explicit handle. This method does not read persisted metadata.
         """
-        if not job_meta.sandbox_id or not job_meta.session or job_meta.pid is None:
-            raise ValueError("job_meta is missing sandbox_id/session/pid")
         sandbox = Sandbox(planned_job.config.environment)
-        sandbox._sandbox_id = job_meta.sandbox_id
+        sandbox._sandbox_id = handle.sandbox_id
         client = TrialClient(
             sandbox=sandbox,
-            session=job_meta.session,
-            pid=job_meta.pid,
+            session=handle.session,
+            pid=handle.pid,
             trial=planned_job.trial,
         )
         return await self._do_wait(client)

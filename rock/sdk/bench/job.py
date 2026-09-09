@@ -60,7 +60,7 @@ class Job:
     - ``wait()``: Wait for a submitted job to complete
     """
 
-    def __init__(self, config):
+    def __init__(self, config, *, job_id: uuid.UUID | None = None):
         import warnings
 
         warnings.warn(
@@ -76,10 +76,16 @@ class Job:
         if not isinstance(config, HarborJobConfig):
             raise TypeError(f"config must be HarborJobConfig, got {type(config)}")
         self._config = config
+        self._job_id = job_id or uuid.uuid4()
         self._sandbox = None
         self._session: str | None = None
         self._pid: int | None = None
         self._tmp_file: str | None = None
+
+    @property
+    def job_id(self) -> uuid.UUID:
+        """Unique metadata identity for this Job execution."""
+        return self._job_id
 
     # ------------------------------------------------------------------
     # Public API
@@ -259,7 +265,7 @@ class Job:
                 logger.warning(f"Failed to parse trial result {trial_file}: {e}")
 
         return JobResult(
-            job_id=self._config.job_name,
+            job_id=str(self._job_id),
             status=JobStatus.COMPLETED if trial_results else JobStatus.FAILED,
             labels=self._config.labels,
             trial_results=trial_results,

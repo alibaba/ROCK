@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from unittest.mock import MagicMock
+from uuid import UUID
 
 import pytest
 
@@ -29,7 +30,7 @@ def test_run_all_subcommand_is_removed():
         parser.parse_args(["job", "run-all", "--job-config", "foo.yaml"])
 
 
-def test_run_parser_supports_single_multi_full_and_resume():
+def test_run_parser_supports_single_multi_full_and_explicit_resume():
     parser = _build_parser()
     ns = parser.parse_args(["job", "run", "--job-config", "foo.yaml", "--tasks", "t1,t2", "--concurrency", "3"])
     assert ns.job_command == "run"
@@ -41,35 +42,63 @@ def test_run_parser_supports_single_multi_full_and_resume():
     assert ns.limit == 2
     assert ns.jsonl is True
 
-    ns = parser.parse_args(["job", "run", "--resume", "run-1", "--job-config", "foo.yaml"])
-    assert ns.resume == "run-1"
+    ns = parser.parse_args(
+        [
+            "job",
+            "run",
+            "--job-config",
+            "foo.yaml",
+            "--task",
+            "t1",
+            "--job-name",
+            "old-job",
+            "--resume-sandbox-id",
+            "sb-1",
+            "--resume-pid",
+            "42",
+        ]
+    )
+    assert ns.resume_sandbox_id == "sb-1"
+    assert ns.resume_pid == 42
+    assert ns.resume_session is None
+    assert ns.job_name == "old-job"
+
+
+def test_run_parser_accepts_uuid_job_id():
+    parser = _build_parser()
+
+    ns = parser.parse_args(
+        [
+            "job",
+            "run",
+            "--script-content",
+            "echo hi",
+            "--task",
+            "t1",
+            "--job-id",
+            "12345678-1234-5678-1234-567812345678",
+        ]
+    )
+
+    assert ns.job_id == UUID("12345678-1234-5678-1234-567812345678")
 
 
 def test_run_query_parsers_use_explicit_command_names():
     parser = _build_parser()
-    runs = parser.parse_args(["job", "run-list", "--job-config", "foo.yaml", "--output", "json"])
-    assert runs.job_command == "run-list"
-    assert runs.job_config == "foo.yaml"
-    assert runs.output == "json"
-
-    status = parser.parse_args(["job", "run-status", "--run-id", "run-1", "--job-config", "foo.yaml", "--jobs"])
-    assert status.job_command == "run-status"
-    assert status.run_id == "run-1"
-    assert status.jobs is True
-
     job_list = parser.parse_args(["job", "job-list", "--namespace", "ns", "--experiment-id", "exp"])
     assert job_list.job_command == "job-list"
 
-    show = parser.parse_args(["job", "job-show", "--run-id", "run-1", "--task-id", "t1", "--job-config", "foo.yaml"])
+    show = parser.parse_args(["job", "job-show", "job-1", "--job-config", "foo.yaml"])
     assert show.job_command == "job-show"
-    assert show.run_id == "run-1"
-    assert show.task_id == "t1"
+    assert show.job_name == "job-1"
 
     trial_list = parser.parse_args(["job", "trial-list", "job-1", "--namespace", "ns", "--experiment-id", "exp"])
     assert trial_list.job_command == "trial-list"
     assert trial_list.job_name == "job-1"
 
-    trial_show = parser.parse_args(["job", "trial-show", "job-1", "trial-1", "--namespace", "ns", "--experiment-id", "exp"])
+    trial_show = parser.parse_args(
+        ["job", "trial-show", "job-1", "trial-1", "--namespace", "ns", "--experiment-id", "exp"]
+    )
     assert trial_show.job_command == "trial-show"
     assert trial_show.job_name == "job-1"
     assert trial_show.trial_name == "trial-1"
@@ -77,9 +106,12 @@ def test_run_query_parsers_use_explicit_command_names():
 
 def test_old_query_subcommands_are_removed():
     parser = _build_parser()
-    for subcommand in ["runs", "status", "list", "show", "trials", "trial"]:
+    for subcommand in ["run-list", "run-status", "runs", "status", "list", "show", "trials", "trial"]:
         with pytest.raises(SystemExit):
             parser.parse_args(["job", subcommand])
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["job", "run", "--resume", "run-1"])
 
 
 def test_job_help_uses_self_describing_query_command_summaries(capsys):
@@ -90,14 +122,12 @@ def test_job_help_uses_self_describing_query_command_summaries(capsys):
 
     assert excinfo.value.code == 0
     out = capsys.readouterr().out
-    assert "run-list" in out
-    assert "List historical job runs from run metadata" in out
-    assert "run-status" in out
-    assert "Show summary and task/job status for one run" in out
+    assert "run-list" not in out
+    assert "run-status" not in out
     assert "job-list" in out
     assert "List job artifact directories in an experiment" in out
     assert "job-show" in out
-    assert "Show one job artifact by job name or run/task id" in out
+    assert "Show one job artifact by job name" in out
     assert "trial-list" in out
     assert "List trial results under one job artifact" in out
     assert "trial-show" in out
@@ -112,10 +142,10 @@ def test_query_subcommand_help_explains_locators_and_identifiers(capsys):
 
     assert excinfo.value.code == 0
     out = capsys.readouterr().out
-    assert "Show one job artifact by job name or run/task id" in out
+    assert "Show one job artifact by job name" in out
     assert "YAML config used to locate OSS artifacts" in out
-    assert "Run id from rock job run or run-list" in out
-    assert "Task id inside the run; use with --run-id" in out
+    assert "Run id" not in out
+    assert "Task id inside the run" not in out
     assert "Job artifact name" in out
 
     with pytest.raises(SystemExit) as excinfo:
@@ -154,28 +184,143 @@ class TestRunValidation:
             self._run(["job", "run", "--script-content", "echo hi", "--task", "t1", "--all"])
         assert excinfo.value.code == 2
 
-    def test_resume_rejects_task_selection(self, monkeypatch, capsys):
+    def test_job_id_requires_single_task_mode(self, capsys):
+        with pytest.raises(SystemExit) as excinfo:
+            self._run(
+                [
+                    "job",
+                    "run",
+                    "--script-content",
+                    "echo hi",
+                    "--tasks",
+                    "t1,t2",
+                    "--job-id",
+                    "12345678-1234-5678-1234-567812345678",
+                ]
+            )
+
+        assert excinfo.value.code == 2
+        assert "--job-id requires exactly one explicit --task" in capsys.readouterr().err
+
+    def test_resume_requires_explicit_task(self, monkeypatch, capsys):
         from rock.sdk.job.config import BashJobConfig
-        from rock.sdk.job.meta import RunMeta
 
-        config = BashJobConfig(script="echo hi", environment={"oss_mirror": {"enabled": True, "namespace": "ns", "experiment_id": "exp", "oss_bucket": "b", "oss_endpoint": "e"}})
-
-        class FakeRepo:
-            _viewer = MagicMock()
-
-            def get(self, run_id):
-                return RunMeta(run_id=run_id, mode="single", status="running", total_tasks=1, pending_tasks=1)
-
-            def find_completed_tasks(self, run_id):
-                return set()
-
+        config = BashJobConfig(job_name="old-job", script="echo hi")
         monkeypatch.setattr(JobCommand, "_config_from_yaml", lambda self, parser, args: config)
-        monkeypatch.setattr("rock.sdk.job.run_meta.RunMetaRepository.from_job_config", classmethod(lambda cls, cfg: FakeRepo()))
 
         with pytest.raises(SystemExit) as excinfo:
-            self._run(["job", "run", "--resume", "run-1", "--job-config", "foo.yaml", "--task", "t1"])
+            self._run(
+                [
+                    "job",
+                    "run",
+                    "--job-config",
+                    "foo.yaml",
+                    "--resume-sandbox-id",
+                    "sb-1",
+                    "--resume-pid",
+                    "42",
+                ]
+            )
         assert excinfo.value.code == 2
-        assert "resume cannot be combined" in capsys.readouterr().err
+        assert "requires exactly one explicit --task" in capsys.readouterr().err
+
+    def test_resume_requires_pid(self, monkeypatch, capsys):
+        from rock.sdk.job.config import BashJobConfig
+
+        monkeypatch.setattr(
+            JobCommand,
+            "_config_from_yaml",
+            lambda self, parser, args: BashJobConfig(job_name="old-job", script="echo hi"),
+        )
+
+        with pytest.raises(SystemExit) as excinfo:
+            self._run(
+                [
+                    "job",
+                    "run",
+                    "--job-config",
+                    "foo.yaml",
+                    "--task",
+                    "t1",
+                    "--resume-sandbox-id",
+                    "sb-1",
+                ]
+            )
+        assert excinfo.value.code == 2
+        assert "--resume-pid is required" in capsys.readouterr().err
+
+    def test_resume_details_require_sandbox_id(self, capsys):
+        with pytest.raises(SystemExit) as excinfo:
+            self._run(
+                [
+                    "job",
+                    "run",
+                    "--script-content",
+                    "echo hi",
+                    "--task",
+                    "t1",
+                    "--resume-pid",
+                    "42",
+                ]
+            )
+        assert excinfo.value.code == 2
+        assert "require --resume-sandbox-id" in capsys.readouterr().err
+
+    @pytest.mark.parametrize(
+        "extra_args",
+        [
+            ["--tasks", "t1,t2"],
+            ["--all"],
+            ["--limit", "1"],
+            ["--concurrency", "2"],
+        ],
+    )
+    def test_resume_rejects_multi_task_options(self, monkeypatch, capsys, extra_args):
+        from rock.sdk.job.config import BashJobConfig
+
+        monkeypatch.setattr(
+            JobCommand,
+            "_config_from_yaml",
+            lambda self, parser, args: BashJobConfig(job_name="old-job", script="echo hi"),
+        )
+
+        with pytest.raises(SystemExit) as excinfo:
+            self._run(
+                [
+                    "job",
+                    "run",
+                    "--job-config",
+                    "foo.yaml",
+                    "--task",
+                    "t1",
+                    "--resume-sandbox-id",
+                    "sb-1",
+                    "--resume-pid",
+                    "42",
+                    *extra_args,
+                ]
+            )
+        assert excinfo.value.code == 2
+        assert "single-task resume" in capsys.readouterr().err
+
+    def test_resume_flags_mode_requires_job_name(self, capsys):
+        with pytest.raises(SystemExit) as excinfo:
+            self._run(
+                [
+                    "job",
+                    "run",
+                    "--script-content",
+                    "echo hi",
+                    "--task",
+                    "t1",
+                    "--resume-sandbox-id",
+                    "sb-1",
+                    "--resume-pid",
+                    "42",
+                ]
+            )
+        assert excinfo.value.code == 2
+        assert "--job-name is required" in capsys.readouterr().err
 
 
 class TestRunEndToEnd:
@@ -190,70 +335,127 @@ class TestRunEndToEnd:
 
             async def run(self, cfg):
                 captured["cfg"] = cfg
-                return type("R", (), {"failed": 0, "run_id": "run-1"})()
+                return type("R", (), {"failed": 0})()
 
         monkeypatch.setattr("rock.cli.job_run.UnifiedJobRunHandler", FakeHandler)
 
         parser = _build_parser()
-        ns = parser.parse_args(["job", "run", "--script-content", "echo hi", "--task", "task-1"])
+        job_id = "12345678-1234-5678-1234-567812345678"
+        ns = parser.parse_args(
+            [
+                "job",
+                "run",
+                "--script-content",
+                "echo hi",
+                "--task",
+                "task-1",
+                "--job-id",
+                job_id,
+            ]
+        )
         asyncio.run(JobCommand().arun(ns))
 
         assert isinstance(captured["cfg"], BashJobConfig)
         assert captured["kwargs"]["mode"] == "single"
         assert captured["kwargs"]["task_ids"] == ["task-1"]
+        assert captured["kwargs"]["job_id"] == UUID(job_id)
+        assert "run_id" not in captured["kwargs"]
+
+    @pytest.mark.parametrize(
+        ("session_args", "expected_session"),
+        [
+            ([], "rock-job-old-job"),
+            (["--resume-session", "custom-session"], "custom-session"),
+        ],
+    )
+    def test_resume_builds_explicit_handle_and_derives_optional_session(
+        self,
+        monkeypatch,
+        session_args,
+        expected_session,
+    ):
+        from rock.sdk.job.config import BashJobConfig
+
+        captured = {}
+
+        class FakeHandler:
+            def __init__(self, **kwargs):
+                captured["kwargs"] = kwargs
+
+            async def run(self, cfg):
+                captured["cfg"] = cfg
+                return type("R", (), {"failed": 0})()
+
+        monkeypatch.setattr(
+            JobCommand,
+            "_config_from_yaml",
+            lambda self, parser, args: BashJobConfig(job_name="old-job", script="echo hi"),
+        )
+        monkeypatch.setattr("rock.cli.job_run.UnifiedJobRunHandler", FakeHandler)
+
+        parser = _build_parser()
+        ns = parser.parse_args(
+            [
+                "job",
+                "run",
+                "--job-config",
+                "foo.yaml",
+                "--task",
+                "t1",
+                "--resume-sandbox-id",
+                "sb-1",
+                "--resume-pid",
+                "42",
+                *session_args,
+            ]
+        )
+        asyncio.run(JobCommand().arun(ns))
+
+        handle = captured["kwargs"]["resume_handle"]
+        assert handle.sandbox_id == "sb-1"
+        assert handle.pid == 42
+        assert handle.session == expected_session
 
 
-class TestRunQueries:
-    def test_run_list_prints_run_meta(self, monkeypatch, capsys):
-        from rock.sdk.job.meta import RunMeta, RunScoreSummary
-
+class TestArtifactQueries:
+    def test_job_show_reads_result_by_explicit_job_name(self, monkeypatch, capsys):
         viewer = MagicMock()
-        viewer.list_runs.return_value = [
-            RunMeta(
-                run_id="run-1",
-                mode="full",
-                dataset="org/ds",
-                split="test",
-                total_tasks=2,
-                pending_tasks=0,
-                status="completed",
-                summary=RunScoreSummary(completed=2, failed=0, skipped=0, avg_score=1.0, total_score=2.0, pass_rate=1.0),
-            )
-        ]
+        viewer.get_job_result.return_value = {
+            "id": "job-id",
+            "started_at": "start",
+            "finished_at": "finish",
+            "n_total_trials": 1,
+        }
         monkeypatch.setattr(JobCommand, "_build_viewer_from_locator", lambda self, args: viewer)
         parser = _build_parser()
-        ns = parser.parse_args(["job", "run-list", "--job-config", "foo.yaml"])
+        ns = parser.parse_args(["job", "job-show", "job-1"])
 
         asyncio.run(JobCommand().arun(ns))
 
         out = capsys.readouterr().out
-        assert "run-1" in out
-        assert "full" in out
-        assert "org/ds" in out
+        assert "Job: job-1" in out
+        assert "id: job-id" in out
+        viewer.get_job_result.assert_called_once_with("job-1")
 
-    def test_run_status_prints_jobs(self, monkeypatch, capsys):
-        from rock.sdk.job.meta import RunJobStatus, RunMeta
+    def test_job_config_locator_builds_viewer_directly_from_oss_mirror(self, monkeypatch):
+        from rock.sdk.envhub.config import OssMirrorConfig
+        from rock.sdk.job.config import BashJobConfig
 
-        viewer = MagicMock()
+        mirror = OssMirrorConfig(
+            enabled=True,
+            namespace="ns",
+            experiment_id="exp",
+            oss_bucket="bucket",
+            oss_endpoint="endpoint",
+        )
+        config = BashJobConfig(job_name="job-1", script="echo hi", environment={"oss_mirror": mirror})
+        expected_viewer = MagicMock()
+        from_oss_mirror = MagicMock(return_value=expected_viewer)
+        monkeypatch.setattr(JobCommand, "_config_from_yaml", lambda self, parser, args: config)
+        monkeypatch.setattr("rock.sdk.job.viewer.JobViewer.from_oss_mirror", from_oss_mirror)
 
-        class FakeRepo:
-            def __init__(self, _viewer):
-                pass
+        args = argparse.Namespace(job_config="foo.yaml")
+        viewer = JobCommand()._build_viewer_from_locator(args)
 
-            def get(self, run_id):
-                return RunMeta(run_id=run_id, mode="multi", status="partial", total_tasks=1, pending_tasks=0)
-
-            def get_run_job_statuses(self, run_id):
-                return [RunJobStatus(task_id="t1", job_name="j1", status="completed", score=1.0)]
-
-        monkeypatch.setattr(JobCommand, "_build_viewer_from_locator", lambda self, args: viewer)
-        monkeypatch.setattr("rock.sdk.job.run_meta.RunMetaRepository", FakeRepo)
-        parser = _build_parser()
-        ns = parser.parse_args(["job", "run-status", "--run-id", "run-1", "--job-config", "foo.yaml", "--jobs"])
-
-        asyncio.run(JobCommand().arun(ns))
-
-        out = capsys.readouterr().out
-        assert "Run: run-1" in out
-        assert "t1" in out
-        assert "completed" in out
+        assert viewer is expected_viewer
+        from_oss_mirror.assert_called_once_with(mirror)
