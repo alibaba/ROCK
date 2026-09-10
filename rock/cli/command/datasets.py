@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 from rock.cli.command.command import Command
@@ -13,22 +16,47 @@ from rock.sdk.envhub.datasets.client import DatasetClient
 logger = init_logger(__name__)
 
 
-def _non_negative_int(value: str) -> int:
-    ivalue = int(value)
-    if ivalue < 0:
-        raise argparse.ArgumentTypeError("must be >= 0")
-    return ivalue
+class OutputWriter:
+    """Renders command results as JSON or as the default ``table`` text format.
 
+    Centralizes the ``--format`` decision and the actual writing so command
+    handlers do not repeat ``getattr(args, "format", ...)`` checks or import
+    ``json`` directly.
+    """
 
-def _positive_int(value: str) -> int:
-    ivalue = int(value)
-    if ivalue <= 0:
-        raise argparse.ArgumentTypeError("must be >= 1")
-    return ivalue
+    def __init__(self, args: argparse.Namespace) -> None:
+        self._json = getattr(args, "format", "table") == "json"
+
+    @property
+    def is_json(self) -> bool:
+        return self._json
+
+    def json(self, data: dict | list) -> None:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+
+    @staticmethod
+    def dataset_to_dict(dataset) -> dict:
+        data = asdict(dataset)
+        data["task_count"] = len(dataset.task_ids)
+        return data
 
 
 class DatasetsCommand(Command):
     name = "datasets"
+
+    @staticmethod
+    def _non_negative_int(value: str) -> int:
+        ivalue = int(value)
+        if ivalue < 0:
+            raise argparse.ArgumentTypeError("must be >= 0")
+        return ivalue
+
+    @staticmethod
+    def _positive_int(value: str) -> int:
+        ivalue = int(value)
+        if ivalue <= 0:
+            raise argparse.ArgumentTypeError("must be >= 1")
+        return ivalue
 
     async def arun(self, args: argparse.Namespace) -> None:
         if args.datasets_command == "list":
@@ -58,9 +86,23 @@ class DatasetsCommand(Command):
             oss_region=getattr(args, "region", None) or ds_cfg.oss_region,
         )
 
+    def _client(self, args: argparse.Namespace) -> DatasetClient:
+        return DatasetClient(self._build_oss_registry_info(args))
+
     async def _list(self, args: argparse.Namespace) -> None:
-        registry_info = self._build_oss_registry_info(args)
-        client = DatasetClient(registry_info)
+        client = self._client(args)
+        out = OutputWriter(args)
+
+        if out.is_json:
+            if getattr(args, "depth", None) == 1:
+                out.json({"organizations": client.list_organizations()})
+                return
+            datasets = sorted(
+                client.list_datasets(getattr(args, "org", None)),
+                key=lambda d: (d.id, d.split),
+            )
+            out.json({"datasets": [OutputWriter.dataset_to_dict(d) for d in datasets]})
+            return
 
         if getattr(args, "org", None):
             datasets = client.list_org_datasets(args.org)
@@ -105,18 +147,47 @@ class DatasetsCommand(Command):
         print(f"\n{len(orgs)} organizations.")
 
     async def _tasks(self, args: argparse.Namespace) -> None:
-        registry_info = self._build_oss_registry_info(args)
-        client = DatasetClient(registry_info)
-        spec = client.list_dataset_tasks(args.org, args.dataset, args.split)
+        client = self._client(args)
+        out = OutputWriter(args)
+        spec = client.list_dataset_tasks(
+            args.org,
+            args.dataset,
+            args.split,
+            offset=args.offset,
+            limit=args.limit,
+            task_filter=getattr(args, "filter", None),
+        )
 
         if spec is None or not spec.task_ids:
+            if out.is_json:
+                out.json(
+                    {
+                        "dataset": f"{args.org}/{args.dataset}",
+                        "split": args.split,
+                        "count": 0,
+                        "offset": args.offset,
+                        "limit": args.limit,
+                        "task_ids": [],
+                    }
+                )
+                return
             print(f"No tasks found for dataset '{args.org}/{args.dataset}' split '{args.split}'.")
             return
 
-        total = len(spec.task_ids)
-        start = args.offset
-        end = start + args.limit if args.limit is not None else None
-        shown_task_ids = spec.task_ids[start:end]
+        shown_task_ids = spec.task_ids
+
+        if out.is_json:
+            out.json(
+                {
+                    "dataset": spec.id,
+                    "split": spec.split,
+                    "count": len(shown_task_ids),
+                    "offset": args.offset,
+                    "limit": args.limit,
+                    "task_ids": shown_task_ids,
+                }
+            )
+            return
 
         if not shown_task_ids:
             print("No tasks found after applying offset/limit.")
@@ -124,7 +195,7 @@ class DatasetsCommand(Command):
 
         print()
         print("=" * 80)
-        print(f"Dataset: {spec.id}  Split: {spec.split}  Total: {total}  Shown: {len(shown_task_ids)}")
+        print(f"Dataset: {spec.id}  Split: {spec.split}  Shown: {len(shown_task_ids)}")
         print("=" * 80)
         print("#Task name")
         print("-" * 10)
@@ -132,9 +203,19 @@ class DatasetsCommand(Command):
             print(task_id)
 
     async def _splits(self, args: argparse.Namespace) -> None:
-        registry_info = self._build_oss_registry_info(args)
-        client = DatasetClient(registry_info)
+        client = self._client(args)
+        out = OutputWriter(args)
         splits = client.list_dataset_splits(args.org, args.dataset)
+
+        if out.is_json:
+            out.json(
+                {
+                    "dataset": f"{args.org}/{args.dataset}",
+                    "splits": splits,
+                    "count": len(splits),
+                }
+            )
+            return
 
         if not splits:
             print(f"No splits found for dataset '{args.org}/{args.dataset}'.")
@@ -150,10 +231,11 @@ class DatasetsCommand(Command):
 
     async def _upload(self, args: argparse.Namespace) -> None:
         local_dir = Path(args.dir)
-        if not local_dir.is_dir():
-            raise ValueError(f"--dir '{local_dir}' does not exist or is not a directory")
+        if not local_dir.exists():
+            raise ValueError(f"--dir '{local_dir}' does not exist")
 
         registry_info = self._build_oss_registry_info(args)
+        out = OutputWriter(args)
         source = LocalDatasetConfig(path=local_dir)
         target = RegistryDatasetConfig(
             name=f"{args.org}/{args.dataset}",
@@ -163,19 +245,36 @@ class DatasetsCommand(Command):
         )
 
         base = registry_info.oss_dataset_path or "datasets"
-        print(f"Uploading to oss://{registry_info.oss_bucket}/{base}/{args.org}/{args.dataset}/{args.split}/")
+        if not out.is_json:
+            print(f"Uploading to oss://{registry_info.oss_bucket}/{base}/{args.org}/{args.dataset}/{args.split}/")
 
         client = DatasetClient(registry_info)
-        result = client.upload_dataset(source, target, concurrency=args.concurrency)
+        if out.is_json:
+            with contextlib.redirect_stdout(sys.stderr):
+                result = client.upload_dataset(source, target, concurrency=args.concurrency)
+            out.json(asdict(result))
+        else:
+            result = client.upload_dataset(source, target, concurrency=args.concurrency)
+            print(f"\nDone: {result.uploaded} uploaded, {result.skipped} skipped, {result.failed} failed")
 
-        print(f"\nDone: {result.uploaded} uploaded, {result.skipped} skipped, {result.failed} failed")
         if result.failed > 0:
             sys.exit(1)
 
     @staticmethod
     async def add_parser_to(subparsers: argparse._SubParsersAction) -> None:
         datasets_parser = subparsers.add_parser("datasets", description="Dataset operations on OSS")
+        datasets_parser.set_defaults(format="table")
         datasets_subparsers = datasets_parser.add_subparsers(dest="datasets_command")
+
+        def add_output_arg(parser: argparse.ArgumentParser) -> None:
+            parser.add_argument(
+                "-f",
+                "--format",
+                dest="format",
+                choices=["table", "json"],
+                default=argparse.SUPPRESS,
+                help="Output format: table (default) or json",
+            )
 
         def add_oss_args(parser: argparse.ArgumentParser) -> None:
             parser.add_argument("--bucket", help="OSS bucket name (overrides config.ini)")
@@ -188,7 +287,10 @@ class DatasetsCommand(Command):
             )
             parser.add_argument("--region", help="OSS region (overrides config.ini)")
 
+        add_output_arg(datasets_parser)
+
         list_parser = datasets_subparsers.add_parser("list", help="List datasets in OSS registry")
+        add_output_arg(list_parser)
         list_group = list_parser.add_mutually_exclusive_group()
         list_group.add_argument(
             "--depth",
@@ -200,23 +302,35 @@ class DatasetsCommand(Command):
         list_group.add_argument("--org", help="List datasets under the given organization only")
         add_oss_args(list_parser)
         tasks_parser = datasets_subparsers.add_parser("tasks", help="List task IDs under one dataset split")
+        add_output_arg(tasks_parser)
         tasks_parser.add_argument("--org", required=True, help="Organization name")
         tasks_parser.add_argument("--dataset", required=True, help="Dataset name")
         tasks_parser.add_argument("--split", default="test", help="Split name (default: test)")
-        tasks_parser.add_argument("--offset", type=_non_negative_int, default=0, help="Skip first N tasks")
-        tasks_parser.add_argument("--limit", type=_positive_int, default=None, help="Maximum number of tasks to show")
+        tasks_parser.add_argument("--filter", default=None, help="Filter tasks by prefix (e.g. --filter 0xerr0r)")
+        tasks_parser.add_argument(
+            "--offset", type=DatasetsCommand._non_negative_int, default=0, help="Skip first N tasks"
+        )
+        tasks_parser.add_argument(
+            "--limit", type=DatasetsCommand._positive_int, default=None, help="Maximum number of tasks to show"
+        )
         add_oss_args(tasks_parser)
 
         splits_parser = datasets_subparsers.add_parser("splits", help="List splits under one dataset")
+        add_output_arg(splits_parser)
         splits_parser.add_argument("--org", required=True, help="Organization name")
         splits_parser.add_argument("--dataset", required=True, help="Dataset name")
         add_oss_args(splits_parser)
 
         upload_parser = datasets_subparsers.add_parser("upload", help="Upload local task dirs to OSS")
+        add_output_arg(upload_parser)
         upload_parser.add_argument("--org", required=True, help="Organization name")
         upload_parser.add_argument("--dataset", required=True, help="Dataset name")
         upload_parser.add_argument("--split", required=True, help="Split name (e.g. train, test, v1.0)")
-        upload_parser.add_argument("--dir", required=True, help="Local directory containing {task_id}/ subdirectories")
+        upload_parser.add_argument(
+            "--dir",
+            required=True,
+            help="Local dataset directory containing {task_id}/ subdirectories",
+        )
         upload_parser.add_argument(
             "--concurrency",
             type=int,
