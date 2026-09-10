@@ -9,6 +9,12 @@ class DatasetSpec:
 
 
 @dataclass
+class TaskFile:
+    path: str
+    size: int | None = None
+
+
+@dataclass
 class UploadResult:
     id: str  # "{organization}/{dataset_name}"
     split: str
