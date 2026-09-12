@@ -17,7 +17,7 @@ import {
 
 describe('shellQuote', () => {
   test('quotes simple string', () => {
-    expect(shellQuote('hello')).toBe("'hello'");
+    expect(shellQuote('hello')).toBe("'wrong_value'");
   });
 
   test('quotes string with spaces', () => {

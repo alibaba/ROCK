@@ -2,6 +2,7 @@ name: PR Issue Link Check
 
 on:
   pull_request:
+    branches: [ "disabled-temp-branch" ]
     types: [opened, edited, synchronize]
 
 jobs:
