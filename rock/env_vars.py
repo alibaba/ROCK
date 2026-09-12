@@ -55,6 +55,11 @@ if TYPE_CHECKING:
     ROCK_CLI_LOAD_PATHS: str = str(Path(__file__).parent / "cli" / "command")
     ROCK_CLI_DEFAULT_CONFIG_PATH: str
 
+    # Job tracking adapters: comma-separated directories scanned for
+    # TrackingAdapter subclasses. Internal adapters are layered in via a symlink
+    # (setup_xrl_link.sh creates rock/sdk/job/tracking → xrl/rock/sdk/job/tracking).
+    ROCK_TRACKING_LOAD_PATHS: str = str(Path(__file__).parent / "sdk" / "job" / "tracking")
+
     # Model Service Config
     ROCK_MODEL_SERVICE_DATA_DIR: str
     ROCK_MODEL_SERVICE_TRAJ_APPEND_MODE: bool | None = None
@@ -118,6 +123,9 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_PROXY_WORKERS": lambda: int(os.getenv("ROCK_PROXY_WORKERS", "0")),
     "ROCK_FORCE_PRIMARY_POD": lambda: os.getenv("ROCK_FORCE_PRIMARY_POD", "false").lower() == "true",
     "ROCK_CLI_LOAD_PATHS": lambda: os.getenv("ROCK_CLI_LOAD_PATHS", str(Path(__file__).parent / "cli" / "command")),
+    "ROCK_TRACKING_LOAD_PATHS": lambda: os.getenv(
+        "ROCK_TRACKING_LOAD_PATHS", str(Path(__file__).parent / "sdk" / "job" / "tracking")
+    ),
     "ROCK_CLI_DEFAULT_CONFIG_PATH": lambda: os.getenv(
         "ROCK_CLI_DEFAULT_CONFIG_PATH", Path.home() / ".rock" / "config.ini"
     ),
