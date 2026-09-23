@@ -17,7 +17,7 @@ def e2b_sandbox_info_fields(sandbox_id: str, sandbox_status: SandboxStatusRespon
     end_at = (
         sandbox_status.auto_stop_time
         if state == "running"
-        else sandbox_status.auto_delete_time or sandbox_status.archive_time
+        else sandbox_status.auto_delete_time or sandbox_status.archive_time or sandbox_status.stop_time
     )
 
     return {
@@ -29,7 +29,7 @@ def e2b_sandbox_info_fields(sandbox_id: str, sandbox_status: SandboxStatusRespon
         ),
         "state": state,
         "clientID": E2B_CLIENT_ID,
-        "templateID": str(sandbox_status.image),
+        "templateID": sandbox_status.source_snapshot_id or str(sandbox_status.image),
         "envdVersion": E2B_ENVD_VERSION,
         "cpuCount": max(1, math.ceil(float(sandbox_status.cpus))),
         "memoryMB": parse_size_to_bytes(str(sandbox_status.memory)) // (1024**2),

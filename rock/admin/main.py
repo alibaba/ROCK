@@ -49,6 +49,7 @@ from rock.admin.scheduler.tasks.sandbox_log_archive_task import (
 )
 from rock.admin.service.e2b_proxy_service import E2BProxyService
 from rock.admin.service.e2b_service import E2BService
+from rock.admin.service.e2b_snapshot_service import E2BSnapshotService
 from rock.admin.service.image_resolver import create_image_resolver
 from rock.admin.service.ops_service import OpsService
 from rock.admin.service.snapshot_manager import SnapshotManager, SnapshotReconciler
@@ -184,7 +185,7 @@ async def lifespan(app: FastAPI):
     # database when no URL is supplied (including for the snapd operator).
     db_provider = await _init_database_provider(rock_config)
     sandbox_table = SandboxTable(db_provider, rock_config=rock_config)
-    template_table = TemplateTable(db_provider)
+    template_table = TemplateTable(db_provider) if rock_config.runtime.operator_type.lower() != "snapd" else None
     meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=sandbox_table, rock_config=rock_config)
 
     # Wire SandboxLogArchiveTask deps. Providers (vs static set) so Nacos
@@ -256,15 +257,7 @@ async def lifespan(app: FastAPI):
                 meta_store=meta_store,
             )
         set_sandbox_manager(sandbox_manager)
-        set_e2b_sandbox_manager(
-            E2BService(
-                sandbox_manager,
-                template_table,
-                image_resolver=create_image_resolver(
-                    rock_config.e2b_image_resolver, rock_config.http_pool_manager, redis_provider
-                ),
-            )
-        )
+        snapshot_service = None
         warmup_service = WarmupService(rock_config.warmup)
         await warmup_service.init()
         set_warmup_service(warmup_service)
@@ -300,7 +293,7 @@ async def lifespan(app: FastAPI):
                 sandbox_manager,
             )
             sandbox_manager.attach_snapshot_manager(snapshot_manager)
-            set_sandbox_manager(sandbox_manager)
+            snapshot_service = E2BSnapshotService(snapshot_manager, sandbox_manager)
             set_snapshot_manager(snapshot_manager)
             reconciler = SnapshotReconciler(snapshot_manager)
 
@@ -316,6 +309,18 @@ async def lifespan(app: FastAPI):
                     await asyncio.sleep(interval)
 
             snapshot_reconciler_task = asyncio.create_task(reconcile_snapshots())
+
+        set_e2b_sandbox_manager(
+            E2BService(
+                sandbox_manager,
+                template_table,
+                sandbox_table=sandbox_table,
+                snapshot_service=snapshot_service,
+                image_resolver=create_image_resolver(
+                    rock_config.e2b_image_resolver, rock_config.http_pool_manager, redis_provider
+                ),
+            )
+        )
 
     else:
         sandbox_manager = create_sandbox_proxy_service(rock_config=rock_config, meta_store=meta_store)

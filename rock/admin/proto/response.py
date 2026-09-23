@@ -13,6 +13,8 @@ from rock.sdk.common.e2b import E2BConnectCode
 
 
 class E2BCreateSandboxResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     sandbox_id: str = Field(alias="sandboxID")
     envd_version: str = Field(alias="envdVersion")
     envd_access_token: str | None = Field(default=None, alias="envdAccessToken")
@@ -173,6 +175,7 @@ class E2BSandboxInfo(BaseModel):
     disk_size_mb: int = Field(alias="diskSizeMB")
     started_at: str = Field(alias="startedAt")
     end_at: str = Field(alias="endAt")
+    envd_access_token: str | None = Field(default=None, alias="envdAccessToken")
 
 
 class E2BSandboxVolumeMount(BaseModel):

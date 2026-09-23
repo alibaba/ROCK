@@ -38,6 +38,7 @@ for code in OperatorResultCode:
     "rock.sandbox.snapshot_types",
     "rock.admin.core.ray_service",
     "rock.admin.service.snapshot_manager",
+    "rock.admin.entrypoints.e2b_api",
 ])
 def test_cold_import_and_result_serialization(first_module):
     script = """
