@@ -102,6 +102,12 @@ class MetricsMonitor:
         # Phase failure metrics
         self._register_counter(MetricsConstants.SANDBOX_PHASE_FAILURE, "Number of sandbox phase failures")
 
+        # Redis timeout-key cache-miss metrics (tagged by action: rebuilt / skipped_stopped / skipped_no_spec)
+        self._register_counter(
+            MetricsConstants.SANDBOX_TIMEOUT_KEY_MISSING,
+            "Number of sandboxes whose Redis timeout key was missing during the expiry scan",
+        )
+
         # Ray cluster resource metrics (total and available resources)
         self._register_gauge(MetricsConstants.TOTAL_CPU_RESOURCE, "Total CPU resource in Ray cluster")
         self._register_gauge(MetricsConstants.TOTAL_MEM_RESOURCE, "Total memory resource in Ray cluster")
