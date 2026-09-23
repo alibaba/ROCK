@@ -17,6 +17,8 @@ def manager_no_archive():
     m.rock_config.lifecycle = SandboxLifecycleConfig()
     m._meta_store = AsyncMock()
     m._operator = MagicMock()
+    m._snapshot_manager = None
+    m.snapshot_runtime_configured = False
 
     m._dir_storage = None
     m._image_storage = None

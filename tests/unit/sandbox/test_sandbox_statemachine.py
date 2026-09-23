@@ -8,6 +8,7 @@ Covers:
 - Async action callbacks: on_stop
 """
 
+import pickle
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -16,6 +17,13 @@ from statemachine.exceptions import TransitionNotAllowed
 from rock.actions.sandbox.response import State
 from rock.common.constants import StopReason
 from rock.config import AutoTransitionConfig
+from rock.sandbox.operator.snapd import (
+    OperatorLifecycleError,
+    OperatorResultCode,
+    OperatorSandboxResult,
+    SnapdOperator,
+    sandbox_info_from_result,
+)
 from rock.sandbox.sandbox_statemachine import SandboxLifecycleHelper, SandboxStateMachine
 
 
@@ -189,6 +197,24 @@ class TestOnStop:
         store.get = AsyncMock(return_value={"state": State.RUNNING})
         return store
 
+    @pytest.mark.parametrize("code", [OperatorResultCode.FAILED, OperatorResultCode.RESULT_UNKNOWN])
+    def test_actor_lifecycle_error_preserves_observation_after_pickle(self, code):
+        result = OperatorSandboxResult(
+            sandbox_id="sb-1",
+            code=code,
+            state="FAILED" if code is OperatorResultCode.FAILED else "RUNNING",
+
+            last_error="stop outcome is not confirmed",
+        )
+        error = OperatorLifecycleError(sandbox_info_from_result(result))
+
+        restored = pickle.loads(pickle.dumps(error))
+
+        assert type(restored) is OperatorLifecycleError
+        assert str(restored) == str(error)
+        assert restored.sandbox_info == error.sandbox_info
+        assert restored.sandbox_info.operator_observation == result
+
     @pytest.mark.asyncio
     async def test_stops_operator_and_archives(self, mock_operator, mock_meta_store):
         sm = await SandboxStateMachine.from_state_value(State.RUNNING, sandbox_info={})
@@ -222,6 +248,57 @@ class TestOnStop:
         sm = await SandboxStateMachine.from_state_value(State.RUNNING, sandbox_info={})
         await sm.send("stop", sandbox_id="sb-1", operator=op, meta_store=mock_meta_store)
         mock_meta_store.archive.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "code",
+        [OperatorResultCode.FAILED, OperatorResultCode.RESULT_UNKNOWN, OperatorResultCode.IDENTITY_CONFLICT],
+    )
+    async def test_stop_failure_does_not_publish_stopped_state(self, mock_meta_store, code):
+        result = OperatorSandboxResult(
+            sandbox_id="sb-1",
+            code=code,
+            state="FAILED" if code is OperatorResultCode.FAILED else "RUNNING",
+            last_error="stop outcome is not confirmed",
+        )
+        error = OperatorLifecycleError(sandbox_info_from_result(result))
+        op = AsyncMock()
+        op.stop = AsyncMock(side_effect=error)
+        sm = await SandboxStateMachine.from_state_value(State.RUNNING, sandbox_info={})
+
+        with pytest.raises(OperatorLifecycleError, match="stop outcome is not confirmed") as exc:
+            await sm.send(
+                "stop",
+                sandbox_id="sb-1",
+                operator=op,
+                meta_store=mock_meta_store,
+            )
+
+        assert exc.value is error
+        op.stop.assert_awaited_once_with("sb-1", reason=StopReason.MANUAL)
+        mock_meta_store.archive.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_snapshot_stop_releases_guest_endpoint_after_operator_success(self, mock_meta_store):
+        info = {
+            "state": State.RUNNING,
+            "source_snapshot_id": "snapshot-1",
+            "port_mapping": {22555: 32123, 8080: 31080},
+        }
+        operator = AsyncMock()
+        sm = await SandboxStateMachine.from_state_value(State.RUNNING, sandbox_info=info)
+
+        await sm.send(
+            "stop",
+            sandbox_id="sb-1",
+            operator=operator,
+            meta_store=mock_meta_store,
+        )
+
+        operator.stop.assert_awaited_once_with("sb-1", reason=StopReason.MANUAL)
+        archived = mock_meta_store.archive.call_args.args[1]
+        assert "snapshot_runtime" not in archived
+        assert archived["port_mapping"] == {8080: 31080}
 
     @pytest.mark.asyncio
     async def test_logs_billing_when_start_time_present(self, mock_operator, mock_meta_store):
@@ -566,14 +643,44 @@ class TestOnDelete:
         assert archived_info["delete_time"]
 
     @pytest.mark.asyncio
-    async def test_operator_delete_failure_still_archives(self, mock_meta_store):
-        op = AsyncMock()
+    async def test_snapd_delete_failure_does_not_archive(self, mock_meta_store):
+        op = AsyncMock(spec=SnapdOperator)
         op.delete = AsyncMock(side_effect=RuntimeError("worker unreachable"))
         sm = await SandboxStateMachine.from_state_value(State.STOPPED, sandbox_info=dict(_VALID_DELETE_INFO))
+        with pytest.raises(RuntimeError, match="worker unreachable"):
+            await sm.send("delete", sandbox_id="sb-1", operator=op, meta_store=mock_meta_store)
+        mock_meta_store.archive.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("supports_running_delete", [False, True])
+    @pytest.mark.parametrize("state", [State.STOPPED, State.ARCHIVED])
+    async def test_non_snapd_delete_failure_still_archives(self, mock_meta_store, supports_running_delete, state):
+        op = AsyncMock()
+        op.supports_running_delete = supports_running_delete
+        op.delete.side_effect = RuntimeError("worker unreachable")
+        sm = await SandboxStateMachine.from_state_value(state, sandbox_info=dict(_VALID_DELETE_INFO))
         await sm.send("delete", sandbox_id="sb-1", operator=op, meta_store=mock_meta_store)
+        op.delete.assert_awaited_once()
         mock_meta_store.archive.assert_awaited_once()
-        archived_info = mock_meta_store.archive.call_args[0][1]
-        assert archived_info["state"] == State.DELETED
+        assert mock_meta_store.archive.call_args[0][1]["state"] == State.DELETED
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("snapd", [False, True])
+    async def test_invalid_delete_spec_preserves_backend_error_semantics(self, mock_meta_store, snapd):
+        from pydantic import ValidationError
+
+        op = AsyncMock(spec=SnapdOperator) if snapd else AsyncMock()
+        info = {**_VALID_DELETE_INFO, "spec": {"cpus": "invalid"}}
+        sm = await SandboxStateMachine.from_state_value(State.STOPPED, sandbox_info=info)
+        if snapd:
+            with pytest.raises(ValidationError):
+                await sm.send("delete", sandbox_id="sb-1", operator=op, meta_store=mock_meta_store)
+            mock_meta_store.archive.assert_not_awaited()
+        else:
+            await sm.send("delete", sandbox_id="sb-1", operator=op, meta_store=mock_meta_store)
+            mock_meta_store.archive.assert_awaited_once()
+            assert mock_meta_store.archive.call_args[0][1]["state"] == State.DELETED
+        op.delete.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_missing_spec_skips_operator_but_still_archives(self, mock_meta_store):

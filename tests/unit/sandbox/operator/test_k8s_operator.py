@@ -252,6 +252,9 @@ class TestK8sGetStatusWithManager:
             return await SandboxStateMachine.from_state_value(info.get("state"), sandbox_info=info)
 
         m._get_current_statemachine = AsyncMock(side_effect=get_current_statemachine)
+        m._snapshot_manager = None
+        m.snapshot_runtime_configured = False
+        m._get_operator_status = SandboxManager._get_operator_status.__get__(m, SandboxManager)
         m._try_advance_pending = SandboxManager._try_advance_pending.__get__(m, SandboxManager)
         m.get_status = SandboxManager.get_status.__get__(m, SandboxManager)
         m._refresh_timeout = AsyncMock()
@@ -265,6 +268,7 @@ class TestK8sGetStatusWithManager:
         from kubernetes.client.exceptions import ApiException
 
         mock_meta_store.get.return_value = {
+            "sandbox_id": "test-sandbox",
             "state": State.STOPPED,
             "phases": {},
             "port_mapping": {22: 41125, 8080: 51275, 22555: 43823},

@@ -3,9 +3,12 @@
 import asyncio
 import time
 import uuid
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fakeredis import aioredis
+from sqlalchemy.exc import IntegrityError
 
 from rock.actions.sandbox.response import State
 from rock.admin.core.db_provider import DatabaseProvider
@@ -107,25 +110,6 @@ class TestSave:
         db_record = await db.get(SANDBOX_ID)
         assert db_record["env"] == {"WORKSPACE": "/workspace"}
 
-    async def test_create_filters_db_only_fields_from_redis_and_db_status(self, repo, redis, db):
-        config = DockerDeploymentConfig(container_name=SANDBOX_ID, auto_delete_seconds=1200)
-        info = {
-            **SANDBOX_INFO,
-            "spec": {"auto_delete_seconds": 600},
-            "status": {"state": "stale"},
-        }
-
-        await repo.create(SANDBOX_ID, info, deployment_config=config)
-
-        redis_result = await redis.json_get(alive_sandbox_key(SANDBOX_ID), "$")
-        assert "spec" not in redis_result[0]
-        assert "status" not in redis_result[0]
-        with db._db.session_factory() as session:
-            record = session.get(SandboxRecord, SANDBOX_ID)
-            assert record.spec["auto_delete_seconds"] == 1200
-            assert "spec" not in record.status
-            assert "status" not in record.status
-
     async def test_db_get_keeps_requested_auto_seconds_in_spec(self, db):
         """Requested values stay in spec when the status snapshot omits them."""
         config = DockerDeploymentConfig(
@@ -141,6 +125,77 @@ class TestSave:
         assert "auto_delete_seconds" not in db_record
         assert db_record["spec"]["auto_archive_seconds"] == 600
         assert db_record["spec"]["auto_delete_seconds"] == 1200
+
+
+class TestCreateIdentity:
+    async def test_duplicate_create_preserves_durable_rows_and_does_not_reseed_redis(self, repo, redis, db):
+        timeout = {"auto_clear_time": "30", "expire_time": "9999999999"}
+        pending = {**SANDBOX_INFO, "state": State.PENDING}
+        await repo.create(SANDBOX_ID, pending, timeout)
+        original = await db.get(SANDBOX_ID)
+        await redis.json_delete(alive_sandbox_key(SANDBOX_ID))
+        await redis.json_delete(timeout_sandbox_key(SANDBOX_ID))
+
+        with pytest.raises(IntegrityError):
+            await repo.create(SANDBOX_ID, pending, timeout)
+
+        assert await redis.json_get(alive_sandbox_key(SANDBOX_ID), "$") is None
+        assert await redis.json_get(timeout_sandbox_key(SANDBOX_ID), "$") is None
+        assert await db.get(SANDBOX_ID) == original
+        # The ordinary durable read remains available without recreating the
+        # public request or invoking the operator a second time.
+        assert (await repo.get(SANDBOX_ID, check_db=True))["state"] == State.PENDING.value
+
+    async def test_partial_collision_preserves_existing_and_preceding_new_child(self, repo, redis, db):
+        timeout = {"auto_clear_time": "30", "expire_time": "9999999999"}
+        await repo.create(SANDBOX_ID, SANDBOX_INFO, timeout)
+        original = await db.get(SANDBOX_ID)
+        original_hot = await redis.json_get(alive_sandbox_key(SANDBOX_ID), "$")
+        await repo.create("brand-new-child", {**SANDBOX_INFO, "sandbox_id": "brand-new-child", "state": State.PENDING})
+        with pytest.raises(IntegrityError):
+            await repo.create(SANDBOX_ID, {**SANDBOX_INFO, "state": State.PENDING}, {"expire_time": "0"})
+
+        assert (await db.get("brand-new-child"))["state"] == State.PENDING.value
+        assert (await redis.json_get(alive_sandbox_key("brand-new-child"), "$"))[0]["state"] == State.PENDING.value
+        assert await db.get(SANDBOX_ID) == original
+        assert await redis.json_get(alive_sandbox_key(SANDBOX_ID), "$") == original_hot
+        assert await repo.get_timeout(SANDBOX_ID) == timeout
+
+    async def test_db_failure_does_not_write_redis(self, repo, redis, db, monkeypatch):
+        original_error = RuntimeError("database unavailable")
+        monkeypatch.setattr(db, "create", AsyncMock(side_effect=original_error))
+        redis_write = AsyncMock(wraps=redis.json_set)
+        monkeypatch.setattr(redis, "json_set", redis_write)
+
+        with pytest.raises(RuntimeError, match="database unavailable") as raised:
+            await repo.create(SANDBOX_ID, SANDBOX_INFO, {"expire_time": "9999999999"})
+
+        assert raised.value is original_error
+        redis_write.assert_not_awaited()
+        assert await db.get(SANDBOX_ID) is None
+
+    @pytest.mark.parametrize("failed_key", ["alive", "timeout"])
+    async def test_redis_failure_keeps_durable_pending_identity(self, repo, redis, db, monkeypatch, failed_key):
+        pending = {**SANDBOX_INFO, "state": State.PENDING, "source_snapshot_id": "snapshot-a"}
+        config = DockerDeploymentConfig(container_name=SANDBOX_ID, source_snapshot_id="snapshot-a")
+        original_set = redis.json_set
+        failing_key = alive_sandbox_key(SANDBOX_ID) if failed_key == "alive" else timeout_sandbox_key(SANDBOX_ID)
+
+        async def fail_after_insert(key, *args, **kwargs):
+            assert (await db.get(SANDBOX_ID))["state"] == State.PENDING.value
+            if key == failing_key:
+                raise RuntimeError("Redis write failed")
+            return await original_set(key, *args, **kwargs)
+
+        monkeypatch.setattr(redis, "json_set", fail_after_insert)
+        with pytest.raises(RuntimeError, match="Redis write failed"):
+            await repo.create(SANDBOX_ID, pending, {"expire_time": "9999999999"}, config)
+
+        durable = await repo.get_durable(SANDBOX_ID)
+        assert durable["state"] == State.PENDING.value
+        assert durable["source_snapshot_id"] == "snapshot-a"
+        assert durable["spec"]["source_snapshot_id"] == "snapshot-a"
+        assert await redis.json_get(timeout_sandbox_key(SANDBOX_ID), "$") is None
 
 
 class TestUpdate:
@@ -215,9 +270,14 @@ class TestArchive:
         assert db_record["stop_time"] == "2025-06-01T00:00:00Z"
         assert db_record["user_id"] == "user-1"  # original fields preserved
 
-    async def test_archive_filters_db_only_fields_from_db_fallback_info(self, repo, redis, db):
+    async def test_archive_preserves_snapshot_placement_from_db_fallback(self, repo, redis, db):
         config = DockerDeploymentConfig(container_name=SANDBOX_ID, auto_archive_seconds=600)
-        await repo.create(SANDBOX_ID, SANDBOX_INFO, deployment_config=config)
+        full_info = {
+            **SANDBOX_INFO,
+            "source_snapshot_id": "snapshot-a",
+            "snapd_node_id": "node-a",
+        }
+        await repo.create(SANDBOX_ID, full_info, deployment_config=config)
         await redis.json_delete(alive_sandbox_key(SANDBOX_ID))
         db_fallback_info = await db.get(SANDBOX_ID)
         assert "spec" in db_fallback_info
@@ -229,8 +289,8 @@ class TestArchive:
             record = session.get(SandboxRecord, SANDBOX_ID)
             assert record.spec["auto_archive_seconds"] == 600
             assert record.status["state"] == "archiving"
-            assert "spec" not in record.status
-            assert "status" not in record.status
+            assert "snapshot_runtime" not in record.status
+            assert record.status["snapd_node_id"] == "node-a"
 
     async def test_archive_db_written_before_redis_deleted(self, repo, redis, db):
         """DB must be durably updated before the Redis alive key is evicted."""
@@ -260,6 +320,77 @@ class TestGet:
         """get() on a non-existent sandbox should return None."""
         result = await repo.get("does-not-exist")
         assert result is None
+
+    async def test_get_durable_merges_snapshot_identity_into_live_state(self, repo, redis):
+        config = DockerDeploymentConfig(container_name=SANDBOX_ID, image="snapshot:base-1")
+        info = {
+            **SANDBOX_INFO,
+            "source_snapshot_id": "base-1",
+            "snapd_node_id": "node-a",
+        }
+        await repo.create(SANDBOX_ID, info, deployment_config=config)
+        await redis.json_set(alive_sandbox_key(SANDBOX_ID), "$.state", State.PENDING.value)
+
+        hot = await repo.get(SANDBOX_ID)
+        durable = await repo.get_durable(SANDBOX_ID)
+
+        assert hot["source_snapshot_id"] == "base-1"
+        assert "snapshot_runtime" not in hot
+        assert durable["source_snapshot_id"] == "base-1"
+        assert "snapshot_runtime" not in durable
+        assert durable["snapd_node_id"] == "node-a"
+        assert durable["spec"]["image"] == "snapshot:base-1"
+        assert durable["state"] == State.PENDING.value
+
+    async def test_check_db_keeps_redis_hit_when_database_is_unavailable(self, repo, db, monkeypatch):
+        await repo.create(SANDBOX_ID, SANDBOX_INFO)
+        database_get = AsyncMock(side_effect=RuntimeError("database unavailable"))
+        monkeypatch.setattr(db, "get", database_get)
+
+        result = await repo.get(SANDBOX_ID, check_db=True)
+
+        assert result["sandbox_id"] == SANDBOX_ID
+        database_get.assert_not_awaited()
+
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            await repo.get_durable(SANDBOX_ID)
+        database_get.assert_awaited_once_with(SANDBOX_ID)
+
+    async def test_check_db_only_falls_back_after_redis_miss(self, repo, redis):
+        await repo.create(SANDBOX_ID, SANDBOX_INFO)
+        await redis.json_delete(alive_sandbox_key(SANDBOX_ID))
+
+        assert await repo.get(SANDBOX_ID) is None
+        assert (await repo.get(SANDBOX_ID, check_db=True))["sandbox_id"] == SANDBOX_ID
+
+
+class TestLegacyStatusObservation:
+    @pytest.mark.parametrize("observed_state", [State.STOPPED, State.DELETED])
+    async def test_terminal_observation_preserves_live_keys_and_durable_identity(self, repo, redis, db, observed_state):
+        from rock.sandbox.operator.remote.operator import RemoteOperator
+        from rock.sandbox.sandbox_manager import SandboxManager
+
+        info = {**SANDBOX_INFO, "host_name": "remote-platform-id"}
+        timeout = {"auto_clear_time": "30", "expire_time": "9999999999"}
+        await repo.create(SANDBOX_ID, info, timeout_info=timeout)
+        before_hot = await redis.json_get(alive_sandbox_key(SANDBOX_ID), "$")
+        before_db = await db.get(SANDBOX_ID)
+        manager = object.__new__(SandboxManager)
+        manager._meta_store = repo
+        manager._snapshot_manager = None
+        manager._operator = SimpleNamespace(get_status=AsyncMock(return_value={**info, "state": observed_state}))
+
+        response = await manager.get_status(SANDBOX_ID, refresh_timeout=False)
+
+        assert response.state == observed_state
+        assert response.is_alive is False
+        assert await redis.json_get(alive_sandbox_key(SANDBOX_ID), "$") == before_hot
+        assert await db.get(SANDBOX_ID) == before_db
+        assert await repo.get_timeout(SANDBOX_ID) == timeout
+        # RemoteOperator's explicit delete still needs the live platform ID.
+        operator = object.__new__(RemoteOperator)
+        operator.set_redis_provider(redis)
+        assert await operator._resolve_remote_id(SANDBOX_ID) == "remote-platform-id"
 
 
 class TestExists:

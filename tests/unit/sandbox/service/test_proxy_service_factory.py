@@ -17,10 +17,13 @@ async def test_create_proxy_service_uses_opensandbox_subclass(rock_config, sandb
     await service.aclose()
 
 
-def test_create_proxy_service_keeps_existing_service_for_rocklet_operators(rock_config, sandbox_proxy_service):
+@pytest.mark.parametrize("operator_type", ["ray", "snapd"])
+def test_create_proxy_service_keeps_existing_service_for_rocklet_operators(
+    rock_config, sandbox_proxy_service, operator_type
+):
     from rock.sandbox.service.factory import create_sandbox_proxy_service
 
-    rock_config.runtime.operator_type = "ray"
+    rock_config.runtime.operator_type = operator_type
 
     service = create_sandbox_proxy_service(rock_config, sandbox_proxy_service._meta_store)
 

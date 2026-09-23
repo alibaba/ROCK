@@ -187,6 +187,7 @@ class E2BListedSandbox(E2BSandboxInfo):
 
 class SandboxStartResponse(SandboxResponse):
     sandbox_id: str | None = None
+    source_snapshot_id: str | None = None
     host_name: str | None = None
     host_ip: str | None = None
     cpus: float | None = None
@@ -198,6 +199,7 @@ class SandboxStartResponse(SandboxResponse):
 # TODO: inherit from SandboxStartResponse
 class SandboxStatusResponse(BaseModel):
     sandbox_id: str = None
+    source_snapshot_id: str | None = None
     status: dict | None = None
     state: State | None = None
     port_mapping: dict | None = None
@@ -235,6 +237,7 @@ class SandboxStatusResponse(BaseModel):
         )
         return cls(
             sandbox_id=sandbox_info.get("sandbox_id", ""),
+            source_snapshot_id=sandbox_info.get("source_snapshot_id"),
             status=sandbox_info.get("phases", {}),
             state=sandbox_info.get("state"),
             port_mapping=sandbox_info.get("port_mapping", {}),

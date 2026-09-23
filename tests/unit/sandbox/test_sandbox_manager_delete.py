@@ -13,6 +13,7 @@ import pytest
 from rock.actions.sandbox.response import State
 from rock.common.constants import DeleteReason
 from rock.config import RockConfig, SandboxConfig
+from rock.sandbox.operator.snapd import SnapdOperator
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils.crypto_utils import AESEncryption
@@ -203,7 +204,8 @@ class TestDelete:
         manager._meta_store.archive.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_operator_delete_failure_still_archives(self, manager):
+    @pytest.mark.parametrize("snapd", [False, True])
+    async def test_operator_delete_failure_preserves_backend_semantics(self, manager, snapd):
         manager._meta_store.get = AsyncMock(
             return_value={
                 "sandbox_id": "sb-1",
@@ -212,11 +214,18 @@ class TestDelete:
                 "spec": {"container_name": "sb-1", "image": "python:3.11", "memory": "2g", "cpus": 1},
             }
         )
+        if snapd:
+            manager._operator = AsyncMock(spec=SnapdOperator)
+            manager._operator.supports_running_delete = True
         manager._operator.delete = AsyncMock(side_effect=RuntimeError("worker unreachable"))
-        await manager.delete("sb-1")
-        manager._meta_store.archive.assert_awaited_once()
-        info = manager._meta_store.archive.call_args[0][1]
-        assert info["state"] == State.DELETED
+        if snapd:
+            with pytest.raises(RuntimeError, match="worker unreachable"):
+                await manager.delete("sb-1")
+            manager._meta_store.archive.assert_not_awaited()
+        else:
+            await manager.delete("sb-1")
+            manager._meta_store.archive.assert_awaited_once()
+            assert manager._meta_store.archive.call_args[0][1]["state"] == State.DELETED
 
     @pytest.mark.asyncio
     async def test_delete_propagates_reason(self, manager):

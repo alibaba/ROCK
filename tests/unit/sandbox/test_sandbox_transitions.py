@@ -14,9 +14,11 @@ from rock.actions.sandbox.response import State
 from rock.admin.proto.response import SandboxStartResponse
 from rock.common.constants import StopReason
 from rock.config import AutoTransitionConfig, SandboxLifecycleConfig
-from rock.deployments.config import DockerDeploymentConfig
+from rock.deployments.config import DockerDeploymentConfig, LocalDeploymentConfig
+from rock.sandbox.operator.snapd import OperatorResultCode, OperatorSandboxResult, sandbox_info_from_result
 from rock.sandbox.sandbox_manager import SandboxManager
 from rock.sandbox.sandbox_statemachine import SandboxLifecycleHelper
+from rock.sandbox.snapshot_types import LaunchableSnapshot
 from rock.sdk.common.exceptions import BadRequestRockError
 
 
@@ -49,6 +51,7 @@ async def mgr(mock_meta_store, mock_operator):
     m = MagicMock(spec=SandboxManager)
     m._meta_store = mock_meta_store
     m._operator = mock_operator
+    m.snapshot_runtime_configured = False
 
     m._aes_encrypter = MagicMock()
     m._aes_encrypter.encrypt = MagicMock(return_value="enc")
@@ -66,6 +69,7 @@ async def mgr(mock_meta_store, mock_operator):
 
     m.stop = SandboxManager.stop.__get__(m, SandboxManager)
     m._try_advance_pending = SandboxManager._try_advance_pending.__get__(m, SandboxManager)
+    m._get_operator_status = SandboxManager._get_operator_status.__get__(m, SandboxManager)
     m.get_status = SandboxManager.get_status.__get__(m, SandboxManager)
     m._refresh_timeout = AsyncMock()
     return m
@@ -86,6 +90,33 @@ async def test_build_sandbox_info_metadata_does_not_refresh_aes_key(mgr):
 
 
 @pytest.mark.asyncio
+async def test_pending_reconciler_persists_background_snapshot_failure(mgr, mock_meta_store, mock_operator):
+    mgr.snapshot_runtime_configured = True
+    observation = OperatorSandboxResult(
+        sandbox_id="vm-failed",
+
+        state="FAILED",
+        code=OperatorResultCode.FAILED,
+        last_error="restore failed",
+    )
+    row = {
+        "sandbox_id": "vm-failed",
+        "source_snapshot_id": "snapshot-a",
+        "state": State.PENDING,
+    }
+    mock_meta_store.get.return_value = row
+    mock_operator.get_status.return_value = sandbox_info_from_result(observation)
+    mgr._persist_operator_observation = AsyncMock(return_value=row)
+    sm = await mgr._get_current_statemachine("vm-failed")
+    await mgr._try_advance_pending("vm-failed", sm)
+    assert sm.current_state.value is State.STOPPED
+    assert sm.sandbox_info["last_error"] == "restore failed"
+    assert "snapshot_runtime" not in sm.sandbox_info
+    assert "sandbox_runtime" not in sm.sandbox_info
+    mock_meta_store.archive.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_start_async_persists_opaque_metadata():
     from rock.deployments.config import DockerDeploymentConfig
 
@@ -102,6 +133,7 @@ async def test_start_async_persists_opaque_metadata():
     manager._meta_store = AsyncMock()
     manager._apply_user_auto_transition_policy = MagicMock()
     manager._operator = AsyncMock()
+    manager.snapshot_runtime_configured = False
     manager._operator.submit = AsyncMock(
         return_value={"sandbox_id": "sandbox-123", "host_name": "sandbox-123", "host_ip": "10.0.1.23"}
     )
@@ -451,6 +483,101 @@ def mgr_start(mgr, mock_meta_store, mock_operator, mock_docker_config):
 
 
 class TestManagerStart:
+    @pytest.mark.asyncio
+    async def test_snapd_rejects_non_docker_config_before_reading_image(self, mgr_start):
+        mgr_start.snapshot_runtime_configured = True
+
+        with pytest.raises(BadRequestRockError, match="requires a Docker deployment config"):
+            await mgr_start.start_async(LocalDeploymentConfig())
+
+        mgr_start.deployment_manager.init_config.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("resolved_image", ["registry.example/team/python:3.11", "mirror.example/team/python:3.11"])
+    async def test_snapd_start_async_accepts_an_ordinary_oci_image(self, mgr_start, mock_docker_config, resolved_image):
+        snapshot_manager = AsyncMock()
+        snapshot_manager.prepare_base_image.return_value = LaunchableSnapshot(
+            snapshot_id="base-canonical",
+            kind="BASE_IMAGE",
+            format_version=1,
+            spec={"backend_payload": {"value": "opaque"}},
+            spec_checksum="sha256:test",
+            source_worker_ip="10.0.0.9",
+        )
+        snapshot_manager.start_async.return_value = {
+            "sandbox_id": "sb-1",
+            "source_snapshot_id": "base-canonical",
+            "state": "RUNNING",
+        }
+        mgr_start.snapshot_runtime_configured = True
+        mgr_start.launchable_snapshot = AsyncMock(return_value=None)
+        mgr_start._require_snapshot_manager = MagicMock(return_value=snapshot_manager)
+        original_image = "registry.example/team/python:3.11"
+        mock_docker_config.image = resolved_image
+        mock_docker_config.platform = None
+
+        with patch("rock.sandbox.sandbox_manager.apply_start_config", new_callable=AsyncMock):
+            response = await mgr_start.start_async(DockerDeploymentConfig(image=original_image))
+
+        assert response.sandbox_id == "sb-1"
+        assert "template_id" not in response.model_dump()
+        request = snapshot_manager.prepare_base_image.await_args.args[0]
+        assert request.oci_ref == resolved_image
+        assert "image_name" not in snapshot_manager.prepare_base_image.await_args.kwargs
+        launch = snapshot_manager.start_async.await_args
+        assert launch.args[0] == "base-canonical"
+        assert launch.kwargs["deployment_config"] is mock_docker_config
+        assert launch.kwargs["sandbox_image"] == resolved_image
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("container_name", [None, "from-template"])
+    @pytest.mark.parametrize("preallocated_e2b", [False, True])
+    async def test_snapd_template_start_resolves_template_to_actual_artifact(
+        self, mgr_start, container_name, preallocated_e2b,
+    ):
+        template_id = "template-preallocated" if preallocated_e2b else "template-content-hash"
+        snapshot = LaunchableSnapshot(
+            snapshot_id="shared-base", kind="BASE_IMAGE", format_version=1,
+            spec={"backend_payload": {"value": "opaque"}}, spec_checksum="sha256:test",
+        )
+        mgr_start.launchable_snapshot = AsyncMock(return_value=snapshot)
+        mgr_start.snapshot_runtime_configured = True
+        snapshot_manager = AsyncMock()
+
+        async def start_snapshot(snapshot_id, request, **kwargs):
+            # The real lifecycle peer rejects a deployment config whose ID
+            # differs from the request, including an unfilled optional ID.
+            assert kwargs["deployment_config"].container_name == request.sandbox_id
+            return {"sandbox_id": request.sandbox_id}
+
+        snapshot_manager.start_async.side_effect = start_snapshot
+        mgr_start._require_snapshot_manager = MagicMock(return_value=snapshot_manager)
+        config = DockerDeploymentConfig(
+            image=template_id,
+            template_id=template_id if preallocated_e2b else None,
+            source_snapshot_id="shared-base" if preallocated_e2b else None,
+            container_name=container_name,
+            env_vars={"PRESERVE": "yes"},
+        )
+
+        mgr_start.deployment_manager.init_config.return_value = config.model_copy(update={
+            "container_name": container_name or "generated-id",
+            "template_id": template_id,
+        })
+        with patch("rock.sandbox.sandbox_manager.apply_start_config", new_callable=AsyncMock):
+            result = await mgr_start.start_async(config, user_info={}, cluster_info={})
+
+        assert result.sandbox_id
+        if container_name is not None:
+            assert result.sandbox_id == container_name
+        assert config.container_name == container_name
+        assert "template_id" not in result.model_dump()
+        assert snapshot_manager.start_async.await_args.args[0] == "shared-base"
+        deployment = snapshot_manager.start_async.await_args.kwargs["deployment_config"]
+        assert deployment.template_id == template_id
+        assert deployment.container_name == result.sandbox_id
+        assert deployment.env_vars == {"PRESERVE": "yes"}
+
     @pytest.mark.asyncio
     @pytest.mark.parametrize("start_method", ["start_async", "start_from_template"])
     async def test_start_async_applies_shared_start_config(self, mgr_start, start_method):
