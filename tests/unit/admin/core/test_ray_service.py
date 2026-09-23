@@ -123,12 +123,9 @@ async def test_ray_connection_health_check_succeeds_for_usable_connection():
         for call in mock_logger.info.call_args_list
     )
     assert any(
-        call.args and "item=cluster_resources success=true" in call.args[0]
-        for call in mock_logger.info.call_args_list
+        call.args and "item=cluster_resources success=true" in call.args[0] for call in mock_logger.info.call_args_list
     )
-    assert any(
-        call.args and "completed: healthy=true" in call.args[0] for call in mock_logger.info.call_args_list
-    )
+    assert any(call.args and "completed: healthy=true" in call.args[0] for call in mock_logger.info.call_args_list)
 
 
 @pytest.mark.asyncio
@@ -149,6 +146,20 @@ async def test_async_ray_get_raises_when_ray_not_initialized():
 
 
 @pytest.mark.asyncio
+async def test_async_ray_get_retains_legacy_exception_wrapping_by_default():
+    service = _make_service()
+
+    with (
+        patch("rock.admin.core.ray_service.ray.is_initialized", return_value=True),
+        patch("rock.admin.core.ray_service.ray.get", side_effect=ConnectionError("ray head unreachable")),
+        pytest.raises(Exception, match="ray head unreachable") as exc,
+    ):
+        await service.async_ray_get(MagicMock())
+
+    assert type(exc.value) is Exception
+
+
+@pytest.mark.asyncio
 async def test_async_ray_get_actor_raises_when_ray_not_initialized():
     service = _make_service()
 
@@ -160,6 +171,20 @@ async def test_async_ray_get_actor_raises_when_ray_not_initialized():
             await service.async_ray_get_actor("any-actor", namespace="ns")
 
     mock_get_actor.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_async_try_get_actor_returns_none_without_logging_expected_absence():
+    service = _make_service()
+
+    with (
+        patch("rock.admin.core.ray_service.ray.is_initialized", return_value=True),
+        patch("rock.admin.core.ray_service.ray.get_actor", side_effect=ValueError("not found")),
+        patch("rock.admin.core.ray_service.logger") as mock_logger,
+    ):
+        assert await service.async_try_get_actor("missing", namespace="ns") is None
+
+    mock_logger.error.assert_not_called()
 
 
 @pytest.mark.asyncio

@@ -11,6 +11,7 @@ from rock.sandbox.operator.k8s.operator import K8sOperator
 from rock.sandbox.operator.opensandbox.operator import OpenSandboxOperator
 from rock.sandbox.operator.ray import RayOperator
 from rock.sandbox.operator.remote.operator import RemoteOperator
+from rock.sandbox.operator.snapd import SnapdOperator
 from rock.utils.providers.nacos_provider import NacosConfigProvider
 from rock.utils.providers.redis_provider import RedisProvider
 
@@ -20,11 +21,11 @@ logger = init_logger(__name__)
 def operator_requires_ray(operator_type: str) -> bool:
     """Whether admin must initialize a Ray cluster for this operator backend.
 
-    Only the ``ray`` operator runs sandboxes as Ray actors and therefore needs a
-    local Ray cluster. ``k8s`` and ``opensandbox`` delegate the sandbox lifecycle
-    to an external orchestrator, so admin boots without Ray for them.
+    Both ``ray`` and ``snapd`` use detached actors for resource accounting and
+    sandbox execution. Snapd actors call the node-local VM daemon. Other
+    backends do not require a local Ray connection.
     """
-    return operator_type.lower() == "ray"
+    return operator_type.lower() in {"ray", "snapd"}
 
 
 def operator_supports_scheduler(operator_type: str) -> bool:
@@ -122,5 +123,12 @@ class OperatorFactory:
             if context.nacos_provider is not None:
                 remote_operator.set_nacos_provider(context.nacos_provider)
             return remote_operator
+        elif operator_type == "snapd":
+            if context.ray_service is None:
+                raise ValueError("RayService is required for SnapdOperator placement")
+            logger.info("Creating SnapdOperator with Ray placement")
+            return SnapdOperator(context.ray_service)
         else:
-            raise ValueError(f"Unsupported operator type: {operator_type}. Supported types: ray, k8s, opensandbox, remote")
+            raise ValueError(
+                f"Unsupported operator type: {operator_type}. Supported types: ray, k8s, opensandbox, remote, snapd"
+            )
