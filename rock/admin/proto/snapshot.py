@@ -57,6 +57,23 @@ class SnapshotResponse(PublicModel):
     remote_ready_at: datetime.datetime | None = None
     deleted_at: datetime.datetime | None = None
 
+    @classmethod
+    def from_record(cls, record: dict[str, Any]) -> SnapshotResponse:
+        public = {key: value for key, value in record.items() if key in SnapshotResponse.model_fields}
+        public["status"] = {
+            "CREATING": "building",
+            "LOCAL_READY": "building",
+            "REMOTE_READY": "ready",
+            "FAILED": "error",
+            "DELETED": "deleted",
+        }[record["state"]]
+        resources = record.get("resource_spec") or {}
+        for component in ("memory", "rootfs"):
+            logical_bytes = resources.get(f"{component}_bytes")
+            if type(logical_bytes) is int and logical_bytes > 0:
+                public[component] = {"logical_bytes": logical_bytes}
+        return cls.model_validate(public)
+
 
 class ForkSnapshotResponse(PublicModel):
     snapshot: SnapshotResponse

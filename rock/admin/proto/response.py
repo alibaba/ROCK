@@ -1,6 +1,6 @@
 from datetime import timezone
 from pathlib import PurePosixPath
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -208,6 +208,9 @@ class SandboxStatusResponse(BaseModel):
     is_alive: bool = True
     image: str | None = None
     metadata: dict[str, str] | None = None
+    guest_endpoint: dict[str, Any] | None = None
+    vmm_pid: int | None = None
+    rocklet_artifact: dict[str, Any] | None = None
     gateway_version: str | None = None
     swe_rex_version: str | None = None
     user_id: str | None = None
