@@ -1,0 +1,157 @@
+[project]
+name = "tinker"
+version = "0.18.1"
+description = "The official Python SDK for the tinker API"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+{ name = "Tinker authors", email = "tinker@thinkingmachines.ai" },
+]
+keywords = ["tinker", "machine learning"]
+dependencies = [
+    "httpx[http2,zstd]>=0.28,<1",
+    "pydantic>=2.11,<3",
+    "typing-extensions>=4.14,<5",
+    "anyio>=4.10,<5",
+    "chz>=0.4,<0.5",
+    "distro>=1.9,<2",
+    "sniffio>=1.3,<2",
+    "numpy>=2.1,<=2.2.6",
+    "protobuf>=5.29,<7",
+    "pyyaml>=6,<7",
+    "orjson>=3.11,<4",
+    "pillow>=12,<13",
+    "transformers>=5.9,<6",
+    "rich>=14,<15",
+    "termcolor>=3,<4",
+    "click>=8,<9",
+    "pip>=25,<27",
+    "python-dotenv>=1.1,<2",
+]
+
+requires-python = ">= 3.11"
+classifiers = [
+  "Typing :: Typed",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
+  "Operating System :: POSIX",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: Microsoft :: Windows",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "License :: OSI Approved :: Apache Software License"
+]
+
+[project.scripts]
+tinker = "tinker.cli.__main__:cli"
+
+[project.urls]
+Homepage = "https://thinkingmachines.ai/tinker"
+Repository = "https://github.com/thinking-machines-lab/tinker"
+Documentation = "https://tinker-docs.thinkingmachines.ai/"
+
+[project.optional-dependencies]
+aiohttp = ["aiohttp", "httpx_aiohttp>=0.1.8"]
+task-catalog = ["datasets; python_version >= '3.12' and python_version < '3.14'"]
+torch = ["torch"]
+
+[tool.uv]
+managed = true
+required-version = ">=0.5.0"
+default-groups = ["dev", "cookbook"]
+# version pins are in uv.lock
+
+[dependency-groups]
+dev = [
+    "pyright==1.1.402",
+    "mypy>=1.17,<2",
+    "respx>=0.22,<0.23",
+    "pytest>=8.4,<9",
+    "pytest-asyncio>=1.1,<2",
+    "ruff>=0.12,<0.13",
+    "time-machine>=2.16,<3",
+    "dirty-equals>=0.9,<1",
+    "importlib-metadata>=8.7,<9",
+    "rich>=14,<15",
+    "nest_asyncio==1.6.0",
+    "pytest-xdist>=3.8,<4",
+]
+cookbook = [
+    # Cookbook (tinker_cookbook/recipes/...) directly imports torch + transformers
+    # on top of the SDK; transformers is already in [project].dependencies.
+    # Torch (with its CUDA stack) is the heavy extra not needed by the bare SDK.
+    "torch>=2.12,<3",
+    "huggingface-hub>=1.16,<2",
+]
+
+[build-system]
+requires = ["hatchling==1.26.3", "hatch-fancy-pypi-readme"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+include = [
+  "src/*"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tinker"]
+
+[tool.hatch.build.targets.sdist]
+# Basically everything except hidden files/directories (such as .github, .devcontainers, .python-version, etc)
+include = [
+  "/*.toml",
+  "/*.json",
+  "/*.lock",
+  "/*.md",
+  "/mypy.ini",
+  "/noxfile.py",
+  "bin/*",
+  "examples/*",
+  "src/*",
+  "tests/*",
+]
+
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+# replace relative links with absolute links
+pattern = '\[(.+?)\]\(((?!https?://)\S+?)\)'
+replacement = '[\1](https://github.com/stainless-sdks/tinker-python/tree/main/\g<2>)'
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--tb=short -n auto"
+xfail_strict = true
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+filterwarnings = [
+  "error"
+]
+
+[tool.pyright]
+# this enables practically every flag given by pyright.
+# there are a couple of flags that are still disabled by
+# default in strict mode as they are experimental and niche.
+typeCheckingMode = "strict"
+pythonVersion = "3.8"
+
+exclude = [
+    "_dev",
+    ".venv",
+    ".nox",
+]
+
+reportImplicitOverride = true
+reportOverlappingOverload = false
+
+reportImportCycles = false
+reportPrivateUsage = false

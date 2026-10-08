@@ -8,3 +8,12 @@ global-exclude *.md *.txt
 prune tests
 prune examples
 prune docs
+recursive-include rock-tinker/src *.py *.pyi py.typed *.sh *.txt
+recursive-include rock-tinker/tinker_cookbook *.py *.json *.jsonl *.yaml
+recursive-include tinker-backend/src *.py
+include rock-tinker/pyproject.toml rock-tinker/LICENSE tinker-backend/pyproject.toml
+include tinker-sources.json
+prune rock-tinker/tests
+prune tinker-backend/tests
+global-exclude .env *.sqlite3 *.sqlite3-wal *.sqlite3-shm
+recursive-include tinker-backend/src/tinker_backend/templates *.yaml

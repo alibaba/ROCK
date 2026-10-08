@@ -1,0 +1,134 @@
+tinker_backend:
+  platform: local
+  backend_config:
+    repo_path: /root/tinker-backend
+    port: 9000
+    host: 0.0.0.0
+    client_host: 127.0.0.1
+
+backend:
+  base_url: http://127.0.0.1:9000
+runtime:
+  workdir: /root/verl
+  launch_command:
+  - /root/verl/.venv-qwen35/bin/python3
+  - /root/verl/examples/start_tinker_backend_runtime_pipeline.py
+  env:
+    PATH: /root/verl/.venv-qwen35/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    PYTHONPATH: /root/verl
+    CUDA_VISIBLE_DEVICES: 3,4,5,6
+    RAY_ADDRESS: local
+    TOKENIZERS_PARALLELISM: 'true'
+    NCCL_DEBUG: WARN
+    VLLM_LOGGING_LEVEL: INFO
+    VLLM_USE_V1: '1'
+    NCCL_P2P_DISABLE: '1'
+    USE_MODELSCOPE: '1'
+    LD_LIBRARY_PATH: /root/verl/.venv-qwen35/lib/python3.12/site-packages/nvidia/cusolver/lib:/root/verl/.venv-qwen35/lib/python3.12/site-packages/nvidia/nvtx/lib:/root/verl/.venv-qwen35/lib/python3.12/site-packages/nvidia/cufft/lib:/root/verl/.venv-qwen35/lib/python3.12/site-packages/nvidia/cusparse/lib:/root/verl/.venv-qwen35/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:/root/verl/.venv-qwen35/lib/python3.12/site-packages/nvidia/nvjitlink/lib:/root/verl/.venv-qwen35/lib/python3.12/site-packages/nvidia/nvshmem/lib:/root/verl/.venv-qwen35/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib:/root/verl/.venv-qwen35/lib/python3.12/site-packages/nvidia/cublas/lib:/root/verl/.venv-qwen35/lib/python3.12/site-packages/nvidia/cudnn/lib:/root/verl/.venv-qwen35/lib/python3.12/site-packages/nvidia/cufile/lib:/root/verl/.venv-qwen35/lib/python3.12/site-packages/nvidia/nccl/lib:/root/verl/.venv-qwen35/lib/python3.12/site-packages/nvidia/cusparselt/lib:/root/verl/.venv-qwen35/lib/python3.12/site-packages/nvidia/cuda_cupti/lib:/root/verl/.venv-qwen35/lib/python3.12/site-packages/nvidia/curand/lib:/root/verl/.venv-qwen35/lib/python3.12/site-packages/torch/lib
+verl_runtime:
+  action_types:
+  - sample
+  - create_model
+  - forward
+  - forward_backward
+  - optim_step
+  - publish_to_sampler
+  - save_weights
+  - load_weights
+  - close_runtime
+  claim_limit: 1
+  action_poll_interval: 0.5
+  empty_claim_backoff_seconds:
+  - 1
+  - 5
+  - 10
+  heartbeat_interval: 30
+  request_timeout: 300
+  model_path: Qwen/Qwen3-4B-Instruct-2507
+  tokenizer_path: Qwen/Qwen3-4B-Instruct-2507
+  trust_remote_code: true
+  tool_call_parser: hermes
+  enable_auto_tool_choice: true
+  rollout:
+    name: vllm
+    mode: async
+    nnodes: 1
+    n_gpus_per_node: 2
+    tensor_model_parallel_size: 2
+    data_parallel_size: 1
+    pipeline_model_parallel_size: 1
+    gpu_memory_utilization: 0.78
+    max_model_len: 32768
+    response_length: 2048
+    temperature: 0.8
+    top_p: 1.0
+    top_k: -1
+    enforce_eager: true
+    load_format: auto
+    skip_tokenizer_init: false
+    checkpoint_engine:
+      backend: nccl
+      update_weights_bucket_megabytes: 64
+  training:
+    config_name: ppo_trainer
+    trainer_config_dir: /root/verl/verl/trainer/config
+    n_gpus_per_node: 2
+    nnodes: 1
+    total_training_steps: 1
+    max_colocate_count: 3
+    checkpoints_base: /tmp/tinker-backend-verl-checkpoints
+    eager_init: true
+    lora_alpha: 32
+    merge_lora_for_publish: true
+    overrides:
+    - +actor_rollout_ref.model.override_config.attn_implementation=sdpa
+    - actor_rollout_ref.actor.strategy=fsdp
+    - actor_rollout_ref.actor.ppo_mini_batch_size=1
+    - actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1
+    - actor_rollout_ref.actor.use_dynamic_bsz=false
+    - actor_rollout_ref.actor.ppo_max_token_len_per_gpu=32768
+    - actor_rollout_ref.actor.optim.lr=3e-6
+    - actor_rollout_ref.actor.optim.weight_decay=0.0
+    - actor_rollout_ref.actor.optim.total_training_steps=1
+    - actor_rollout_ref.rollout.name=vllm
+    - actor_rollout_ref.rollout.mode=async
+    - actor_rollout_ref.rollout.nnodes=1
+    - actor_rollout_ref.rollout.n_gpus_per_node=2
+    - actor_rollout_ref.rollout.tensor_model_parallel_size=1
+    - actor_rollout_ref.rollout.data_parallel_size=1
+    - actor_rollout_ref.rollout.pipeline_model_parallel_size=1
+    - actor_rollout_ref.rollout.gpu_memory_utilization=0.78
+    - actor_rollout_ref.rollout.max_model_len=32768
+    - actor_rollout_ref.rollout.response_length=2048
+    - actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1
+    - actor_rollout_ref.rollout.load_format=auto
+    - actor_rollout_ref.rollout.enforce_eager=true
+    - trainer.n_gpus_per_node=2
+    - trainer.nnodes=1
+    - trainer.logger=[console]
+    - trainer.val_before_train=false
+rock:
+  enabled: true
+  job_config_path: /path/to/ROCK/examples/tinker_quick_start/harbor.yaml
+  model_service_port: 28080
+  job_wait_timeout_sec: 900
+  llm:
+    model_name: Qwen/Qwen3-4B-Instruct-2507
+    temperature: 0.8
+    max_tokens: 2048
+  agent:
+    name: swe-agent-internal
+    scaffold_config: anthropic
+    max_iterations: 8
+    num_retries: 1
+    tools_parse_function: function_calling
+    full_history: true
+    max_observation_length: 10000
+  runtime:
+    task_timeout_sec: 1800
+    anti_call_timeout_sec: 1800
+  claim_active_interval_seconds: 0.5
+  empty_claim_backoff_seconds:
+  - 1
+  - 5
+  - 10
