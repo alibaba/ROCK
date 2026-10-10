@@ -1,0 +1,84 @@
+# Template: generate real local paths with ROCK/examples/tinker_quick_start/configure.py.
+environment:
+  force_build: false
+  delete: true
+  suppress_override_warnings: false
+  oss_deps: {}
+  env: {}
+  kwargs: {}
+  base_url: http://127.0.0.1:18080
+  extra_headers: {}
+  image: tinker-swe-harbor:quick-start
+  image_os: swe-public-local
+  auto_clear_seconds: 7200
+  startup_timeout: 180.0
+  memory: 8g
+  cpus: 4.0
+  experiment_id: public-swe-local
+  cluster: local
+  use_kata_runtime: false
+  uploads:
+  - - /path/to/tinker-local/assets/harbor-tasks
+    - /opt/swe/harbor-tasks
+job_name: original-cookbook
+experiment_id: public-swe-local
+labels: {}
+timeout: 1800
+jobs_dir: /data/logs/user-defined/jobs
+n_attempts: 1
+timeout_multiplier: 1.0
+debug: false
+orchestrator:
+  type: local
+  n_concurrent_trials: 4
+  quiet: false
+  retry:
+    max_retries: 0
+    exclude_exceptions:
+    - AgentTimeoutError
+    - VerifierOutputParseError
+    - RewardFileEmptyError
+    - RewardFileNotFoundError
+    - VerifierTimeoutError
+    wait_multiplier: 1.0
+    min_wait_sec: 1.0
+    max_wait_sec: 60.0
+  kwargs: {}
+verifier:
+  disable: false
+  native_config:
+    oss_deps: {}
+  env: {}
+metrics: []
+agents:
+- import_path: public_swe_agent:PreinstalledSweAgent
+  model_name: openai/local-qwen
+  override_timeout_sec: 1200.0
+  kwargs:
+    version: 3ea751c087f32b16e039a2233dd6eefecef325d5
+    max_observation_length: '12000'
+    next_step_truncated_observation_template: 'Observation: {{observation[:9000]}}<response
+      clipped>{{observation[-3000:]}}<NOTE>Observations should not exceeded {{max_observation_length}}
+      characters. {{elided_chars}} characters were elided. Please try a different
+      command that produces less output or use head/tail/grep/redirect the output
+      to a file. Do not use interactive pagers.</NOTE>'
+    history_processors: '[{"type": "last_n_observations", "n": 8, "polling": 1}, {"type":
+      "cache_control", "last_n_messages": 2}]'
+    max_input_tokens: '32768'
+    per_instance_call_limit: '31'
+    max_output_tokens: '8192'
+    per_instance_cost_limit: '0'
+    total_cost_limit: '0'
+    temperature: '1.0'
+    top_p: '1.0'
+    completion_kwargs: '{"max_tokens": 8192}'
+  env:
+    OPENAI_API_KEY: public-local
+    SWEAGENT_CONFIG: /opt/sweagent-configs/public.yaml
+datasets:
+- task_names:
+  - sympy__sympy-19637
+  n_tasks: 1
+  path: /opt/swe/harbor-tasks
+tasks: []
+artifacts: []

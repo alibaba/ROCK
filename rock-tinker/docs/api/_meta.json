@@ -1,0 +1,9 @@
+{
+  "tinkerclient": "TinkerClient",
+  "trainingclient": "TrainingClient",
+  "samplingclient": "SamplingClient",
+  "restclient": "RestClient",
+  "apifuture": "APIFuture",
+  "types": "Parameters",
+  "exceptions": "Exceptions"
+}

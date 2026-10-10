@@ -104,6 +104,8 @@ all = [
 ]
 
 [project.scripts]
+tinker = "tinker.cli.__main__:cli"
+tinker-backend = "tinker_backend.main:main"
 rocklet = "rock.rocklet.server:main"
 admin = "rock.admin.main:main"
 envhub = "rock.envhub.server:main"
@@ -128,11 +130,25 @@ test = [
     "pytest-env",
 ]
 
+[tool.setuptools]
+license-files = ["LICENSE", "rock-tinker/LICENSE", "rock-tinker/NOTICE", "rock-tinker/tinker_cookbook/LICENSE"]
+
+[tool.setuptools.package-dir]
+"" = "."
+tinker = "rock-tinker/src/tinker"
+tinker_backend = "tinker-backend/src/tinker_backend"
+tinker_cookbook = "rock-tinker/tinker_cookbook"
+
 [tool.setuptools.packages.find]
-where = ["."]
+where = [".", "rock-tinker/src", "tinker-backend/src", "rock-tinker"]
+include = ["rock", "rock.*", "tinker", "tinker.*", "tinker_backend", "tinker_backend.*", "tinker_cookbook", "tinker_cookbook.*"]
+namespaces = true
 
 [tool.setuptools.package-data]
 rock = ["rocklet/local_files/*"]
+tinker = ["py.typed", "proto/*.pyi"]
+tinker_cookbook = ["config/*.yaml"]
+tinker_backend = ["templates/**/*.yaml"]
 
 [[tool.uv.index]]
 url = "https://mirrors.aliyun.com/pypi/simple/"
@@ -164,6 +180,8 @@ ignore = [
 split-on-trailing-comma = true
 
 [tool.pytest.ini_options]
+# Tinker has an isolated environment; run its tests explicitly from that project.
+testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = [
     "-v",               # Verbose output

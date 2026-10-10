@@ -1,0 +1,30 @@
+from typing import Optional
+
+from typing_extensions import Literal
+
+from .._compat import PYDANTIC_V2, ConfigDict
+from .._models import StrictBase
+from .model_id import ModelID
+
+__all__ = ["LoadWeightsRequest"]
+
+
+class LoadWeightsRequest(StrictBase):
+    model_id: ModelID
+
+    path: str
+    """A tinker URI for model weights at a specific step"""
+
+    optimizer: bool
+    """Whether to load optimizer state along with model weights"""
+
+    seq_id: Optional[int] = None
+
+    weights_access_token: Optional[str] = None
+    """Optional access token for loading checkpoints under a different account."""
+
+    type: Literal["load_weights"] = "load_weights"
+
+    if PYDANTIC_V2:
+        # allow fields with a `model_` prefix
+        model_config = ConfigDict(protected_namespaces=tuple())

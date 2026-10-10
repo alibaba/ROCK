@@ -1,0 +1,45 @@
+[project]
+name = "tinker-backend"
+version = "0.1.0"
+description = "Tinker backend control plane"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "alembic",
+    "aiosqlite",
+    "asyncpg",
+    "fastapi",
+    "httpx",
+    "pydantic-settings",
+    "python-dotenv",
+    "pyyaml>=6.0.3",
+    "rl-rock>=1.12.0",
+    "sqlalchemy[asyncio]",
+    "uvicorn[standard]",
+    "zstandard>=0.23,<1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4,<9",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[project.scripts]
+tinker-backend = "tinker_backend.main:main"
+
+[tool.uv]
+prerelease = "if-necessary-or-explicit"
+
+[[tool.uv.index]]
+url = "https://mirrors.aliyun.com/pypi/simple/"
+default = true
+
+[tool.uv.sources]
+rl-rock = { path = "..", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
