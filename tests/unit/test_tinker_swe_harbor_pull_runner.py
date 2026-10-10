@@ -1,10 +1,19 @@
 """Public operator regressions for the original cookbook."""
 import asyncio
+import importlib.util
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
+
+import pytest
+
 from rock.sdk.bench.models.job.config import HarborJobConfig
+
+# ROLL is installed only in the separate Tinker runtime environment.
+if importlib.util.find_spec("roll") is None:
+    pytest.skip("Requires the optional ROLL Tinker runtime", allow_module_level=True)
+
 from examples.tinker_quick_start import harbor_pull_runner as module
 
 

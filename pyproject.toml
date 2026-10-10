@@ -180,6 +180,8 @@ ignore = [
 split-on-trailing-comma = true
 
 [tool.pytest.ini_options]
+# Tinker has an isolated environment; run its tests explicitly from that project.
+testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = [
     "-v",               # Verbose output
