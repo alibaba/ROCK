@@ -1,0 +1,27 @@
+ROCK Tinker fork — third-party attribution
+
+This distribution includes code derived from the following Apache-2.0 projects:
+
+Tinker Python SDK
+  Source: https://github.com/thinking-machines-lab/tinker
+  Copyright 2025 Tinker
+  Version reference: 0.18.1
+  Comparison revision: 931e2bd06dcc74d916c521afd83d58c4205df6be
+  License: rock-tinker/LICENSE
+
+Tinker Cookbook
+  Source: https://github.com/thinking-machines-lab/tinker-cookbook
+  Copyright 2025 Thinking Machines Lab
+  Comparison revision: 9dfcc3a2cf44432d621a01005073dc6d76a1e87a
+  License: rock-tinker/tinker_cookbook/LICENSE
+
+These references identify the reviewed public source; they are not verified
+original fork-point commits. The inherited source did not record the exact
+original SDK fork point or Cookbook import revision. See UPSTREAM.json.
+
+This fork modifies SDK client transport, runtime-scoped sampling/training,
+weight publication and local lifecycle behavior, and adds public task discovery,
+a local backend, ROLL integration and SWE-agent/Harbor ModelService recipes.
+It is not the unmodified official SDK or Cookbook. Upstream-derived files
+modified in this fork carry an accompanying change notice. Original notices
+and generated-source headers are retained.
