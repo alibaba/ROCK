@@ -8,3 +8,6 @@ global-exclude *.md *.txt
 prune tests
 prune examples
 prune docs
+prune rock-tinker
+prune tinker-backend
+exclude tinker-sources.json

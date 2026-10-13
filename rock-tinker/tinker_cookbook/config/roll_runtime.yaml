@@ -1,0 +1,62 @@
+# Template only: use ROCK/examples/tinker_quick_start/configure.py to generate local paths and matching engine/Harbor settings.
+backend:
+  base_url: http://127.0.0.1:19210
+runtime:
+  workdir: /path/to/ROLL
+  launch_command:
+  - /path/to/tinker-local/runtime-venv/bin/python
+  - -m
+  - roll.pipeline.tinker_backend_runtime.runtime_pipeline
+  env:
+    PYTHONPATH: /path/to/ROLL/mcore_adapter/src:/path/to/ROLL
+    LD_LIBRARY_PATH: /usr/local/cuda/compat/lib.real:/usr/local/cuda/lib64:/usr/local/lib/python3.12/dist-packages/nvidia/cu13/lib
+    LD_PRELOAD: /usr/local/cuda/lib64/libcublasLt.so.13:/usr/local/cuda/lib64/libcublas.so.13
+    TINKER_ENABLE_TRAINING_BACKEND: '0'
+    TINKER_PARAMETER_PROBE: '1'
+    MODEL_DOWNLOAD_TYPE: HUGGINGFACE_HUB
+    USE_MODELSCOPE: '0'
+    HF_HUB_OFFLINE: '1'
+    TRANSFORMERS_OFFLINE: '1'
+    VLLM_WORKER_MULTIPROC_METHOD: spawn
+    OMP_NUM_THREADS: '2'
+tinker_runtime:
+  backend_config:
+    config_path: /path/to/ROLL/examples/tinker_backend_runtime
+    config_name: public_swe_training_engine
+    ray_address: local
+    ray_temp_dir: /path/to/tinker-local/ray
+  action_types:
+  - sample
+  - close_runtime
+  claim_limit: 4
+  action_poll_interval: 0.5
+  heartbeat_interval: 30
+  request_timeout: 180
+  startup_retries: 600
+  startup_retry_interval: 1
+  finish_after_sample: false
+  enable_thinking: false
+  checkpoints_base: /path/to/tinker-local/checkpoints/original-cookbook
+rock:
+  enabled: true
+  workdir: /path/to/ROCK
+  bench_name: SWE-bench
+  job_config_path: /path/to/ROCK/examples/tinker_quick_start/harbor.yaml
+  operator_factory: examples.tinker_quick_start.harbor_pull_runner:PublicModelServiceOperator
+  operator_kwargs:
+    port: 28080
+  model_service_port: 28080
+  job_wait_timeout_sec: 900
+  anti_call_timeout_sec: 1800
+  runtime:
+    task_timeout_sec: 1800
+  env:
+    PYTHONPATH: /path/to/ROCK/rock-tinker/src:/path/to/ROCK/rock-tinker:/path/to/ROCK/tinker-backend/src:/path/to/ROCK:/path/to/ROLL
+    PYTHON_DOTENV_DISABLED: '1'
+tinker_backend:
+  platform: local
+  backend_config:
+    host: 127.0.0.1
+    client_host: 127.0.0.1
+    port: 19210
+    startup_timeout: 60

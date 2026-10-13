@@ -1,0 +1,25 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv/
+
+# Local runtime config and progress notes
+.agents/
+
+# Tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+# Runtime logs
+*.log
+logs/
+
+# Local SQLite database
+tinker_backend.sqlite3
+tinker_backend.sqlite3-*

@@ -1,0 +1,4 @@
+#!/bin/bash
+export PYTHONNOUSERSITE=1 LITELLM_LOCAL_MODEL_COST_MAP=True LITELLM_TELEMETRY=False
+export TIKTOKEN_CACHE_DIR=/opt/tiktoken-cache
+exec /opt/sweagent-venv/bin/python -m sweagent.run.run "$@"

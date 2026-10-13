@@ -1,0 +1,15 @@
+tinker_backend:
+  platform: local
+  backend_config:
+    repo_path: /root/tinker-backend
+    port: 9000
+    host: 0.0.0.0
+    client_host: 127.0.0.1
+
+runtime:
+  launch_script: /root/tinker-dummy/run_dummy.py
+  workdir: /root/tinker-dummy
+  env:
+    TINKER_DUMMY_HEARTBEAT_INTERVAL: "30"
+backend:
+  base_url: http://127.0.0.1:9000

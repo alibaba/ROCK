@@ -1,0 +1,24 @@
+# Build only the isolated SWE-agent runtime; task environments remain untouched.
+FROM python:3.12-slim-bookworm
+ENV PYTHONNOUSERSITE=1 PIP_NO_INDEX=1 PIP_EXTRA_INDEX_URL="" \
+    LITELLM_LOCAL_MODEL_COST_MAP=True LITELLM_TELEMETRY=False TIKTOKEN_CACHE_DIR=/opt/tiktoken-cache
+COPY python312/ /opt/python312/
+COPY agent-wheels/ /opt/offline-wheels/agent/
+COPY tool-wheels/ /opt/offline-wheels/tools/
+COPY swe-agent-source.tar.gz swe-agent-source.json /opt/sweagent-artifacts/
+RUN mkdir -p /opt/SWE-agent /opt/sweagent-configs \
+    && tar -xzf /opt/sweagent-artifacts/swe-agent-source.tar.gz --strip-components=1 -C /opt/SWE-agent \
+    && /opt/python312/bin/python3.12 -m venv /opt/sweagent-venv \
+    && /opt/sweagent-venv/bin/python -m pip install --no-index --find-links /opt/offline-wheels/agent /opt/offline-wheels/agent/sweagent-1.1.0-py3-none-any.whl \
+    && /opt/sweagent-venv/bin/python -m pip install --no-index --find-links /opt/offline-wheels/tools tree-sitter==0.21.3 tree-sitter-languages==1.10.2 \
+    && cp /opt/offline-wheels/agent/sweagent-1.1.0-py3-none-any.whl /opt/sweagent-artifacts/ \
+    && cp -a /opt/SWE-agent/config /opt/SWE-agent/tools /opt/sweagent-venv/lib/python3.12/site-packages/ \
+    && mkdir -p /opt/sweagent-venv/lib/python3.12/site-packages/trajectories
+COPY prepare_agent_tools.py /tmp/prepare_agent_tools.py
+RUN /opt/sweagent-venv/bin/python /tmp/prepare_agent_tools.py /opt/SWE-agent/tools /opt/sweagent-tools
+COPY public-sweagent.yaml /opt/sweagent-configs/public.yaml
+COPY tiktoken-cache/ /opt/tiktoken-cache/
+COPY sweagent-wrapper /usr/local/bin/sweagent
+RUN chmod 755 /usr/local/bin/sweagent \
+    && GIT_PYTHON_REFRESH=quiet /opt/sweagent-venv/bin/python -c 'import sweagent; from sweagent.agent.agents import DefaultAgentConfig; import yaml; DefaultAgentConfig.model_validate(yaml.safe_load(open("/opt/sweagent-configs/public.yaml"))["agent"]); from tree_sitter_languages import get_parser; get_parser("python"); import tiktoken; tiktoken.get_encoding("cl100k_base"); tiktoken.get_encoding("o200k_base")' \
+    && tar -czf /sweagent-runtime.tar.gz -C / opt/python312 opt/sweagent-venv opt/SWE-agent opt/sweagent-tools opt/sweagent-configs opt/sweagent-artifacts opt/tiktoken-cache usr/local/bin/sweagent

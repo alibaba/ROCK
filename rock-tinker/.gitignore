@@ -1,0 +1,22 @@
+.prism.log
+_dev
+
+__pycache__
+.mypy_cache
+
+dist
+
+.venv
+.idea
+
+.env
+.envrc
+codegen.log
+Brewfile.lock.json
+
+# Ad-hoc run logs and scratch dirs
+output*.log
+tmp/
+results/
+
+.agents/

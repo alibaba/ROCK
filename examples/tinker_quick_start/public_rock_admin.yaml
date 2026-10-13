@@ -1,0 +1,22 @@
+# Template: generate real local paths with ROCK/examples/tinker_quick_start/configure.py.
+_base: /path/to/tinker-local/config/local-key.yaml
+# Explicit standalone configuration; never inherit old internal configuration.
+ray:
+  address: null
+  namespace: tinker-swe-rock-local
+  temp_dir: /tmp/tinker-swe-rock-admin-ray
+nacos: {}
+redis: {}
+database: {}
+warmup:
+  images: []
+scheduler:
+  enabled: false
+  tasks: []
+runtime:
+  operator_type: ray
+  image_os_profiles:
+    swe-public-local:
+      runtime_env:
+        volume_mounts: []
+        rocklet_start_cmd: /opt/rocklet/bin/rocklet --port {proxy_port}

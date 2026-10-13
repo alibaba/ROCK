@@ -1,0 +1,28 @@
+experiment_id: SWE-bench-test
+timeout: 7200
+environment:
+  base_url: http://127.0.0.1:18080
+  xrl_authorization: ""
+  cluster: local
+  image: tinker-harbor:local
+  memory: 16g
+  cpus: 4
+  startup_timeout: 1800
+  env: {}
+  oss_mirror:
+    enabled: false
+agents:
+  - name: swe-agent
+    model_name: openai/default
+    kwargs:
+      api_key: ""
+      api_base: ""
+orchestrator:
+  n_concurrent_trials: 1
+datasets:
+  - registry:
+      split: test
+    name: princeton-nlp/SWE-bench_Verified
+    task_names: [""]
+verifier:
+  disable: false
