@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import UUID, uuid4
 
 from rock.sdk.bench.job import Job, JobResult, JobStatus
 from rock.sdk.bench.models.job.config import (
@@ -178,6 +179,14 @@ class TestJob:
         job = Job(config)
         assert job._config == config
 
+    def test_same_named_jobs_get_distinct_generated_ids(self):
+        first = Job(HarborJobConfig(job_name="same", experiment_id="test-exp"))
+        second = Job(HarborJobConfig(job_name="same", experiment_id="test-exp"))
+
+        assert isinstance(first.job_id, UUID)
+        assert isinstance(second.job_id, UUID)
+        assert first.job_id != second.job_id
+
     def test_init_rejects_wrong_type(self):
         import pytest
 
@@ -186,6 +195,7 @@ class TestJob:
 
     async def test_run_full_lifecycle(self):
         mock_sandbox = _make_mock_sandbox()
+        job_id = uuid4()
 
         with patch("rock.sdk.sandbox.client.Sandbox", return_value=mock_sandbox):
             config = HarborJobConfig(
@@ -194,9 +204,10 @@ class TestJob:
                 agents=[AgentConfig(name="t2")],
                 datasets=[RegistryDatasetConfig(registry=RemoteRegistryInfo(), name="tb", version="2.0")],
             )
-            job = Job(config)
+            job = Job(config, job_id=job_id)
             result = await job.run()
 
+            assert result.job_id == str(job_id)
             assert result.status == JobStatus.COMPLETED
             assert len(result.trial_results) == 1
             assert result.trial_results[0].score == 1.0

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import pytest
+from uuid import UUID
 
 from rock.sdk.bench.models.job.config import HarborJobConfig, OssRegistryInfo, RegistryDatasetConfig
 from rock.sdk.job.config import BashJobConfig
@@ -26,21 +26,24 @@ class TestSingleTaskPlanner:
         from rock.sdk.job.trial.harbor import HarborTrial
 
         template = make_harbor_config()
-        planner = SingleTaskPlanner(run_id="run-123")
+        planner = SingleTaskPlanner()
+        job_id = UUID("12345678-1234-5678-1234-567812345678")
 
         planned = planner.plan(
             template,
             task=ResolvedTask(task_id="task-001", org="alibaba", dataset="alibaba/aone-bench", split="test"),
+            job_id=job_id,
         )
 
+        assert planned.job_id == job_id
         assert planned.task_id == "task-001"
         assert planned.config is not template
         assert planned.config.datasets[0].name == "alibaba/aone-bench"
         assert planned.config.datasets[0].task_names == ["task-001"]
         assert planned.config.datasets[0].registry.split == "test"
         assert planned.config.datasets[0].version == "test"
-        assert planned.config.job_name == "aone-bench_task-001_run-123"
-        assert planned.config.labels["rock_run_id"] == "run-123"
+        assert planned.config.job_name == "aone-bench_task-001_12345678"
+        assert planned.config.labels["rock_job_id"] == str(job_id)
         assert planned.config.labels["rock_task_id"] == "task-001"
         assert planned.config.labels["keep"] == "yes"
         assert isinstance(planned.trial, HarborTrial)
@@ -54,15 +57,21 @@ class TestSingleTaskPlanner:
         from rock.sdk.job.trial.bash import BashTrial
 
         template = BashJobConfig(script="echo $TASK", environment={"env": {"TASK": "old", "KEEP": "1"}})
-        planner = SingleTaskPlanner(run_id="run-123")
+        planner = SingleTaskPlanner()
+        job_id = UUID("12345678-1234-5678-1234-567812345678")
 
-        planned = planner.plan(template, task=ResolvedTask(task_id="task-001", dataset="bench", split="test"))
+        planned = planner.plan(
+            template,
+            task=ResolvedTask(task_id="task-001", dataset="bench", split="test"),
+            job_id=job_id,
+        )
 
+        assert planned.job_id == job_id
         assert planned.config is not template
         assert planned.config.environment.env["TASK"] == "task-001"
         assert planned.config.environment.env["ROCK_TASK_ID"] == "task-001"
-        assert planned.config.environment.env["ROCK_RUN_ID"] == "run-123"
-        assert planned.config.environment.env["ROCK_JOB_NAME"] == "bench_task-001_run-123"
+        assert planned.config.environment.env["ROCK_JOB_ID"] == str(job_id)
+        assert planned.config.environment.env["ROCK_JOB_NAME"] == "bench_task-001_12345678"
         assert planned.config.environment.env["ROCK_DATASET"] == "bench"
         assert planned.config.environment.env["ROCK_SPLIT"] == "test"
         assert template.environment.env["TASK"] == "old"
@@ -72,10 +81,30 @@ class TestSingleTaskPlanner:
         from rock.sdk.job.planner import ResolvedTask, SingleTaskPlanner
 
         template = BashJobConfig(job_name="yaml-job", script="echo $TASK")
-        planner = SingleTaskPlanner(run_id="run-123", preserve_job_name=True)
+        planner = SingleTaskPlanner(preserve_job_name=True)
+        job_id = UUID("12345678-1234-5678-1234-567812345678")
 
-        planned = planner.plan(template, task=ResolvedTask(task_id="task-001", dataset="bench", split="test"))
+        planned = planner.plan(
+            template,
+            task=ResolvedTask(task_id="task-001", dataset="bench", split="test"),
+            job_id=job_id,
+        )
 
+        assert planned.job_id == job_id
         assert planned.job_name == "yaml-job"
         assert planned.config.job_name == "yaml-job"
+        assert planned.config.labels["rock_job_id"] == str(job_id)
         assert planned.config.environment.env["ROCK_JOB_NAME"] == "yaml-job"
+
+    def test_plan_same_task_twice_gets_distinct_job_ids_and_names(self):
+        from rock.sdk.job.planner import ResolvedTask, SingleTaskPlanner
+
+        planner = SingleTaskPlanner()
+        template = BashJobConfig(script="echo $TASK")
+        task = ResolvedTask(task_id="task-001", dataset="bench")
+
+        first = planner.plan(template, task=task)
+        second = planner.plan(template, task=task)
+
+        assert first.job_id != second.job_id
+        assert first.job_name != second.job_name

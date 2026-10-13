@@ -7,6 +7,7 @@ belongs to the CLI layer.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from uuid import UUID, uuid4
 
 from rock.sdk.job.executor import JobExecutor
 from rock.sdk.job.operator import ScatterOperator
@@ -22,11 +23,23 @@ if TYPE_CHECKING:
 class Job:
     """Thin user-facing entry point for one JobConfig."""
 
-    def __init__(self, config: JobConfig, operator: Operator | None = None):
+    def __init__(
+        self,
+        config: JobConfig,
+        operator: Operator | None = None,
+        *,
+        job_id: UUID | None = None,
+    ):
         self._config = config
         self._executor = JobExecutor()
         self._operator = operator or ScatterOperator()
+        self._job_id = job_id or uuid4()
         self._job_client: JobClient | None = None
+
+    @property
+    def job_id(self) -> UUID:
+        """Unique metadata identity for this Job execution."""
+        return self._job_id
 
     async def run(self) -> JobResult:
         """Full lifecycle: submit + wait."""
@@ -63,7 +76,7 @@ class Job:
         raw_output = next((t.raw_output for t in flat if t.raw_output), "")
         exit_code = next((t.exit_code for t in flat if t.exit_code != 0), 0)
         return JobResult(
-            job_id=self._config.job_name or "",
+            job_id=str(self._job_id),
             status=JobStatus.COMPLETED if all_success else JobStatus.FAILED,
             labels=self._config.labels,
             trial_results=flat,
