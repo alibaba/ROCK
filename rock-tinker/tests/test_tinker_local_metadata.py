@@ -3,7 +3,7 @@ from pathlib import Path
 import tomllib
 from packaging.requirements import Requirement
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[2]
 PROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text())
 LOCAL = tomllib.loads((ROOT / "rock-tinker/local/pyproject.toml").read_text())
 
@@ -30,7 +30,10 @@ def test_control_group_has_services_and_scoped_cpu_torch_source():
     assert not {"vllm", "sglang", "megatron-core", "transformer-engine", "gem-llm"} & deps
 
 def test_sdk_backend_requirements_are_in_tinker_environment():
-    available = names(LOCAL["project"]["dependencies"]) | names(PROJECT["project"]["dependencies"])
+    available = names(LOCAL["project"]["dependencies"]) | names(LOCAL["dependency-groups"]["control"]) | names(PROJECT["project"]["dependencies"])
+    assert {"rock-tinker", "tinker-backend"} <= names(LOCAL["dependency-groups"]["control"])
+    assert LOCAL["tool"]["uv"]["sources"]["rock-tinker"] == {"path": "..", "editable": True}
+    assert LOCAL["tool"]["uv"]["sources"]["tinker-backend"] == {"path": "../../tinker-backend", "editable": True}
     for path in ("rock-tinker/pyproject.toml", "tinker-backend/pyproject.toml"):
         project = tomllib.loads((ROOT / path).read_text())["project"]
         assert names(project["dependencies"]) <= available

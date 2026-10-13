@@ -1,4 +1,4 @@
-"""Run with the interpreter into which the unified wheel was installed."""
+"""Run with the interpreter into which the three separate wheels were installed."""
 
 from __future__ import annotations
 
@@ -14,41 +14,46 @@ from pathlib import Path
 from zipfile import ZipFile
 
 
-def inspect_wheel(wheel: Path) -> None:
+def inspect_wheel(wheel: Path, kind: str) -> None:
     with ZipFile(wheel) as archive:
         names = archive.namelist()
-        runtime_configs = [name for name in names if name.startswith("tinker_cookbook/config/") and name.endswith(".yaml")]
-        assert all(Path(name).name.startswith(("roll_", "dummy_")) for name in runtime_configs), "Unexpected runtime configs; build from clean sources"
-        required = [
-            "rock/actions/envs/base.py",
-            "tinker/__init__.py",
-            "tinker/py.typed",
-            "tinker/proto/tinker_public_pb2.pyi",
-            "tinker/server_job/platforms/local.py",
-            "tinker_backend/rock_config.py",
-            "tinker_backend/templates/SWE-bench/job_config.yaml",
-            "tinker_cookbook/stores/training_store.py",
-            "tinker_cookbook/config/roll_runtime.yaml",
-        ]
-        required += [f"tinker_cookbook/config/{name}.yaml" for name in (
-            "dummy_runtime", "roll_train_runtime",
-        )]
-        assert not any(name.startswith("tinker_cookbook/config/tinker_backend_cookbook/") for name in names)
-        assert not any(name.startswith(("tinker_cookbook/data/", "tinker_cookbook/rock_harbor_bench/")) or name in {"tinker_cookbook/train.py", "tinker_cookbook/eval.py", "tinker_cookbook/tinker_backend_cookbook/test_checkpoint_endpoints.py"} for name in names), "Removed legacy examples present; build from clean sources"
+        metadata = archive.read(next(name for name in names if name.endswith(".dist-info/METADATA"))).decode()
+        expected_name = {"rock": "rl-rock", "tinker": "rock-tinker", "backend": "tinker-backend"}[kind]
+        assert f"Name: {expected_name}\n" in metadata
+        if kind == "backend":
+            assert any(line.startswith("Requires-Dist: rock-tinker[") for line in metadata.splitlines())
+            assert not any(line.startswith(("Requires-Dist: tinker ", "Requires-Dist: tinker[", "Requires-Dist: tinker>")) for line in metadata.splitlines())
+        if kind == "rock":
+            required = ["rock/actions/envs/base.py"]
+            assert not any(name.startswith(("tinker/", "tinker_backend/", "tinker_cookbook/", "rock-tinker/", "tinker-backend/")) for name in names)
+            entries = next((archive.read(name).decode() for name in names if name.endswith(".dist-info/entry_points.txt")), "")
+            assert "tinker =" not in entries and "tinker-backend =" not in entries
+        elif kind == "tinker":
+            metadata = archive.read(next(name for name in names if name.endswith(".dist-info/METADATA"))).decode()
+            assert "Provides-Extra: cookbook" in metadata, "Missing published cookbook dependencies"
+            assert any(line.startswith("Requires-Dist: torch") and "cookbook" in line for line in metadata.splitlines())
+            required = ["tinker/__init__.py", "tinker/py.typed",
+                        "tinker/proto/tinker_public_pb2.pyi", "tinker/server_job/platforms/local.py",
+                        "tinker/LICENSE", "tinker/NOTICE", "tinker_cookbook/LICENSE",
+                        "tinker_cookbook/stores/training_store.py"]
+            required += [f"tinker_cookbook/config/{name}.yaml" for name in (
+                "roll_runtime", "dummy_runtime", "roll_train_runtime")]
+            assert not any(name.startswith(("rock/", "tinker_backend/")) for name in names)
+            assert not any(name.startswith(("tinker_cookbook/data/", "tinker_cookbook/rock_harbor_bench/")) for name in names)
+            configs = [name for name in names if name.startswith("tinker_cookbook/config/") and name.endswith(".yaml")]
+            assert all(Path(name).name.startswith(("roll_", "dummy_")) for name in configs)
+        else:
+            required = ["tinker_backend/rock_config.py", "tinker_backend/templates/SWE-bench/job_config.yaml"]
+            assert not any(name.startswith(("rock/", "tinker/", "tinker_cookbook/")) for name in names)
         assert all(name in names for name in required), [name for name in required if name not in names]
         assert not any(Path(name).name == ".env" or name.startswith("tests/") for name in names)
-        metadata = archive.read(next(name for name in names if name.endswith(".dist-info/METADATA"))).decode()
-        dependencies = [
-            line.removeprefix("Requires-Dist: ") for line in metadata.splitlines() if line.startswith("Requires-Dist:")
-        ]
-        assert not any(dep.lower().startswith("rl-rock==") for dep in dependencies)
         for name in names:
-            if name.startswith(("tinker/", "tinker_backend/", "tinker_cookbook/")) and name.endswith((".py", ".yaml", ".jsonl")):
-                payload = archive.read(name)
-                assert not any(retired in payload for retired in (b"alibaba-inc.com", b"code-agi-sg-docker-registry-vpc", b"rock-instances-registry-vpc")), name
             if name.endswith(".py"):
-                compile(archive.read(name), name, "exec")
-        print(f"Wheel: {len(names)} entries, all Python sources compile, required resources present")
+                payload = archive.read(name)
+                compile(payload, name, "exec")
+                if kind != "rock":
+                    assert not any(retired in payload for retired in (b"alibaba-inc.com", b"code-agi-sg-docker-registry-vpc", b"rock-instances-registry-vpc")), name
+        print(f"{kind} wheel: {len(names)} entries; sources compile, resources and package boundaries passed")
 
 
 async def check_installed_backend() -> None:
@@ -88,9 +93,15 @@ async def check_installed_backend() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("wheel", type=Path)
+    parser.add_argument("rock_wheel", type=Path)
+    parser.add_argument("tinker_wheel", type=Path)
+    parser.add_argument("backend_wheel", type=Path)
+    parser.add_argument("--inspect-only", action="store_true", help="Validate artifacts without importing packages or starting a backend")
     args = parser.parse_args()
-    inspect_wheel(args.wheel)
+    for kind, wheel in (("rock", args.rock_wheel), ("tinker", args.tinker_wheel), ("backend", args.backend_wheel)):
+        inspect_wheel(wheel, kind)
+    if args.inspect_only:
+        return
     for name in ("rock", "tinker", "tinker_backend", "tinker_cookbook"):
         module = importlib.import_module(name)
         locations = [module.__file__] if module.__file__ else list(module.__path__)

@@ -20,4 +20,4 @@ Original SDK transport/type/generated protobuf code and shared Cookbook abstract
 
 ## Distribution
 
-The combined `rl-rock` wheel includes the SDK license, Cookbook license and [NOTICE](NOTICE) in its license metadata. Maintain these files and source links when moving or trimming forked code. Build/test entrypoints and the current rollout/training protocol remain unchanged by attribution updates.
+The independent `rock-tinker` wheel includes the SDK license, Cookbook license and [NOTICE](NOTICE). The separate `rl-rock` wheel does not contain Tinker sources or licenses. Maintain these files and source links when moving or trimming forked code. Build/test entrypoints and the current rollout/training protocol remain unchanged by attribution updates.

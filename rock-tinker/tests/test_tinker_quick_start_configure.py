@@ -7,7 +7,7 @@ import sys
 import pytest
 import yaml
 
-SCRIPT = Path(__file__).resolve().parents[3] / 'examples/tinker_quick_start/configure.py'
+SCRIPT = Path(__file__).resolve().parents[2] / 'examples/tinker_quick_start/configure.py'
 
 
 @pytest.fixture

@@ -1,4 +1,4 @@
-# Isolated environment for the bundled Tinker SDK/backend and local cookbook.
+# Isolated environment for independently packaged ROCK, Tinker and backend.
 # ROCK's default requirements, extras and package indexes are independent.
 [project]
 name = "tinker-local-environment"
@@ -46,6 +46,8 @@ sandbox = [
     "openai>=2.20,<3",
 ]
 control = [
+    "rock-tinker[task-catalog]",
+    "tinker-backend",
     {include-group = "sandbox"},
     "ray[default]==2.43.0",
     "redis==7.2.0",
@@ -79,6 +81,8 @@ default-groups = []
 
 [tool.uv.sources]
 rl-rock = {path = "../..", editable = true}
+rock-tinker = {path = "..", editable = true}
+tinker-backend = {path = "../../tinker-backend", editable = true}
 torch = {index = "pytorch-cpu"}
 
 [[tool.uv.index]]

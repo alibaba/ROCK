@@ -21,7 +21,7 @@ import zipfile
 
 
 def helpers():
-    source = Path(__file__).resolve().parents[3] / 'examples/tinker_quick_start/public_swe_agent.py'
+    source = Path(__file__).resolve().parents[2] / 'examples/tinker_quick_start/public_swe_agent.py'
     tree = ast.parse(source.read_text())
     selected = [node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.Assign))]
     ns = dict(Path=Path, hashlib=hashlib, json=json, zipfile=zipfile, importlib=__import__('importlib'), tarfile=tarfile)
@@ -68,7 +68,7 @@ class PublicAgentTests(unittest.TestCase):
         original = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'SweAgentOptions')
         ns.update(Annotated=Annotated, Any=Any, Field=Field, field_validator=field_validator)
         exec(compile(ast.Module(body=[original], type_ignores=[]), 'public_swe_options', 'exec'), ns)
-        source = Path(__file__).resolve().parents[3] / 'examples/tinker_quick_start/public_swe_agent.py'
+        source = Path(__file__).resolve().parents[2] / 'examples/tinker_quick_start/public_swe_agent.py'
         extension = next(node for node in ast.parse(source.read_text()).body if isinstance(node, ast.ClassDef) and node.name == 'PublicSweAgentOptions')
         exec(compile(ast.Module(body=[extension], type_ignores=[]), str(source), 'exec'), ns)
         # CLI roundtrip uses a native tool-policy fixture, independent of a driver.
@@ -165,7 +165,7 @@ print("actual RunSingleConfig CLI/Jinja multiline roundtrip passed")
 
     def test_example_uses_original_system_template(self):
         import yaml
-        example = Path(__file__).resolve().parents[3] / 'examples/tinker_quick_start'
+        example = Path(__file__).resolve().parents[2] / 'examples/tinker_quick_start'
         harbor = yaml.safe_load((example / 'harbor.yaml').read_text())
         self.assertNotIn('system_template', harbor['agents'][0]['kwargs'])
         public = yaml.safe_load((example / 'public-sweagent.yaml').read_text())
@@ -279,7 +279,7 @@ print("actual RunSingleConfig CLI/Jinja multiline roundtrip passed")
                         ns['validate_runtime_payload'](payload)
 
     def test_tool_runtime_preserves_logic_and_never_installs_in_task_python(self):
-        helper = Path(__file__).resolve().parents[3] / 'examples/tinker_quick_start/prepare_agent_tools.py'
+        helper = Path(__file__).resolve().parents[2] / 'examples/tinker_quick_start/prepare_agent_tools.py'
         spec = importlib.util.spec_from_file_location('prepare_tools', helper)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
@@ -298,7 +298,7 @@ print("actual RunSingleConfig CLI/Jinja multiline roundtrip passed")
                 module.prepare_agent_tools(root / 'source', root / 'runtime')
 
     def test_adapter_inherits_official_run_setup_and_conversion(self):
-        source = Path(__file__).resolve().parents[3] / 'examples/tinker_quick_start/public_swe_agent.py'
+        source = Path(__file__).resolve().parents[2] / 'examples/tinker_quick_start/public_swe_agent.py'
         tree = ast.parse(source.read_text())
         cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "PreinstalledSweAgent")
         self.assertEqual(cls.bases[0].id, 'SweAgent')
@@ -307,7 +307,7 @@ print("actual RunSingleConfig CLI/Jinja multiline roundtrip passed")
 
     def test_install_checks_pin_and_only_executes_offline_validation(self):
         async def run():
-            source = Path(__file__).resolve().parents[3] / 'examples/tinker_quick_start/public_swe_agent.py'
+            source = Path(__file__).resolve().parents[2] / 'examples/tinker_quick_start/public_swe_agent.py'
             cls = next(node for node in ast.parse(source.read_text()).body if isinstance(node, ast.ClassDef) and node.name == "PreinstalledSweAgent")
             ns = helpers()
             ns.update(SweAgent=type('OfficialSweAgentStub', (), {}), PublicSweAgentOptions=type('OptionsStub', (), {}), inspect=inspect, shlex=shlex)
@@ -339,7 +339,7 @@ print("actual RunSingleConfig CLI/Jinja multiline roundtrip passed")
 
 class PublicBundlePreparationTests(unittest.TestCase):
     def setUp(self):
-        source = Path(__file__).resolve().parents[3] / 'examples/tinker_quick_start/prepare_public_bundle.py'
+        source = Path(__file__).resolve().parents[2] / 'examples/tinker_quick_start/prepare_public_bundle.py'
         spec = importlib.util.spec_from_file_location('public_bundle_under_test', source)
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)

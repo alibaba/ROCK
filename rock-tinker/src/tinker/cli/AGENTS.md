@@ -258,7 +258,7 @@ tinker --format json checkpoint list
 - click>=8.0.0 (CLI framework)
 
 ### Optional
-- `rich` - For table formatting (installed with `pip install tinker[cli]`)
+- `rich` - For table formatting (installed with `pip install rock-tinker`)
 
 ## Migration from Argparse to Click
 

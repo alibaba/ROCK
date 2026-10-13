@@ -2737,6 +2737,85 @@ test = [
 ]
 
 [[package]]
+name = "rock-tinker"
+version = "0.18.1"
+source = { editable = "../" }
+dependencies = [
+    { name = "anyio" },
+    { name = "chz" },
+    { name = "click" },
+    { name = "distro" },
+    { name = "httpx", extra = ["http2", "zstd"] },
+    { name = "numpy" },
+    { name = "orjson" },
+    { name = "pillow" },
+    { name = "pip" },
+    { name = "protobuf" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
+    { name = "rich" },
+    { name = "sniffio" },
+    { name = "termcolor" },
+    { name = "transformers" },
+    { name = "typing-extensions" },
+]
+
+[package.optional-dependencies]
+task-catalog = [
+    { name = "datasets" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", marker = "extra == 'aiohttp'" },
+    { name = "anyio", specifier = ">=4.10,<5" },
+    { name = "chz", specifier = ">=0.4,<0.5" },
+    { name = "click", specifier = ">=8,<9" },
+    { name = "datasets", marker = "python_full_version >= '3.12' and python_full_version < '3.14' and extra == 'task-catalog'" },
+    { name = "distro", specifier = ">=1.9,<2" },
+    { name = "httpx", extras = ["http2", "zstd"], specifier = ">=0.28,<1" },
+    { name = "httpx-aiohttp", marker = "extra == 'aiohttp'", specifier = ">=0.1.8" },
+    { name = "huggingface-hub", marker = "extra == 'cookbook'", specifier = ">=1.16,<2" },
+    { name = "numpy", specifier = ">=2.1,<=2.2.6" },
+    { name = "orjson", specifier = ">=3.11,<4" },
+    { name = "pillow", specifier = ">=12,<13" },
+    { name = "pip", specifier = ">=25,<27" },
+    { name = "protobuf", specifier = ">=5.29,<7" },
+    { name = "pydantic", specifier = ">=2.11,<3" },
+    { name = "python-dotenv", specifier = ">=1.1,<2" },
+    { name = "pyyaml", specifier = ">=6,<7" },
+    { name = "rich", specifier = ">=14,<15" },
+    { name = "sniffio", specifier = ">=1.3,<2" },
+    { name = "termcolor", specifier = ">=3,<4" },
+    { name = "torch", marker = "extra == 'cookbook'", specifier = ">=2.12,<3" },
+    { name = "torch", marker = "extra == 'torch'" },
+    { name = "transformers", specifier = ">=5.9,<6" },
+    { name = "typing-extensions", specifier = ">=4.14,<5" },
+]
+provides-extras = ["aiohttp", "task-catalog", "torch", "cookbook"]
+
+[package.metadata.requires-dev]
+cookbook = [
+    { name = "huggingface-hub", specifier = ">=1.16,<2" },
+    { name = "torch", specifier = ">=2.12,<3" },
+]
+dev = [
+    { name = "dirty-equals", specifier = ">=0.9,<1" },
+    { name = "importlib-metadata", specifier = ">=8.7,<9" },
+    { name = "mypy", specifier = ">=1.17,<2" },
+    { name = "nest-asyncio", specifier = "==1.6.0" },
+    { name = "pyright", specifier = "==1.1.402" },
+    { name = "pytest", specifier = ">=8.4,<9" },
+    { name = "pytest-asyncio", specifier = ">=1.1,<2" },
+    { name = "pytest-xdist", specifier = ">=3.8,<4" },
+    { name = "respx", specifier = ">=0.22,<0.23" },
+    { name = "rich", specifier = ">=14,<15" },
+    { name = "ruff", specifier = ">=0.12,<0.13" },
+    { name = "time-machine", specifier = ">=2.16,<3" },
+]
+
+[[package]]
 name = "rpds-py"
 version = "0.28.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3111,6 +3190,46 @@ wheels = [
 ]
 
 [[package]]
+name = "tinker-backend"
+version = "0.1.0"
+source = { editable = "../../tinker-backend" }
+dependencies = [
+    { name = "aiosqlite" },
+    { name = "alembic" },
+    { name = "asyncpg" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "pydantic-settings" },
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
+    { name = "rl-rock" },
+    { name = "rock-tinker", extra = ["task-catalog"] },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "zstandard" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiosqlite" },
+    { name = "alembic" },
+    { name = "asyncpg" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "pydantic-settings" },
+    { name = "python-dotenv" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "rl-rock", editable = "../../" },
+    { name = "rock-tinker", extras = ["task-catalog"], editable = "../" },
+    { name = "sqlalchemy", extras = ["asyncio"] },
+    { name = "uvicorn", extras = ["standard"] },
+    { name = "zstandard", specifier = ">=0.23,<1" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.4,<9" }]
+
+[[package]]
 name = "tinker-local-environment"
 version = "0.1.0"
 source = { virtual = "." }
@@ -3174,7 +3293,9 @@ control = [
     { name = "psycopg2-binary" },
     { name = "ray", extra = ["default"] },
     { name = "redis" },
+    { name = "rock-tinker", extra = ["task-catalog"] },
     { name = "sqlmodel" },
+    { name = "tinker-backend" },
     { name = "torch", version = "2.14.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
     { name = "torch", version = "2.14.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
     { name = "uvloop" },
@@ -3247,7 +3368,9 @@ control = [
     { name = "psycopg2-binary" },
     { name = "ray", extras = ["default"], specifier = "==2.43.0" },
     { name = "redis", specifier = "==7.2.0" },
+    { name = "rock-tinker", extras = ["task-catalog"], editable = "../" },
     { name = "sqlmodel" },
+    { name = "tinker-backend", editable = "../../tinker-backend" },
     { name = "torch", specifier = ">=2.12,<3", index = "https://download.pytorch.org/whl/cpu" },
     { name = "uvloop" },
     { name = "websockets", specifier = ">=15.0.1" },

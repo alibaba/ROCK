@@ -57,7 +57,7 @@ def verify(output, expected_torch):
     if actual_torch != expected_torch:
         errors["torch"] = {"type": "VersionMismatch"}
     distributions = {}
-    for name in ("rl-rock", "torch", "numpy", "ray", "harbor", "litellm", "openai", "pydantic", "transformers", "nacos-sdk-python"):
+    for name in ("rl-rock", "rock-tinker", "tinker-backend", "torch", "numpy", "ray", "harbor", "litellm", "openai", "pydantic", "transformers", "nacos-sdk-python"):
         try:
             distributions[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:

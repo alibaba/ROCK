@@ -152,7 +152,7 @@ def main():
         run(['uv', 'build', '--project', root, '--wheel', '--out-dir', output / 'dist'])
         candidates = list((output / 'dist').glob('rl_rock-*.whl'))
         if len(candidates) != 1:
-            raise ValueError('Expected one newly built unified wheel')
+            raise ValueError('Expected one newly built ROCK wheel')
         wheel = candidates[0]
     helper = load_helper(root, 'prepare_public_bundle')
     bundle_root = output / 'public-bundle'
@@ -192,7 +192,8 @@ def main():
             if not p.name.startswith(('gem_llm-', 'rl_rock-')):
                 shutil.copyfile(p, controller_wheels / p.name)
     run(['uv', 'export', '--project', root / 'rock-tinker/local', '--frozen', '--group', 'sandbox',
-         '--no-default-groups', '--no-emit-project', '--no-emit-package', 'rl-rock', '--no-hashes',
+         '--no-default-groups', '--no-emit-project', '--no-emit-package', 'rl-rock', '--no-emit-package', 'rock-tinker',
+         '--no-emit-package', 'tinker-backend', '--no-hashes',
          '--output-file', context / 'requirements-rocklet.txt'], stdout=subprocess.DEVNULL)
     for path in context.rglob('*'):
         if path.is_file() and not path.is_symlink():

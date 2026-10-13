@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-_root = Path(__file__).resolve().parents[3]
+_root = Path(__file__).resolve().parents[2]
 _path = _root / "examples/tinker_quick_start/prepare_sandbox.py"
 _spec = importlib.util.spec_from_file_location("public_sandbox_preparation", _path)
 preparation = importlib.util.module_from_spec(_spec)

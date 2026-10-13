@@ -32,7 +32,7 @@ export QS="$ROCK/examples/tinker_quick_start"
 mkdir -p "$TASK/logs"
 ```
 
-Check that `$QS/setup.sh` and `$ROLL/requirements_tinker.txt` exist. In each new terminal, set the same `ROCK`, `ROLL`, `TASK`, `QS`, and (after section 4) `TASK_ID` variables, then run `export PY="$TASK/control-venv/bin/python"`. Use a new absolute path for `TASK`.
+Check that `$QS/setup.sh` and `$ROLL/requirements_tinker.txt` exist. In each new terminal, set the same `ROCK`, `ROLL`, `TASK`, `QS`, and (after section 4) `TASK_ID` variables; preserve `NODE_IP` after section 5. Then run `export PY="$TASK/control-venv/bin/python"`. Use a new absolute path for `TASK`.
 
 ## 2. Install the ROLL environment
 
@@ -53,9 +53,9 @@ export PY="$TASK/control-venv/bin/python"
 cat "$TASK/control-venv/import-check.json"
 ```
 
-This runs `uv sync --project "$ROCK/rock-tinker/local" --frozen --group control --no-dev`, using `rock-tinker/local/pyproject.toml` and its `uv.lock` to install a separate Tinker control environment, then builds the combined `rl-rock` wheel. ROCK's root dependencies, Python version range, and package sources remain unchanged. The control environment uses CPU PyTorch, while the GPU environment reuses the image's software stack. The wheel is written to `$TASK/dist/`.
+This runs `uv sync --project "$ROCK/rock-tinker/local" --frozen --group control --no-dev`, using `rock-tinker/local/pyproject.toml` and its `uv.lock` to install a separate Tinker control environment, then builds separate `rl-rock`, `rock-tinker` (SDK and cookbook), and `tinker-backend` wheels. The ROCK wheel contains no Tinker code. ROCK's root dependencies, Python version range, and package sources remain unchanged. The control environment uses CPU PyTorch, while the GPU environment reuses the image's software stack. The three wheels are written to `$TASK/dist/`; sandbox preparation uses only the `rl-rock` wheel.
 
-Runtime templates are maintained in `rock-tinker/tinker_cookbook/config/` and included in the wheel. The steps below download the complete public Harbor task into `$TASK/assets/harbor-tasks/` and generate run-specific YAML under `$TASK/config/`; no source templates need to be edited.
+The Quick Start generator reads the service templates in `examples/tinker_quick_start/` and the GPU engine template in ROLL’s `examples/tinker_backend_runtime/`. Cookbook runtime templates are also included in the `rock-tinker` wheel. The steps below download the complete public Harbor task into `$TASK/assets/harbor-tasks/` and generate run-specific YAML under `$TASK/config/`; no source templates need to be edited.
 
 ## 4. Prepare the public task and Harbor sandbox
 
@@ -92,6 +92,8 @@ Check these generated settings for your machine:
 | `config/harbor.yaml` | ROCK address, `cluster: local`, sandbox resources, and task path |
 | `config/runtime.yaml` | Backend address, GPU Python path, and checkpoint directory |
 | `config/admin.yaml` | Local ROCK service configuration |
+
+For rollout-only runs, keep `actor_infer.device_mapping` separate from the `actor_train` and `reference` mappings when selecting GPUs. ROLL derives colocation from these mappings even when training and reference workers are disabled.
 
 The default ports are 18080 for Admin, 19210 for the backend, 22555 for the host ROCKlet, and 28080 for ModelService. Inference uses GPUs 4–7. Keep parallelism consistent with the device count when changing GPU allocation. `--rollout-only` disables training and the reference model, leaving the training GPUs unused. The generator refuses to overwrite existing configuration; edit the YAML directly for later changes.
 

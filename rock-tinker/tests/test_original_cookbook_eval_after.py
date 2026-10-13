@@ -20,10 +20,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[3]
-COOKBOOK = ROOT / "rock-tinker/tinker_cookbook/tinker_backend_cookbook"
-if not COOKBOOK.exists():  # Local standalone check before remote relay.
-    COOKBOOK = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
+COOKBOOK = ROOT / "tinker_cookbook/tinker_backend_cookbook"
 
 
 def load_functions(filename, names, namespace):

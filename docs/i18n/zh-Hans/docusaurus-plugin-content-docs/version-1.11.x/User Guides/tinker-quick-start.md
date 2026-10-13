@@ -7,7 +7,7 @@ title: Tinker 快速开始
 
 Tinker 用于通过统一的 Python SDK 执行 agent rollout 和强化学习训练。本仓库提供 Tinker SDK、local backend 和 cookbook，支持 PPO、PPO+KL、GRPO：客户端提交采样与训练请求，backend 管理本地任务生命周期，ROLL 在 GPU 上执行模型推理和训练，ROCK 管理 Harbor 沙箱中的 SWE-agent 工具执行。SWE-agent 通过 ROCK ModelService 回调本地模型服务，评测结果由 SWE-bench verifier 给出。
 
-Tinker 控制环境使用独立的依赖声明和锁文件；SDK、backend 与 cookbook 随统一 rl-rock wheel 打包。下面的步骤从环境准备开始，跑通公开 SWE-bench Verified 单题 rollout，并介绍如何切换到训练。
+Tinker 控制环境使用独立的依赖声明和锁文件；SDK 与 cookbook 作为独立 `rock-tinker` wheel 打包，backend 使用独立 `tinker-backend` wheel；`rl-rock` 只包含 ROCK。下面的步骤从环境准备开始，跑通公开 SWE-bench Verified 单题 rollout，并介绍如何切换到训练。
 
 这套接入支持公开 Harbor 格式的所有 SWE-bench Verified 题目：完整沿用每道题的环境构建和原始 verifier，统一接入 SWE-agent 与 ModelService。本文使用 Qwen3 4B，仅选一道题演示安装、rollout 和训练流程。
 
@@ -36,7 +36,7 @@ export QS="$ROCK/examples/tinker_quick_start"
 mkdir -p "$TASK/logs"
 ```
 
-确认 `$QS/setup.sh` 和 `$ROLL/requirements_tinker.txt` 存在。每个新终端设置相同的 `ROCK`、`ROLL`、`TASK`、`QS`，完成第 4 节后还需设置相同的 `TASK_ID`，并执行 `export PY="$TASK/control-venv/bin/python"`。`TASK` 使用新的绝对路径。
+确认 `$QS/setup.sh` 和 `$ROLL/requirements_tinker.txt` 存在。每个新终端设置相同的 `ROCK`、`ROLL`、`TASK`、`QS`，完成第 4 节后还需设置相同的 `TASK_ID`，第 5 节后保留相同的 `NODE_IP`，并执行 `export PY="$TASK/control-venv/bin/python"`。`TASK` 使用新的绝对路径。
 
 ## 2. 安装 ROLL 环境
 
@@ -57,9 +57,9 @@ export PY="$TASK/control-venv/bin/python"
 cat "$TASK/control-venv/import-check.json"
 ```
 
-该步骤执行 `uv sync --project "$ROCK/rock-tinker/local" --frozen --group control --no-dev`，使用 `rock-tinker/local/pyproject.toml` 和对应 `uv.lock` 安装独立的 Tinker 控制环境，再构建统一 `rl-rock` wheel。ROCK 根目录的默认依赖、Python 范围和包源保持原样。控制环境使用 CPU PyTorch；GPU 环境复用镜像的软件栈，两者不混用。wheel 位于 `$TASK/dist/`。
+该步骤执行 `uv sync --project "$ROCK/rock-tinker/local" --frozen --group control --no-dev`，使用 `rock-tinker/local/pyproject.toml` 和对应 `uv.lock` 安装独立的 Tinker 控制环境，再分别构建 `rl-rock`、`rock-tinker`（SDK 与 cookbook）和 `tinker-backend` 三个 wheel。ROCK wheel 不包含 Tinker 代码。ROCK 根目录的默认依赖、Python 范围和包源保持原样。控制环境使用 CPU PyTorch；GPU 环境复用镜像的软件栈，两者不混用。三个 wheel 位于 `$TASK/dist/`；沙箱准备只使用其中的 `rl-rock` wheel。
 
-运行时模板统一放在 `rock-tinker/tinker_cookbook/config/`，并包含在 wheel 中。下文会将完整的公开 Harbor 任务下载到 `$TASK/assets/harbor-tasks/`，在 `$TASK/config/` 下生成本次运行的 YAML，无需修改源码中的模板。
+Quick Start 生成器读取 `examples/tinker_quick_start/` 下的服务模板和 ROLL 的 `examples/tinker_backend_runtime/` 下的 GPU 引擎模板；cookbook 运行时模板也包含在 `rock-tinker` wheel 中。下文会将完整的公开 Harbor 任务下载到 `$TASK/assets/harbor-tasks/`，在 `$TASK/config/` 下生成本次运行的 YAML，无需修改源码中的模板。
 
 ## 4. 准备公开数据和 Harbor 沙箱
 
@@ -96,6 +96,8 @@ ROLL 根据模型 ID 自动下载并缓存权重，也支持 `--model /绝对路
 | `config/harbor.yaml` | ROCK 地址、`cluster: local`、沙箱资源、题目路径 |
 | `config/runtime.yaml` | backend 地址、GPU Python 路径、检查点目录 |
 | `config/admin.yaml` | 本地 ROCK 服务配置 |
+
+只跑 rollout 时，调整 GPU 后应保持 `actor_infer.device_mapping` 与 `actor_train`、`reference` 的映射不重叠。即使训练和 reference worker 已禁用，ROLL 仍会根据这些映射判断是否共卡。
 
 默认 Admin 端口为 18080，backend 为 19210，宿主 ROCKlet 为 22555，ModelService 为 28080；推理使用 GPU 4–7。修改 GPU 分配时保持并行度与设备数一致。`--rollout-only` 关闭训练和参考模型，不占用训练 GPU。生成器拒绝覆盖已有配置，后续可以直接编辑 YAML。
 

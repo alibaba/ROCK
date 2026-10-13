@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[3] / 'examples/tinker_quick_start'
+ROOT = Path(__file__).resolve().parents[2] / 'examples/tinker_quick_start'
 
 
 def load(name):

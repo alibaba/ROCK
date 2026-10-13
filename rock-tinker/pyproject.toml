@@ -1,7 +1,7 @@
 [project]
-name = "tinker"
+name = "rock-tinker"
 version = "0.18.1"
-description = "The official Python SDK for the tinker API"
+description = "Tinker SDK and cookbook for local ROCK and ROLL workflows"
 readme = "README.md"
 license = "Apache-2.0"
 authors = [
@@ -52,13 +52,14 @@ tinker = "tinker.cli.__main__:cli"
 
 [project.urls]
 Homepage = "https://thinkingmachines.ai/tinker"
-Repository = "https://github.com/thinking-machines-lab/tinker"
+Repository = "https://github.com/alibaba/ROCK/tree/master/rock-tinker"
 Documentation = "https://tinker-docs.thinkingmachines.ai/"
 
 [project.optional-dependencies]
 aiohttp = ["aiohttp", "httpx_aiohttp>=0.1.8"]
 task-catalog = ["datasets; python_version >= '3.12' and python_version < '3.14'"]
 torch = ["torch"]
+cookbook = ["torch>=2.12,<3", "huggingface-hub>=1.16,<2"]
 
 [tool.uv]
 managed = true
@@ -90,42 +91,24 @@ cookbook = [
 ]
 
 [build-system]
-requires = ["hatchling==1.26.3", "hatch-fancy-pypi-readme"]
+requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build]
-include = [
-  "src/*"
-]
+include = ["src/**", "tinker_cookbook/**", "LICENSE", "NOTICE", "UPSTREAM.md", "UPSTREAM.json"]
+exclude = ["**/*_test.py", "**/test_*.py"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/tinker"]
+packages = ["src/tinker", "tinker_cookbook"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"LICENSE" = "tinker/LICENSE"
+"NOTICE" = "tinker/NOTICE"
+"UPSTREAM.md" = "tinker/UPSTREAM.md"
+"UPSTREAM.json" = "tinker/UPSTREAM.json"
 
 [tool.hatch.build.targets.sdist]
-# Basically everything except hidden files/directories (such as .github, .devcontainers, .python-version, etc)
-include = [
-  "/*.toml",
-  "/*.json",
-  "/*.lock",
-  "/*.md",
-  "/mypy.ini",
-  "/noxfile.py",
-  "bin/*",
-  "examples/*",
-  "src/*",
-  "tests/*",
-]
-
-[tool.hatch.metadata.hooks.fancy-pypi-readme]
-content-type = "text/markdown"
-
-[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
-path = "README.md"
-
-[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
-# replace relative links with absolute links
-pattern = '\[(.+?)\]\(((?!https?://)\S+?)\)'
-replacement = '[\1](https://github.com/stainless-sdks/tinker-python/tree/main/\g<2>)'
+include = ["pyproject.toml", "README.md", "LICENSE", "NOTICE", "UPSTREAM.md", "UPSTREAM.json", "src/**", "tinker_cookbook/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -2,7 +2,7 @@
 
 Tinker provides a Python client and a local backend for running agent rollouts and reinforcement-learning training. The backend delegates GPU inference and training to ROLL; local ROCK manages Harbor sandboxes where SWE-agent executes tools. Agent model requests return through ROCK ModelService to the local GPU runtime.
 
-The SDK, backend and cookbook are bundled in the `rl-rock` wheel. Their local environment is installed from `rock-tinker/local/pyproject.toml` and its frozen `uv.lock`, independently of ROCK's default dependencies. The supported backend platform is `local`.
+The SDK and cookbook are distributed in the independent `rock-tinker` wheel; the backend is distributed as `tinker-backend`. The `rl-rock` wheel contains ROCK only. Their local environment is installed from `rock-tinker/local/pyproject.toml` and its frozen `uv.lock`, independently of ROCK's default dependencies. The distribution name is `rock-tinker`; Python imports remain `import tinker` and `import tinker_cookbook`, and the CLI remains `tinker`. The supported backend platform is `local`. Standalone wheel users can request the locally built SDK wheel’s `cookbook` extra for cookbook dependencies; the Quick Start control environment already supplies them. Install the separate `tinker-backend` package to run a local backend.
 
 API documentation and generation instructions are indexed in [docs/README.md](docs/README.md).
 
@@ -14,7 +14,7 @@ Upstream origins, licenses and local changes are documented in [UPSTREAM.md](UPS
 - `local/`: isolated control-environment dependencies and lockfile.
 - `tinker_cookbook/tinker_backend_cookbook/`: rollout and training entrypoints.
 - `tinker_cookbook/config/`: runtime YAML templates, included in the wheel.
-- `tests/`: SDK tests; ROCK integration regressions live in `../tests/unit/tinker/`.
+- `tests/`: SDK, cookbook and local ROCK integration regressions.
 
 ## Install and prepare
 

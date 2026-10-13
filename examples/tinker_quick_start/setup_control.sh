@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the locked local control environment and build the unified wheel.
+# Install the locked control environment and build three separate distributions.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROCK_ROOT="${ROCK_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
@@ -22,7 +22,20 @@ export UV_PROJECT_ENVIRONMENT="$CONTROL_VENV"
 uv sync --project "$ROCK_ROOT/rock-tinker/local" --python "$BASE_PYTHON" --frozen --group control --no-dev
 printf '%s\n' "$ROCK_ROOT" > "$CONTROL_VENV/.tinker-locked-control-owner"
 mkdir -p "$CONTROL_DIST_DIR"
-uv build --project "$ROCK_ROOT" --wheel --out-dir "$CONTROL_DIST_DIR"
+# Old setuptools output can otherwise leak removed packages into a new wheel.
+# Archive only generated package directories, leaving source files untouched.
+build_archive=""
+for package in tinker tinker_backend tinker_cookbook; do
+ if [[ -e "$ROCK_ROOT/build/lib/$package" ]]; then
+  [[ -n "$build_archive" ]] || build_archive="$(mktemp -d "${TMPDIR:-/tmp}/tinker-build-cache-XXXXXX")"
+  mv -- "$ROCK_ROOT/build/lib/$package" "$build_archive/$package"
+ fi
+done
+for project in "$ROCK_ROOT" "$ROCK_ROOT/rock-tinker" "$ROCK_ROOT/tinker-backend"; do
+ uv build --project "$project" --wheel --out-dir "$CONTROL_DIST_DIR"
+done
+"$CONTROL_VENV/bin/python" "$ROCK_ROOT/scripts/verify_tinker_wheel.py" \
+ --inspect-only "$CONTROL_DIST_DIR"/rl_rock-*.whl "$CONTROL_DIST_DIR"/rock_tinker-*.whl "$CONTROL_DIST_DIR"/tinker_backend-*.whl
 export PYTHONPATH="$ROCK_ROOT:$ROLL_ROOT" PYTHON_DOTENV_DISABLED=1
 PYTHON="$CONTROL_VENV/bin/python"
 TORCH_VERSION="$("$PYTHON" -c 'import importlib.metadata; print(importlib.metadata.version("torch"))')"
