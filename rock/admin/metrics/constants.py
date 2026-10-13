@@ -28,6 +28,8 @@ class MetricsConstants:
 
     SANDBOX_PHASE_FAILURE = "sandbox.phase.failure"
 
+    SANDBOX_TIMEOUT_KEY_MISSING = "sandbox.timeout_key.missing"
+
     METASTORE_TOTAL = "meta_store.total"
     METASTORE_SUCCESS = "meta_store.success"
     METASTORE_FAILURE = "meta_store.failure"

@@ -20,6 +20,7 @@ from rock.actions import (
 from rock.actions.sandbox.response import State
 from rock.actions.sandbox.sandbox_info import SandboxInfo, is_missing_host_ip
 from rock.admin.core.ray_service import RayService
+from rock.admin.metrics.constants import MetricsConstants
 from rock.admin.metrics.decorator import monitor_sandbox_operation
 from rock.admin.proto.request import ClusterInfo, UserInfo
 from rock.admin.proto.request import SandboxAction as Action
@@ -661,13 +662,6 @@ class SandboxManager(BaseManager):
             return
         await self._meta_store.update_timeout(sandbox_id, new_timeout)
 
-    async def _is_expired(self, sandbox_id: str) -> bool:
-        timeout_info = await self._meta_store.get_timeout(sandbox_id)
-        if timeout_info is None:
-            logger.warning("is_expired: timeout key not found for sandbox_id=%s", sandbox_id)
-            return False
-        return SandboxTimeoutHelper.is_expired(timeout_info)
-
     async def _is_actor_alive(self, sandbox_id):
         try:
             actor_name = self.deployment_manager.get_actor_name(sandbox_id)
@@ -690,10 +684,19 @@ class SandboxManager(BaseManager):
         """Stop alive sandboxes that have exceeded their auto_clear timeout."""
         alive_count = 0
         expired_count = 0
-        async for sandbox_id in self._meta_store.iter_alive_sandbox_ids():
+        async for info in self._meta_store.iter_alive_sandbox_info():
+            sandbox_id = info.get("sandbox_id", "")
+            if not sandbox_id:
+                continue
             alive_count += 1
             try:
-                if await self._is_expired(sandbox_id):
+                timeout_info = await self._meta_store.get_timeout(sandbox_id)
+                if timeout_info is None:
+                    # Missing key is ambiguous (cache-loss vs concurrent stop):
+                    # reseed only on genuine cache-loss, never stop this round.
+                    await self._rebuild_missing_timeout(info)
+                    continue
+                if SandboxTimeoutHelper.is_expired(timeout_info):
                     expired_count += 1
                     logger.info(f"[auto_stop] {sandbox_id} expired, stopping")
                     asyncio.create_task(self.stop(sandbox_id, reason=StopReason.EXPIRED))
@@ -1039,3 +1042,44 @@ class SandboxManager(BaseManager):
             except Exception as e:
                 logger.error(f"[reconcile_pending] {sandbox_id}: {e}", exc_info=True)
                 continue
+
+    async def _rebuild_missing_timeout(self, info: SandboxInfo) -> None:
+        """Reseed a lost ``timeout:{id}`` key, disambiguating cache-loss from a concurrent stop.
+
+        Called from ``_auto_stop_expired`` when the timeout key is already known to
+        be missing, so it reuses that read instead of scanning again. The missing
+        key is ambiguous: a concurrent stop also drops it. But ``meta_store.archive``
+        writes the terminal DB state *before* deleting the Redis keys, and deletes
+        the ``alive`` key *before* the ``timeout`` key — so a stop-induced miss
+        always coincides with an already-deleted ``alive`` key and a terminal DB
+        state. Re-reading the authoritative state therefore disambiguates safely: a
+        still-active state means genuine cache loss, so we reseed a fresh TTL from
+        the persisted spec. The write is idempotent, so a concurrent reseed by
+        another pod is harmless.
+        """
+        sandbox_id = info.get("sandbox_id", "")
+        if not sandbox_id:
+            return
+
+        fresh = await self._meta_store.get(sandbox_id, check_db=True)
+        if not fresh or fresh.get("state") not in (State.RUNNING, State.PENDING):
+            self.metrics_monitor.record_counter_by_name(
+                MetricsConstants.SANDBOX_TIMEOUT_KEY_MISSING, 1, {"action": "skipped_stopped"}
+            )
+            return
+
+        minutes = (info.get("spec") or {}).get("auto_clear_time_minutes")
+        if not isinstance(minutes, int) or isinstance(minutes, bool) or minutes < 0:
+            logger.warning(
+                "[auto_stop] %s: skip timeout rebuild, invalid auto_clear_time_minutes=%r", sandbox_id, minutes
+            )
+            self.metrics_monitor.record_counter_by_name(
+                MetricsConstants.SANDBOX_TIMEOUT_KEY_MISSING, 1, {"action": "skipped_no_spec"}
+            )
+            return
+
+        await self._meta_store.update_timeout(sandbox_id, SandboxTimeoutHelper.make_timeout_info(minutes))
+        self.metrics_monitor.record_counter_by_name(
+            MetricsConstants.SANDBOX_TIMEOUT_KEY_MISSING, 1, {"action": "rebuilt"}
+        )
+        logger.info(f"[auto_stop] {sandbox_id}: rebuilt missing timeout key (auto_clear={minutes}m)")
