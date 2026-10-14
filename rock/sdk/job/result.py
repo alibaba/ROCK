@@ -1,65 +1,31 @@
 """Result models for the Job system.
 
 Base classes: TrialResult, JobStatus, JobResult[T].
-Harbor-specific subclasses in rock.sdk.agent.models.trial.result.
+Reward-protocol result models live in rock.sdk.reward.result.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
 from enum import Enum
 from typing import Generic, TypeVar
 
 from pydantic import BaseModel, Field
 
-# ---------------------------------------------------------------------------
-# TrialResult base — common fields
-# ---------------------------------------------------------------------------
+from rock.sdk.result import ExceptionInfo, TrialResult
+from rock.sdk.reward.result import AgentInfo, AgentResult, ModelInfo, RewardTrialResult, TimingInfo, VerifierResult
 
-
-class ExceptionInfo(BaseModel):
-    """General exception info."""
-
-    exception_type: str = ""
-    exception_message: str = ""
-    exception_traceback: str = ""
-    occurred_at: str | None = None
-
-
-class TrialResult(BaseModel):
-    """Base class for a single execution result — common fields.
-
-    Harbor's TrialResult inherits this class and adds agent_info, verifier_result, etc.
-    Subclasses can override the score and status properties.
-    """
-
-    task_name: str = ""
-    exception_info: ExceptionInfo | None = None
-    started_at: str | None = None
-    finished_at: str | None = None
-    # G5: process-level outputs captured by JobExecutor
-    raw_output: str = ""
-    exit_code: int = 0
-
-    @property
-    def score(self) -> float:
-        return 0.0
-
-    @property
-    def status(self) -> str:
-        return "failed" if self.exception_info else "completed"
-
-    @property
-    def duration_sec(self) -> float:
-        if self.started_at and self.finished_at:
-            try:
-                start = datetime.fromisoformat(self.started_at.replace("Z", "+00:00"))
-                end = datetime.fromisoformat(self.finished_at.replace("Z", "+00:00"))
-                return (end - start).total_seconds()
-            except (ValueError, TypeError):
-                pass
-        return 0.0
-
+__all__ = [
+    "AgentInfo",
+    "AgentResult",
+    "ExceptionInfo",
+    "JobResult",
+    "JobStatus",
+    "ModelInfo",
+    "RewardTrialResult",
+    "TimingInfo",
+    "TrialResult",
+    "VerifierResult",
+]
 
 # ---------------------------------------------------------------------------
 # JobStatus + JobResult[T]
