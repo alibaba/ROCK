@@ -11,7 +11,16 @@ class BaseDatasetRegistry(ABC):
         ...
 
     @abstractmethod
-    def list_dataset_tasks(self, organization: str, dataset: str, split: str = "test") -> DatasetSpec | None:
+    def list_dataset_tasks(
+        self,
+        organization: str,
+        dataset: str,
+        split: str = "test",
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+        task_filter: str | None = None,
+    ) -> DatasetSpec | None:
         """List task ids for one dataset split. Returns None if dataset/split has no tasks."""
         ...
 

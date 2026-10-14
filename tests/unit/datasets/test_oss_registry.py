@@ -13,10 +13,14 @@ def make_registry_info():
     )
 
 
-def make_list_result(prefixes=None, objects=None):
+def make_list_result(prefixes=None, objects=None, *, is_truncated=False, next_continuation_token=""):
     result = MagicMock()
     result.prefix_list = prefixes or []
     result.object_list = objects or []
+    # Explicitly set pagination fields: a bare MagicMock would return a truthy
+    # mock for these attributes, making the pagination loop never terminate.
+    result.is_truncated = is_truncated
+    result.next_continuation_token = next_continuation_token
     return result
 
 
@@ -453,3 +457,152 @@ def test_list_all_datasets_empty_when_no_orgs():
     registry = OssDatasetRegistry(make_registry_info())
     with patch.object(registry, "list_organizations", return_value=[]):
         assert registry.list_all_datasets() == []
+
+
+# ---------------------------------------------------------------------------
+# pagination safety: must never loop forever even if OSS keeps reporting
+# truncation with a non-advancing continuation token (regression for the
+# self-hosted-runner / local hang caused by an unbounded `while True`).
+# ---------------------------------------------------------------------------
+
+
+def test_extract_tasks_terminates_when_token_never_advances():
+    registry = OssDatasetRegistry(make_registry_info())
+    mock_bucket = MagicMock()
+
+    page = make_list_result(prefixes=["datasets/qwen/my-bench/test/task-001/"])
+    page.is_truncated = True
+    page.next_continuation_token = "stuck-token"  # never changes -> would loop forever
+    mock_bucket.list_objects_v2.return_value = page
+
+    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+        spec = registry.list_dataset_tasks("qwen", "my-bench", "test")
+
+    # Must terminate quickly: a non-advancing token stops the loop on the
+    # second page instead of spinning forever.
+    assert spec is not None
+    assert mock_bucket.list_objects_v2.call_count <= 2
+
+
+# ---------------------------------------------------------------------------
+# multi-page pagination: continuation-token chaining, early termination via
+# max_items, and task_filter push-down into the OSS prefix.
+# ---------------------------------------------------------------------------
+
+
+def test_extract_tasks_merges_and_dedupes_across_pages():
+    """Tasks spread across two truncated pages are merged and deduped."""
+    registry = OssDatasetRegistry(make_registry_info())
+    mock_bucket = MagicMock()
+    mock_bucket.list_objects_v2.side_effect = [
+        make_list_result(
+            prefixes=["datasets/qwen/my-bench/test/task-002/", "datasets/qwen/my-bench/test/task-001/"],
+            is_truncated=True,
+            next_continuation_token="page-2",
+        ),
+        make_list_result(
+            prefixes=["datasets/qwen/my-bench/test/task-003/", "datasets/qwen/my-bench/test/task-001/"],
+            is_truncated=False,
+            next_continuation_token="",
+        ),
+    ]
+
+    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+        spec = registry.list_dataset_tasks("qwen", "my-bench", "test")
+
+    assert spec is not None
+    # deduped + sorted, task-001 appears on both pages but listed once
+    assert spec.task_ids == ["task-001", "task-002", "task-003"]
+    # second request must carry the continuation token returned by the first page
+    second_call_kwargs = mock_bucket.list_objects_v2.call_args_list[1][1]
+    assert second_call_kwargs["continuation_token"] == "page-2"
+
+
+def test_extract_tasks_stops_early_when_max_items_reached():
+    """With a bounded query (max_items), scanning stops once enough tasks are
+    collected, even if OSS reports more pages remain."""
+    registry = OssDatasetRegistry(make_registry_info())
+    mock_bucket = MagicMock()
+
+    extra_pages = [
+        make_list_result(
+            prefixes=[f"datasets/qwen/my-bench/test/task-{i:03d}/"],
+            is_truncated=True,
+            next_continuation_token=f"tok-{i}",
+        )
+        for i in range(1, 20)  # many more pages available
+    ]
+    mock_bucket.list_objects_v2.side_effect = extra_pages
+
+    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+        # max_items = offset + limit = 0 + 3 = 3
+        spec = registry.list_dataset_tasks("qwen", "my-bench", "test", offset=0, limit=3)
+
+    assert spec is not None
+    assert spec.task_ids == ["task-001", "task-002", "task-003"]
+    # Must NOT have walked all 19 pages; a handful is enough to gather 3 tasks.
+    assert mock_bucket.list_objects_v2.call_count <= 4
+
+
+def test_extract_tasks_pushes_filter_into_oss_prefix():
+    """task_filter is pushed down into the OSS list prefix for efficiency, so
+    only matching directory and file tasks come back."""
+    registry = OssDatasetRegistry(make_registry_info())
+    mock_bucket = MagicMock()
+    mock_bucket.list_objects_v2.return_value = make_list_result(
+        prefixes=["datasets/qwen/my-bench/test/0xerr0r-001/"],
+        objects=[MagicMock(key="datasets/qwen/my-bench/test/0xerr0r-002.json")],
+    )
+
+    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+        spec = registry.list_dataset_tasks("qwen", "my-bench", "test", task_filter="0xerr0r")
+
+    assert spec is not None
+    assert spec.task_ids == ["0xerr0r-001", "0xerr0r-002"]
+
+    call_kwargs = mock_bucket.list_objects_v2.call_args_list[0][1]
+    # filter string is appended directly to the split prefix
+    assert call_kwargs["prefix"] == "datasets/qwen/my-bench/test/0xerr0r"
+
+
+def test_extract_tasks_skips_hidden_entries():
+    """Entries whose name starts with '.' (e.g. .DS_Store, .git/) are dropped."""
+    registry = OssDatasetRegistry(make_registry_info())
+    mock_bucket = MagicMock()
+    mock_bucket.list_objects_v2.return_value = make_list_result(
+        prefixes=["datasets/qwen/my-bench/test/.git/", "datasets/qwen/my-bench/test/task-001/"],
+        objects=[
+            MagicMock(key="datasets/qwen/my-bench/test/.DS_Store"),
+            MagicMock(key="datasets/qwen/my-bench/test/task-002.json"),
+        ],
+    )
+
+    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+        spec = registry.list_dataset_tasks("qwen", "my-bench", "test")
+
+    assert spec is not None
+    assert spec.task_ids == ["task-001", "task-002"]
+
+
+def test_list_organizations_paginates_and_filters_hidden():
+    """list_organizations walks all pages and drops hidden org prefixes."""
+    registry = OssDatasetRegistry(make_registry_info())
+    mock_bucket = MagicMock()
+    mock_bucket.list_objects_v2.side_effect = [
+        make_list_result(
+            prefixes=["datasets/.hidden/", "datasets/qwen/"],
+            is_truncated=True,
+            next_continuation_token="t2",
+        ),
+        make_list_result(
+            prefixes=["datasets/alibaba/"],
+            is_truncated=False,
+            next_continuation_token="",
+        ),
+    ]
+
+    with patch.object(registry, "_build_bucket", return_value=mock_bucket):
+        orgs = registry.list_organizations()
+
+    assert orgs == ["alibaba", "qwen"]
+    assert mock_bucket.list_objects_v2.call_count == 2

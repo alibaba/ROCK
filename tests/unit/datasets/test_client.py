@@ -40,7 +40,7 @@ def test_dataset_client_list_tasks_delegates_to_registry_with_default_split():
     with patch.object(client._registry, "list_dataset_tasks", return_value=expected) as mock_list_tasks:
         result = client.list_dataset_tasks("qwen", "bench")
 
-    mock_list_tasks.assert_called_once_with("qwen", "bench", "test")
+    mock_list_tasks.assert_called_once_with("qwen", "bench", "test", offset=0, limit=None, task_filter=None)
     assert result == expected
 
 
