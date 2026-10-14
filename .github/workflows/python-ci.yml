@@ -3,12 +3,10 @@ name: Python CI
 on:
   push:
     branches:
-      - master
-      - release/v1.0
+      - disabled-temp-branch
   pull_request:
     branches:
-      - master
-      - release/v1.0
+      - disabled-temp-branch
 
 jobs:
   test:
