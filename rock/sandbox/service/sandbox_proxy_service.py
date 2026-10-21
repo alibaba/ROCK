@@ -1,4 +1,5 @@
 import asyncio  # noqa: I001
+import ipaddress
 import json
 import os
 from typing import NoReturn
@@ -823,9 +824,8 @@ class SandboxProxyService:
         """
         host_ip = sandbox_status_dict.get("host_ip")
         service_status = ServiceStatus.from_dict(sandbox_status_dict)
-        # Use PROXY port mapping to access the rocklet service
-        # rocklet listens on Port.PROXY (22555) inside the container
-        mapped_port = service_status.get_mapped_port(Port.PROXY)
+        api_url = self._api_url(host_ip, service_status, snapshot_backed=bool(sandbox_status_dict.get("source_snapshot_id")))
+        mapped_port = int(api_url.rsplit(":", 1)[1])
 
         logger.info(
             f"[Portforward] Building rocklet URL: host_ip={host_ip}, "
@@ -885,7 +885,14 @@ class SandboxProxyService:
             logger.info(f"Connection closed in {direction}: {e}")
 
     async def get_service_status(self, sandbox_id: str):
-        sandbox_info = await self._meta_store.get(sandbox_id)
+        # Only snapd can route a DB-only runtime; ordinary backends still
+        # require their Redis alive key and never depend on the DB hot path.
+        snapshot_backend = self._rock_config.runtime.operator_type.lower() == "snapd"
+        sandbox_info = await self._meta_store.get(sandbox_id, check_db=snapshot_backend)
+        if snapshot_backend and sandbox_info and (
+            not sandbox_info.get("source_snapshot_id") or sandbox_info.get("state") not in {State.RUNNING, State.PENDING}
+        ):
+            raise Exception(f"sandbox {sandbox_id} not started")
         if not sandbox_info or sandbox_info.get("host_ip") is None:
             raise Exception(f"sandbox {sandbox_id} not started")
         return [sandbox_info]
@@ -904,7 +911,7 @@ class SandboxProxyService:
     ):
         host_ip = sandbox_status_dict.get("host_ip")
         service_status = ServiceStatus.from_dict(sandbox_status_dict)
-        api_url = self._api_url(host_ip, service_status)
+        api_url = self._api_url(host_ip, service_status, snapshot_backed=bool(sandbox_status_dict.get("source_snapshot_id")))
         headers = self._headers(sandbox_id)
         logger.info(f"headers: {headers}")
         full_request_url = f"{api_url}/{path}"
@@ -957,7 +964,23 @@ class SandboxProxyService:
         headers = {"sandbox_id": sandbox_id, EAGLE_EYE_TRACE_ID: trace_id_ctx_var.get()}
         return headers
 
-    def _api_url(self, host_ip: str, service_status: ServiceStatus) -> str:
+    def _api_url(
+        self,
+        host_ip: str,
+        service_status: ServiceStatus,
+        *,
+        snapshot_backed: bool = False,
+    ) -> str:
+        port = service_status.port_mapping.get(Port.PROXY.value)
+        if snapshot_backed:
+            try:
+                address = ipaddress.ip_address(host_ip)
+            except ValueError as error:
+                raise InternalServerRockError("snapshot-backed sandbox has no ready guest Rocklet endpoint") from error
+            if address.is_unspecified or address.is_multicast or type(port) is not int or not 1 <= port <= 65535:
+                raise InternalServerRockError("snapshot-backed sandbox has no ready guest Rocklet endpoint")
+            endpoint_host = f"[{host_ip}]" if ":" in host_ip else host_ip
+            return f"http://{endpoint_host}:{port}"
         port = service_status.get_mapped_port(Port.PROXY)
         return f"http://{host_ip}:{port}"
 
@@ -1334,15 +1357,33 @@ class SandboxProxyService:
         is_alive = False
         operator_sandbox_info = None
         if host_ip and state in (State.RUNNING, State.PENDING):
-            remote_status = await get_remote_status(sandbox_id, host_ip, http_client=self._rpc_client)
-            is_alive = await check_alive_status(sandbox_id, host_ip, remote_status, http_client=self._rpc_client)
+            if sandbox_info.get("source_snapshot_id"):
+                remote_status = ServiceStatus.from_dict(sandbox_info)
+                try:
+                    api_url = self._api_url(
+                        host_ip,
+                        remote_status,
+                        snapshot_backed=True,
+                    )
+                    response = await self._rpc_client.get(
+                        f"{api_url}/is_alive",
+                        headers=self._headers(sandbox_id),
+                    )
+                    is_alive = IsAliveResponse(**response.json()).is_alive
+                except Exception as error:
+                    logger.warning("Guest Rocklet probe failed for %s: %s", sandbox_id, error)
+                    is_alive = False
+            else:
+                remote_status = await get_remote_status(sandbox_id, host_ip, http_client=self._rpc_client)
+                is_alive = await check_alive_status(sandbox_id, host_ip, remote_status, http_client=self._rpc_client)
 
             await self._update_expire_time(sandbox_id)
 
             if is_alive:
                 operator_sandbox_info = dict(sandbox_info)
                 operator_sandbox_info["state"] = State.RUNNING
-                operator_sandbox_info.update(remote_status.to_dict())
+                if not sandbox_info.get("source_snapshot_id"):
+                    operator_sandbox_info.update(remote_status.to_dict())
 
             if state == State.PENDING and is_alive:
                 from rock.sandbox.sandbox_statemachine import SandboxStateMachine

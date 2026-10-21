@@ -3,12 +3,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from rock.admin.proto.request import SandboxCommand, SandboxCreateBashSessionRequest
+from rock.config import RockConfig
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 
 
 @pytest.fixture
 def service():
     result = SandboxProxyService.__new__(SandboxProxyService)
+    result._rock_config = RockConfig()
+    result._rock_config.runtime.operator_type = "ray"
     result.metrics_monitor = None
     result._meta_store = AsyncMock()
     result._meta_store.get.return_value = {

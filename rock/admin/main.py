@@ -23,12 +23,14 @@ from rock.admin.core.db_provider import DatabaseProvider
 from rock.admin.core.ray_service import RayService
 from rock.admin.core.sandbox_table import SandboxTable
 from rock.admin.core.scheduler_task_table import SchedulerTaskTable
+from rock.admin.core.snapshot_table import SnapshotTable
 from rock.admin.core.template_table import TemplateTable
 from rock.admin.entrypoints.admin_ops_api import admin_ops_router, set_ops_service
 from rock.admin.entrypoints.e2b_api import e2b_router, set_e2b_sandbox_manager
 from rock.admin.entrypoints.e2b_proxy_api import e2b_proxy_router, set_e2b_proxy_service
 from rock.admin.entrypoints.sandbox_api import sandbox_router, set_sandbox_manager
 from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_sandbox_proxy_service
+from rock.admin.entrypoints.snapshot_api import set_snapshot_manager, snapshot_router
 from rock.admin.entrypoints.warmup_api import set_warmup_service, warmup_router
 from rock.admin.gem.api import gem_router, set_env_service
 from rock.admin.metrics.monitor import MetricsMonitor
@@ -47,8 +49,10 @@ from rock.admin.scheduler.tasks.sandbox_log_archive_task import (
 )
 from rock.admin.service.e2b_proxy_service import E2BProxyService
 from rock.admin.service.e2b_service import E2BService
+from rock.admin.service.e2b_snapshot_service import E2BSnapshotService
 from rock.admin.service.image_resolver import create_image_resolver
 from rock.admin.service.ops_service import OpsService
+from rock.admin.service.snapshot_manager import SnapshotManager, SnapshotReconciler
 from rock.common.exception import request_validation_exception_handler
 from rock.config import DatabaseConfig, RockConfig, SchedulerConfig
 from rock.logger import configure_logging, init_logger, reset_log_file
@@ -59,6 +63,7 @@ from rock.sandbox.operator.factory import (
     operator_requires_ray,
     operator_supports_scheduler,
 )
+from rock.sandbox.operator.snapshot import AbstractSnapshotOperator
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.service.factory import create_sandbox_proxy_service
 from rock.sandbox.service.warmup_service import WarmupService
@@ -130,6 +135,18 @@ def _init_ops_service(
     )
 
 
+async def _init_database_provider(rock_config: RockConfig) -> DatabaseProvider:
+    """Initialize the configured database or a complete in-memory SQLite fallback."""
+    db_url = rock_config.database.url or "sqlite+aiosqlite:///:memory:"
+    if not rock_config.database.url:
+        logger.info("database.url is not configured, falling back to SQLite in-memory")
+    db_provider = DatabaseProvider(db_config=DatabaseConfig(url=db_url))
+    await db_provider.init()
+    if not rock_config.database.url or db_provider.engine.dialect.name == "sqlite":
+        await db_provider.create_tables()
+    return db_provider
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config_file_path = (
@@ -164,16 +181,11 @@ async def lifespan(app: FastAPI):
         )
         await redis_provider.init_pool()
 
-    # init database provider (fallback to sqlite in-memory if no url configured)
-    db_url = rock_config.database.url or "sqlite+aiosqlite:///:memory:"
-    if not rock_config.database.url:
-        logger.info("database.url is not configured, falling back to SQLite in-memory")
-    db_provider = DatabaseProvider(db_config=DatabaseConfig(url=db_url))
-    await db_provider.init()
-    if not rock_config.database.url:
-        await db_provider.create_tables()
+    # Initialize the configured database, or a complete ephemeral SQLite
+    # database when no URL is supplied (including for the snapd operator).
+    db_provider = await _init_database_provider(rock_config)
     sandbox_table = SandboxTable(db_provider, rock_config=rock_config)
-    template_table = TemplateTable(db_provider)
+    template_table = TemplateTable(db_provider) if rock_config.runtime.operator_type.lower() != "snapd" else None
     meta_store = SandboxMetaStore(redis_provider=redis_provider, sandbox_table=sandbox_table, rock_config=rock_config)
 
     # Wire SandboxLogArchiveTask deps. Providers (vs static set) so Nacos
@@ -193,7 +205,13 @@ async def lifespan(app: FastAPI):
     # init sandbox service
     proxy_service_ref = None
     e2b_proxy_service_ref = None
+    snapshot_reconciler_task = None
+    operator = None
+    snapshot_table: SnapshotTable | None = None
     if env_vars.ROCK_ADMIN_ROLE == "admin":
+        if rock_config.runtime.operator_type.lower() == "snapd":
+            snapshot_table = SnapshotTable(db_provider)
+
         # init ray service only for operators that need a local Ray cluster.
         # opensandbox delegates the full lifecycle to an external service, so it
         # boots without Ray.
@@ -239,15 +257,7 @@ async def lifespan(app: FastAPI):
                 meta_store=meta_store,
             )
         set_sandbox_manager(sandbox_manager)
-        set_e2b_sandbox_manager(
-            E2BService(
-                sandbox_manager,
-                template_table,
-                image_resolver=create_image_resolver(
-                    rock_config.e2b_image_resolver, rock_config.http_pool_manager, redis_provider
-                ),
-            )
-        )
+        snapshot_service = None
         warmup_service = WarmupService(rock_config.warmup)
         await warmup_service.init()
         set_warmup_service(warmup_service)
@@ -272,6 +282,45 @@ async def lifespan(app: FastAPI):
             logger.info("Scheduler thread skipped on non-primary pod")
 
         set_ops_service(_init_ops_service(rock_config, scheduler_task_table))
+
+        if rock_config.runtime.operator_type.lower() == "snapd":
+            if not isinstance(operator, AbstractSnapshotOperator):
+                raise RuntimeError("configured SnapdOperator does not implement snapshot capability")
+            assert snapshot_table is not None
+            snapshot_manager = SnapshotManager(
+                snapshot_table,
+                operator,
+                sandbox_manager,
+            )
+            sandbox_manager.attach_snapshot_manager(snapshot_manager)
+            snapshot_service = E2BSnapshotService(snapshot_manager, sandbox_manager)
+            set_snapshot_manager(snapshot_manager)
+            reconciler = SnapshotReconciler(snapshot_manager)
+
+            async def reconcile_snapshots() -> None:
+                interval = max(float(os.getenv("ROCK_SNAPSHOT_RECONCILE_SECONDS", "5")), 0.1)
+                while True:
+                    try:
+                        await reconciler.reconcile_once()
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        logger.exception("snapshot reconciler iteration failed")
+                    await asyncio.sleep(interval)
+
+            snapshot_reconciler_task = asyncio.create_task(reconcile_snapshots())
+
+        set_e2b_sandbox_manager(
+            E2BService(
+                sandbox_manager,
+                template_table,
+                sandbox_table=sandbox_table,
+                snapshot_service=snapshot_service,
+                image_resolver=create_image_resolver(
+                    rock_config.e2b_image_resolver, rock_config.http_pool_manager, redis_provider
+                ),
+            )
+        )
 
     else:
         sandbox_manager = create_sandbox_proxy_service(rock_config=rock_config, meta_store=meta_store)
@@ -303,6 +352,16 @@ async def lifespan(app: FastAPI):
         if proxy_service_ref is not None:
             await proxy_service_ref.aclose()
             logger.info("proxy httpx clients closed")
+
+        if snapshot_reconciler_task is not None:
+            snapshot_reconciler_task.cancel()
+            try:
+                await snapshot_reconciler_task
+            except asyncio.CancelledError:
+                pass
+        set_snapshot_manager(None)
+        if operator is not None:
+            await operator.aclose()
 
         await rock_config.http_pool_manager.aclose_all()
         logger.info("http pool manager closed")
@@ -373,6 +432,7 @@ def _include_routers(app: FastAPI, role: str) -> None:
         app.include_router(e2b_router, tags=["e2b"])
         app.include_router(sandbox_router, prefix="/apis/envs/sandbox/v1", tags=["sandbox"])
         app.include_router(admin_ops_router, prefix="/apis/envs/sandbox/v1/ops", tags=["admin-ops"])
+        app.include_router(snapshot_router, prefix="/apis/envs/sandbox/v1", tags=["snapshot"])
     else:
         app.include_router(e2b_proxy_router, tags=["e2b"])
         app.include_router(sandbox_proxy_router, prefix="/apis/envs/sandbox/v1", tags=["sandbox"])

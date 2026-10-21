@@ -27,6 +27,9 @@ class SandboxInfo(TypedDict, total=False):
     phases: dict[str, PhaseStatus]
     state: State
     port_mapping: dict[int, int]
+    source_snapshot_id: str
+    pause_snapshot_id: str | None
+    snapd_node_id: str
     create_user_gray_flag: bool
     cpus: float
     memory: str

@@ -1,16 +1,17 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
-from rock.actions.sandbox.sandbox_info import SandboxInfo
-
-if TYPE_CHECKING:
-    from rock.sandbox.operator.k8s.provider import TemplateSpec
 from rock.admin.core.redis_key import alive_sandbox_key
 from rock.common.constants import StopReason
-from rock.config import RuntimeConfig
-from rock.deployments.config import DeploymentConfig
-from rock.utils.providers.nacos_provider import NacosConfigProvider
-from rock.utils.providers.redis_provider import RedisProvider
+
+if TYPE_CHECKING:
+    from rock.actions.sandbox.sandbox_info import SandboxInfo
+    from rock.config import RuntimeConfig
+    from rock.deployments.config import DeploymentConfig
+    from rock.utils.providers.nacos_provider import NacosConfigProvider
+    from rock.utils.providers.redis_provider import RedisProvider
 
 
 class AbstractOperator(ABC):
@@ -42,6 +43,9 @@ class AbstractOperator(ABC):
 
     @abstractmethod
     async def delete(self, config: DeploymentConfig, host_ip: str | None = None) -> bool: ...
+
+    async def aclose(self) -> None:
+        """Release operator-owned transports. Stateless operators are no-op."""
 
     async def start_archive(
         self,

@@ -1,6 +1,6 @@
 from datetime import timezone
 from pathlib import PurePosixPath
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,6 +13,8 @@ from rock.sdk.common.e2b import E2BConnectCode
 
 
 class E2BCreateSandboxResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     sandbox_id: str = Field(alias="sandboxID")
     envd_version: str = Field(alias="envdVersion")
     envd_access_token: str | None = Field(default=None, alias="envdAccessToken")
@@ -173,6 +175,7 @@ class E2BSandboxInfo(BaseModel):
     disk_size_mb: int = Field(alias="diskSizeMB")
     started_at: str = Field(alias="startedAt")
     end_at: str = Field(alias="endAt")
+    envd_access_token: str | None = Field(default=None, alias="envdAccessToken")
 
 
 class E2BSandboxVolumeMount(BaseModel):
@@ -187,6 +190,7 @@ class E2BListedSandbox(E2BSandboxInfo):
 
 class SandboxStartResponse(SandboxResponse):
     sandbox_id: str | None = None
+    source_snapshot_id: str | None = None
     host_name: str | None = None
     host_ip: str | None = None
     cpus: float | None = None
@@ -198,6 +202,7 @@ class SandboxStartResponse(SandboxResponse):
 # TODO: inherit from SandboxStartResponse
 class SandboxStatusResponse(BaseModel):
     sandbox_id: str = None
+    source_snapshot_id: str | None = None
     status: dict | None = None
     state: State | None = None
     port_mapping: dict | None = None
@@ -206,6 +211,9 @@ class SandboxStatusResponse(BaseModel):
     is_alive: bool = True
     image: str | None = None
     metadata: dict[str, str] | None = None
+    guest_endpoint: dict[str, Any] | None = None
+    vmm_pid: int | None = None
+    rocklet_artifact: dict[str, Any] | None = None
     gateway_version: str | None = None
     swe_rex_version: str | None = None
     user_id: str | None = None
@@ -235,6 +243,7 @@ class SandboxStatusResponse(BaseModel):
         )
         return cls(
             sandbox_id=sandbox_info.get("sandbox_id", ""),
+            source_snapshot_id=sandbox_info.get("source_snapshot_id"),
             status=sandbox_info.get("phases", {}),
             state=sandbox_info.get("state"),
             port_mapping=sandbox_info.get("port_mapping", {}),

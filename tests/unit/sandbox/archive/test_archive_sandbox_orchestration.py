@@ -13,6 +13,7 @@ def manager():
     from rock.sandbox.sandbox_manager import SandboxManager
 
     m = MagicMock(spec=SandboxManager)
+    m.snapshot_runtime_configured = False
     m._meta_store = AsyncMock()
     m._meta_store._db = AsyncMock()
     m._meta_store._db.get = AsyncMock(

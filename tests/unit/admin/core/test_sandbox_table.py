@@ -1,9 +1,10 @@
 """Tests for SandboxTable — SQLite in-memory (fast) and PostgreSQL (Docker)."""
 
 from datetime import datetime
+from unittest.mock import MagicMock
 
 import pytest
-from sqlalchemy import DateTime, select
+from sqlalchemy import DateTime, event, select
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
 
@@ -11,6 +12,7 @@ from rock.admin.core.db_provider import DatabaseProvider
 from rock.admin.core.sandbox_table import SandboxTable, _metadata_filter_expression
 from rock.admin.core.schema import SandboxRecord
 from rock.config import DatabaseConfig
+from rock.deployments.config import DockerDeploymentConfig
 
 
 class TestSandboxTableWithSQLite:
@@ -46,6 +48,94 @@ class TestSandboxTableWithSQLite:
         assert record["sandbox_id"] == sandbox_id
         assert record["user_id"] == "user-1"
         assert record["state"] == "running"
+
+    @pytest.mark.parametrize("state", ["running", "pending", "future-state", "stopped", "archived", "deleted"])
+    async def test_snapshot_reference_query_preserves_lifecycle_for_the_manager(self, db, state):
+        await db.create(
+            "checkpoint-owner",
+            {
+                "state": state,
+                "source_snapshot_id": "base",
+                "pause_snapshot_id": "pause-cut",
+                "create_time": "2026-09-22T00:00:00Z",
+            },
+        )
+        for snapshot_id in ("base", "pause-cut"):
+            records = await db.list_snapshot_references(snapshot_id)
+            assert [record["sandbox_id"] for record in records] == ["checkpoint-owner"]
+            assert records[0]["state"] == state
+            assert records[0]["source_snapshot_id"] == "base"
+            assert records[0]["pause_snapshot_id"] == "pause-cut"
+        assert await db.list_snapshot_references("unrelated") == []
+
+    async def test_stopped_checkpoint_reference_is_released_when_checkpoint_is_cleared(self, db):
+        await db.create(
+            "checkpoint-owner",
+            {
+                "state": "stopped",
+                "source_snapshot_id": "base",
+                "pause_snapshot_id": "pause-cut",
+                "create_time": "2026-09-22T00:00:00Z",
+            },
+        )
+        assert len(await db.list_snapshot_references("pause-cut")) == 1
+        await db.update("checkpoint-owner", {"state": "stopped", "pause_snapshot_id": None})
+        assert await db.list_snapshot_references("pause-cut") == []
+        assert len(await db.list_snapshot_references("base")) == 1
+
+    @pytest.mark.parametrize("existing_ids", [(), ("child-a",), ("child-b",), ("child-a", "child-b")])
+    async def test_independent_creates_preserve_existing_rows_and_successful_inserts(self, db, existing_ids):
+        children = [
+            (
+                sandbox_id,
+                {"sandbox_id": sandbox_id, "state": "pending", "create_time": "2026-09-21T00:00:00Z"},
+                DockerDeploymentConfig(container_name=sandbox_id),
+            )
+            for sandbox_id in ("child-a", "child-b")
+        ]
+        for sandbox_id, info, config in children:
+            if sandbox_id in existing_ids:
+                await db.create(sandbox_id, {**info, "state": "running"}, config)
+        original = {sandbox_id: await db.get(sandbox_id) for sandbox_id in existing_ids}
+
+        for sandbox_id, info, config in children:
+            if sandbox_id in existing_ids:
+                with pytest.raises(IntegrityError):
+                    await db.create(sandbox_id, info, config)
+                assert await db.get(sandbox_id) == original[sandbox_id]
+            else:
+                await db.create(sandbox_id, info, config)
+                assert (await db.get(sandbox_id))["state"] == "pending"
+        assert {row["sandbox_id"] for row in await db.list_by_in("sandbox_id", ["child-a", "child-b"])} == {
+            "child-a", "child-b",
+        }
+
+    async def test_create_passes_through_integrity_error_without_identity_probe(self, db, monkeypatch):
+        session = MagicMock()
+        original_error = IntegrityError("insert", {}, RuntimeError("injected integrity error"))
+        session.commit.side_effect = original_error
+        factory = MagicMock()
+        factory.return_value.__enter__.return_value = session
+        monkeypatch.setattr(db._db, "_session_factory", factory)
+        with pytest.raises(IntegrityError) as raised:
+            await db.create("child-a", {"state": "pending"}, DockerDeploymentConfig(container_name="child-a"))
+
+        assert raised.value is original_error
+        session.execute.assert_not_called()
+
+    async def test_create_uses_plain_insert_without_advisory_or_row_lock(self, db):
+        statements = []
+
+        def record_statement(_connection, _cursor, statement, _parameters, _context, _many):
+            statements.append(statement.lower())
+
+        event.listen(db._db.engine, "before_cursor_execute", record_statement)
+        try:
+            await db.create("child-a", {"state": "pending"})
+        finally:
+            event.remove(db._db.engine, "before_cursor_execute", record_statement)
+        assert any("insert into sandbox_record" in statement for statement in statements)
+        assert not any("advisory" in statement or "for update" in statement for statement in statements)
 
     async def test_metadata_is_persisted_as_labels(self, db):
         metadata = {"ap-job-id": "job-123", "custom-key": "custom-value"}
@@ -83,6 +173,60 @@ class TestSandboxTableWithSQLite:
         record = await db.get(sandbox_id)
         assert record["state"] == "running"
         assert record["host_ip"] == "10.0.0.2"
+
+    async def test_restart_atomically_updates_source_and_deployment_spec(self, db):
+        config = DockerDeploymentConfig(container_name="restart-row", source_snapshot_id="base")
+        await db.create(
+            "restart-row",
+            {
+                "state": "stopped",
+                "source_snapshot_id": "base",
+                "pause_snapshot_id": "pause-cut",
+                "create_time": "2026-09-22T00:00:00Z",
+            },
+            config,
+        )
+        info = await db.get("restart-row")
+        info["state"] = "pending"
+        info["source_snapshot_id"] = "pause-cut"
+        info["spec"] = {**info["spec"], "source_snapshot_id": "pause-cut"}
+        await db.persist_lifecycle("restart-row", info)
+        durable = await db.get("restart-row")
+        assert durable["state"] == "pending"
+        assert durable["source_snapshot_id"] == durable["spec"]["source_snapshot_id"] == "pause-cut"
+        assert durable["pause_snapshot_id"] == "pause-cut"
+        info["spec"]["cpus"] = 99
+        with pytest.raises(ValueError, match="only a stopped sandbox"):
+            await db.persist_lifecycle("restart-row", info)
+        assert (await db.get("restart-row"))["spec"]["cpus"] == config.cpus
+
+    @pytest.mark.parametrize(
+        ("state", "checkpoint", "target", "change_resources"),
+        [
+            ("running", "pause-cut", "pause-cut", False),
+            ("pending", "pause-cut", "pause-cut", False),
+            ("deleted", "pause-cut", "pause-cut", False),
+            ("stopped", None, "pause-cut", False),
+            ("stopped", "pause-cut", "another-cut", False),
+            ("stopped", "pause-cut", "pause-cut", True),
+        ],
+    )
+    async def test_checkpoint_rebind_requires_stopped_owner_and_exact_retained_checkpoint(
+        self, db, state, checkpoint, target, change_resources,
+    ):
+        config = DockerDeploymentConfig(container_name="restart-row", source_snapshot_id="base")
+        await db.create(
+            "restart-row",
+            {"state": state, "source_snapshot_id": "base", "pause_snapshot_id": checkpoint},
+            config,
+        )
+        original = await db.get("restart-row")
+        info = {**original, "source_snapshot_id": target, "spec": {**original["spec"], "source_snapshot_id": target}}
+        if change_resources:
+            info["spec"]["cpus"] = 99
+        with pytest.raises(ValueError, match="only a stopped sandbox"):
+            await db.persist_lifecycle("restart-row", info)
+        assert await db.get("restart-row") == original
 
     async def test_delete(self, db):
         sandbox_id = "sqlite-sbx-004"

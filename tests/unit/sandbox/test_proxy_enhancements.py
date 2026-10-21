@@ -5,6 +5,7 @@
 """
 
 import contextlib
+import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -17,6 +18,7 @@ from starlette.responses import JSONResponse
 from rock.actions.sandbox.response import State
 from rock.admin.core.db_provider import DatabaseProvider
 from rock.admin.core.sandbox_table import SandboxTable
+from rock.admin.core.snapshot_table import SnapshotTable
 from rock.admin.entrypoints.sandbox_proxy_api import (
     sandbox_proxy_router,
     set_sandbox_proxy_service,
@@ -24,8 +26,10 @@ from rock.admin.entrypoints.sandbox_proxy_api import (
     websocket_proxy,
 )
 from rock.config import DatabaseConfig, RockConfig
+from rock.deployments.status import ServiceStatus
 from rock.sandbox.sandbox_meta_store import SandboxMetaStore
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
+from rock.sdk.common.exceptions import InternalServerRockError
 from rock.utils.providers.redis_provider import RedisProvider
 
 
@@ -1093,6 +1097,111 @@ def rock_config():
 async def _seed(meta_store: SandboxMetaStore, sandbox_id: str, state: str) -> None:
     info = {**_BASE_INFO, "sandbox_id": sandbox_id, "state": state}
     await meta_store.create(sandbox_id, info)
+
+
+async def test_service_status_falls_back_to_durable_snapshot_row(_svc):
+    svc, meta_store = _svc
+    svc._rock_config.runtime.operator_type = "snapd"
+    await SnapshotTable(meta_store._db._db).create(
+        snapshot_id="snapshot-ready",
+        kind="BASE_IMAGE",
+        created_at=datetime.datetime(2026, 8, 25, tzinfo=datetime.timezone.utc),
+    )
+    info = {
+        **_BASE_INFO,
+        "sandbox_id": "snapshot-sandbox",
+        "state": State.RUNNING,
+        "host_ip": "10.0.0.9",
+        "source_snapshot_id": "snapshot-ready",
+    }
+    await meta_store._db.create("snapshot-sandbox", info)
+
+    [result] = await svc.get_service_status("snapshot-sandbox")
+    assert result["sandbox_id"] == "snapshot-sandbox"
+    assert result["host_ip"] == "10.0.0.9"
+    assert result["source_snapshot_id"] == "snapshot-ready"
+
+
+@pytest.mark.parametrize("backend", ["ray", "k8s", "remote"])
+async def test_legacy_service_status_does_not_query_database_on_cache_hit(_svc, monkeypatch, backend):
+    svc, meta_store = _svc
+    svc._rock_config.runtime.operator_type = backend
+    await _seed(meta_store, "legacy-running", State.RUNNING)
+    database_get = AsyncMock(side_effect=RuntimeError("database unavailable"))
+    monkeypatch.setattr(meta_store._db, "get", database_get)
+
+    [result] = await svc.get_service_status("legacy-running")
+
+    assert result["sandbox_id"] == "legacy-running"
+    database_get.assert_not_awaited()
+
+
+@pytest.mark.parametrize("backend", ["ray", "k8s", "remote", "snapd"])
+@pytest.mark.parametrize("state", [State.STOPPED, State.DELETED])
+async def test_service_status_rejects_legacy_durable_rows(_svc, backend, state):
+    svc, meta_store = _svc
+    svc._rock_config.runtime.operator_type = backend
+    await meta_store._db.create("legacy-inactive", {**_BASE_INFO, "sandbox_id": "legacy-inactive", "state": state})
+
+    with pytest.raises(Exception, match="not started"):
+        await svc.get_service_status("legacy-inactive")
+
+
+def test_non_snapshot_proxy_requires_existing_port_mapping(monkeypatch):
+    svc = SandboxProxyService.__new__(SandboxProxyService)
+    monkeypatch.setattr("rock.sandbox.service.sandbox_proxy_service.env_vars.ROCK_WORKER_ROCKLET_PORT", 22556)
+
+    with pytest.raises(KeyError):
+        svc._api_url("10.0.0.9", ServiceStatus())
+    assert svc._api_url("10.0.0.9", ServiceStatus(port_mapping={22555: 32123})) == "http://10.0.0.9:32123"
+
+
+def test_snapshot_proxy_fails_closed_without_guest_endpoint():
+    svc = SandboxProxyService.__new__(SandboxProxyService)
+
+    with pytest.raises(InternalServerRockError, match="no ready guest Rocklet endpoint"):
+        svc._api_url("10.0.0.9", ServiceStatus(), snapshot_backed=True)
+
+
+def test_snapshot_proxy_uses_standard_host_and_port_mapping():
+    svc = SandboxProxyService.__new__(SandboxProxyService)
+    status = ServiceStatus(port_mapping={22555: 32123})
+    assert svc._api_url("10.0.0.9", status, snapshot_backed=True) == "http://10.0.0.9:32123"
+    assert svc._api_url("fd00::9", status, snapshot_backed=True) == "http://[fd00::9]:32123"
+    status.port_mapping.clear()
+    with pytest.raises(InternalServerRockError, match="no ready guest Rocklet endpoint"):
+        svc._api_url("10.0.0.9", status, snapshot_backed=True)
+
+
+@pytest.mark.parametrize("host", [None, "default", "0.0.0.0", "::", "224.0.0.1", "ff02::1"])
+def test_snapshot_proxy_rejects_unroutable_worker_host(host):
+    svc = SandboxProxyService.__new__(SandboxProxyService)
+    with pytest.raises(InternalServerRockError, match="no ready guest Rocklet endpoint"):
+        svc._api_url(host, ServiceStatus(port_mapping={22555: 32123}), snapshot_backed=True)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_execute_never_reaches_worker_fallback_without_guest_endpoint():
+    svc = SandboxProxyService.__new__(SandboxProxyService)
+    svc._rpc_client = MagicMock()
+
+    with pytest.raises(InternalServerRockError, match="no ready guest Rocklet endpoint"):
+        await svc._send_request(
+            "snapshot-sandbox",
+            {
+                "sandbox_id": "snapshot-sandbox",
+                "source_snapshot_id": "snapshot-1",
+                "host_ip": "10.0.0.9",
+                "port_mapping": {},
+            },
+            "execute",
+            None,
+            {"command": ["id"]},
+            None,
+            "POST",
+        )
+
+    svc._rpc_client.request.assert_not_called()
 
 
 class TestBatchGetLegacyStates:
