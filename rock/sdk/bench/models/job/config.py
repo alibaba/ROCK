@@ -208,10 +208,13 @@ class HarborJobConfig(_BaseJobConfig):
                 f"experiment_id mismatch: JobConfig has '{self.experiment_id}', "
                 f"but environment (SandboxConfig) has '{env_exp}'"
             )
-        self.environment.experiment_id = self.experiment_id
-        if self.environment.oss_mirror is not None:
-            self.environment.oss_mirror.experiment_id = self.experiment_id
+        self._propagate_experiment_id()
         return self
+
+    def _propagate_experiment_id(self) -> None:
+        super()._propagate_experiment_id()
+        if self.experiment_id is not None and self.environment.oss_mirror is not None:
+            self.environment.oss_mirror.experiment_id = self.experiment_id
 
     @model_validator(mode="after")
     def _sync_namespace_to_oss_mirror(self):

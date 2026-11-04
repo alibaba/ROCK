@@ -10,6 +10,7 @@ Harbor's HarborJobConfig lives in rock.sdk.bench.models.job.config.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -30,8 +31,18 @@ class JobConfig(BaseModel):
     labels: dict[str, str] = Field(default_factory=dict)
     timeout: int = 7200
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        super().__setattr__(name, value)
+        if name in {"experiment_id", "environment"}:
+            # Keep dependent IDs current without rerunning initialization-only validators.
+            self._propagate_experiment_id()
+
     @model_validator(mode="after")
     def _sync_experiment_id(self) -> JobConfig:
+        self._propagate_experiment_id()
+        return self
+
+    def _propagate_experiment_id(self) -> None:
         """Sync JobConfig.experiment_id down to environment.experiment_id.
 
         - If only JobConfig.experiment_id is set, propagate it to environment silently.
@@ -47,7 +58,6 @@ class JobConfig(BaseModel):
                     self.environment.experiment_id,
                 )
             self.environment.experiment_id = self.experiment_id
-        return self
 
     @classmethod
     def from_yaml(cls, path: str) -> JobConfig:
