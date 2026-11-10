@@ -21,6 +21,36 @@ export ROCK_WORKER_ENV_TYPE=local  # 运行时环境类型，可选值: local, d
 
 更多环境变量可参考 `rock/env_vars.py` 文件。
 
+### Python SDK 默认值
+
+显式传入 `SandboxConfig` / `SandboxGroupConfig` 的值优先于环境变量。资源默认值在每次构造配置时读取；未设置环境变量时使用下表的原有默认值。命令时间参数在调用时读取；显式传入 `arun()` 或 `run_nohup_and_wait()` 的等待参数优先，包括显式零值。
+
+| 环境变量 | 默认值 | 含义 |
+|---|---|---|
+| `ROCK_DEFAULT_IMAGE` | `python:3.11` | 沙箱镜像 |
+| `ROCK_DEFAULT_MEMORY` | `8g` | 沙箱内存 |
+| `ROCK_DEFAULT_CPUS` | `2` | 沙箱 CPU 数（可为小数） |
+| `ROCK_DEFAULT_AUTO_CLEAR_SECONDS` | `300` | 沙箱自动清理时间，秒 |
+| `ROCK_DEFAULT_GROUP_SIZE` | `2` | 沙箱组大小 |
+| `ROCK_DEFAULT_GROUP_START_CONCURRENCY` | `2` | 组启动并发数 |
+| `ROCK_DEFAULT_GROUP_START_RETRY_TIMES` | `3` | 组启动重试次数 |
+| `ROCK_SANDBOX_STATUS_CHECK_INTERVAL_SECONDS` | `3` | 启动和重启状态轮询间隔，秒 |
+| `ROCK_SANDBOX_WAIT_TIMEOUT_SECONDS` | `300` | nohup 等待完成的默认超时，秒 |
+| `ROCK_SANDBOX_WAIT_INTERVAL_SECONDS` | `10` | nohup 等待完成的默认轮询间隔，秒 |
+| `ROCK_SANDBOX_NOHUP_COMMAND_TIMEOUT_SECONDS` | `30` | nohup 启动命令超时，秒 |
+| `ROCK_SANDBOX_MIN_WAIT_INTERVAL_SECONDS` | `5` | 进程完成轮询间隔下限，秒 |
+
+所有时间变量的单位都是秒。状态轮询间隔和 nohup 启动命令超时支持小数秒。进程轮询间隔仍会按沙箱自动清理窗口限制上限，保持原有行为。时间变量应设置为正数；这些 SDK 默认值不会改变服务端调度策略。`ROCK_DEFAULT_CLUSTER` 继续保留，未设置时仍使用 `vpc-nt-a`。
+
+```python
+import os
+from rock.sdk.sandbox.config import SandboxConfig
+
+os.environ["ROCK_DEFAULT_CPUS"] = "0.5"
+assert SandboxConfig().cpus == 0.5
+assert SandboxConfig(cpus=4).cpus == 4
+```
+
 ### 1.1 运行时环境 (Runtime Environments)
 
 ROCK 提供了多种不同的运行时环境来满足不同场景的需求，选择通过环境变量 `ROCK_WORKER_ENV_TYPE` 进行配置。每种环境有不同的部署要求、性能特征和适用场景。每种环境都有其独特的优势和限制，开发者可以根据部署环境的需要选择最适合的运行时环境。
