@@ -1,9 +1,9 @@
 import asyncio
 import json
-import logging
+import threading
 import time
-from pathlib import Path
 
+from rock.logger import init_logger
 from rock.sdk.model.server.config import (
     LOG_FILE,
     REQUEST_END_MARKER,
@@ -13,7 +13,11 @@ from rock.sdk.model.server.config import (
     SESSION_END_MARKER,
 )
 
-logger = logging.getLogger(__name__)
+logger = init_logger(__name__)
+
+
+class _NoCompleteRequestError(ValueError):
+    """The log does not contain a committed request line yet."""
 
 
 class ModelClient:
@@ -22,6 +26,7 @@ class ModelClient:
             self.log_file = log_file_name
         else:
             self.log_file = LOG_FILE
+        self._response_lock = threading.Lock()
 
     async def anti_call_llm(self, index: int, last_response: str | None = None) -> str:
         """anti call llm, input is response of llm, output is the next request to llm"""
@@ -41,85 +46,103 @@ class ModelClient:
 
     async def push_response(self, index: int, last_response: str):
         content = await self._construct_response(last_response, index)
-        last_response_line = await self.read_last_response_line()
-        if last_response_line is None:
-            await self._append_response(content)
-            return
-        response_json, meta = await self.parse_response_line(last_response_line)
-        last_response_index: int = int(meta.get("index"))  # type: ignore
-        if index < last_response_index:
-            raise ValueError(f"index {index} must not be smaller than last_response_index {last_response_index}")
-        if index == last_response_index:
-            logger.debug(f"response index {index} already exists, skip. content is {last_response_line}")
-            return
-        await self._append_response(content)
+        await asyncio.to_thread(self._push_response_sync, index, content)
+
+    def _push_response_sync(self, index: int, content: str) -> None:
+        # Keep read/check/append atomic on this client, including when a caller
+        # is cancelled while its worker thread is still finishing the write.
+        with self._response_lock:
+            last_response_line = self._read_last_line(RESPONSE_START_MARKER)
+            if last_response_line is None:
+                self._append_response_sync(content)
+                return
+            _, meta = self._parse_line(last_response_line, RESPONSE_START_MARKER, RESPONSE_END_MARKER, "response")
+            last_response_index: int = int(meta.get("index"))  # type: ignore
+            if index < last_response_index:
+                raise ValueError(f"index {index} must not be smaller than last_response_index {last_response_index}")
+            if index == last_response_index:
+                logger.debug("response index %s already exists, skip", index)
+                return
+            self._append_response_sync(content)
 
     async def _append_response(self, content: str):
-        with open(self.log_file, "a") as f:
+        await asyncio.to_thread(self._append_response_sync, content)
+
+    def _append_response_sync(self, content: str) -> None:
+        with open(self.log_file, "a", encoding="utf-8") as f:
             f.write(content)
 
     async def pop_request(self, index: int) -> str:
         while True:
-            last_request_line = await self.read_last_request_line()
-            request_json, meta = await self.parse_request_line(last_request_line)
-            if SESSION_END_MARKER == request_json:
-                return SESSION_END_MARKER
-            if meta.get("index") == index:
-                return request_json
-            logger.debug(f"Last request {last_request_line} is not the index {index} we want, waiting...")
+            try:
+                last_request_line = await self.read_last_request_line()
+            except _NoCompleteRequestError:
+                logger.debug("No complete request in log file yet, waiting...")
+            else:
+                request_json, meta = await self.parse_request_line(last_request_line)
+                if SESSION_END_MARKER == request_json:
+                    return SESSION_END_MARKER
+                if meta.get("index") == index:
+                    return request_json
+                logger.debug("Last request is not index %s, waiting...", index)
             await asyncio.sleep(1)
 
     async def parse_request_line(self, line_content: str) -> tuple[str, dict]:
-        if SESSION_END_MARKER in line_content:
+        if line_content.strip() == SESSION_END_MARKER:
             return SESSION_END_MARKER, {}
 
-        meta_json = line_content.split(REQUEST_END_MARKER)[1]
-        request_json = line_content.split(REQUEST_END_MARKER)[0].split(REQUEST_START_MARKER)[1]
-        meta = json.loads(meta_json)
-        return request_json, meta
+        return self._parse_line(line_content, REQUEST_START_MARKER, REQUEST_END_MARKER, "request")
 
     async def parse_response_line(self, line_content: str) -> tuple[str, dict]:
-        meta_json = line_content.split(RESPONSE_END_MARKER)[1]
-        response_json = line_content.split(RESPONSE_END_MARKER)[0].split(RESPONSE_START_MARKER)[1]
-        meta = json.loads(meta_json)
-        return response_json, meta
+        return self._parse_line(line_content, RESPONSE_START_MARKER, RESPONSE_END_MARKER, "response")
+
+    @staticmethod
+    def _parse_line(line_content: str, start_marker: str, end_marker: str, kind: str) -> tuple[str, dict]:
+        _, start, content = line_content.partition(start_marker)
+        payload, end, meta_json = content.rpartition(end_marker)
+        if not start or not end:
+            raise ValueError(f"Invalid {kind} log line: missing start or end marker")
+        try:
+            meta = json.loads(meta_json)
+        except json.JSONDecodeError:
+            raise ValueError(f"Invalid {kind} log line: malformed metadata JSON") from None
+        if not isinstance(meta, dict):
+            raise ValueError(f"Invalid {kind} log line: metadata must be a JSON object")
+        return payload, meta
 
     async def read_last_request_line(self) -> str:
-        with open(self.log_file) as f:
-            lines = f.readlines()
-            line_index = len(lines) - 1
-            while line_index >= 0:
-                line = lines[line_index]
-                if REQUEST_START_MARKER in line or SESSION_END_MARKER in line:
-                    return line
-                line_index -= 1
-            raise ValueError(f"No request found in log file {self.log_file}")
+        line = await asyncio.to_thread(self._read_last_line, REQUEST_START_MARKER)
+        if line is None:
+            raise _NoCompleteRequestError(f"No complete request found in log file {self.log_file}")
+        return line
 
     async def read_last_response_line(self) -> str | None:
-        with open(self.log_file) as f:
+        return await asyncio.to_thread(self._read_last_line, RESPONSE_START_MARKER)
+
+    def _read_last_line(self, start_marker: str) -> str | None:
+        with open(self.log_file, "rb") as f:
             lines = f.readlines()
-            line_index = len(lines) - 1
-            while line_index >= 0:
-                line = lines[line_index]
-                if RESPONSE_START_MARKER in line:
-                    return line
-                line_index -= 1
-            return None
+        marker = start_marker.encode("utf-8")
+        for line in reversed(lines):
+            # Writers append one newline-terminated record. Ignore a trailing
+            # fragment before decoding: it may even end inside a UTF-8 character.
+            if not line.endswith(b"\n"):
+                continue
+            if line.startswith(marker):
+                return line.decode("utf-8")
+            if start_marker == REQUEST_START_MARKER and line.strip() == SESSION_END_MARKER.encode("utf-8"):
+                return line.decode("utf-8")
+        return None
 
     async def wait_for_first_request(self):
         while True:
-            if not Path(self.log_file).exists():
-                logger.debug(f"Log file {self.log_file} not found, waiting...")
+            try:
+                await self.read_last_request_line()
+            except (FileNotFoundError, _NoCompleteRequestError):
+                logger.debug("Waiting for the first complete request in log file %s", self.log_file)
                 await asyncio.sleep(1)
-                continue
-            with open(self.log_file) as f:
-                lines = f.readlines()
-                if len(lines) == 0:
-                    logger.debug(f"Log file {self.log_file} is empty, waiting for the first request...")
-                    await asyncio.sleep(1)
-                    continue
-                else:
-                    return
+            else:
+                return
 
     async def _construct_response(self, last_response: str, index: int) -> str:
         meta = {
