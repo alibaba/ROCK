@@ -12,6 +12,7 @@ from urllib.parse import quote
 from httpx import ReadTimeout
 from typing_extensions import deprecated
 
+from rock import env_vars
 from rock.actions import (
     AbstractSandbox,
     Action,
@@ -235,7 +236,7 @@ class Sandbox(AbstractSandbox):
             error_msg = await self._parse_error_message_from_status(sandbox_info.status)
             if error_msg:
                 raise InternalServerRockError(f"Failed to start sandbox because {error_msg}, sandbox: {str(self)}")
-            await asyncio.sleep(3)
+            await asyncio.sleep(env_vars.ROCK_SANDBOX_STATUS_CHECK_INTERVAL_SECONDS)
         raise InternalServerRockError(
             f"Failed to start sandbox within {self.config.startup_timeout}s, sandbox: {str(self)}"
         )
@@ -339,7 +340,7 @@ class Sandbox(AbstractSandbox):
             error_msg = await self._parse_error_message_from_status(sandbox_info.status)
             if error_msg:
                 raise InternalServerRockError(f"Failed to restart sandbox because {error_msg}, sandbox: {str(self)}")
-            await asyncio.sleep(3)
+            await asyncio.sleep(env_vars.ROCK_SANDBOX_STATUS_CHECK_INTERVAL_SECONDS)
         raise InternalServerRockError(
             f"Failed to restart sandbox within {self.config.startup_timeout}s, sandbox: {str(self)}"
         )
@@ -465,8 +466,16 @@ class Sandbox(AbstractSandbox):
 
     @deprecated("Use arun instead")
     async def run_nohup_and_wait(
-        self, cmd: str, redirect_file_path: str = "/dev/null", wait_timeout: int = 300, wait_interval: int = 10
+        self,
+        cmd: str,
+        redirect_file_path: str = "/dev/null",
+        wait_timeout: int | None = None,
+        wait_interval: int | None = None,
     ) -> ExecuteBashSessionResponse:
+        if wait_timeout is None:
+            wait_timeout = env_vars.ROCK_SANDBOX_WAIT_TIMEOUT_SECONDS
+        if wait_interval is None:
+            wait_interval = env_vars.ROCK_SANDBOX_WAIT_INTERVAL_SECONDS
         timestamp = str(time.time_ns())
         temp_session = f"bash-{timestamp}"
 
@@ -481,7 +490,9 @@ class Sandbox(AbstractSandbox):
             # todo:
             # Theoretically, the nohup command should return in a very short time, but the total time online is longer,
             # so time_out is set larger to avoid affecting online usage. It will be reduced after optimizing the read cluster time.
-            action = BashAction(command=nohup_command, session=temp_session, timeout=30)
+            action = BashAction(
+                command=nohup_command, session=temp_session, timeout=env_vars.ROCK_SANDBOX_NOHUP_COMMAND_TIMEOUT_SECONDS
+            )
             response: Observation = await self._run_in_session(action)
             if response.exit_code != 0:
                 return response
@@ -509,8 +520,8 @@ class Sandbox(AbstractSandbox):
         self,
         cmd: str,
         session: str = None,
-        wait_timeout=300,
-        wait_interval=10,
+        wait_timeout: int | None = None,
+        wait_interval: int | None = None,
         mode: RunModeType = RunMode.NORMAL,
         response_limited_bytes_in_nohup: int | None = None,
         ignore_output: bool = False,
@@ -526,15 +537,14 @@ class Sandbox(AbstractSandbox):
             session (str, optional): The session identifier to run the command in.
                 If None, a temporary session will be created automatically. Defaults to None.
             wait_timeout (int, optional): Maximum time in seconds to wait for nohup command completion.
-                Defaults to 300.
+                Defaults to ROCK_SANDBOX_WAIT_TIMEOUT_SECONDS (300 when unset).
             wait_interval (int, optional): Interval in seconds between process completion checks for nohup mode.
-                Minimum value is 5 seconds. Defaults to 10.
+                Defaults to ROCK_SANDBOX_WAIT_INTERVAL_SECONDS (10 when unset), bounded
+                below by ROCK_SANDBOX_MIN_WAIT_INTERVAL_SECONDS (5 when unset).
             mode (RunModeType, optional): Execution mode - either "normal" or "nohup".
                 Defaults to RunMode.NORMAL.
             response_limited_bytes_in_nohup (int | None, optional): Maximum bytes to read from nohup output file.
                 If None, reads entire output. Only applies to nohup mode. Defaults to None.
-            nohup_command_timeout (int, optional): Timeout in seconds for the nohup command submission itself.
-                Defaults to 60.
             ignore_output (bool, optional): Whether to ignore command output.If set to True, save the output content to 'output_file' and return it; if False, return the original content.
                 Defaults to False.
             output_file (str, optional): The file path where the command output will be saved. Used in conjunction with the ignore_output field. '
@@ -572,6 +582,10 @@ class Sandbox(AbstractSandbox):
                 await self.create_session(CreateBashSessionRequest(session=session))
             return await self._run_in_session(action=Action(command=cmd, session=session))
         if mode == RunMode.NOHUP:
+            if wait_timeout is None:
+                wait_timeout = env_vars.ROCK_SANDBOX_WAIT_TIMEOUT_SECONDS
+            if wait_interval is None:
+                wait_interval = env_vars.ROCK_SANDBOX_WAIT_INTERVAL_SECONDS
             return await self._arun_with_nohup(
                 cmd=cmd,
                 session=session,
@@ -667,7 +681,9 @@ class Sandbox(AbstractSandbox):
         # todo:
         # Theoretically, the nohup command should return in a very short time, but the total time online is longer,
         # so time_out is set larger to avoid affecting online usage. It will be reduced after optimizing the read cluster time.
-        action = BashAction(command=nohup_command, session=session, timeout=30)
+        action = BashAction(
+            command=nohup_command, session=session, timeout=env_vars.ROCK_SANDBOX_NOHUP_COMMAND_TIMEOUT_SECONDS
+        )
         response: Observation = await self._run_in_session(action)
 
         if response.exit_code != 0:
@@ -762,7 +778,7 @@ class Sandbox(AbstractSandbox):
         Returns:
                 tuple[bool, str]: (success status, message)
         """
-        wait_interval = max(5, wait_interval)  # Minimum interval 5 seconds
+        wait_interval = max(env_vars.ROCK_SANDBOX_MIN_WAIT_INTERVAL_SECONDS, wait_interval)
         wait_interval = min(self.config.auto_clear_seconds - 2, wait_interval)  # wait_interval < auto_clear_seconds
         check_alive_cmd = f"kill -0 {pid}"
         check_alive_timeout = min(wait_interval * 2, wait_timeout)  # Not greater than wait_timeout

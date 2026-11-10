@@ -21,6 +21,36 @@ export ROCK_WORKER_ENV_TYPE=local  # Runtime environment type, options: local, d
 
 More environment variables can be found in `rock/env_vars.py`.
 
+### Python SDK defaults
+
+Explicit `SandboxConfig` / `SandboxGroupConfig` values take precedence over environment variables. Resource defaults are read when each config is constructed; an unset variable retains the fallback below. Command timing defaults are read when the operation runs. Explicit `arun()` or `run_nohup_and_wait()` arguments override their wait defaults, including explicit zero values.
+
+| Variable | Fallback | Meaning |
+|---|---|---|
+| `ROCK_DEFAULT_IMAGE` | `python:3.11` | Sandbox image |
+| `ROCK_DEFAULT_MEMORY` | `8g` | Sandbox memory |
+| `ROCK_DEFAULT_CPUS` | `2` | Sandbox CPUs (float) |
+| `ROCK_DEFAULT_AUTO_CLEAR_SECONDS` | `300` | Sandbox automatic cleanup, seconds |
+| `ROCK_DEFAULT_GROUP_SIZE` | `2` | Sandbox group size |
+| `ROCK_DEFAULT_GROUP_START_CONCURRENCY` | `2` | Group startup concurrency |
+| `ROCK_DEFAULT_GROUP_START_RETRY_TIMES` | `3` | Group startup retry count |
+| `ROCK_SANDBOX_STATUS_CHECK_INTERVAL_SECONDS` | `3` | Start/restart status poll interval, seconds |
+| `ROCK_SANDBOX_WAIT_TIMEOUT_SECONDS` | `300` | Default nohup completion timeout, seconds |
+| `ROCK_SANDBOX_WAIT_INTERVAL_SECONDS` | `10` | Default nohup completion poll interval, seconds |
+| `ROCK_SANDBOX_NOHUP_COMMAND_TIMEOUT_SECONDS` | `30` | Nohup submission timeout, seconds |
+| `ROCK_SANDBOX_MIN_WAIT_INTERVAL_SECONDS` | `5` | Lower bound on process completion polling, seconds |
+
+All timing variables use seconds. Status polling and nohup submission timeouts accept fractional seconds. The process polling interval is still capped by the sandbox auto-clear window, as before. Use positive timing values; changing these defaults does not change server-side scheduling policies. `ROCK_DEFAULT_CLUSTER` remains supported with its existing `vpc-nt-a` fallback.
+
+```python
+import os
+from rock.sdk.sandbox.config import SandboxConfig
+
+os.environ["ROCK_DEFAULT_CPUS"] = "0.5"
+assert SandboxConfig().cpus == 0.5
+assert SandboxConfig(cpus=4).cpus == 4
+```
+
 ### 1.1 Runtime Environments
 
 ROCK provides multiple different runtime environments to meet the needs of different scenarios, configured through the `ROCK_WORKER_ENV_TYPE` environment variable. Each environment has different deployment requirements, performance characteristics and applicable scenarios. Each environment has its own unique advantages and limitations, and developers can choose the most suitable runtime environment according to their deployment needs.

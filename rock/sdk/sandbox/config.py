@@ -28,12 +28,12 @@ class BaseConfig(BaseModel):
 
 
 class SandboxConfig(BaseConfig):
-    image: str = "python:3.11"
+    image: str = Field(default_factory=lambda: env_vars.ROCK_DEFAULT_IMAGE)
     image_os: str = "linux"
-    auto_clear_seconds: int = 60 * 5
+    auto_clear_seconds: int = Field(default_factory=lambda: env_vars.ROCK_DEFAULT_AUTO_CLEAR_SECONDS)
     startup_timeout: float = env_vars.ROCK_SANDBOX_STARTUP_TIMEOUT_SECONDS
-    memory: str = "8g"
-    cpus: float = 2
+    memory: str = Field(default_factory=lambda: env_vars.ROCK_DEFAULT_MEMORY)
+    cpus: float = Field(default_factory=lambda: env_vars.ROCK_DEFAULT_CPUS)
     limit_cpus: float | None = None
     num_gpus: float | None = None
     accelerator_type: str | None = None
@@ -65,6 +65,6 @@ class SandboxConfig(BaseConfig):
 
 
 class SandboxGroupConfig(SandboxConfig):
-    size: int = 2
-    start_concurrency: int = 2
-    start_retry_times: int = 3
+    size: int = Field(default_factory=lambda: env_vars.ROCK_DEFAULT_GROUP_SIZE)
+    start_concurrency: int = Field(default_factory=lambda: env_vars.ROCK_DEFAULT_GROUP_START_CONCURRENCY)
+    start_retry_times: int = Field(default_factory=lambda: env_vars.ROCK_DEFAULT_GROUP_START_RETRY_TIMES)
