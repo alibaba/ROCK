@@ -23,3 +23,10 @@ async def test_parse_response_line():
     response_json, meta = await client.parse_response_line(content)
     assert 1 == meta.get("index")
     assert "mock content" in response_json
+
+
+@pytest.mark.asyncio
+async def test_parse_request_line_reports_invalid_metadata():
+    client = ModelClient()
+    with pytest.raises(ValueError, match="Invalid metadata"):
+        await client.parse_request_line("LLM_REQUEST_START{}LLM_REQUEST_END{invalid}")
