@@ -32,3 +32,4 @@ docs/superpowers/
 
 # Local agent progress (not part of the source distribution)
 .agents/
+/target/
