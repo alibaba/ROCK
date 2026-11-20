@@ -4954,5 +4954,19 @@
       "total": 771,
       "open": 55
     }
+  },
+  "2026-11-20": {
+    "stars": 499,
+    "forks": 85,
+    "contributors": 28,
+    "issues": {
+      "total": 583,
+      "open": 104,
+      "fixRate": 82
+    },
+    "prs": {
+      "total": 771,
+      "open": 55
+    }
   }
 }
