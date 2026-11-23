@@ -21,6 +21,30 @@ export ROCK_WORKER_ENV_TYPE=local  # Runtime environment type, options: local, d
 
 More environment variables can be found in `rock/env_vars.py`.
 
+To enable per-process file rotation, set these variables before starting Python:
+
+```bash
+export ROCK_LOGGING_PATH=/data/logs
+export ROCK_LOGGING_FILE_NAME=rock_admin.log
+export ROCK_LOGGING_PER_PROCESS=true  # Default: false
+export ROCK_LOGGING_MAX_BYTES=134217728  # 128 MiB
+export ROCK_LOGGING_BACKUP_COUNT=3
+```
+
+Each process writes to `rock_admin_<PID>.log` using `RotatingFileHandler`. Backups
+are named `rock_admin_<PID>.log.1` through `.3`; the active filename stays the same
+through rotation. The same naming rule applies to explicitly named logs such as
+`billing.log` and `scheduler.log`. Logs append across restarts, and Admin startup
+does not clear them in this mode. Console logging is unchanged when
+`ROCK_LOGGING_PATH` is unset.
+
+Configure file collectors to match `rock_admin_*.log`. During migration, keep the
+old `rock_admin.log` rule alongside the new rule until old processes have stopped
+and their logs have been collected. Verify collection across a rotation before
+removing the old rule. Ordering across processes is not guaranteed. The backup
+limit applies to each PID and log name; files left by exited processes require a
+separate retention policy, so this setting does not cap total directory size.
+
 ### 1.1 Runtime Environments
 
 ROCK provides multiple different runtime environments to meet the needs of different scenarios, configured through the `ROCK_WORKER_ENV_TYPE` environment variable. Each environment has different deployment requirements, performance characteristics and applicable scenarios. Each environment has its own unique advantages and limitations, and developers can choose the most suitable runtime environment according to their deployment needs.

@@ -21,6 +21,26 @@ export ROCK_WORKER_ENV_TYPE=local  # 运行时环境类型，可选值: local, d
 
 更多环境变量可参考 `rock/env_vars.py` 文件。
 
+如需启用按进程分文件的日志轮转，在启动 Python 前设置：
+
+```bash
+export ROCK_LOGGING_PATH=/data/logs
+export ROCK_LOGGING_FILE_NAME=rock_admin.log
+export ROCK_LOGGING_PER_PROCESS=true  # 默认 false
+export ROCK_LOGGING_MAX_BYTES=134217728  # 128 MiB
+export ROCK_LOGGING_BACKUP_COUNT=3
+```
+
+每个进程使用 `RotatingFileHandler` 写入 `rock_admin_<PID>.log`，备份文件依次为
+`rock_admin_<PID>.log.1` 至 `.3`，轮转后当前文件名不变。显式命名的 `billing.log`、
+`scheduler.log` 等也遵循相同规则。此模式始终追加写入，Admin 启动时不会清空已有日志；
+未设置 `ROCK_LOGGING_PATH` 时仍输出到控制台。
+
+文件采集规则应匹配 `rock_admin_*.log`。迁移时保留旧的 `rock_admin.log` 采集规则，
+同时新增 PID 文件的规则，等旧进程全部停止、旧日志采集完毕并验证轮转期间的采集后再移除旧规则。
+不同进程之间不保证日志的全局时序。备份数限制针对每个 PID、每种日志名分别生效；
+退出进程遗留的文件需要单独的保留策略，因此该配置不限制整个日志目录的总大小。
+
 ### 1.1 运行时环境 (Runtime Environments)
 
 ROCK 提供了多种不同的运行时环境来满足不同场景的需求，选择通过环境变量 `ROCK_WORKER_ENV_TYPE` 进行配置。每种环境有不同的部署要求、性能特征和适用场景。每种环境都有其独特的优势和限制，开发者可以根据部署环境的需要选择最适合的运行时环境。

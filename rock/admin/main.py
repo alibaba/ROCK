@@ -486,8 +486,8 @@ def main():
     os.environ["ROCK_ADMIN_ENV"] = args.env
     os.environ["ROCK_ADMIN_ROLE"] = args.role
 
-    # Clear the log file once at deploy (master), then make every worker append
-    # to the shared file. Must run before workers spawn so only the master clears.
+    # Clear legacy shared logs before spawning workers. Per-process rotating
+    # logs skip this reset and keep their current file and backups on startup.
     reset_log_file()
     os.environ["ROCK_LOGGING_APPEND"] = "true"
 
