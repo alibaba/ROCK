@@ -10,6 +10,9 @@ if TYPE_CHECKING:
     ROCK_LOGGING_FILE_NAME: str | None = None
     ROCK_LOGGING_LEVEL: str | None = None
     ROCK_LOGGING_APPEND: bool = False
+    ROCK_LOGGING_PER_PROCESS: bool = False
+    ROCK_LOGGING_MAX_BYTES: int = 128 * 1024 * 1024
+    ROCK_LOGGING_BACKUP_COUNT: int = 3
     ROCK_LOGGING_EXCEPTION_TRACEBACK_ENABLE: bool = True
     ROCK_SERVICE_STATUS_DIR: str | None = None
     ROCK_SCHEDULER_STATUS_DIR: str | None = None
@@ -81,6 +84,9 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "ROCK_LOGGING_FILE_NAME": lambda: os.getenv("ROCK_LOGGING_FILE_NAME", "rocklet.log"),
     "ROCK_LOGGING_LEVEL": lambda: os.getenv("ROCK_LOGGING_LEVEL", "INFO"),
     "ROCK_LOGGING_APPEND": lambda: os.getenv("ROCK_LOGGING_APPEND", "false").lower() == "true",
+    "ROCK_LOGGING_PER_PROCESS": lambda: os.getenv("ROCK_LOGGING_PER_PROCESS", "false").lower() == "true",
+    "ROCK_LOGGING_MAX_BYTES": lambda: int(os.getenv("ROCK_LOGGING_MAX_BYTES", str(128 * 1024 * 1024))),
+    "ROCK_LOGGING_BACKUP_COUNT": lambda: int(os.getenv("ROCK_LOGGING_BACKUP_COUNT", "3")),
     "ROCK_LOGGING_EXCEPTION_TRACEBACK_ENABLE": lambda: os.getenv(
         "ROCK_LOGGING_EXCEPTION_TRACEBACK_ENABLE", "true"
     ).lower()

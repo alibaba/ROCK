@@ -3,6 +3,7 @@ import os
 import sys
 from datetime import datetime
 from functools import cache
+from logging.handlers import RotatingFileHandler
 from zoneinfo import ZoneInfo
 
 from rock import env_vars
@@ -83,6 +84,42 @@ class TimezoneFormatter(StandardFormatter):
         return dt.isoformat(timespec="milliseconds")
 
 
+class ProcessRotatingFileHandler(RotatingFileHandler):
+    """Rotate a separate file per process, including after a handler is forked."""
+
+    def __init__(self, log_file_path: str, *, max_bytes: int, backup_count: int):
+        if max_bytes <= 0:
+            raise ValueError("ROCK_LOGGING_MAX_BYTES must be greater than zero")
+        if backup_count <= 0:
+            raise ValueError("ROCK_LOGGING_BACKUP_COUNT must be greater than zero")
+        self._log_file_path = os.path.abspath(log_file_path)
+        self._pid = os.getpid()
+        super().__init__(
+            self._process_file_path(),
+            mode="a",
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
+            delay=True,
+        )
+
+    def _process_file_path(self) -> str:
+        stem, suffix = os.path.splitext(self._log_file_path)
+        return f"{stem}_{self._pid}{suffix}"
+
+    def emit(self, record: logging.LogRecord) -> None:
+        pid = os.getpid()
+        if pid != self._pid:
+            # Fork copies cached handlers and module-level loggers. Rebind even
+            # when the child never calls init_logger() again, before rollover.
+            if self.stream is not None:
+                self.stream.close()
+                self.stream = None
+            self._pid = pid
+            self.baseFilename = self._process_file_path()
+        super().emit(record)
+
+
 @cache
 def init_file_handler(log_name: str):
     if env_vars.ROCK_LOGGING_PATH:
@@ -92,27 +129,32 @@ def init_file_handler(log_name: str):
         # Ensure directory exists
         os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
 
-        # Multi-worker safe: when ROCK_LOGGING_APPEND is set, every worker opens
-        # the shared file in append mode (no per-process truncate race). The
-        # one-time clear-on-deploy is done by the entrypoint via reset_log_file().
-        # Default stays "w+" so single-process services (rocklet, cli) keep their
-        # truncate-on-start behavior.
-        mode = "a" if env_vars.ROCK_LOGGING_APPEND else "w+"
-        handler = logging.FileHandler(log_file_path, mode=mode, encoding="utf-8")
+        if env_vars.ROCK_LOGGING_PER_PROCESS:
+            handler = ProcessRotatingFileHandler(
+                log_file_path,
+                max_bytes=env_vars.ROCK_LOGGING_MAX_BYTES,
+                backup_count=env_vars.ROCK_LOGGING_BACKUP_COUNT,
+            )
+        else:
+            # Preserve shared append logging and legacy truncate-on-start mode
+            # for services that have not enabled per-process rotation.
+            mode = "a" if env_vars.ROCK_LOGGING_APPEND else "w+"
+            handler = logging.FileHandler(log_file_path, mode=mode, encoding="utf-8")
         handler.setFormatter(TimezoneFormatter(log_color_enable=False, tz_string=env_vars.ROCK_TIME_ZONE))
         return handler
     return None
 
 
 def reset_log_file(file_name: str | None = None) -> None:
-    """Truncate the configured log file once (e.g. at deploy / master startup).
+    """Truncate the shared log file once (e.g. at deploy / master startup).
 
     Under multi-worker, all workers open the same file in append mode, so the
     one-time clear must happen here in the master BEFORE workers spawn — doing
     it in the FileHandler would make each worker truncate and race. No-op when
-    file logging is disabled (stdout mode).
+    file logging is disabled (stdout mode) or per-process rotation is enabled.
+    Rotated process logs always append, including when a PID is reused.
     """
-    if not env_vars.ROCK_LOGGING_PATH:
+    if not env_vars.ROCK_LOGGING_PATH or env_vars.ROCK_LOGGING_PER_PROCESS:
         return
     file_name = file_name or env_vars.ROCK_LOGGING_FILE_NAME
     if not file_name:
