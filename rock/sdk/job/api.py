@@ -8,15 +8,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from rock.logger import init_logger
 from rock.sdk.job.executor import JobExecutor
 from rock.sdk.job.operator import ScatterOperator
 from rock.sdk.job.result import JobResult, JobStatus
+from rock.sdk.job.tracking.adapter import TrackingAdapter, resolve_tracking_adapters
 
 if TYPE_CHECKING:
     from rock.sdk.job.config import JobConfig
     from rock.sdk.job.executor import JobClient
     from rock.sdk.job.operator import Operator
     from rock.sdk.job.result import TrialResult
+
+logger = init_logger(__name__)
 
 
 class Job:
@@ -27,6 +31,7 @@ class Job:
         self._executor = JobExecutor()
         self._operator = operator or ScatterOperator()
         self._job_client: JobClient | None = None
+        self._tracking_adapters: list[TrackingAdapter] = resolve_tracking_adapters()
 
     async def run(self) -> JobResult:
         """Full lifecycle: submit + wait."""
@@ -62,7 +67,7 @@ class Job:
         all_success = all(t.exception_info is None for t in flat)
         raw_output = next((t.raw_output for t in flat if t.raw_output), "")
         exit_code = next((t.exit_code for t in flat if t.exit_code != 0), 0)
-        return JobResult(
+        result = JobResult(
             job_id=self._config.job_name or "",
             status=JobStatus.COMPLETED if all_success else JobStatus.FAILED,
             labels=self._config.labels,
@@ -70,3 +75,53 @@ class Job:
             raw_output=raw_output,
             exit_code=exit_code,
         )
+
+        # Report tracking if adapter is available (never raises)
+        self._report_tracking(result)
+
+        return result
+
+    def _report_tracking(self, result: JobResult) -> None:
+        """Report job metrics to all resolved adapters. Never raises."""
+        if not self._tracking_adapters:
+            return
+
+        config = self._config
+        namespace = config.namespace or "rock-namespace"
+        experiment_id = config.experiment_id or "rock-experiment"
+        job_name = config.job_name or "default"
+
+        for adapter in self._tracking_adapters:
+            try:
+                adapter.init(namespace=namespace, experiment_id=experiment_id, job_id=job_name, config=config)
+
+                # per-trial metrics
+                for i, trial in enumerate(result.trial_results):
+                    adapter.report(
+                        {
+                            "task_name": trial.task_name,
+                            "trial_index": i,
+                            "status": trial.status,
+                            "score": trial.score,
+                            "exit_code": trial.exit_code,
+                            "duration_sec": trial.duration_sec,
+                        }
+                    )
+
+                # job-level summary
+                adapter.report(
+                    {
+                        "job_status": result.status.value,
+                        "job_score": result.score,
+                        "n_completed": result.n_completed,
+                        "n_failed": result.n_failed,
+                        "total_trials": len(result.trial_results),
+                    }
+                )
+            except Exception:  # noqa: BLE001 — tracking failure must not affect result return
+                logger.warning(f"Tracking adapter {type(adapter).__name__} failed to report", exc_info=True)
+            finally:
+                try:
+                    adapter.close()
+                except Exception:  # noqa: BLE001 — close() must never propagate
+                    pass
