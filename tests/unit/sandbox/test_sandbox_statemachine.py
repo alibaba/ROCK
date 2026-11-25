@@ -60,7 +60,7 @@ class TestTransitions:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("completed_at", "corrects_timestamps"),
+        ("completed_at", "corrects_start_time"),
         [
             ("2026-11-25T11:59:59+10:00", True),
             ("2026-11-25T12:00:00+10:00", False),
@@ -68,7 +68,7 @@ class TestTransitions:
         ],
         ids=["earlier", "equal", "later"],
     )
-    async def test_alive_corrects_timestamps_when_docker_run_completed_earlier(self, completed_at, corrects_timestamps):
+    async def test_alive_corrects_start_time_for_early_docker_completion(self, completed_at, corrects_start_time):
         create_time = "2026-11-25T10:00:00+08:00"
         now = "2026-11-25T10:01:00+08:00"
         meta_store = AsyncMock()
@@ -86,13 +86,12 @@ class TestTransitions:
             )
 
         updated = meta_store.update.await_args.args[1]
-        if corrects_timestamps:
-            assert updated["create_time"] == updated["start_time"] == now
+        assert "create_time" not in updated
+        assert updated["start_time"] == (now if corrects_start_time else completed_at)
+        if corrects_start_time:
             log_error.assert_called_once()
             assert log_error.call_args.args[1:] == ("sb", completed_at, create_time)
         else:
-            assert "create_time" not in updated
-            assert updated["start_time"] == completed_at
             log_error.assert_not_called()
 
     @pytest.mark.asyncio
