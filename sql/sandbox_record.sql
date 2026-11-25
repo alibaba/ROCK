@@ -25,8 +25,10 @@ CREATE TABLE sandbox_record (
 	port_mapping JSONB, 
 	labels JSONB DEFAULT '{}' NOT NULL,
 	spec JSONB, 
-	status JSONB, 
-	PRIMARY KEY (sandbox_id)
+	status JSONB,
+	source_snapshot_id VARCHAR(128),
+	PRIMARY KEY (sandbox_id),
+	FOREIGN KEY(source_snapshot_id) REFERENCES rock_snapshot (snapshot_id) ON DELETE RESTRICT
 );
 
 CREATE INDEX ix_sandbox_record_image ON sandbox_record (image);
@@ -42,3 +44,5 @@ CREATE INDEX ix_sandbox_record_state_start_time ON sandbox_record (state, start_
 CREATE INDEX ix_sandbox_record_state_stop_time ON sandbox_record (state, stop_time);
 
 CREATE INDEX ix_sandbox_record_user_id ON sandbox_record (user_id);
+
+CREATE INDEX sandbox_record_source_snapshot_ix ON sandbox_record (source_snapshot_id) WHERE source_snapshot_id IS NOT NULL;

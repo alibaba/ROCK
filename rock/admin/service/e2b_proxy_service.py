@@ -192,6 +192,7 @@ class E2BProxyService:
         sandbox_id = record["sandbox_id"]
         sandbox_status = SandboxStatusResponse(
             state=record.get("state"),
+            source_snapshot_id=record.get("source_snapshot_id"),
             metadata=record.get("metadata") or record.get("labels"),
             host_ip=record.get("host_ip"),
             image=record.get("image"),

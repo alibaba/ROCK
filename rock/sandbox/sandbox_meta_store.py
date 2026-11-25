@@ -1,7 +1,8 @@
 """SandboxMetaStore - coordinator for Redis (hot path) + DB (query path) dual-write.
 
-Redis remains the source of truth for live sandbox state.
-The database is an async replica used for indexed queries (list_by, etc.).
+Redis remains the hot source for ordinary live sandbox state. PostgreSQL owns
+durable identity and DB-only execution metadata and is also used for indexed
+queries (list_by, etc.).
 All DB operations are awaited for consistency.
 """
 
@@ -59,6 +60,11 @@ class SandboxMetaStore:
     def redis_provider(self) -> RedisProvider:
         return self._redis
 
+    async def persist_lifecycle(self, sandbox_id: str, info: SandboxInfo) -> None:
+        """Persist checkpoint intent before issuing any runtime mutation."""
+        await self._db.persist_lifecycle(sandbox_id, info)
+        await self._redis.json_set(alive_sandbox_key(sandbox_id), "$", pick_sandbox_info_fields(info))
+
     @monitor_metastore_operation
     async def create(
         self,
@@ -67,7 +73,7 @@ class SandboxMetaStore:
         timeout_info: dict[str, str] | None = None,
         deployment_config: DockerDeploymentConfig | None = None,
     ) -> None:
-        """Write sandbox info to the Redis alive key and await DB insert.
+        """Insert durable identity before publishing sandbox info to Redis.
 
         Parameters
         ----------
@@ -77,16 +83,17 @@ class SandboxMetaStore:
             ``DockerDeploymentConfig`` snapshot written once to the ``spec`` DB column.
             Redis does not store this.
 
-        The shared status payload is filtered to keys declared in ``SandboxInfo``
-        so DB-only fields the caller may carry (e.g. ``spec`` / ``status`` from
-        a prior DB-fallback read) cannot leak into either Redis or DB ``status``.
+        Redis receives the filtered hot-path document. PostgreSQL receives the
+        complete domain document so DB-only snapshot identity and execution
+        metadata remain durable without leaking into Redis.
+        A duplicate DB identity leaves Redis unchanged. If Redis fails after
+        insertion, the durable row remains available through the DB read path.
         """
+        await self._db.create(sandbox_id, sandbox_info, deployment_config)
         redis_payload = pick_sandbox_info_fields(sandbox_info)
         await self._redis.json_set(alive_sandbox_key(sandbox_id), "$", redis_payload)
         if timeout_info is not None:
             await self._redis.json_set(timeout_sandbox_key(sandbox_id), "$", timeout_info)
-
-        await self._db.create(sandbox_id, redis_payload, deployment_config)
 
     @monitor_metastore_operation
     async def update(self, sandbox_id: str, sandbox_info: SandboxInfo) -> None:
@@ -130,7 +137,10 @@ class SandboxMetaStore:
         the snapshot is always durably stored before the cache disappears.
         """
         current = await self._redis.json_get(alive_sandbox_key(sandbox_id), "$")
-        merged = pick_sandbox_info_fields({**(current[0] if current else {}), **(final_info or {})})
+        # ``final_info`` may be a DB-fallback document carrying the durable
+        # snapshot runtime identity. Keep that complete document for the DB.
+        # Nothing is written back to Redis before the live keys are removed.
+        merged = {**(current[0] if current else {}), **(final_info or {})}
         if merged:
             await self._db.update(sandbox_id, merged)
 
@@ -139,17 +149,26 @@ class SandboxMetaStore:
 
     @monitor_metastore_operation
     async def get(self, sandbox_id: str, check_db: bool = False) -> SandboxInfo | None:
-        """Read sandbox info from the Redis alive key."""
+        """Read Redis first, optionally falling back to the durable row on a miss."""
         result = await self._redis.json_get(alive_sandbox_key(sandbox_id), "$")
-        if result and len(result) > 0:
+        if result:
             return result[0]
         if check_db:
-            # SandboxTable.get already merges the `status` JSONB blob onto the
-            # returned dict, so no further hoisting is needed here.
-            result = await self._db.get(sandbox_id)
-            if result:
-                return result
+            return await self._db.get(sandbox_id)
         return None
+
+    @monitor_metastore_operation
+    async def get_durable(self, sandbox_id: str) -> SandboxInfo | None:
+        """Merge durable snapshot launch metadata with the freshest Redis state.
+
+        Unlike ``get(check_db=True)``, this explicitly reads the database even
+        on a cache hit because snapshot launch/recovery needs its stored spec.
+        """
+        hot = await self.get(sandbox_id)
+        durable = await self._db.get(sandbox_id)
+        if durable is not None:
+            return {**durable, **(hot or {})}
+        return hot
 
     async def exists(self, sandbox_id: str) -> bool:
         """Return ``True`` when the Redis alive key exists for ``sandbox_id``."""
@@ -194,6 +213,15 @@ class SandboxMetaStore:
     ) -> list[SandboxInfo]:
         """Query sandboxes by *field* == *value* from the DB."""
         return await self._db.list_by(field, value, order_by=order_by, limit=limit)
+
+    @monitor_metastore_operation
+    async def list_snapshot_references(
+        self,
+        snapshot_id: str,
+    ) -> list[SandboxInfo]:
+        """Read snapshot references only from durable sandbox rows."""
+
+        return await self._db.list_snapshot_references(snapshot_id)
 
     @monitor_metastore_operation
     async def list_by_in(

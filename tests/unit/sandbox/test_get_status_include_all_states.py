@@ -53,6 +53,7 @@ async def sandbox_manager(mock_operator, mock_meta_store, rock_config):
     manager.rock_config = rock_config
     manager._operator = mock_operator
     manager._meta_store = mock_meta_store
+    manager._snapshot_manager = None
     manager._refresh_timeout = AsyncMock()
 
     mock_sm = await SandboxStateMachine.from_state_value(State.PENDING, sandbox_info={})
@@ -62,6 +63,42 @@ async def sandbox_manager(mock_operator, mock_meta_store, rock_config):
 
 
 class TestGetStatusIncludeAllStates:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("state", [State.PENDING, State.RUNNING])
+    @pytest.mark.parametrize("missing", [False, True])
+    @pytest.mark.parametrize("operator_present", [False, True])
+    async def test_legacy_polling_maps_are_objects(
+        self, sandbox_manager, mock_operator, mock_meta_store, state, missing, operator_present
+    ):
+        info = _make_sandbox_info(state=state)
+        for key in ("phases", "port_mapping"):
+            if missing:
+                info.pop(key, None)
+            else:
+                info[key] = None
+        mock_meta_store.get.return_value = info
+        mock_operator.get_status.return_value = dict(info) if operator_present else None
+
+        result = await sandbox_manager.get_status("sandbox-1")
+
+        payload = result.model_dump(mode="json")
+        assert payload["status"] == {}
+        assert payload["port_mapping"] == {}
+        assert result.state == state
+
+    @pytest.mark.asyncio
+    async def test_legacy_polling_preserves_existing_maps(self, sandbox_manager, mock_operator, mock_meta_store):
+        info = _make_sandbox_info(state=State.RUNNING)
+        info["phases"] = {"docker_run": {"status": "success"}}
+        info["port_mapping"] = {22555: 31021}
+        mock_meta_store.get.return_value = info
+        mock_operator.get_status.return_value = dict(info)
+
+        result = await sandbox_manager.get_status("sandbox-1")
+
+        assert result.status == info["phases"]
+        assert result.port_mapping == info["port_mapping"]
+
     @pytest.mark.asyncio
     async def test_running_sandbox_returns_alive_response(self, sandbox_manager, mock_operator):
         """Operator returns RUNNING → is_alive=True, state field populated."""

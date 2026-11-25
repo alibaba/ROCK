@@ -13,6 +13,26 @@ from rock.admin.proto.response import SandboxStartResponse, SandboxStatusRespons
 # ---- SandboxStartResponse tests ----
 
 
+def test_start_response_snapshot_identity_is_optional_and_serialized():
+    ordinary = SandboxStartResponse(sandbox_id="ordinary-sandbox").model_dump(mode="json")
+    assert ordinary["source_snapshot_id"] is None
+    assert "template_id" not in ordinary
+
+    snapshot = SandboxStartResponse(
+        sandbox_id="snapshot-sandbox", source_snapshot_id="base-image-snapshot",
+    ).model_dump(mode="json")
+    assert snapshot["source_snapshot_id"] == "base-image-snapshot"
+    assert "template_id" not in snapshot
+
+
+def test_status_response_preserves_source_snapshot_identity():
+    response = SandboxStatusResponse.from_sandbox_info({
+        "sandbox_id": "snapshot-sandbox", "source_snapshot_id": "base-image-snapshot",
+    })
+    assert response.source_snapshot_id == "base-image-snapshot"
+    assert response.model_dump(mode="json")["source_snapshot_id"] == "base-image-snapshot"
+
+
 class TestSandboxStartResponseDiskLimit:
     def test_disk_default_is_none(self):
         response = SandboxStartResponse()

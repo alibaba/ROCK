@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import datetime
+import sqlite3
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import and_, or_, select, update
+from sqlalchemy.exc import IntegrityError
 
 from rock.actions.sandbox.response import State
 from rock.actions.sandbox.sandbox_info import MISSING_HOST_IP_VALUES, is_missing_host_ip
@@ -21,6 +23,18 @@ if TYPE_CHECKING:
     from rock.deployments.config import DockerDeploymentConfig
 
 logger = init_logger(__name__)
+
+
+def is_sandbox_identity_conflict(error: IntegrityError) -> bool:
+    """Only the sandbox primary key makes an insert safe to skip."""
+    original = error.orig
+    if isinstance(original, sqlite3.IntegrityError):
+        return getattr(original, "sqlite_errorcode", None) == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY
+    sqlstate = getattr(original, "pgcode", None) or getattr(original, "sqlstate", None)
+    return (
+        sqlstate == "23505"
+        and getattr(getattr(original, "diag", None), "constraint_name", None) == "sandbox_record_pkey"
+    )
 
 
 class SandboxTable:
@@ -112,7 +126,13 @@ class SandboxTable:
         """Partial update of scalar columns; always overwrites ``status`` with *info*."""
         return await self._db.run(self._update_sync, sandbox_id, info)
 
-    def _update_sync(self, sandbox_id: str, info: SandboxInfo) -> None:
+    @retry_on_disconnect
+    @monitor_metastore_operation
+    async def persist_lifecycle(self, sandbox_id: str, info: SandboxInfo) -> None:
+        """Atomically rebind the deployment spec to a retained pause checkpoint."""
+        await self._db.run(self._update_sync, sandbox_id, info, True)
+
+    def _update_sync(self, sandbox_id: str, info: SandboxInfo, checkpoint_rebind: bool = False) -> None:
         filtered = _pick_columns(info)
         filtered["status"] = dict(info)
 
@@ -121,6 +141,18 @@ class SandboxTable:
             if record is None:
                 logger.warning("update: sandbox_id=%s not found", sandbox_id)
                 return
+            spec = info.get("spec")
+            if checkpoint_rebind and spec is not None and spec != record.spec:
+                checkpoint = (record.status or {}).get("pause_snapshot_id")
+                expected = {**(record.spec or {}), "source_snapshot_id": checkpoint}
+                if (
+                    record.state != State.STOPPED.value
+                    or not checkpoint
+                    or info.get("source_snapshot_id") != checkpoint
+                    or spec != expected
+                ):
+                    raise ValueError("only a stopped sandbox may rebind its spec to its retained checkpoint")
+                filtered["spec"] = expected
             for key, value in filtered.items():
                 if key == "host_ip" and is_missing_host_ip(value):
                     continue
@@ -237,6 +269,36 @@ class SandboxTable:
         with self._db.session_factory() as session:
             result = session.execute(stmt)
             return [_merge_status_blob(record.to_dict()) for record in result.scalars().all()]
+
+    @retry_on_disconnect
+    @monitor_metastore_operation
+    async def list_snapshot_references(
+        self,
+        snapshot_id: str,
+    ) -> list[dict]:
+        """Read sandbox rows referencing a source snapshot or retained checkpoint."""
+
+        if not snapshot_id:
+            raise ValueError("snapshot identity must not be empty")
+        return await self._db.run(
+            self._list_snapshot_references_sync,
+            snapshot_id,
+        )
+
+    def _list_snapshot_references_sync(
+        self,
+        snapshot_id: str,
+    ) -> list[dict]:
+        statement = (
+            select(SandboxRecord)
+            .where(
+                or_(SandboxRecord.source_snapshot_id == snapshot_id,
+                    SandboxRecord.status["pause_snapshot_id"].as_string() == snapshot_id),
+            )
+            .order_by(SandboxRecord.sandbox_id.asc())
+        )
+        with self._db.session_factory() as session:
+            return [_merge_status_blob(record.to_dict()) for record in session.execute(statement).scalars().all()]
 
     @retry_on_disconnect
     @monitor_metastore_operation

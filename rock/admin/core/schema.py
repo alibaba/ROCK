@@ -10,7 +10,19 @@ import datetime
 import zoneinfo
 from typing import Any, ClassVar
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, Text, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.types import JSON
@@ -65,6 +77,11 @@ class SandboxRecord(Base):
     )
     spec = Column(_JSONB_VARIANT, nullable=True)
     status = Column(_JSONB_VARIANT, nullable=True)
+    source_snapshot_id = Column(
+        String(128),
+        ForeignKey("rock_snapshot.snapshot_id", ondelete="RESTRICT"),
+        nullable=True,
+    )
 
     __table_args__ = (
         Index("ix_sandbox_record_user_id", "user_id"),
@@ -84,6 +101,12 @@ class SandboxRecord(Base):
             "auto_transition_time",
         ),
         Index("ix_sandbox_record_state_start_time", "state", "start_time"),
+        Index(
+            "sandbox_record_source_snapshot_ix",
+            "source_snapshot_id",
+            postgresql_where=text("source_snapshot_id IS NOT NULL"),
+            sqlite_where=text("source_snapshot_id IS NOT NULL"),
+        ),
     )
 
     # Columns allowed as the filter key in list_by().
@@ -94,6 +117,7 @@ class SandboxRecord(Base):
             "user_id",
             "state",
             "image",
+            "source_snapshot_id",
         }
     )
     _column_names: ClassVar[set[str] | None] = None
@@ -176,3 +200,75 @@ class SchedulerTaskRecord(Base):
     completion_time = Column(Float, nullable=True)
     conditions = Column(_JSONB_VARIANT, nullable=True)
     status = Column(_JSONB_VARIANT, nullable=True)
+
+
+class RockSnapshotRecord(Base):
+    """Canonical snapshot and template artifact catalog."""
+
+    __tablename__ = "rock_snapshot"
+
+    snapshot_id = Column(String(128), primary_key=True)
+    kind = Column(String(16), nullable=False)
+    source_sandbox_id = Column(String(128), nullable=True)
+    source_worker_ip = Column(String(128), nullable=True)
+    format_version = Column(Integer, nullable=False, default=1, server_default=text("1"))
+    oci_ref = Column(String(1024), nullable=True)
+    oci_digest = Column(String(71), nullable=True)
+    oci_platform = Column(String(256), nullable=True)
+    base_image_builder_version = Column(String(256), nullable=True)
+    base_image_build_key = Column(String(71), nullable=True)
+    product_metadata = Column(
+        JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"), nullable=True,
+    )
+    resource_spec = Column(_JSONB_VARIANT, nullable=True)
+    spec = Column(_JSONB_VARIANT, nullable=True)
+    state = Column(String(16), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    remote_ready_at = Column(DateTime(timezone=True), nullable=True)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('BASE_IMAGE', 'FULL')", name="rock_snapshot_kind_ck"),
+        CheckConstraint("format_version >= 1", name="rock_snapshot_format_version_ck"),
+        CheckConstraint(
+            "state IN ('CREATING', 'LOCAL_READY', 'REMOTE_READY', 'DELETED', 'FAILED')",
+            name="rock_snapshot_state_ck",
+        ),
+        CheckConstraint(
+            "(kind = 'BASE_IMAGE' AND source_sandbox_id IS NULL) "
+            "OR (kind = 'FULL' AND source_sandbox_id IS NOT NULL)",
+            name="rock_snapshot_source_ck",
+        ),
+        CheckConstraint(
+            "state <> 'REMOTE_READY' OR (spec IS NOT NULL AND remote_ready_at IS NOT NULL)",
+            name="rock_snapshot_remote_ready_ck",
+        ),
+        CheckConstraint(
+            "state <> 'DELETED' OR deleted_at IS NOT NULL",
+            name="rock_snapshot_deleted_ck",
+        ),
+        CheckConstraint(
+            "(oci_ref IS NULL AND oci_digest IS NULL AND oci_platform IS NULL "
+            "AND base_image_builder_version IS NULL AND base_image_build_key IS NULL) "
+            "OR (kind = 'BASE_IMAGE' AND oci_ref IS NOT NULL AND oci_digest IS NOT NULL "
+            "AND oci_platform IS NOT NULL AND base_image_builder_version IS NOT NULL "
+            "AND base_image_build_key IS NOT NULL)",
+            name="rock_snapshot_base_image_identity_ck",
+        ),
+        Index("rock_snapshot_state_created_ix", "state", "created_at"),
+        Index(
+            "rock_snapshot_base_image_build_key_uq",
+            "base_image_build_key",
+            unique=True,
+            # OCI imports share one canonical snapshot. E2B allocated builds
+            # retain their own snapshot identity and resource/display metadata.
+            postgresql_where=text(
+                "kind = 'BASE_IMAGE' AND state <> 'DELETED' AND base_image_build_key IS NOT NULL "
+                "AND product_metadata IS NULL"
+            ),
+            sqlite_where=text(
+                "kind = 'BASE_IMAGE' AND state <> 'DELETED' AND base_image_build_key IS NOT NULL "
+                "AND product_metadata IS NULL"
+            ),
+        ),
+    )

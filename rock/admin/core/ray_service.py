@@ -252,3 +252,19 @@ class RayService:
             error_msg = str(e.args[0]) if len(e.args) > 0 else f"ray get actor failed, {str(e)}"
             raise Exception(error_msg)
         return result
+
+    async def async_try_get_actor(self, actor_name: str, namespace: str = None):
+        """Return a named actor or ``None`` without logging expected absence."""
+
+        self._ensure_ray_initialized()
+        self.increment_ray_request_count()
+        namespace = namespace or self._config.namespace
+        loop = asyncio.get_running_loop()
+        try:
+            return await loop.run_in_executor(self._executor, ray.get_actor, actor_name, namespace)
+        except ValueError:
+            return None
+        except Exception as error:
+            logger.error("ray get actor failed", exc_info=error)
+            error_msg = str(error.args[0]) if error.args else f"ray get actor failed, {error}"
+            raise Exception(error_msg) from error

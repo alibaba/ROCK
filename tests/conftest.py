@@ -2,6 +2,7 @@ import logging
 import os
 import socket
 import subprocess
+import sys
 import time
 import uuid
 from contextlib import contextmanager
@@ -86,7 +87,14 @@ def start_rocklet_process():
     port = run_until_complete(find_free_port())
     original_port = os.environ.get("ROCK_WORKER_ROCKLET_PORT")
     os.environ["ROCK_WORKER_ROCKLET_PORT"] = str(port)
-    process = subprocess.Popen(["rocklet", "--port", str(port)], stdout=None, stderr=None)
+    # Run the exact checkout under test.  A release worker must not depend on
+    # an unrelated or stale console-script installation being present in PATH.
+    process = subprocess.Popen(
+        [sys.executable, "-m", "rock.rocklet.server", "--port", str(port)],
+        cwd=_project_root,
+        stdout=None,
+        stderr=None,
+    )
     try:
         for _ in range(10):
             try:

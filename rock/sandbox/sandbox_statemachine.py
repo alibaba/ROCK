@@ -20,8 +20,10 @@ from rock.admin.metrics.billing import log_billing_info
 from rock.common.constants import DeleteReason, StopReason
 from rock.config import ArchiveDirStorageConfig, ArchiveRegistryConfig
 from rock.deployments.config import DockerDeploymentConfig
+from rock.deployments.constants import Port
 from rock.logger import init_logger
 from rock.sandbox.archive.constants import ArchiveKeys
+from rock.sandbox.operator.snapd import SnapdOperator, SnapdSandboxRuntime
 from rock.sandbox.utils.timeout import SandboxTimeoutHelper
 from rock.sdk.common.exceptions import BadRequestRockError
 from rock.utils.system import get_iso8601_timestamp
@@ -134,6 +136,8 @@ class SandboxStateMachine(StateChart):
     archive_failed = archiving.to(stopped)
     restore = archived.to(pending)
     restore_failed = pending.to(archived)
+    launch_failed = pending.to(stopped) | running.to(stopped)
+    runtime_stopped = pending.to(stopped) | running.to(stopped)
 
     def __init__(self, **kwargs):
         """Initialize with optional sandbox_info."""
@@ -161,7 +165,13 @@ class SandboxStateMachine(StateChart):
             del history[:-100]
 
     async def on_stop(
-        self, sandbox_id: str, operator, meta_store, reason: StopReason = StopReason.MANUAL, auto_transition=None
+        self,
+        sandbox_id: str,
+        operator,
+        meta_store,
+        reason: StopReason = StopReason.MANUAL,
+        auto_transition=None,
+        snapd_runtime: SnapdSandboxRuntime | None = None,
     ) -> None:
         logger.info(f"stop sandbox {sandbox_id} (reason={reason.value})")
         sandbox_info = self.sandbox_info or {}
@@ -196,10 +206,17 @@ class SandboxStateMachine(StateChart):
             log_billing_info(sandbox_info=sandbox_info)
 
         try:
-            await operator.stop(sandbox_id, reason=reason)
+            if isinstance(operator, SnapdOperator):
+                await operator.stop(sandbox_id, reason=reason, runtime=snapd_runtime)
+            else:
+                await operator.stop(sandbox_id, reason=reason)
         except ValueError as e:
+            # Legacy Ray backends treat a missing actor as an already-completed
+            # stop. Snapd failed/unknown outcomes use OperatorLifecycleError
+            # instead and must propagate without publishing a stopped state.
             logger.error(f"ray get actor, actor {sandbox_id} not exist", exc_info=e)
 
+        _release_snapshot_guest_endpoint(sandbox_info)
         logger.info(f"sandbox {sandbox_id} stopped")
         await meta_store.archive(sandbox_id, sandbox_info)
 
@@ -225,11 +242,20 @@ class SandboxStateMachine(StateChart):
         # _reconcile_pending would misclassify a subsequent plain restart as a
         # restore-in-progress and time it out to ARCHIVED.
         sandbox_info["archive_time"] = None
+        if sandbox_info.get("pause_snapshot_id"):
+            sandbox_info["pause_snapshot_id"] = None
         sandbox_info["auto_transition_state"] = None
         sandbox_info["auto_transition_time"] = None
         await meta_store.update(sandbox_id, sandbox_info)
 
-    async def on_restart(self, sandbox_id: str, operator, meta_store) -> None:
+    async def on_restart(
+        self,
+        sandbox_id: str,
+        operator,
+        meta_store,
+        timeout_info: dict[str, str] | None = None,
+        snapd_runtime: SnapdSandboxRuntime | None = None,
+    ) -> None:
         info = self.sandbox_info or {}
 
         host_ip = info.get("host_ip")
@@ -253,10 +279,8 @@ class SandboxStateMachine(StateChart):
                 memory=info.get("memory") or DockerDeploymentConfig.model_fields["memory"].default,
                 cpus=float(info.get("cpus") or DockerDeploymentConfig.model_fields["cpus"].default),
             )
-        timeout_info = SandboxTimeoutHelper.make_timeout_info(restart_config.auto_clear_time)
-
-        logger.info(f"restart sandbox {sandbox_id} (pin host_ip={host_ip})")
-        await operator.restart(restart_config, host_ip=host_ip)
+        if timeout_info is None:
+            timeout_info = SandboxTimeoutHelper.make_timeout_info(restart_config.auto_clear_time)
 
         # The previous stop() called meta_store.archive() which removed the Redis
         # alive key, so a partial update would lose every field except `state`.
@@ -270,6 +294,16 @@ class SandboxStateMachine(StateChart):
         new_info["auto_transition_state"] = None
         new_info["auto_transition_time"] = None
         new_info.pop("phases", None)
+        if info.get("pause_snapshot_id"):
+            # Publish checkpoint-restore intent before dispatch: a lost reply
+            # must remain PENDING, not look safely STOPPED to later cleanup.
+            await meta_store.update(sandbox_id, new_info)
+            await meta_store.update_timeout(sandbox_id, timeout_info)
+        logger.info(f"restart sandbox {sandbox_id} (pin host_ip={host_ip})")
+        if isinstance(operator, SnapdOperator):
+            await operator.restart(restart_config, host_ip=host_ip, runtime=snapd_runtime)
+        else:
+            await operator.restart(restart_config, host_ip=host_ip)
         await meta_store.update(sandbox_id, new_info)
         await meta_store.update_timeout(sandbox_id, timeout_info)
 
@@ -281,6 +315,7 @@ class SandboxStateMachine(StateChart):
         reason: DeleteReason = DeleteReason.MANUAL,
         dir_storage=None,
         image_storage=None,
+        snapd_runtime: SnapdSandboxRuntime | None = None,
     ) -> None:
         logger.info(f"delete sandbox {sandbox_id} (reason={reason.value})")
         sandbox_info = self.sandbox_info or {}
@@ -295,8 +330,14 @@ class SandboxStateMachine(StateChart):
             if spec:
                 try:
                     delete_config = DockerDeploymentConfig(**spec)
-                    await operator.delete(delete_config, host_ip=host_ip)
+                    if isinstance(operator, SnapdOperator):
+                        await operator.delete(delete_config, host_ip=host_ip, runtime=snapd_runtime)
+                    else:
+                        await operator.delete(delete_config, host_ip=host_ip)
                 except Exception as e:
+                    if isinstance(operator, SnapdOperator):
+                        # Keep the checkpoint and placement until VM deletion is confirmed.
+                        raise
                     logger.warning(f"operator.delete({sandbox_id}, {host_ip}) failed: {e}", exc_info=True)
             else:
                 logger.warning(
@@ -320,9 +361,11 @@ class SandboxStateMachine(StateChart):
                 logger.warning(f"delete: cleanup archive image {ref} failed: {e}")
 
         sandbox_info["state"] = RockState.DELETED
+        sandbox_info["pause_snapshot_id"] = None
         sandbox_info["delete_time"] = get_iso8601_timestamp()
         sandbox_info["auto_transition_state"] = None
         sandbox_info["auto_transition_time"] = None
+        _release_snapshot_guest_endpoint(sandbox_info)
         await meta_store.archive(sandbox_id, sandbox_info)
         self.sandbox_info = sandbox_info
 
@@ -334,6 +377,7 @@ class SandboxStateMachine(StateChart):
         reason: DeleteReason = DeleteReason.MANUAL,
         dir_storage=None,
         image_storage=None,
+        snapd_runtime: SnapdSandboxRuntime | None = None,
     ) -> None:
         """Delete a live sandbox without hiding a failed remote kill."""
         logger.info(f"delete running sandbox {sandbox_id} (reason={reason.value})")
@@ -346,10 +390,44 @@ class SandboxStateMachine(StateChart):
             raise BadRequestRockError(f"Sandbox {sandbox_id} has no spec snapshot; cannot delete a running sandbox")
 
         delete_config = DockerDeploymentConfig(**spec)
-        await operator.delete(delete_config, host_ip=sandbox_info.get("host_ip"))
+        if isinstance(operator, SnapdOperator):
+            await operator.delete(delete_config, host_ip=sandbox_info.get("host_ip"), runtime=snapd_runtime)
+        else:
+            await operator.delete(delete_config, host_ip=sandbox_info.get("host_ip"))
 
         sandbox_info["state"] = RockState.DELETED
         sandbox_info["delete_time"] = get_iso8601_timestamp()
+        sandbox_info["pause_snapshot_id"] = None
+        _release_snapshot_guest_endpoint(sandbox_info)
+        await meta_store.archive(sandbox_id, sandbox_info)
+        self.sandbox_info = sandbox_info
+
+    async def on_launch_failed(self, sandbox_id: str, meta_store, reason: str = "") -> None:
+        """Persist a definitive pre-running failure without a second RPC."""
+
+        sandbox_info = self.sandbox_info or {}
+        sandbox_info.setdefault("sandbox_id", sandbox_id)
+        sandbox_info["state"] = RockState.STOPPED
+        sandbox_info["stop_time"] = get_iso8601_timestamp()
+        sandbox_info["last_error"] = reason
+        sandbox_info["auto_transition_state"] = None
+        sandbox_info["auto_transition_time"] = None
+        _release_snapshot_guest_endpoint(sandbox_info)
+        await meta_store.archive(sandbox_id, sandbox_info)
+        self.sandbox_info = sandbox_info
+
+    async def on_runtime_stopped(self, sandbox_id: str, meta_store, reason: str = "") -> None:
+        """Persist an operator-observed terminal runtime without issuing another RPC."""
+
+        sandbox_info = self.sandbox_info or {}
+        sandbox_info.setdefault("sandbox_id", sandbox_id)
+        sandbox_info["state"] = RockState.STOPPED
+        sandbox_info["stop_time"] = get_iso8601_timestamp()
+        sandbox_info["auto_transition_state"] = None
+        sandbox_info["auto_transition_time"] = None
+        if reason:
+            sandbox_info["last_error"] = reason
+        _release_snapshot_guest_endpoint(sandbox_info)
         await meta_store.archive(sandbox_id, sandbox_info)
         self.sandbox_info = sandbox_info
 
@@ -509,3 +587,14 @@ class SandboxStateMachine(StateChart):
         )
         await sm.activate_initial_state()
         return sm
+
+
+def _release_snapshot_guest_endpoint(sandbox_info: SandboxInfo) -> None:
+    """Drop routing metadata only after a snapshot runtime is terminal."""
+
+    if not sandbox_info.get("source_snapshot_id"):
+        return
+    port_mapping = dict(sandbox_info.get("port_mapping") or {})
+    port_mapping.pop(Port.PROXY.value, None)
+    port_mapping.pop(str(Port.PROXY.value), None)
+    sandbox_info["port_mapping"] = port_mapping

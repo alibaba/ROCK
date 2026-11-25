@@ -25,6 +25,7 @@ from rock.admin.proto.request import (
     StartHeaders,
 )
 from rock.admin.proto.response import SandboxStartResponse
+from rock.admin.proto.snapshot import CreateSnapshotRequest, ForkSnapshotRequest, ForkSnapshotResponse, SnapshotResponse
 from rock.common.exception import handle_exceptions
 from rock.common.validation import NonBlankStr
 from rock.deployments.config import DockerDeploymentConfig
@@ -38,6 +39,32 @@ sandbox_manager: SandboxManager
 def set_sandbox_manager(service: SandboxManager):
     global sandbox_manager
     sandbox_manager = service
+
+
+@sandbox_router.post("/sandboxes/{source_id}/snapshots")
+@handle_exceptions(error_message="create snapshot failed")
+async def create_snapshot(
+    source_id: str,
+    request: CreateSnapshotRequest,
+):
+    record = await sandbox_manager.snapshot_sandbox(source_id, request)
+    return RockResponse(result=SnapshotResponse.from_record(record))
+
+
+@sandbox_router.post("/sandboxes/{source_id}/fork")
+@handle_exceptions(error_message="fork sandbox failed")
+async def fork_snapshot(
+    source_id: str,
+    request: ForkSnapshotRequest,
+):
+    record, children = await sandbox_manager.fork_sandbox(source_id, request)
+    return RockResponse(
+        result=ForkSnapshotResponse(
+            snapshot=SnapshotResponse.from_record(record),
+            sandbox_ids=[child["sandbox_id"] for child in children if child["state"] == "RUNNING"],
+            children=children,
+        )
+    )
 
 
 @sandbox_router.post("/start")

@@ -196,6 +196,7 @@ class TestIdempotentRestore:
         from rock.sandbox.sandbox_manager import SandboxManager
 
         m = MagicMock(spec=SandboxManager)
+        m.snapshot_runtime_configured = False
         m._operator = MagicMock()
         m._dir_storage = MagicMock()
         m._image_storage = MagicMock()

@@ -122,6 +122,15 @@ class DockerDeploymentConfig(DeploymentConfig):
     container_name: str | None = None
     """Custom name for the container. If None, a random name will be generated."""
 
+    source_snapshot_id: str | None = None
+    """Immutable snapshot used by a snapshot-capable operator.
+
+    Ordinary Ray/K8s/OpenSandbox operators ignore this optional field. Keeping
+    it on the typed deployment config lets ``AbstractOperator.submit`` remain
+    the single sandbox lifecycle entry point without smuggling snapshot
+    identity through ``user_info``.
+    """
+
     auto_archive_seconds: int | None = None
     """Per-sandbox auto-archive policy. 0 = archive immediately after stop;
     >0 = archive after this many seconds stopped; None = do not auto-archive."""

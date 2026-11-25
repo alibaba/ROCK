@@ -1,0 +1,1 @@
+{"children":[{"resource_spec":{"cpus":2,"memory_mib":512},"sandbox_id":"child-a"},{"resource_spec":{},"sandbox_id":"child-b"}],"snapshot_id":"snap-001"}

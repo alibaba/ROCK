@@ -21,7 +21,7 @@ class E2BCreateSandboxRequest(BaseModel):
 
     template_id: NonBlankStr = Field(alias="templateID")
     timeout: int = Field(gt=0, strict=True)
-    metadata: dict[str, str]
+    metadata: dict[str, str] = Field(default_factory=dict)
     secure: bool | None = None
     allow_internet_access: bool | None = None
     env_vars: dict[str, str] = Field(default_factory=dict, alias="envVars")
