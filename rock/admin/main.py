@@ -512,6 +512,7 @@ def main():
         "ws_ping_interval": None,
         "ws_ping_timeout": None,
         "timeout_keep_alive": 30,
+        "timeout_worker_healthcheck": 30,
     }
     if workers > 1:
         _run_reuse_port_workers(uvicorn.Config(**uvicorn_options))

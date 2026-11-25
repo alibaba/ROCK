@@ -85,6 +85,9 @@ class SandboxProxyService:
         )
         self.oss_config: OssConfig = rock_config.oss
         self.proxy_config: ProxyServiceConfig = rock_config.proxy_service
+        self._max_rpc_response_bytes = env_vars.ROCK_PROXY_MAX_RPC_RESPONSE_BYTES
+        if self._max_rpc_response_bytes <= 0:
+            raise ValueError("ROCK_PROXY_MAX_RPC_RESPONSE_BYTES must be >= 1")
         logger.info(f"proxy config: {self.proxy_config}")
         # Control-plane RPC client: short JSON calls to rocklet.
         self._rpc_client = rock_config.http_pool_manager.get("rpc")
@@ -923,6 +926,17 @@ class SandboxProxyService:
                 data=data if data else None,
                 files=files if files else None,
             )
+            response_bytes = len(response.content)
+            max_rpc_response_bytes = getattr(
+                self, "_max_rpc_response_bytes", env_vars.ROCK_PROXY_MAX_RPC_RESPONSE_BYTES
+            )
+            if response_bytes > max_rpc_response_bytes:
+                message = (
+                    f"RPC response too large: path={path}, response_bytes={response_bytes}, "
+                    f"max_bytes={max_rpc_response_bytes}"
+                )
+                logger.error(message)
+                raise BadRequestRockError(message)
             if response.status_code == 511:
                 rocklet_exception = response.json()["rockletexception"]
                 if propagate_rocklet_errors:
