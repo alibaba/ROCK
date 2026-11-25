@@ -227,7 +227,6 @@ class SandboxStateMachine(StateChart):
                     create_time,
                 )
                 start_time = get_iso8601_timestamp()
-                sandbox_info["create_time"] = start_time
             sandbox_info["start_time"] = start_time or get_iso8601_timestamp()
         if self.sandbox_info and "state_history" in self.sandbox_info:
             sandbox_info["state_history"] = self.sandbox_info["state_history"]
