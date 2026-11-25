@@ -50,6 +50,7 @@
   },
   "devDependencies": {
     "@types/ali-oss": "^6.16.11",
+    "@types/express-serve-static-core": "^5.1.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.5",
     "@typescript-eslint/eslint-plugin": "^8.55.0",

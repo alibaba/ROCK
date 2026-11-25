@@ -40,4 +40,134 @@ jobs:
           echo "=== Task started at: $(date '+%Y-%m-%d %H:%M:%S') ==="
           pnpm test:unit
 
+  integration-test:
+    runs-on: self-hosted
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
 
+      - name: Cleanup old files in /tmp/ray
+        run: |
+          target="$(readlink -f /tmp/ray 2>/dev/null || echo /tmp/ray)"
+          [ -d "$target" ] || exit 0
+
+          echo "ray dir: $target"
+          echo "Before:"
+          du -sh "$target" 2>/dev/null || true
+
+          echo "Will delete (older than 60min):"
+          find "$target" -mindepth 1 -maxdepth 1 -type d -name 'session_*' -mmin +60 -print -exec du -sh {} \; || true
+
+          find "$target" -mindepth 1 -maxdepth 1 -type d -name 'session_*' -mmin +60 -exec rm -rf -- {} + || true
+
+          echo "After:"
+          du -sh "$target" 2>/dev/null || true
+
+      # Self-hosted runner already has Python 3.11 and uv installed.
+      # Do NOT use actions/setup-python or setup-uv — they override the
+      # runner's existing Python/uv with a different version, causing
+      # ROCK_PYTHON_ENV_PATH to point at a path that doesn't mount
+      # correctly into sandbox containers.
+      - name: Set up project (install dependencies)
+        run: |
+          uv sync --all-extras --group test --python 3.11
+
+      # LocalRuntimeEnv mounts ROCK_PYTHON_ENV_PATH (default: sys.base_prefix) into
+      # sandbox containers. uv writes the venv's python symlink through a version-alias
+      # dir (e.g. cpython-3.11-...), but sys.base_prefix canonicalizes to the full
+      # version dir (cpython-3.11.14-...), so the alias isn't mounted and rocklet's
+      # shebang interpreter is "not found" (container exits 127). Point it at uv's
+      # python root so the whole symlink chain resolves inside the container.
+      - name: Configure sandbox python env path
+        run: |
+          echo "ROCK_PYTHON_ENV_PATH=$(uv python dir)" >> "$GITHUB_ENV"
+
+      - name: Pull sandbox Docker image
+        run: |
+          docker pull python:3.11
+
+      - name: Start host rocklet for sandbox status probing
+        run: |
+          # Kill stale processes from previous CI runs to avoid port conflicts.
+          pkill -f "rocklet --port 22555" 2>/dev/null || true
+          pkill -f "admin --env ci" 2>/dev/null || true
+          sleep 1
+
+          # Without a host rocklet, get_remote_status() connects to
+          # host_ip:22555 (Port.PROXY default), but Docker maps the
+          # container's 22555 to a random host port — the connection
+          # always fails and sandboxes never become "alive".
+          nohup uv run rocklet --port 22555 > /tmp/rocklet.log 2>&1 &
+          echo "Waiting for rocklet to be ready..."
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:22555/is_alive >/dev/null 2>&1; then
+              echo "Rocklet is ready"
+              echo "ROCK_WORKER_ROCKLET_PORT=22555" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "ERROR: rocklet failed to start within 30s"
+          cat /tmp/rocklet.log
+          exit 1
+
+      - name: Start ROCK Admin service
+        run: |
+          mkdir -p data/logs
+          nohup uv run admin --env ci --role admin --port 8080 > /tmp/rock-admin.log 2>&1 &
+          echo "Waiting for admin to be ready..."
+          for i in $(seq 1 60); do
+            if grep -q "Uvicorn running on" /tmp/rock-admin.log 2>/dev/null; then
+              echo "Admin is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "ERROR: admin failed to start within 120s"
+          cat /tmp/rock-admin.log
+          exit 1
+
+      # --- Node.js + TS SDK ---
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        run: |
+          npm install -g pnpm
+
+      - name: Install TS SDK dependencies
+        working-directory: rock/ts-sdk
+        run: |
+          pnpm install --frozen-lockfile
+
+      # --- Integration tests ---
+      # Force smaller sandbox spec so each test can start cleanly within 120s
+      # alongside the admin + Ray overhead on the self-hosted runner.
+      - name: Run integration tests
+        working-directory: rock/ts-sdk
+        env:
+          ROCK_BASE_URL: http://127.0.0.1:8080
+          ROCK_TEST_IMAGE: python:3.11
+          ROCK_TEST_CLUSTER: default
+          ROCK_DEFAULT_MEMORY: "2g"
+          ROCK_DEFAULT_CPUS: "1"
+        run: |
+          pnpm test:integration
+
+      - name: Print admin logs on failure
+        if: failure()
+        run: |
+          echo "=== ROCK Admin Logs (last 200 lines) ==="
+          tail -200 /tmp/rock-admin.log || true
+          echo "=== Rocklet Logs (last 50 lines) ==="
+          tail -50 /tmp/rocklet.log || true
+          echo "=== Docker Containers ==="
+          docker ps -a || true
+
+      - name: Cleanup processes
+        if: always()
+        run: |
+          pkill -f "rocklet --port 22555" 2>/dev/null || true
+          pkill -f "admin --env ci" 2>/dev/null || true

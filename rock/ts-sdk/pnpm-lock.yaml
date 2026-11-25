@@ -36,6 +36,9 @@ importers:
       '@types/ali-oss':
         specifier: ^6.16.11
         version: 6.23.2
+      '@types/express-serve-static-core':
+        specifier: ^5.1.0
+        version: 5.1.1
       '@types/jest':
         specifier: ^29.5.14
         version: 29.5.14
