@@ -59,6 +59,43 @@ class TestTransitions:
         assert sm.running.is_active
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("completed_at", "corrects_timestamps"),
+        [
+            ("2026-11-25T11:59:59+10:00", True),
+            ("2026-11-25T12:00:00+10:00", False),
+            ("2026-11-25T01:00:01-01:00", False),
+        ],
+        ids=["earlier", "equal", "later"],
+    )
+    async def test_alive_corrects_timestamps_when_docker_run_completed_earlier(self, completed_at, corrects_timestamps):
+        create_time = "2026-11-25T10:00:00+08:00"
+        now = "2026-11-25T10:01:00+08:00"
+        meta_store = AsyncMock()
+        sm = await SandboxStateMachine.from_state_value(State.PENDING, sandbox_info={"create_time": create_time})
+
+        with (
+            patch("rock.sandbox.sandbox_statemachine.get_iso8601_timestamp", return_value=now),
+            patch("rock.sandbox.sandbox_statemachine.logger.error") as log_error,
+        ):
+            await sm.send(
+                "alive",
+                sandbox_id="sb",
+                meta_store=meta_store,
+                sandbox_info={"phases": {"docker_run": {"completed_at": completed_at}}},
+            )
+
+        updated = meta_store.update.await_args.args[1]
+        if corrects_timestamps:
+            assert updated["create_time"] == updated["start_time"] == now
+            log_error.assert_called_once()
+            assert log_error.call_args.args[1:] == ("sb", completed_at, create_time)
+        else:
+            assert "create_time" not in updated
+            assert updated["start_time"] == completed_at
+            log_error.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_alive_preserves_effective_auto_transition_policy(self):
         meta_store = AsyncMock()
         sm = await SandboxStateMachine.from_state_value(
