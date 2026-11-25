@@ -214,7 +214,20 @@ class SandboxStateMachine(StateChart):
         if not sandbox_info.get("start_time"):
             phases = sandbox_info.get("phases", {})
             docker_run = phases.get("docker_run", {})
-            sandbox_info["start_time"] = docker_run.get("completed_at") or get_iso8601_timestamp()
+            start_time = docker_run.get("completed_at")
+            create_time = (self.sandbox_info or {}).get("create_time") or sandbox_info.get("create_time")
+            completed_at = SandboxLifecycleHelper.parse_iso8601_timestamp(start_time)
+            created_at = SandboxLifecycleHelper.parse_iso8601_timestamp(create_time)
+            if completed_at is not None and created_at is not None and completed_at < created_at:
+                logger.error(
+                    "[%s] docker_run.completed_at=%s is earlier than create_time=%s. "
+                    "Using the current time for create_time and start_time.",
+                    sandbox_id,
+                    start_time,
+                    create_time,
+                )
+                start_time = get_iso8601_timestamp()
+            sandbox_info["start_time"] = start_time or get_iso8601_timestamp()
         if self.sandbox_info and "state_history" in self.sandbox_info:
             sandbox_info["state_history"] = self.sandbox_info["state_history"]
         if self.sandbox_info:
