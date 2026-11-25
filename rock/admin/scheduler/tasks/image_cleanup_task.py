@@ -1,4 +1,6 @@
 # rock/admin/scheduler/tasks/image_cleanup_task.py
+import re
+
 from rock import env_vars
 from rock.admin.proto.request import SandboxCommand as Command
 from rock.admin.scheduler.task_base import BaseTask, IdempotencyType, TaskStatusEnum
@@ -8,6 +10,8 @@ from rock.sandbox.remote_sandbox import RemoteSandboxRuntime
 from rock.utils.system import extract_nohup_pid
 
 logger = init_logger(name="image_clean", file_name=SCHEDULER_LOG_NAME)
+
+_PRUNE_EXIT_CODES_PATTERN = re.compile(r"(?:^|\n)ROCK_PRUNE_EXIT_CODES:(\d+):(\d+)(?:\n|$)")
 
 
 class ImageCleanupTask(BaseTask):
@@ -97,28 +101,55 @@ class ImageCleanupTask(BaseTask):
         """Dangling/BuildKit prune (sync, fail-soft). IDEMPOTENT — runs every cycle."""
         if not self.keep_build_storage:
             return {"prune_exit_code": None, "prune_output_head": ""}
-        prune_steps = [
-            "docker image prune -f --filter dangling=true",
-            f"docker builder prune -f --keep-storage {self.keep_build_storage}",
-        ]
-        prune_cmd = "; ".join(f"({s}) 2>&1 || true" for s in prune_steps)
+        prune_cmd = (
+            "docker image prune -f --filter dangling=true 2>&1; "
+            "image_prune_exit=$?; "
+            f"docker builder prune -f --keep-storage {self.keep_build_storage} 2>&1; "
+            "builder_prune_exit=$?; "
+            'printf "\\nROCK_PRUNE_EXIT_CODES:%s:%s\\n" "$image_prune_exit" "$builder_prune_exit"'
+        )
         prune_result = await runtime.execute(
             Command(command=prune_cmd, shell=True, check=False, sandbox_id="scheduler-task")
         )
-        prune_output = (prune_result.stdout or "").strip()[:1000]
+        raw_prune_output = prune_result.stdout or ""
+        exit_codes_match = _PRUNE_EXIT_CODES_PATTERN.search(raw_prune_output)
+        prune_output = _PRUNE_EXIT_CODES_PATTERN.sub("", raw_prune_output).strip()[:1000]
         prune_exit = prune_result.exit_code
+        image_prune_exit = int(exit_codes_match.group(1)) if exit_codes_match else None
+        builder_prune_exit = int(exit_codes_match.group(2)) if exit_codes_match else None
+        failed_steps = []
+        if image_prune_exit is None or builder_prune_exit is None:
+            failed_steps.append("could not read Docker prune exit codes")
+        else:
+            if image_prune_exit:
+                failed_steps.append(f"docker image prune exited {image_prune_exit}")
+            if builder_prune_exit:
+                failed_steps.append(f"docker builder prune exited {builder_prune_exit}")
+        prune_error = "; ".join(failed_steps)
         logger.info(
             f"docker prune done on worker[{runtime._config.host}]: "
-            f"keep_build_storage={self.keep_build_storage}, exit={prune_exit}, "
+            f"keep_build_storage={self.keep_build_storage}, exit={prune_exit}, prune_error={prune_error or None}, "
             f"output_head={prune_output[:300]}"
         )
         return {
             "keep_build_storage": self.keep_build_storage,
             "prune_exit_code": prune_exit,
+            "image_prune_exit_code": image_prune_exit,
+            "builder_prune_exit_code": builder_prune_exit,
+            "prune_failed": bool(failed_steps),
+            "prune_error": prune_error or None,
             "prune_output_head": prune_output,
         }
 
-    async def run_on_worker(self, ip):
+    @staticmethod
+    def _with_prune_outcome(result: dict, prune_result: dict) -> dict:
+        merged_result = {**result, **prune_result}
+        if prune_result.get("prune_failed"):
+            merged_result["status"] = TaskStatusEnum.FAILED
+            merged_result["error"] = prune_result.get("prune_error") or "docker prune failed"
+        return merged_result
+
+    async def run_on_worker(self, ip: str) -> dict:
         """Override base: prune unconditionally (idempotent), then gate docuum on should_run.
 
         The base run_on_worker skips entire task when should_run returns False, which
@@ -132,14 +163,14 @@ class ImageCleanupTask(BaseTask):
             prune_result = await self._run_prune(runtime)
         except Exception as e:
             logger.warning(f"[{self.type}] prune failed on worker[{ip}]: {e}")
+            prune_result = {"prune_failed": True, "prune_error": f"prune execution failed: {e}"}
         # docuum gated by should_run — non-idempotent
         if not await self.should_run(runtime):
             logger.info(f"[{self.type}] docuum already running on worker[{ip}], skip launch")
-            return {
-                "status": TaskStatusEnum.SUCCESS,
-                "action": "prune_only",
-                **prune_result,
-            }
+            return self._with_prune_outcome(
+                {"status": TaskStatusEnum.SUCCESS, "action": "prune_only"},
+                prune_result,
+            )
         logger.info(f"[{self.type}] launch docuum on worker[{ip}]")
         result = await self.single_run(runtime, ip)
-        return {**result, **prune_result}
+        return self._with_prune_outcome(result, prune_result)
