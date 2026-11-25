@@ -10,8 +10,19 @@ class DatasetClient:
     def list_datasets(self, org: str | None = None) -> list[DatasetSpec]:
         return self._registry.list_datasets(org)
 
-    def list_dataset_tasks(self, organization: str, dataset: str, split: str = "test") -> DatasetSpec | None:
-        return self._registry.list_dataset_tasks(organization, dataset, split)
+    def list_dataset_tasks(
+        self,
+        organization: str,
+        dataset: str,
+        split: str = "test",
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+        task_filter: str | None = None,
+    ) -> DatasetSpec | None:
+        return self._registry.list_dataset_tasks(
+            organization, dataset, split, offset=offset, limit=limit, task_filter=task_filter
+        )
 
     def list_organizations(self) -> list[str]:
         return self._registry.list_organizations()
