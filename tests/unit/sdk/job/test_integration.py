@@ -32,11 +32,12 @@ class TestPublicImports:
         assert callable(register_trial)
 
     def test_import_executor(self):
-        from rock.sdk.job import JobClient, JobExecutor, TrialClient
+        from rock.sdk.job import ExistingJobHandle, JobClient, JobExecutor, TrialClient
 
         assert JobExecutor is not None
         assert TrialClient is not None
         assert JobClient is not None
+        assert ExistingJobHandle is not None
 
 
 class TestTrialRegistryAutoRegistration:

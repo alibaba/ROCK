@@ -122,6 +122,34 @@ class TestJobExecutorSubmit:
 
 
 class TestJobExecutorWait:
+    async def test_wait_existing_job_reconnects_from_explicit_handle(self):
+        from rock.sdk.job.executor import ExistingJobHandle
+        from rock.sdk.job.planner import ResolvedTask, SingleTaskPlanner
+
+        config = BashJobConfig(script="echo hi", job_name="old-job")
+        planned_job = SingleTaskPlanner(preserve_job_name=True).plan(
+            config,
+            task=ResolvedTask(task_id="task-1"),
+        )
+        mock_sandbox = _make_mock_sandbox()
+        handle = ExistingJobHandle(
+            sandbox_id="sb-old",
+            session="rock-job-old-job",
+            pid=42,
+        )
+
+        with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
+            result = await JobExecutor().wait_existing_job(planned_job, handle)
+
+        assert result.exception_info is None
+        assert mock_sandbox._sandbox_id == "sb-old"
+        mock_sandbox.wait_for_process_completion.assert_awaited_once_with(
+            pid=42,
+            session="rock-job-old-job",
+            wait_timeout=config.timeout,
+            wait_interval=30,
+        )
+
     async def test_wait_returns_trial_result_list(self):
         mock_sandbox = _make_mock_sandbox()
         with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
@@ -232,9 +260,9 @@ class TestExecutorPaths:
         # Inspect the path passed to write_file_by_path — must start with USER_DEFINED_LOGS
         write_call = mock_sandbox.write_file_by_path.call_args
         script_path = write_call.args[1] if len(write_call.args) >= 2 else write_call.kwargs["path"]
-        assert script_path.startswith(
-            USER_DEFINED_LOGS
-        ), f"script path {script_path!r} must live under {USER_DEFINED_LOGS!r}, not /tmp"
+        assert script_path.startswith(USER_DEFINED_LOGS), (
+            f"script path {script_path!r} must live under {USER_DEFINED_LOGS!r}, not /tmp"
+        )
 
     async def test_do_submit_passes_nohup_tmp_file_under_user_defined_logs(self):
         mock_sandbox = _make_mock_sandbox()

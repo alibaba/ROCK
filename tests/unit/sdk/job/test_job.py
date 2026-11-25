@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -151,12 +152,24 @@ class TestJobBuildResult:
 
         assert result.labels == {"team": "rl"}
 
-    async def test_build_result_sets_job_id_from_job_name(self):
+    async def test_build_result_preserves_explicit_job_id(self):
+        job_id = uuid4()
         mock_sandbox = _make_mock_sandbox()
         with patch("rock.sdk.job.executor.Sandbox", return_value=mock_sandbox):
-            result = await Job(BashJobConfig(script="echo hi", job_name="my-job")).run()
+            result = await Job(
+                BashJobConfig(script="echo hi", job_name="my-job"),
+                job_id=job_id,
+            ).run()
 
-        assert result.job_id == "my-job"
+        assert result.job_id == str(job_id)
+
+    def test_same_named_jobs_get_distinct_generated_ids(self):
+        first = Job(BashJobConfig(script="echo hi", job_name="same"))
+        second = Job(BashJobConfig(script="echo hi", job_name="same"))
+
+        assert isinstance(first.job_id, UUID)
+        assert isinstance(second.job_id, UUID)
+        assert first.job_id != second.job_id
 
     async def test_build_result_any_failure_marks_job_failed(self):
         # Single trial, but force failure -> overall FAILED

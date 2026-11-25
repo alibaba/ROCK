@@ -1,4 +1,5 @@
 import argparse
+from uuid import UUID
 
 from rock.cli.command.command import Command
 from rock.logger import init_logger
@@ -29,10 +30,6 @@ class JobCommand(Command):
     async def arun(self, args: argparse.Namespace):
         if args.job_command == "run":
             await self._job_run(args)
-        elif args.job_command == "run-list":
-            self._job_run_list(args)
-        elif args.job_command == "run-status":
-            self._job_run_status(args)
         elif args.job_command == "job-list":
             self._job_artifact_list(args)
         elif args.job_command == "job-show":
@@ -49,23 +46,23 @@ class JobCommand(Command):
             JsonlProgressReporter,
             NullProgressReporter,
             UnifiedJobRunHandler,
-            generate_run_id,
             resolve_task_ids,
-            split_dataset_name,
             sync_namespace,
         )
-        from rock.sdk.job.executor import JobExecutor
-        from rock.sdk.job.job_meta import JobMetaRepository
-        from rock.sdk.job.run_meta import RunMetaRepository
+        from rock.sdk.job.executor import ExistingJobHandle, JobExecutor
 
         parser = self._run_parser
 
         # ── 1. Mode validation ────────────────────────────────────────
         has_config = bool(args.job_config)
         has_script = bool(args.script or args.script_content)
-        is_resume = bool(args.resume)
+        is_resume = bool(args.resume_sandbox_id)
+        has_resume_detail = args.resume_pid is not None or bool(args.resume_session)
 
-        if not is_resume and not has_config and not has_script:
+        if has_resume_detail and not is_resume:
+            _fail(parser, "--resume-pid and --resume-session require --resume-sandbox-id.")
+
+        if not has_config and not has_script:
             _fail(
                 parser,
                 "Missing job definition. Provide either a YAML config or inline script.",
@@ -121,71 +118,58 @@ class JobCommand(Command):
                 config.environment.oss_mirror.experiment_id = args.experiment_id
 
         try:
-            run_meta_repo = None
-            job_meta_repo = None
-            try:
-                run_meta_repo = RunMetaRepository.from_job_config(config)
-                job_meta_repo = JobMetaRepository(run_meta_repo._viewer)
-            except ValueError:
-                if is_resume:
-                    _fail(parser, "--resume requires --job-config with oss_mirror or explicit artifact locator.")
-
             if is_resume:
-                forbidden = [
-                    name
-                    for name in ("task", "tasks", "all", "org", "dataset", "split", "limit")
-                    if getattr(args, name, None)
-                ]
-                if forbidden:
-                    _fail(parser, "--resume cannot be combined with task selection or dataset override arguments.")
-                if run_meta_repo is None:
-                    _fail(parser, "--resume requires an artifact locator.")
-                run_id = args.resume
-                run_meta = run_meta_repo.get(run_id)
-                if run_meta is None:
-                    _fail(parser, f"run_id not found: {run_id}")
-                completed = run_meta_repo.find_completed_tasks(run_id)
-                task_ids = [task_id for task_id in run_meta.task_job_map if task_id not in completed]
-                org, dataset = split_dataset_name(run_meta.dataset or "")
-                dataset_ref = type("DatasetRefValue", (), {
-                    "org": org,
-                    "dataset": dataset,
-                    "split": run_meta.split,
-                    "full_name": run_meta.dataset,
-                })()
-                mode = run_meta.mode
-            else:
-                run_id = generate_run_id()
-                try:
-                    mode, dataset_ref, task_ids = resolve_task_ids(
-                        config,
-                        task=args.task,
-                        tasks=args.tasks,
-                        all_tasks=args.all,
-                        org=args.org,
-                        dataset=args.dataset,
-                        split=args.split,
-                        limit=args.limit,
+                if args.resume_pid is None:
+                    _fail(parser, "--resume-pid is required with --resume-sandbox-id.")
+                if not args.task:
+                    _fail(parser, "single-task resume requires exactly one explicit --task.")
+                if args.tasks or args.all or args.limit is not None or args.concurrency != 1:
+                    _fail(
+                        parser,
+                        "single-task resume cannot use --tasks, --all, --limit, or --concurrency other than 1.",
                     )
-                except ValueError as exc:
-                    _fail(parser, str(exc))
-                run_meta = None
+                if not has_config and not args.job_name:
+                    _fail(parser, "--job-name is required for single-task resume in flags mode.")
+                if not config.job_name:
+                    _fail(parser, "single-task resume requires the original job name in YAML or --job-name.")
+
+            try:
+                mode, dataset_ref, task_ids = resolve_task_ids(
+                    config,
+                    task=args.task,
+                    tasks=args.tasks,
+                    all_tasks=args.all,
+                    org=args.org,
+                    dataset=args.dataset,
+                    split=args.split,
+                    limit=args.limit,
+                )
+            except ValueError as exc:
+                _fail(parser, str(exc))
+
+            if args.job_id is not None and (mode != "single" or len(task_ids) != 1):
+                _fail(parser, "--job-id requires exactly one explicit --task.")
+
+            resume_handle = None
+            if is_resume:
+                resume_handle = ExistingJobHandle(
+                    sandbox_id=args.resume_sandbox_id,
+                    session=args.resume_session or f"rock-job-{config.job_name}",
+                    pid=args.resume_pid,
+                )
 
             result = await UnifiedJobRunHandler(
                 mode=mode,
                 task_ids=task_ids,
                 dataset_ref=dataset_ref,
-                run_id=run_id,
-                run_meta_repo=run_meta_repo,
-                job_meta_repo=job_meta_repo,
+                job_id=args.job_id,
                 executor=JobExecutor(max_concurrent=args.concurrency),
                 progress=JsonlProgressReporter() if args.jsonl else NullProgressReporter(),
-                resumed=is_resume,
-                base_run_meta=run_meta,
+                resume_handle=resume_handle,
             ).run(config)
             if result.failed > 0:
                 raise SystemExit(1)
-            logger.info("Run completed: run_id=%s failed=%s", result.run_id, result.failed)
+            logger.info("Run completed: failed=%s", result.failed)
         except Exception as e:
             logger.error(f"Job run failed: {e}", exc_info=True)
             raise SystemExit(1)
@@ -197,6 +181,8 @@ class JobCommand(Command):
         because both use ``RockEnvironmentConfig`` for ``environment``.
         """
         env = config.environment
+        if getattr(args, "job_name", None):
+            config.job_name = args.job_name
         if args.image:
             env.image = args.image
         if args.memory:
@@ -257,6 +243,7 @@ class JobCommand(Command):
     @staticmethod
     def _build_viewer(args: argparse.Namespace):
         from rock.sdk.job.viewer import JobViewer
+
         extra_headers = getattr(args, "extra_headers", None)
         if isinstance(extra_headers, list):
             parsed_headers = {}
@@ -286,69 +273,14 @@ class JobCommand(Command):
 
     def _build_viewer_from_locator(self, args: argparse.Namespace):
         if getattr(args, "job_config", None):
-            from rock.sdk.job.run_meta import RunMetaRepository
+            from rock.sdk.job.viewer import JobViewer
 
             config = self._config_from_yaml(self._run_parser or argparse.ArgumentParser(prog="rock job"), args)
-            return RunMetaRepository.from_job_config(config)._viewer
+            mirror = config.environment.oss_mirror
+            if mirror is None or not mirror.enabled:
+                raise ValueError("--job-config must define an enabled environment.oss_mirror")
+            return JobViewer.from_oss_mirror(mirror)
         return self._build_viewer(args)
-
-    def _job_run_list(self, args: argparse.Namespace):
-        from rock.sdk.job.run_meta import RunMetaRepository
-
-        runs = RunMetaRepository(self._build_viewer_from_locator(args)).list()
-        if getattr(args, "output", "table") == "json":
-            import json
-
-            print(json.dumps([run.model_dump(mode="json") for run in runs], ensure_ascii=False))
-            return
-        if not runs:
-            print("No runs found.")
-            return
-        header = f"{'RUN_ID':<28} {'MODE':<8} {'STATUS':<10} {'TOTAL':<7} {'PENDING':<8} {'PASS_RATE':<10} {'AVG_SCORE':<10} DATASET"
-        print(header)
-        print("-" * len(header))
-        for meta in runs:
-            pass_rate = f"{meta.summary.pass_rate:.2f}" if meta.summary else "-"
-            avg_score = f"{meta.summary.avg_score:.3f}" if meta.summary else "-"
-            print(
-                f"{meta.run_id:<28} {meta.mode:<8} {meta.status:<10} {meta.total_tasks:<7} "
-                f"{meta.pending_tasks:<8} {pass_rate:<10} {avg_score:<10} {meta.dataset or '-'}"
-            )
-
-    def _job_run_status(self, args: argparse.Namespace):
-        from rock.sdk.job.run_meta import RunMetaRepository
-
-        repo = RunMetaRepository(self._build_viewer_from_locator(args))
-        meta = repo.get(args.run_id)
-        if meta is None:
-            print(f"Run not found: {args.run_id}")
-            raise SystemExit(1)
-        jobs = repo.get_run_job_statuses(args.run_id) if args.jobs else []
-        if getattr(args, "output", "table") == "json":
-            import json
-
-            payload = meta.model_dump(mode="json")
-            if args.jobs:
-                payload["jobs"] = [job.model_dump(mode="json") for job in jobs]
-            print(json.dumps(payload, ensure_ascii=False))
-            return
-        print(f"Run: {meta.run_id}")
-        print(f"mode: {meta.mode}")
-        print(f"status: {meta.status}")
-        print(f"dataset: {meta.dataset or '-'}")
-        print(f"split: {meta.split or '-'}")
-        print(f"total_tasks: {meta.total_tasks}")
-        print(f"pending_tasks: {meta.pending_tasks}")
-        if meta.summary:
-            print(f"pass_rate: {meta.summary.pass_rate:.2f}")
-            print(f"avg_score: {meta.summary.avg_score:.3f}")
-        if args.jobs:
-            header = f"{'TASK_ID':<20} {'JOB_NAME':<40} {'STATUS':<12} {'SCORE':<8} SANDBOX"
-            print(header)
-            print("-" * len(header))
-            for job in jobs:
-                score = f"{job.score:.2f}" if job.score is not None else "-"
-                print(f"{job.task_id:<20} {job.job_name:<40} {job.status:<12} {score:<8} {job.sandbox_id or '-'}")
 
     def _job_artifact_list(self, args: argparse.Namespace):
         viewer = self._build_viewer(args)
@@ -363,30 +295,9 @@ class JobCommand(Command):
     def _job_artifact_show(self, args: argparse.Namespace):
         viewer = self._build_viewer_from_locator(args)
         job_name = args.job_name_option or args.job_name
-        if not job_name and args.run_id and args.task_id:
-            from rock.sdk.job.run_meta import RunMetaRepository
-
-            refs = RunMetaRepository(viewer).list_run_jobs(args.run_id)
-            for ref in refs:
-                if ref.task_id == args.task_id:
-                    job_name = ref.job_name
-                    break
         if not job_name:
-            print("Job not found: provide --job-name or --run-id with --task-id")
+            print("Job not found: provide a job artifact name")
             raise SystemExit(1)
-        meta = viewer.get_job_meta(job_name)
-        if meta:
-            print(f"Job: {meta.job_name}")
-            print(f"  type: {meta.job_type}")
-            print(f"  status: {meta.status}")
-            print(f"  user: {meta.user_id or '-'}")
-            print(f"  image: {meta.image or '-'}")
-            print(f"  started_at: {meta.started_at or '-'}")
-            print(f"  finished_at: {meta.finished_at or '-'}")
-            print(f"  exit_code: {meta.exit_code if meta.exit_code is not None else '-'}")
-            if meta.labels:
-                print(f"  labels: {meta.labels}")
-            return
         result = viewer.get_job_result(job_name)
         if result is None:
             print(f"Job not found: {job_name}")
@@ -500,7 +411,9 @@ class JobCommand(Command):
         parser.add_argument("--oss-region", default=None, help="OSS region")
         parser.add_argument("--base-url", default=None, help="Admin service base URL")
         parser.add_argument("--auth-token", default=None, help="Admin auth token")
-        parser.add_argument("--extra-header", action="append", dest="extra_headers", default=None, help="Admin extra header")
+        parser.add_argument(
+            "--extra-header", action="append", dest="extra_headers", default=None, help="Admin extra header"
+        )
         parser.add_argument(
             "--use-admin",
             action="store_true",
@@ -515,6 +428,7 @@ class JobCommand(Command):
 
         run_parser = job_subparsers.add_parser(
             "run",
+            allow_abbrev=False,
             help="Run a job in a sandbox",
             description=(
                 "Run a sandbox job in one of two mutually-exclusive modes:\n"
@@ -532,6 +446,11 @@ class JobCommand(Command):
         # bash args
         run_parser.add_argument("--script", default=None, help="Path to script file")
         run_parser.add_argument("--script-content", default=None, help="Inline script content")
+        run_parser.add_argument(
+            "--job-name",
+            default=None,
+            help="Job name override; use the original name when resuming",
+        )
         # YAML config (mode A) — flag name is --job_config (distinct from the
         # top-level --config that points at the CLI INI config). Also accept
         # --job-config as the hyphen-form alias.
@@ -570,6 +489,13 @@ class JobCommand(Command):
             help="XRL authorization token",
         )
         run_parser.add_argument("--task", default=None, help="Run one explicit task id")
+        run_parser.add_argument(
+            "--job-id",
+            type=UUID,
+            default=None,
+            metavar="UUID",
+            help="Use an existing Job UUID; only valid with one explicit --task",
+        )
         run_parser.add_argument("--tasks", default=None, help="Comma-separated task ids")
         run_parser.add_argument("--all", action="store_true", default=False, help="Run all tasks in dataset split")
         run_parser.add_argument("--org", default=None, help="Dataset org override")
@@ -577,36 +503,31 @@ class JobCommand(Command):
         run_parser.add_argument("--split", default=None, help="Dataset split override")
         run_parser.add_argument("--limit", type=int, default=None, help="Limit selected tasks")
         run_parser.add_argument("--concurrency", type=int, default=1, help="Max concurrent jobs")
-        run_parser.add_argument("--resume", default=None, metavar="RUN_ID", help="Resume an existing run id")
+        run_parser.add_argument(
+            "--resume-sandbox-id",
+            default=None,
+            metavar="SANDBOX_ID",
+            help="Resume one task in an existing sandbox",
+        )
+        run_parser.add_argument(
+            "--resume-pid",
+            type=int,
+            default=None,
+            metavar="PID",
+            help="Existing process id; requires --resume-sandbox-id",
+        )
+        run_parser.add_argument(
+            "--resume-session",
+            default=None,
+            metavar="SESSION",
+            help="Existing bash session; defaults to rock-job-{job_name}",
+        )
         run_parser.add_argument("--namespace", default=None, help="OSS namespace override")
         run_parser.add_argument("--experiment-id", default=None, help="Experiment id override")
         run_parser.add_argument("--jsonl", action="store_true", default=False, help="Emit JSONL run events")
 
         # Stash on the class so _job_run can call parser.error() with the right parser.
         JobCommand._run_parser = run_parser
-
-        runs_parser = job_subparsers.add_parser(
-            "run-list",
-            help="List historical job runs from run metadata",
-            description="List historical job runs from run metadata.",
-        )
-        runs_parser.add_argument("--output", choices=["table", "json"], default="table")
-        JobCommand._add_viewer_args(runs_parser, required=False, include_job_config=True)
-
-        status_parser = job_subparsers.add_parser(
-            "run-status",
-            help="Show summary and task/job status for one run",
-            description="Show summary and task/job status for one run.",
-        )
-        status_parser.add_argument("--run-id", required=True, help="Run id from rock job run or run-list")
-        status_parser.add_argument(
-            "--jobs",
-            action="store_true",
-            default=False,
-            help="Include task/job status rows for this run",
-        )
-        status_parser.add_argument("--output", choices=["table", "json"], default="table")
-        JobCommand._add_viewer_args(status_parser, required=False, include_job_config=True)
 
         # ── Viewer subcommands (shared OSS args via parent) ──────────
         def _add_viewer_args(parser: argparse.ArgumentParser):
@@ -621,13 +542,11 @@ class JobCommand(Command):
 
         show_parser = job_subparsers.add_parser(
             "job-show",
-            help="Show one job artifact by job name or run/task id",
-            description="Show one job artifact by job name or run/task id.",
+            help="Show one job artifact by job name",
+            description="Show one job artifact by job name.",
         )
         show_parser.add_argument("job_name", nargs="?", help="Job artifact name")
         show_parser.add_argument("--job-name", dest="job_name_option", default=None, help="Job artifact name")
-        show_parser.add_argument("--run-id", default=None, help="Run id from rock job run or run-list")
-        show_parser.add_argument("--task-id", default=None, help="Task id inside the run; use with --run-id")
         JobCommand._add_viewer_args(show_parser, required=False, include_job_config=True)
 
         trials_parser = job_subparsers.add_parser(
