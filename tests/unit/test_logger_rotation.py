@@ -35,7 +35,12 @@ def rotation_logging(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("file_name", ["rock_admin.log", "billing.log", "scheduler.log", "nested/rock.admin.log"])
-def test_process_logs_preserve_base_name_and_append_pid(rotation_logging, file_name):
+@pytest.mark.parametrize("per_process", [None, "true"], ids=["default", "explicit"])
+def test_process_logs_preserve_base_name_and_append_pid(rotation_logging, monkeypatch, file_name, per_process):
+    if per_process is None:
+        monkeypatch.delenv("ROCK_LOGGING_PER_PROCESS", raising=False)
+    else:
+        monkeypatch.setenv("ROCK_LOGGING_PER_PROCESS", per_process)
     directory, make_logger = rotation_logging
     original = directory / file_name
     original.parent.mkdir(parents=True, exist_ok=True)

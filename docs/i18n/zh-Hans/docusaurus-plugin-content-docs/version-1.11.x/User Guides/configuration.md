@@ -21,12 +21,12 @@ export ROCK_WORKER_ENV_TYPE=local  # 运行时环境类型，可选值: local, d
 
 更多环境变量可参考 `rock/env_vars.py` 文件。
 
-如需启用按进程分文件的日志轮转，在启动 Python 前设置：
+按进程分文件的日志轮转默认启用，可在启动 Python 前配置：
 
 ```bash
 export ROCK_LOGGING_PATH=/data/logs
 export ROCK_LOGGING_FILE_NAME=rock_admin.log
-export ROCK_LOGGING_PER_PROCESS=true  # 默认 false
+export ROCK_LOGGING_PER_PROCESS=true  # 默认 true
 export ROCK_LOGGING_MAX_BYTES=134217728  # 128 MiB
 export ROCK_LOGGING_BACKUP_COUNT=3
 ```

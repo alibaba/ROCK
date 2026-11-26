@@ -1,4 +1,4 @@
-"""Multi-worker logging: handler append mode + one-time deploy truncation."""
+"""Legacy shared-file logging: append mode + one-time deploy truncation."""
 
 import importlib
 
@@ -9,7 +9,9 @@ from rock import env_vars
 
 
 @pytest.fixture(autouse=True)
-def _clear_handler_cache():
+def _clear_handler_cache(monkeypatch):
+    # These tests cover shared-file behavior, which requires opting out of rotation.
+    monkeypatch.setenv("ROCK_LOGGING_PER_PROCESS", "false")
     rock_logger.init_file_handler.cache_clear()
     yield
     rock_logger.init_file_handler.cache_clear()
@@ -25,7 +27,7 @@ def test_rock_logging_append_defaults_false(monkeypatch):
 
 def test_file_handler_defaults_to_truncate_mode(tmp_path, monkeypatch):
     monkeypatch.setattr(env_vars, "ROCK_LOGGING_PATH", str(tmp_path), raising=False)
-    monkeypatch.setattr(env_vars, "ROCK_LOGGING_APPEND", False, raising=False)
+    monkeypatch.setenv("ROCK_LOGGING_APPEND", "false")
     handler = rock_logger.init_file_handler("trunc_default.log")
     assert handler is not None
     assert handler.mode == "w+"
@@ -33,7 +35,7 @@ def test_file_handler_defaults_to_truncate_mode(tmp_path, monkeypatch):
 
 def test_file_handler_append_when_env_set(tmp_path, monkeypatch):
     monkeypatch.setattr(env_vars, "ROCK_LOGGING_PATH", str(tmp_path), raising=False)
-    monkeypatch.setattr(env_vars, "ROCK_LOGGING_APPEND", True, raising=False)
+    monkeypatch.setenv("ROCK_LOGGING_APPEND", "true")
     handler = rock_logger.init_file_handler("append_mode.log")
     assert handler is not None
     assert handler.mode == "a"
