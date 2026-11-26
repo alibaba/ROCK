@@ -83,13 +83,7 @@ class BaseManager(ABC):
             )
             logger.info("auto_transition and reconcile jobs registered (primary pod)")
         else:
-            self.scheduler.add_job(
-                func=self._auto_stop_expired,
-                trigger=IntervalTrigger(seconds=self._auto_transition_interval),
-                id="auto_stop_expired",
-                name="Sandbox Auto Stop Expired",
-            )
-            logger.info("auto_stop_expired job registered (non-primary pod); other lifecycle jobs skipped")
+            logger.info("non-primary pod: lifecycle jobs skipped")
         self.scheduler.start()
         logger.info("APScheduler started for lifecycle jobs")
 
