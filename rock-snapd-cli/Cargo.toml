@@ -1,0 +1,21 @@
+[package]
+name = "rock-snapd-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile = "=3.23.0"
+tokio.workspace = true
+hyper.workspace = true
+
+[[bin]]
+name = "rock-snapd-cli"
+path = "src/main.rs"
