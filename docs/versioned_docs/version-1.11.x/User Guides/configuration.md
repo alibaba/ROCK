@@ -21,12 +21,12 @@ export ROCK_WORKER_ENV_TYPE=local  # Runtime environment type, options: local, d
 
 More environment variables can be found in `rock/env_vars.py`.
 
-To enable per-process file rotation, set these variables before starting Python:
+Per-process file rotation is enabled by default. Configure it before starting Python:
 
 ```bash
 export ROCK_LOGGING_PATH=/data/logs
 export ROCK_LOGGING_FILE_NAME=rock_admin.log
-export ROCK_LOGGING_PER_PROCESS=true  # Default: false
+export ROCK_LOGGING_PER_PROCESS=true  # Default: true
 export ROCK_LOGGING_MAX_BYTES=134217728  # 128 MiB
 export ROCK_LOGGING_BACKUP_COUNT=3
 ```
